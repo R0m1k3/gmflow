@@ -36,6 +36,7 @@
     { href: '/mails', texte: 'Mails' },
     { href: '/documents', texte: 'Documents' },
     { href: '/depots', texte: 'Dépôts' },
+    { href: '/rapprochement', texte: 'Rapprochement' },
     { href: '/fournisseurs', texte: 'Fournisseurs' }
   ];
   const liensAdmin = [

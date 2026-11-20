@@ -64,3 +64,39 @@ export const classeStatutDepot: Record<StatutDepot, string> = {
 };
 
 export const libelleOutil: Record<string, string> = { dext: 'Dext', yooz: 'Yooz' };
+
+export const libelleMethode: Record<string, string> = {
+  numero_bl: 'la facture cite le BL',
+  facture_citee: 'le BL cite la facture',
+  commande: 'même n° de commande',
+  manuel: 'lien manuel'
+};
+
+/** Écart de montant HT au-delà duquel une facture est signalée (comme côté serveur). */
+export const SEUIL_ECART = 0.05;
+
+/** Codes d'unité UN/ECE des factures électroniques : libellé court, sinon le texte tel quel. */
+const UNITES: Record<string, string> = {
+  C62: 'u',
+  H87: 'u',
+  EA: 'u',
+  XPP: 'u',
+  KGM: 'kg',
+  GRM: 'g',
+  LTR: 'L',
+  MTR: 'm',
+  MTK: 'm²',
+  MTQ: 'm³',
+  HUR: 'h',
+  DAY: 'j',
+  SET: 'lot',
+  XBX: 'boîte',
+  XCT: 'carton',
+  XPK: 'colis',
+  XPA: 'paquet'
+};
+
+export function libelleUnite(u: string | null): string {
+  if (!u) return '';
+  return UNITES[u.trim().toUpperCase()] ?? u;
+}
