@@ -43,7 +43,7 @@ jobs:
       - name: Base de contrôle des requêtes
         run: |
           sqlx database create
-          sqlx migrate run
+          cargo run -p gmflow-app -- initialiser
       - name: .sqlx à jour
         run: SQLX_OFFLINE=false cargo sqlx prepare --workspace --check
       - run: cargo fmt --all --check
