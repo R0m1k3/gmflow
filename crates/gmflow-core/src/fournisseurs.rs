@@ -449,9 +449,9 @@ mod tests {
         );
         assert_eq!(domaine("compta@metro.fr").as_deref(), Some("metro.fr"));
         assert_eq!(domaine("sans adresse"), None);
-        let exclus = vec!["ffnancy.fr".to_string()];
+        let exclus = vec!["magasin.test".to_string()];
         assert_eq!(domaine_utile("x@gmail.com", &exclus), None);
-        assert_eq!(domaine_utile("michael@ffnancy.fr", &exclus), None);
+        assert_eq!(domaine_utile("compta@magasin.test", &exclus), None);
         assert_eq!(
             domaine_utile("a@durand.fr", &exclus).as_deref(),
             Some("durand.fr")
