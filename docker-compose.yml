@@ -62,4 +62,4 @@ networks:
   sortie: {}
   npm:
     external: true
-    name: ${NPM_RESEAU:?NPM_RESEAU manquant (réseau Docker de Nginx Proxy Manager)}
+    name: ${NPM_RESEAU:-nginx_default}
