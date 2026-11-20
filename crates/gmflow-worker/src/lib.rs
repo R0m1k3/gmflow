@@ -60,7 +60,8 @@ async fn tache_claude(tache: TacheClaude, ctx: Data<Contexte>) -> Result<(), Box
 }
 
 /// Lance les deux workers apalis : `boites` (4 tâches à la fois) et `claude` (1 à la fois),
-/// jusqu'à ce que `arret` passe à vrai (jamais en production).
+/// jusqu'à ce que `arret` passe à vrai (jamais en production). LISTEN/NOTIFY : une tâche
+/// poussée par l'app est prise tout de suite, sans attendre le tour de scrutation (30 s).
 pub async fn lancer_files(
     ctx: Contexte,
     arret: tokio::sync::watch::Receiver<bool>,
@@ -70,13 +71,13 @@ pub async fn lancer_files(
         Ok::<(), std::io::Error>(())
     };
     let boites = WorkerBuilder::new("gmflow-boites")
-        .backend(file::stockage_boites(&ctx.pool))
+        .backend(file::stockage_boites(&ctx.pool).with_pubsub())
         .data(ctx.clone())
         .concurrency(4)
         .parallelize(tokio::spawn)
         .build(tache_boite);
     let claude = WorkerBuilder::new("gmflow-claude")
-        .backend(file::stockage_claude(&ctx.pool))
+        .backend(file::stockage_claude(&ctx.pool).with_pubsub())
         .data(ctx.clone())
         .concurrency(1)
         .parallelize(tokio::spawn)

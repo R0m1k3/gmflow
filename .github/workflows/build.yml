@@ -1,0 +1,46 @@
+name: Images
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Chaque lundi à 4 h UTC : embarque la dernière Claude CLI et les images de base à jour.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publier:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        cible: [app, worker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/r0m1k3/gmflow-${{ matrix.cible }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.cible }}
+          push: true
+          pull: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.cible }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cible }}
