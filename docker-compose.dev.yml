@@ -23,7 +23,7 @@ services:
     image: greenmail/standalone:latest
     environment:
       GREENMAIL_OPTS: >-
-        -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.auth.disabled=false
+        -Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0
         -Dgreenmail.users=a:mdp@test.local,b:mdp@test.local -Dgreenmail.users.login=email
     ports: ["3025:3025", "3143:3143"]
     networks: [interne, sortie]
