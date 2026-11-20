@@ -31,7 +31,6 @@ strip-ansi-escapes = "0.2"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["serde", "formatting", "parsing", "macros"] }
 tokio = { version = "1.54.1", features = ["full"] }
-tokio-cron-scheduler = "0.15.1"
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 tower = "0.5"
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }

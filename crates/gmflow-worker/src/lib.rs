@@ -1,0 +1,83 @@
+//! Worker GMFlow : relève IMAP, test des boîtes, séances setup-token et test du jeton Claude.
+
+pub mod planif;
+pub mod releve;
+pub mod sante;
+pub mod setup_token;
+pub mod test_boite;
+pub mod test_jeton;
+
+use std::sync::Arc;
+
+use apalis::prelude::*;
+use gmflow_core::config::Config;
+use gmflow_core::crypto::Chiffreur;
+use gmflow_core::file::{self, TacheBoite, TacheClaude};
+use gmflow_core::imap::Transport;
+use sqlx::PgPool;
+
+pub use setup_token::DelaisSeance;
+
+#[derive(Clone)]
+pub struct Contexte {
+    pub pool: PgPool,
+    pub config: Arc<Config>,
+    pub chiffreur: Chiffreur,
+    pub transport: Transport,
+    pub delais: DelaisSeance,
+}
+
+impl Contexte {
+    pub fn new(pool: PgPool, config: Config, transport: Transport, delais: DelaisSeance) -> Self {
+        Self { pool, chiffreur: Chiffreur::new(&config.cle), config: Arc::new(config), transport, delais }
+    }
+}
+
+async fn tache_boite(tache: TacheBoite, ctx: Data<Contexte>) -> Result<(), BoxDynError> {
+    match tache {
+        TacheBoite::Releve { boite_id } => {
+            releve::relever(&ctx, boite_id).await?;
+        }
+        TacheBoite::TestBoite { boite_id } => test_boite::tester(&ctx, boite_id).await?,
+    }
+    Ok(())
+}
+
+async fn tache_claude(tache: TacheClaude, ctx: Data<Contexte>) -> Result<(), BoxDynError> {
+    match tache {
+        TacheClaude::SeanceSetupToken { seance_id } => setup_token::executer(&ctx, seance_id).await?,
+        TacheClaude::TestJeton => test_jeton::tester(&ctx).await?,
+    }
+    Ok(())
+}
+
+/// Lance les deux workers apalis : `boites` (4 tâches à la fois) et `claude` (1 à la fois).
+pub async fn lancer_files(ctx: Contexte) -> anyhow::Result<()> {
+    let boites = WorkerBuilder::new("gmflow-boites")
+        .backend(file::stockage_boites(&ctx.pool))
+        .data(ctx.clone())
+        .concurrency(4)
+        .parallelize(tokio::spawn)
+        .build(tache_boite);
+    let claude = WorkerBuilder::new("gmflow-claude")
+        .backend(file::stockage_claude(&ctx.pool))
+        .data(ctx.clone())
+        .concurrency(1)
+        .parallelize(tokio::spawn)
+        .build(tache_claude);
+    let (a, b) = tokio::join!(boites.run(), claude.run());
+    a.map_err(|e| anyhow::anyhow!("worker boites : {e}"))?;
+    b.map_err(|e| anyhow::anyhow!("worker claude : {e}"))?;
+    Ok(())
+}
+
+pub async fn lancer(config: Config) -> anyhow::Result<()> {
+    let pool = gmflow_core::db::connecter(&config.database_url).await?;
+    gmflow_core::db::initialiser(&pool).await?;
+    let ctx = Contexte::new(pool, config, Transport::depuis_env(), DelaisSeance::default());
+    setup_token::fermer_seances_ouvertes(&ctx.pool).await?;
+    tokio::spawn(planif::boucle(ctx.pool.clone()));
+    tokio::spawn(sante::serveur(ctx.pool.clone()));
+    tracing::info!(transport = ?ctx.transport, "GMFlow worker démarré");
+    lancer_files(ctx).await
+}

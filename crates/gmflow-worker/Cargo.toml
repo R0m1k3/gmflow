@@ -14,6 +14,7 @@ async-imap.workspace = true
 axum.workspace = true
 futures.workspace = true
 gmflow-core.workspace = true
+hex.workspace = true
 portable-pty.workspace = true
 regex.workspace = true
 serde.workspace = true
@@ -22,9 +23,9 @@ sqlx.workspace = true
 strip-ansi-escapes.workspace = true
 time.workspace = true
 tokio.workspace = true
-tokio-cron-scheduler.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 gmflow-core = { workspace = true, features = ["test-utils"] }
+tower.workspace = true

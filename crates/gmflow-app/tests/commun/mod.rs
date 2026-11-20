@@ -113,3 +113,74 @@ impl Appli {
         self.base.fermer().await;
     }
 }
+
+pub fn fixture(nom: &str) -> Vec<u8> {
+    std::fs::read(format!("{}/../gmflow-worker/tests/fixtures/{nom}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+}
+
+impl Appli {
+    pub async fn boite(&self, societe_id: i64, libelle: &str) -> i64 {
+        sqlx::query_scalar::<_, i64>(
+            "insert into boite_mail (societe_id, libelle, serveur, identifiant, mot_de_passe_chiffre)
+             values ($1, $2, 'imap.test', 'x', '\\x00') returning id",
+        )
+        .bind(societe_id)
+        .bind(libelle)
+        .fetch_one(self.pool())
+        .await
+        .unwrap()
+    }
+
+    /// Enregistre un mail comme la relève le ferait, vu dans les boîtes données. Rend son id.
+    pub async fn mail_vu(&self, eml: &[u8], boites: &[i64]) -> i64 {
+        let (chemin, sha) = gmflow_core::stockage::ecrire_eml(&self.fichiers.0, eml).unwrap();
+        let d = gmflow_core::eml::decouper(eml).unwrap();
+        let id: i64 = sqlx::query_scalar(
+            "insert into mail (message_id, empreinte_contenu, expediteur, destinataires, objet, date_mail, corps_texte, chemin_eml, sha256, taille)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id",
+        )
+        .bind(&d.message_id)
+        .bind(&d.empreinte_contenu)
+        .bind(&d.expediteur)
+        .bind(&d.destinataires)
+        .bind(&d.objet)
+        .bind(d.date)
+        .bind(&d.corps_texte)
+        .bind(chemin)
+        .bind(sha)
+        .bind(eml.len() as i64)
+        .fetch_one(self.pool())
+        .await
+        .unwrap();
+        for p in &d.pieces {
+            sqlx::query("insert into piece_jointe (mail_id, rang, nom, type_mime, taille, sha256) values ($1, $2, $3, $4, $5, $6)")
+                .bind(id)
+                .bind(p.rang)
+                .bind(&p.nom)
+                .bind(&p.type_mime)
+                .bind(p.taille)
+                .bind(&p.sha256)
+                .execute(self.pool())
+                .await
+                .unwrap();
+        }
+        for (i, b) in boites.iter().enumerate() {
+            sqlx::query("insert into mail_boite (mail_id, boite_id, dossier, uid) values ($1, $2, 'INBOX', $3)")
+                .bind(id)
+                .bind(b)
+                .bind(id * 10 + i as i64)
+                .execute(self.pool())
+                .await
+                .unwrap();
+        }
+        id
+    }
+
+    pub async fn piece_de(&self, mail_id: i64) -> i64 {
+        sqlx::query_scalar("select id from piece_jointe where mail_id = $1 order by rang limit 1")
+            .bind(mail_id)
+            .fetch_one(self.pool())
+            .await
+            .unwrap()
+    }
+}
