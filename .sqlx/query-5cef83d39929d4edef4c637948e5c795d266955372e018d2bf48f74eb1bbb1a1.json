@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select valeur from parametre where cle = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "valeur",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "parametre",
+            "name": "valeur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "5cef83d39929d4edef4c637948e5c795d266955372e018d2bf48f74eb1bbb1a1"
+}

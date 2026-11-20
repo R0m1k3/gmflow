@@ -26,7 +26,9 @@ pub fn hacher(mdp: &str) -> Result<String, ErreurApi> {
 
 pub fn verifier(mdp: &str, hash: &str) -> bool {
     match PasswordHash::new(hash) {
-        Ok(h) => Argon2::default().verify_password(mdp.as_bytes(), &h).is_ok(),
+        Ok(h) => Argon2::default()
+            .verify_password(mdp.as_bytes(), &h)
+            .is_ok(),
         Err(_) => false,
     }
 }
@@ -45,5 +47,7 @@ pub async fn hacher_async(mdp: String) -> Result<String, ErreurApi> {
 }
 
 pub async fn verifier_async(mdp: String, hash: String) -> bool {
-    tokio::task::spawn_blocking(move || verifier(&mdp, &hash)).await.unwrap_or(false)
+    tokio::task::spawn_blocking(move || verifier(&mdp, &hash))
+        .await
+        .unwrap_or(false)
 }

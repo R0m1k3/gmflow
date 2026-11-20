@@ -29,7 +29,13 @@ pub struct Contexte {
 
 impl Contexte {
     pub fn new(pool: PgPool, config: Config, transport: Transport, delais: DelaisSeance) -> Self {
-        Self { pool, chiffreur: Chiffreur::new(&config.cle), config: Arc::new(config), transport, delais }
+        Self {
+            pool,
+            chiffreur: Chiffreur::new(&config.cle),
+            config: Arc::new(config),
+            transport,
+            delais,
+        }
     }
 }
 
@@ -45,14 +51,24 @@ async fn tache_boite(tache: TacheBoite, ctx: Data<Contexte>) -> Result<(), BoxDy
 
 async fn tache_claude(tache: TacheClaude, ctx: Data<Contexte>) -> Result<(), BoxDynError> {
     match tache {
-        TacheClaude::SeanceSetupToken { seance_id } => setup_token::executer(&ctx, seance_id).await?,
+        TacheClaude::SeanceSetupToken { seance_id } => {
+            setup_token::executer(&ctx, seance_id).await?
+        }
         TacheClaude::TestJeton => test_jeton::tester(&ctx).await?,
     }
     Ok(())
 }
 
-/// Lance les deux workers apalis : `boites` (4 tâches à la fois) et `claude` (1 à la fois).
-pub async fn lancer_files(ctx: Contexte) -> anyhow::Result<()> {
+/// Lance les deux workers apalis : `boites` (4 tâches à la fois) et `claude` (1 à la fois),
+/// jusqu'à ce que `arret` passe à vrai (jamais en production).
+pub async fn lancer_files(
+    ctx: Contexte,
+    arret: tokio::sync::watch::Receiver<bool>,
+) -> anyhow::Result<()> {
+    let signal = |mut r: tokio::sync::watch::Receiver<bool>| async move {
+        let _ = r.wait_for(|v| *v).await;
+        Ok::<(), std::io::Error>(())
+    };
     let boites = WorkerBuilder::new("gmflow-boites")
         .backend(file::stockage_boites(&ctx.pool))
         .data(ctx.clone())
@@ -65,7 +81,10 @@ pub async fn lancer_files(ctx: Contexte) -> anyhow::Result<()> {
         .concurrency(1)
         .parallelize(tokio::spawn)
         .build(tache_claude);
-    let (a, b) = tokio::join!(boites.run(), claude.run());
+    let (a, b) = tokio::join!(
+        boites.run_until(signal(arret.clone())),
+        claude.run_until(signal(arret))
+    );
     a.map_err(|e| anyhow::anyhow!("worker boites : {e}"))?;
     b.map_err(|e| anyhow::anyhow!("worker claude : {e}"))?;
     Ok(())
@@ -74,10 +93,16 @@ pub async fn lancer_files(ctx: Contexte) -> anyhow::Result<()> {
 pub async fn lancer(config: Config) -> anyhow::Result<()> {
     let pool = gmflow_core::db::connecter(&config.database_url).await?;
     gmflow_core::db::initialiser(&pool).await?;
-    let ctx = Contexte::new(pool, config, Transport::depuis_env(), DelaisSeance::default());
+    let ctx = Contexte::new(
+        pool,
+        config,
+        Transport::depuis_env(),
+        DelaisSeance::default(),
+    );
     setup_token::fermer_seances_ouvertes(&ctx.pool).await?;
     tokio::spawn(planif::boucle(ctx.pool.clone()));
     tokio::spawn(sante::serveur(ctx.pool.clone()));
     tracing::info!(transport = ?ctx.transport, "GMFlow worker démarré");
-    lancer_files(ctx).await
+    let (_garde, arret) = tokio::sync::watch::channel(false);
+    lancer_files(ctx, arret).await
 }

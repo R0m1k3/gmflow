@@ -33,12 +33,17 @@ impl Config {
 /// Décode la clé de chiffrement (base64, 32 octets). Refuse toute autre valeur.
 pub fn cle_depuis(b64: &str) -> Result<[u8; 32]> {
     if b64.trim().is_empty() {
-        bail!("GMFLOW_CLE_CHIFFREMENT manquante (32 octets en base64, ex. `openssl rand -base64 32`)");
+        bail!(
+            "GMFLOW_CLE_CHIFFREMENT manquante (32 octets en base64, ex. `openssl rand -base64 32`)"
+        );
     }
     let octets = base64::engine::general_purpose::STANDARD
         .decode(b64.trim())
         .context("GMFLOW_CLE_CHIFFREMENT n'est pas du base64 valide")?;
-    octets
-        .try_into()
-        .map_err(|v: Vec<u8>| anyhow::anyhow!("GMFLOW_CLE_CHIFFREMENT doit faire 32 octets, pas {}", v.len()))
+    octets.try_into().map_err(|v: Vec<u8>| {
+        anyhow::anyhow!(
+            "GMFLOW_CLE_CHIFFREMENT doit faire 32 octets, pas {}",
+            v.len()
+        )
+    })
 }

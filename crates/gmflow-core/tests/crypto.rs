@@ -35,5 +35,8 @@ fn cle_de_configuration() {
     assert!(cle_depuis("").is_err());
     assert!(cle_depuis("pas du base64 !").is_err());
     assert!(cle_depuis("AAAA").is_err()); // 3 octets
-    assert_eq!(cle_depuis("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=").unwrap(), [1u8; 32]);
+    assert_eq!(
+        cle_depuis("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=").unwrap(),
+        [1u8; 32]
+    );
 }

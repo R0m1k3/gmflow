@@ -61,7 +61,9 @@ impl Entree {
         self.serveur = self.serveur.trim().to_string();
         self.identifiant = self.identifiant.trim().to_string();
         if self.libelle.is_empty() || self.serveur.is_empty() || self.identifiant.is_empty() {
-            return Err(ErreurApi::Donnees("libellé, serveur et identifiant obligatoires".into()));
+            return Err(ErreurApi::Donnees(
+                "libellé, serveur et identifiant obligatoires".into(),
+            ));
         }
         if !(1..=65535).contains(&self.port) {
             return Err(ErreurApi::Donnees("port invalide".into()));
@@ -69,11 +71,18 @@ impl Entree {
         if !(0..=24).contains(&self.reprise_mois) {
             return Err(ErreurApi::Donnees("reprise : de 0 à 24 mois".into()));
         }
-        self.dossiers = self.dossiers.into_iter().map(|d| d.trim().to_string()).filter(|d| !d.is_empty()).collect();
+        self.dossiers = self
+            .dossiers
+            .into_iter()
+            .map(|d| d.trim().to_string())
+            .filter(|d| !d.is_empty())
+            .collect();
         self.dossiers.sort();
         self.dossiers.dedup();
         if self.dossiers.is_empty() {
-            return Err(ErreurApi::Donnees("au moins un dossier à surveiller".into()));
+            return Err(ErreurApi::Donnees(
+                "au moins un dossier à surveiller".into(),
+            ));
         }
         self.mot_de_passe = self.mot_de_passe.filter(|m| !m.is_empty());
         Ok(self)
@@ -85,8 +94,6 @@ impl Entree {
                 "mot_de_passe_change": self.mot_de_passe.is_some() })
     }
 }
-
-
 
 async fn lire(etat: &Etat, id: i64) -> Resultat<Boite> {
     sqlx::query_as!(
@@ -114,13 +121,24 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<V
 }
 
 async fn societe_existe(etat: &Etat, id: i64) -> Resultat<()> {
-    let ok = sqlx::query_scalar!("select exists (select 1 from societe where id = $1) as \"ok!\"", id)
-        .fetch_one(&etat.pool)
-        .await?;
-    if ok { Ok(()) } else { Err(ErreurApi::Donnees("structure inconnue".into())) }
+    let ok = sqlx::query_scalar!(
+        "select exists (select 1 from societe where id = $1) as \"ok!\"",
+        id
+    )
+    .fetch_one(&etat.pool)
+    .await?;
+    if ok {
+        Ok(())
+    } else {
+        Err(ErreurApi::Donnees("structure inconnue".into()))
+    }
 }
 
-pub async fn creer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Json(e): Json<Entree>) -> Resultat<Json<Boite>> {
+pub async fn creer(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Json(e): Json<Entree>,
+) -> Resultat<Json<Boite>> {
     let e = e.nettoyer()?;
     societe_existe(&etat, e.societe_id).await?;
     let Some(mdp) = &e.mot_de_passe else {
@@ -142,7 +160,15 @@ pub async fn creer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Json(e):
     )
     .fetch_one(&mut *tx)
     .await?;
-    gmflow_core::journal::ecrire(&mut *tx, Some(a.utilisateur_id), "creation", "boite_mail", Some(id.to_string()), e.journal()).await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "creation",
+        "boite_mail",
+        Some(id.to_string()),
+        e.journal(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(lire(&etat, id).await?))
 }
@@ -155,7 +181,10 @@ pub async fn modifier(
 ) -> Resultat<Json<Boite>> {
     let e = e.nettoyer()?;
     societe_existe(&etat, e.societe_id).await?;
-    let chiffre = e.mot_de_passe.as_ref().map(|m| etat.chiffreur.chiffrer(m.as_bytes()));
+    let chiffre = e
+        .mot_de_passe
+        .as_ref()
+        .map(|m| etat.chiffreur.chiffrer(m.as_bytes()));
     let mut tx = etat.pool.begin().await?;
     // Paramètres de connexion changés : le test précédent ne vaut plus.
     let n = sqlx::query!(
@@ -181,22 +210,53 @@ pub async fn modifier(
     if n.rows_affected() == 0 {
         return Err(ErreurApi::Absent);
     }
-    gmflow_core::journal::ecrire(&mut *tx, Some(a.utilisateur_id), "modification", "boite_mail", Some(id.to_string()), e.journal()).await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "modification",
+        "boite_mail",
+        Some(id.to_string()),
+        e.journal(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(lire(&etat, id).await?))
 }
 
-pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Path(id): Path<i64>) -> Resultat<StatusCode> {
+pub async fn tester(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<StatusCode> {
     lire(&etat, id).await?;
     gmflow_core::file::pousser_test_boite(&etat.pool, id).await?;
-    gmflow_core::journal::ecrire(&etat.pool, Some(a.utilisateur_id), "test", "boite_mail", Some(id.to_string()), json!({})).await?;
+    gmflow_core::journal::ecrire(
+        &etat.pool,
+        Some(a.utilisateur_id),
+        "test",
+        "boite_mail",
+        Some(id.to_string()),
+        json!({}),
+    )
+    .await?;
     Ok(StatusCode::ACCEPTED)
 }
 
-pub async fn activer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Path(id): Path<i64>) -> Resultat<Json<Boite>> {
+pub async fn activer(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<Json<Boite>> {
     let b = lire(&etat, id).await?;
-    if b.dernier_test.as_ref().and_then(|t| t.get("ok")).and_then(Value::as_bool) != Some(true) {
-        return Err(ErreurApi::Conflit("testez la connexion avec succès avant d'activer la boîte".into()));
+    if b.dernier_test
+        .as_ref()
+        .and_then(|t| t.get("ok"))
+        .and_then(Value::as_bool)
+        != Some(true)
+    {
+        return Err(ErreurApi::Conflit(
+            "testez la connexion avec succès avant d'activer la boîte".into(),
+        ));
     }
     sqlx::query!(
         "update boite_mail set active = true, pause_auto = false, echecs_auth = 0 where id = $1",
@@ -204,24 +264,58 @@ pub async fn activer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Path(i
     )
     .execute(&etat.pool)
     .await?;
-    gmflow_core::journal::ecrire(&etat.pool, Some(a.utilisateur_id), "activation", "boite_mail", Some(id.to_string()), json!({})).await?;
+    gmflow_core::journal::ecrire(
+        &etat.pool,
+        Some(a.utilisateur_id),
+        "activation",
+        "boite_mail",
+        Some(id.to_string()),
+        json!({}),
+    )
+    .await?;
     Ok(Json(lire(&etat, id).await?))
 }
 
-pub async fn pause(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Path(id): Path<i64>) -> Resultat<Json<Boite>> {
+pub async fn pause(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<Json<Boite>> {
     lire(&etat, id).await?;
-    sqlx::query!("update boite_mail set active = false where id = $1", id).execute(&etat.pool).await?;
-    gmflow_core::journal::ecrire(&etat.pool, Some(a.utilisateur_id), "pause", "boite_mail", Some(id.to_string()), json!({})).await?;
+    sqlx::query!("update boite_mail set active = false where id = $1", id)
+        .execute(&etat.pool)
+        .await?;
+    gmflow_core::journal::ecrire(
+        &etat.pool,
+        Some(a.utilisateur_id),
+        "pause",
+        "boite_mail",
+        Some(id.to_string()),
+        json!({}),
+    )
+    .await?;
     Ok(Json(lire(&etat, id).await?))
 }
 
-pub async fn relever(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Path(id): Path<i64>) -> Resultat<StatusCode> {
+pub async fn relever(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<StatusCode> {
     let b = lire(&etat, id).await?;
     if !b.active || b.pause_auto {
         return Err(ErreurApi::Conflit("la boîte n'est pas active".into()));
     }
     gmflow_core::file::pousser_releve(&etat.pool, id).await?;
-    gmflow_core::journal::ecrire(&etat.pool, Some(a.utilisateur_id), "releve_manuelle", "boite_mail", Some(id.to_string()), json!({})).await?;
+    gmflow_core::journal::ecrire(
+        &etat.pool,
+        Some(a.utilisateur_id),
+        "releve_manuelle",
+        "boite_mail",
+        Some(id.to_string()),
+        json!({}),
+    )
+    .await?;
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -235,7 +329,11 @@ pub struct Compteur {
 }
 
 /// Par dossier surveillé : messages vus sur la période de reprise (à comparer au webmail).
-pub async fn compteurs(_a: AccesAdmin, State(etat): State<Etat>, Path(id): Path<i64>) -> Resultat<Json<Vec<Compteur>>> {
+pub async fn compteurs(
+    _a: AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<Json<Vec<Compteur>>> {
     lire(&etat, id).await?;
     let v = sqlx::query_as!(
         Compteur,

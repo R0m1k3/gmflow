@@ -34,7 +34,10 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
     .fetch_all(&etat.pool)
     .await?;
     let rfc = |t: Option<time::OffsetDateTime>| {
-        t.and_then(|t| t.format(&time::format_description::well_known::Rfc3339).ok())
+        t.and_then(|t| {
+            t.format(&time::format_description::well_known::Rfc3339)
+                .ok()
+        })
     };
     let mut r = json!({
         "mails_du_jour": du_jour.iter().map(|l| json!({ "societe_id": l.societe_id, "raison_sociale": l.raison_sociale, "n": l.n })).collect::<Vec<_>>(),
@@ -48,11 +51,13 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
         let claude = gmflow_core::parametre::lire(&etat.pool, gmflow_core::parametre::CLAUDE_ETAT)
             .await?
             .unwrap_or_else(|| json!({ "etat": "absent" }));
-        let octets = sqlx::query_scalar!(r#"select coalesce(sum(taille), 0)::bigint as "n!" from mail"#)
-            .fetch_one(&etat.pool)
-            .await?;
+        let octets =
+            sqlx::query_scalar!(r#"select coalesce(sum(taille), 0)::bigint as "n!" from mail"#)
+                .fetch_one(&etat.pool)
+                .await?;
         r["claude"] = json!({ "etat": claude.get("etat").cloned().unwrap_or(json!("absent")), "teste_le": claude.get("teste_le") });
-        r["stockage"] = json!({ "octets": octets, "libre_pourcent": libre_pourcent(&etat.config.fichiers) });
+        r["stockage"] =
+            json!({ "octets": octets, "libre_pourcent": libre_pourcent(&etat.config.fichiers) });
     }
     Ok(Json(r))
 }

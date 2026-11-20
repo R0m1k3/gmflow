@@ -24,7 +24,10 @@ pub async fn lancer(config: Config) -> Result<()> {
         use tower_sessions::session_store::ExpiredDeletion;
         let store = store.clone();
         async move {
-            if let Err(e) = store.continuously_delete_expired(tokio::time::Duration::from_secs(3600)).await {
+            if let Err(e) = store
+                .continuously_delete_expired(tokio::time::Duration::from_secs(3600))
+                .await
+            {
                 tracing::error!(erreur = %e, "purge des sessions arrêtée");
             }
         }

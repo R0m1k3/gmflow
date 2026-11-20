@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into parametre (cle, valeur) values ($1, $2)\n         on conflict (cle) do update set valeur = excluded.valeur, modifie_le = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9ae01d4904a72d7d34e41f033920b5cb47c450c715081d506f11768ac1f6979e"
+}

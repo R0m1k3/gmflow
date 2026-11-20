@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select uidvalidity, dernier_uid from boite_dossier where boite_id = $1 and nom = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "uidvalidity",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_dossier",
+            "name": "uidvalidity"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "dernier_uid",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_dossier",
+            "name": "dernier_uid"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "917b9b4e75977da1ac7556b4eeb4c89eebdc15432518e335387e732ffe067c73"
+}

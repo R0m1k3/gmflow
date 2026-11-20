@@ -1,4 +1,5 @@
 pub mod admin_boites;
+pub mod admin_claude;
 pub mod admin_journal;
 pub mod admin_societes;
 pub mod admin_utilisateurs;
@@ -68,7 +69,10 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/mails/{id}", get(mails::fiche))
         .route("/pieces/{id}", get(fichiers::piece))
         .route("/tableau-de-bord", get(tableau::tableau))
-        .route("/admin/boites", get(admin_boites::lister).post(admin_boites::creer))
+        .route(
+            "/admin/boites",
+            get(admin_boites::lister).post(admin_boites::creer),
+        )
         .route("/admin/boites/{id}", put(admin_boites::modifier))
         .route("/admin/boites/{id}/tester", post(admin_boites::tester))
         .route("/admin/boites/{id}/activer", post(admin_boites::activer))
@@ -76,10 +80,28 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/admin/boites/{id}/relever", post(admin_boites::relever))
         .route("/admin/boites/{id}/compteurs", get(admin_boites::compteurs))
         .route("/admin/journal", get(admin_journal::lister))
-        .route("/admin/societes", get(admin_societes::lister).post(admin_societes::creer))
+        .route("/admin/claude", get(admin_claude::etat))
+        .route(
+            "/admin/claude/jeton",
+            put(admin_claude::coller).delete(admin_claude::supprimer),
+        )
+        .route("/admin/claude/test", post(admin_claude::tester))
+        .route("/admin/claude/seances", post(admin_claude::nouvelle_seance))
+        .route("/admin/claude/seances/{id}", get(admin_claude::seance))
+        .route("/admin/claude/seances/{id}/code", post(admin_claude::code))
+        .route(
+            "/admin/societes",
+            get(admin_societes::lister).post(admin_societes::creer),
+        )
         .route("/admin/societes/{id}", put(admin_societes::modifier))
-        .route("/admin/utilisateurs", get(admin_utilisateurs::lister).post(admin_utilisateurs::creer))
-        .route("/admin/utilisateurs/{id}", put(admin_utilisateurs::modifier))
+        .route(
+            "/admin/utilisateurs",
+            get(admin_utilisateurs::lister).post(admin_utilisateurs::creer),
+        )
+        .route(
+            "/admin/utilisateurs/{id}",
+            put(admin_utilisateurs::modifier),
+        )
         .fallback(api_inconnue)
         .layer(middleware::from_fn(exiger_entete))
         .layer(sessions);
@@ -89,5 +111,6 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         let index = web.join("index.html");
         app = app.fallback_service(ServeDir::new(web).fallback(ServeFile::new(index)));
     }
-    app.layer(tower_http::trace::TraceLayer::new_for_http()).with_state(etat)
+    app.layer(tower_http::trace::TraceLayer::new_for_http())
+        .with_state(etat)
 }

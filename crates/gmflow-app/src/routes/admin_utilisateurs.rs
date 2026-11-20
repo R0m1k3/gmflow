@@ -44,7 +44,9 @@ impl Entree {
         match self.role.as_str() {
             "admin" => self.societe_id = None,
             "responsable" if self.societe_id.is_none() => {
-                return Err(ErreurApi::Donnees("un responsable est rattaché à une structure".into()));
+                return Err(ErreurApi::Donnees(
+                    "un responsable est rattaché à une structure".into(),
+                ));
             }
             "responsable" => {}
             _ => return Err(ErreurApi::Donnees("rôle : admin ou responsable".into())),
@@ -72,7 +74,11 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<V
     Ok(Json(v))
 }
 
-pub async fn creer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Json(e): Json<Entree>) -> Resultat<Json<Utilisateur>> {
+pub async fn creer(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Json(e): Json<Entree>,
+) -> Resultat<Json<Utilisateur>> {
     let e = e.nettoyer()?;
     let Some(m) = e.mot_de_passe.clone() else {
         return Err(ErreurApi::Donnees("mot de passe obligatoire".into()));
@@ -91,7 +97,15 @@ pub async fn creer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Json(e):
     )
     .fetch_one(&mut *tx)
     .await?;
-    gmflow_core::journal::ecrire(&mut *tx, Some(a.utilisateur_id), "creation", "utilisateur", Some(u.id.to_string()), e.journal()).await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "creation",
+        "utilisateur",
+        Some(u.id.to_string()),
+        e.journal(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(u))
 }
@@ -104,7 +118,9 @@ pub async fn modifier(
 ) -> Resultat<Json<Utilisateur>> {
     let e = e.nettoyer()?;
     if id == a.utilisateur_id && (e.role != "admin" || !e.actif) {
-        return Err(ErreurApi::Conflit("vous ne pouvez pas retirer vos propres droits d'administrateur".into()));
+        return Err(ErreurApi::Conflit(
+            "vous ne pouvez pas retirer vos propres droits d'administrateur".into(),
+        ));
     }
     let hash = match e.mot_de_passe.clone() {
         Some(m) => Some(mdp::hacher_async(m).await?),
@@ -127,7 +143,15 @@ pub async fn modifier(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ErreurApi::Absent)?;
-    gmflow_core::journal::ecrire(&mut *tx, Some(a.utilisateur_id), "modification", "utilisateur", Some(id.to_string()), e.journal()).await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "modification",
+        "utilisateur",
+        Some(id.to_string()),
+        e.journal(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(u))
 }

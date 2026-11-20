@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into boite_dossier (boite_id, nom, uidvalidity, dernier_uid) values ($1, $2, $3, 0)\n                 on conflict (boite_id, nom) do update set uidvalidity = excluded.uidvalidity, dernier_uid = 0",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa02ecaefebaa6c36336ac7cfe33df4af1a6213d9a38b10c669b55067d2fda1e"
+}

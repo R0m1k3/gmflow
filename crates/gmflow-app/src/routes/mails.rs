@@ -26,7 +26,10 @@ pub struct SocieteVisible {
     raison_sociale: String,
 }
 
-pub async fn societes(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Vec<SocieteVisible>>> {
+pub async fn societes(
+    acces: Acces,
+    State(etat): State<Etat>,
+) -> Resultat<Json<Vec<SocieteVisible>>> {
     let v = sqlx::query_as!(
         SocieteVisible,
         "select id, raison_sociale from societe where ($1::bigint is null or id = $1) order by raison_sociale",
@@ -89,11 +92,18 @@ fn date(v: &Option<String>) -> Resultat<Option<time::Date>> {
 /// Motif ILIKE : les caractères spéciaux de la saisie sont échappés.
 fn motif(q: &Option<String>) -> Option<String> {
     let q = q.as_deref().map(str::trim).filter(|s| !s.is_empty())?;
-    let echappe = q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+    let echappe = q
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
     Some(format!("%{echappe}%"))
 }
 
-pub async fn lister(acces: Acces, State(etat): State<Etat>, Query(f): Query<Filtres>) -> Resultat<Json<Page<LigneMail>>> {
+pub async fn lister(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Query(f): Query<Filtres>,
+) -> Resultat<Json<Page<LigneMail>>> {
     let (du, au) = (date(&f.du)?, date(&f.au)?);
     let q = motif(&f.q);
     let (page, decalage) = decalage(f.page);
@@ -148,7 +158,11 @@ pub async fn lister(acces: Acces, State(etat): State<Etat>, Query(f): Query<Filt
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page { total, page, elements }))
+    Ok(Json(Page {
+        total,
+        page,
+        elements,
+    }))
 }
 
 #[derive(Serialize)]
@@ -192,7 +206,11 @@ pub async fn mail_visible(etat: &Etat, acces: &Acces, mail_id: i64) -> Resultat<
     .await?)
 }
 
-pub async fn fiche(acces: Acces, State(etat): State<Etat>, Path(id): Path<i64>) -> Resultat<Json<FicheMail>> {
+pub async fn fiche(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<Json<FicheMail>> {
     if !mail_visible(&etat, &acces, id).await? {
         return Err(ErreurApi::Absent);
     }

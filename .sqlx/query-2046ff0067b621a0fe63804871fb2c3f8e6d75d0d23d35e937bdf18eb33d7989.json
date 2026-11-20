@@ -1,0 +1,194 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,\n             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test\n         from boite_mail order by libelle",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "serveur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "serveur"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "port"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "identifiant",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "dossiers",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "dossiers"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "reprise_mois",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "reprise_mois"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "active"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "pause_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "pause_auto"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "echecs_auth",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "echecs_auth"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "derniere_releve",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "derniere_releve"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "derniere_erreur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "derniere_erreur"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "erreur_depuis",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "erreur_depuis"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "dernier_test",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "dernier_test"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2046ff0067b621a0fe63804871fb2c3f8e6d75d0d23d35e937bdf18eb33d7989"
+}

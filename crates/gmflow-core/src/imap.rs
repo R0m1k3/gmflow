@@ -70,7 +70,11 @@ fn connecteur_tls() -> TlsConnector {
     TlsConnector::from(Arc::new(config))
 }
 
-async fn ouvrir(serveur: &str, port: u16, transport: Transport) -> Result<Box<dyn Flux>, ErreurImap> {
+async fn ouvrir(
+    serveur: &str,
+    port: u16,
+    transport: Transport,
+) -> Result<Box<dyn Flux>, ErreurImap> {
     let tcp = TcpStream::connect((serveur, port)).await?;
     match transport {
         Transport::Tls => {
@@ -100,10 +104,13 @@ pub async fn connecter(
             .read_response()
             .await?
             .ok_or_else(|| ErreurImap::Autre("connexion fermée avant l'accueil".into()))?;
-        client.login(identifiant, mot_de_passe).await.map_err(|(e, _)| match e {
-            async_imap::error::Error::No(m) => ErreurImap::RefusAuth(m),
-            autre => ErreurImap::from(autre),
-        })
+        client
+            .login(identifiant, mot_de_passe)
+            .await
+            .map_err(|(e, _)| match e {
+                async_imap::error::Error::No(m) => ErreurImap::RefusAuth(m),
+                autre => ErreurImap::from(autre),
+            })
     };
     timeout(DELAI, travail)
         .await
@@ -114,7 +121,11 @@ pub async fn connecter(
 pub async fn dossiers(session: &mut Session) -> Result<Vec<String>, ErreurImap> {
     use futures::TryStreamExt;
     let noms: Vec<_> = timeout(DELAI, async {
-        session.list(Some(""), Some("*")).await?.try_collect::<Vec<_>>().await
+        session
+            .list(Some(""), Some("*"))
+            .await?
+            .try_collect::<Vec<_>>()
+            .await
     })
     .await
     .map_err(|_| ErreurImap::Autre("délai dépassé pendant LIST".into()))??;

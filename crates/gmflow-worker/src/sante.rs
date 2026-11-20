@@ -26,7 +26,10 @@ async fn health(State(pool): State<PgPool>) -> (StatusCode, &'static str) {
     if controle(&pool).await {
         (StatusCode::OK, "ok")
     } else {
-        (StatusCode::SERVICE_UNAVAILABLE, "base injoignable ou planificateur arrêté")
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "base injoignable ou planificateur arrêté",
+        )
     }
 }
 

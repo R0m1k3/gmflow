@@ -57,21 +57,34 @@ fn nom_par_defaut(rang: i32, mime: &str) -> String {
 }
 
 pub fn decouper(brut: &[u8]) -> Result<MailDecoupe, ErreurEml> {
-    let message = MessageParser::default().parse(brut).ok_or(ErreurEml::Illisible)?;
+    let message = MessageParser::default()
+        .parse(brut)
+        .ok_or(ErreurEml::Illisible)?;
 
     let objet = message.subject().unwrap_or("").trim().to_string();
     let expediteur = message
         .from()
-        .and_then(|l| l.mailboxes().next().and_then(|m| m.address().map(str::to_string)))
+        .and_then(|l| {
+            l.mailboxes()
+                .next()
+                .and_then(|m| m.address().map(str::to_string))
+        })
         .unwrap_or_default();
     let mut destinataires: Vec<String> = Vec::new();
     for liste in [message.to(), message.cc()].into_iter().flatten() {
-        destinataires.extend(liste.mailboxes().filter_map(|m| m.address().map(str::to_string)));
+        destinataires.extend(
+            liste
+                .mailboxes()
+                .filter_map(|m| m.address().map(str::to_string)),
+        );
     }
     let date = message
         .date()
         .and_then(|d| time::OffsetDateTime::from_unix_timestamp(d.to_timestamp()).ok());
-    let corps_texte = message.body_text(0).map(|c| c.into_owned()).unwrap_or_default();
+    let corps_texte = message
+        .body_text(0)
+        .map(|c| c.into_owned())
+        .unwrap_or_default();
 
     let mut pieces = Vec::new();
     let mut empreintes: Vec<String> = Vec::new();
@@ -86,7 +99,13 @@ pub fn decouper(brut: &[u8]) -> Result<MailDecoupe, ErreurEml> {
             .map(|n| n.trim().to_string())
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| nom_par_defaut(rang, &mime));
-        pieces.push(Piece { rang, nom, type_mime: mime, taille: contenu.len() as i64, sha256: empreinte });
+        pieces.push(Piece {
+            rang,
+            nom,
+            type_mime: mime,
+            taille: contenu.len() as i64,
+            sha256: empreinte,
+        });
     }
     empreintes.sort();
 
@@ -98,17 +117,32 @@ pub fn decouper(brut: &[u8]) -> Result<MailDecoupe, ErreurEml> {
     }
     let empreinte_contenu = h.finalize().to_vec();
 
-    let message_id = match message.message_id().map(str::trim).filter(|m| !m.is_empty()) {
+    let message_id = match message
+        .message_id()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
         Some(m) => m.to_string(),
         None => format!("sha256:{}", hex::encode(sha256(brut))),
     };
 
-    Ok(MailDecoupe { message_id, expediteur, destinataires, objet, date, corps_texte, pieces, empreinte_contenu })
+    Ok(MailDecoupe {
+        message_id,
+        expediteur,
+        destinataires,
+        objet,
+        date,
+        corps_texte,
+        pieces,
+        empreinte_contenu,
+    })
 }
 
 /// Contenu décodé de la pièce de rang `rang` (rang dans `attachments()`).
 pub fn extraire_piece(brut: &[u8], rang: i32) -> Result<Vec<u8>, ErreurEml> {
-    let message = MessageParser::default().parse(brut).ok_or(ErreurEml::Illisible)?;
+    let message = MessageParser::default()
+        .parse(brut)
+        .ok_or(ErreurEml::Illisible)?;
     let part = message
         .attachments()
         .nth(usize::try_from(rang).map_err(|_| ErreurEml::PieceAbsente(rang))?)

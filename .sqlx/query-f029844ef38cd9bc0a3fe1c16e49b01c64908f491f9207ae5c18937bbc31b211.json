@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select etat, code_chiffre from seance_claude where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "seance_claude",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "code_chiffre",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "seance_claude",
+            "name": "code_chiffre"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "f029844ef38cd9bc0a3fe1c16e49b01c64908f491f9207ae5c18937bbc31b211"
+}

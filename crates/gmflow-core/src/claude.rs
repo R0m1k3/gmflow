@@ -101,7 +101,10 @@ async fn executer(
     cmd.args(["--output-format", "json", "--no-session-persistence"])
         .args(args_en_plus)
         .env_clear()
-        .env("PATH", std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()))
+        .env(
+            "PATH",
+            std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()),
+        )
         .env("HOME", &home.0)
         .env("DISABLE_AUTOUPDATER", "1")
         .env("CLAUDE_CODE_OAUTH_TOKEN", jeton)
@@ -122,7 +125,8 @@ async fn executer(
             stderr: tronquer(&String::from_utf8_lossy(&sortie.stderr), 500),
         });
     }
-    let json: Value = serde_json::from_slice(&sortie.stdout).map_err(|_| ErreurClaude::JsonInvalide)?;
+    let json: Value =
+        serde_json::from_slice(&sortie.stdout).map_err(|_| ErreurClaude::JsonInvalide)?;
     if json.get("is_error").and_then(Value::as_bool) != Some(false) {
         return Err(ErreurClaude::Modele(message_json(&json)));
     }
@@ -131,7 +135,9 @@ async fn executer(
 
 fn message_json(json: &Value) -> String {
     tronquer(
-        json.get("result").and_then(Value::as_str).unwrap_or("réponse en erreur sans message"),
+        json.get("result")
+            .and_then(Value::as_str)
+            .unwrap_or("réponse en erreur sans message"),
         500,
     )
 }

@@ -15,7 +15,10 @@ pub struct DureesSession {
 
 impl Default for DureesSession {
     fn default() -> Self {
-        Self { inactivite: Duration::from_secs(8 * 3600), absolue: Duration::from_secs(7 * 24 * 3600) }
+        Self {
+            inactivite: Duration::from_secs(8 * 3600),
+            absolue: Duration::from_secs(7 * 24 * 3600),
+        }
     }
 }
 

@@ -31,7 +31,12 @@ pub struct Moi {
 
 impl From<&Acces> for Moi {
     fn from(a: &Acces) -> Self {
-        Moi { id: a.utilisateur_id, identifiant: a.identifiant.clone(), role: a.role_texte(), societe_id: a.societe_id }
+        Moi {
+            id: a.utilisateur_id,
+            identifiant: a.identifiant.clone(),
+            role: a.role_texte(),
+            societe_id: a.societe_id,
+        }
     }
 }
 
@@ -44,14 +49,21 @@ fn trop_d_echecs(etat: &Etat, cle: &str) -> bool {
 
 fn noter_echec(etat: &Etat, cle: &str) {
     let mut echecs = etat.echecs.lock().unwrap();
-    echecs.entry(cle.to_string()).or_default().push(Instant::now());
+    echecs
+        .entry(cle.to_string())
+        .or_default()
+        .push(Instant::now());
     // Évite que la table grossisse sans fin.
     if echecs.len() > 10_000 {
         echecs.retain(|_, v| v.iter().any(|t| t.elapsed() < FENETRE));
     }
 }
 
-pub async fn connexion(State(etat): State<Etat>, session: Session, Json(e): Json<Entree>) -> Resultat<Json<Moi>> {
+pub async fn connexion(
+    State(etat): State<Etat>,
+    session: Session,
+    Json(e): Json<Entree>,
+) -> Resultat<Json<Moi>> {
     let identifiant = e.identifiant.trim().to_string();
     let cle = identifiant.to_lowercase();
     if trop_d_echecs(&etat, &cle) {
@@ -63,7 +75,10 @@ pub async fn connexion(State(etat): State<Etat>, session: Session, Json(e): Json
     )
     .fetch_optional(&etat.pool)
     .await?;
-    let hash = ligne.as_ref().map(|l| l.hash_mdp.clone()).unwrap_or_else(|| mdp::hash_factice().to_string());
+    let hash = ligne
+        .as_ref()
+        .map(|l| l.hash_mdp.clone())
+        .unwrap_or_else(|| mdp::hash_factice().to_string());
     let bon = mdp::verifier_async(e.mot_de_passe, hash).await;
     let u = match ligne {
         Some(u) if bon && u.actif => u,
@@ -83,10 +98,35 @@ pub async fn connexion(State(etat): State<Etat>, session: Session, Json(e): Json
     };
     etat.echecs.lock().unwrap().remove(&cle);
     session.cycle_id().await?;
-    session.insert(CLE_SESSION, SessionUtilisateur { id: u.id, connecte_le: maintenant_unix() }).await?;
-    gmflow_core::journal::ecrire(&etat.pool, Some(u.id), "connexion", "utilisateur", Some(u.id.to_string()), json!({})).await?;
-    let role = if u.role == "admin" { "admin" } else { "responsable" };
-    Ok(Json(Moi { id: u.id, identifiant: u.identifiant, role, societe_id: u.societe_id }))
+    session
+        .insert(
+            CLE_SESSION,
+            SessionUtilisateur {
+                id: u.id,
+                connecte_le: maintenant_unix(),
+            },
+        )
+        .await?;
+    gmflow_core::journal::ecrire(
+        &etat.pool,
+        Some(u.id),
+        "connexion",
+        "utilisateur",
+        Some(u.id.to_string()),
+        json!({}),
+    )
+    .await?;
+    let role = if u.role == "admin" {
+        "admin"
+    } else {
+        "responsable"
+    };
+    Ok(Json(Moi {
+        id: u.id,
+        identifiant: u.identifiant,
+        role,
+        societe_id: u.societe_id,
+    }))
 }
 
 pub async fn deconnexion(session: Session) -> Resultat<StatusCode> {

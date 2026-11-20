@@ -1,7 +1,11 @@
 use gmflow_core::eml::{decouper, extraire_piece, sha256};
 
 fn fixture(nom: &str) -> Vec<u8> {
-    std::fs::read(format!("{}/tests/fixtures/{nom}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    std::fs::read(format!(
+        "{}/tests/fixtures/{nom}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
 }
 
 #[test]
@@ -20,7 +24,10 @@ fn simple() {
 fn pdf_et_objet_encode() {
     let d = decouper(&fixture("pdf.eml")).unwrap();
     assert_eq!(d.objet, "Facture n°2026-001");
-    assert_eq!(d.destinataires, ["compta@frouard.test", "michael@frouard.test"]);
+    assert_eq!(
+        d.destinataires,
+        ["compta@frouard.test", "michael@frouard.test"]
+    );
     assert_eq!(d.pieces.len(), 1);
     assert_eq!(d.pieces[0].nom, "F2026-001.pdf");
     assert_eq!(d.pieces[0].type_mime, "application/pdf");

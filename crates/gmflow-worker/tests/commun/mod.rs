@@ -15,7 +15,11 @@ pub struct Banc {
 }
 
 pub fn fixture(nom: &str) -> Vec<u8> {
-    std::fs::read(format!("{}/tests/fixtures/{nom}", env!("CARGO_MANIFEST_DIR"))).unwrap()
+    std::fs::read(format!(
+        "{}/tests/fixtures/{nom}",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
 }
 
 pub fn faux_claude() -> String {
@@ -33,7 +37,11 @@ impl Banc {
         let mut config = base.config(fichiers.0.clone());
         config.claude_bin = faux_claude();
         let ctx = Contexte::new(base.pool.clone(), config, Transport::ClairTest, delais);
-        Self { base, ctx, fichiers }
+        Self {
+            base,
+            ctx,
+            fichiers,
+        }
     }
 
     pub fn pool(&self) -> &sqlx::PgPool {
@@ -98,4 +106,34 @@ where
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     false
+}
+
+/// Workers apalis sur un fil à part (leur future n'est pas `Send` pour `tokio::spawn`).
+pub struct WorkersTest {
+    arret: tokio::sync::watch::Sender<bool>,
+    fil: Option<std::thread::JoinHandle<()>>,
+}
+
+impl WorkersTest {
+    pub fn demarrer(ctx: Contexte) -> Self {
+        let (arret, rx) = tokio::sync::watch::channel(false);
+        let fil = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let _ = rt.block_on(gmflow_worker::lancer_files(ctx, rx));
+        });
+        Self {
+            arret,
+            fil: Some(fil),
+        }
+    }
+
+    pub fn arreter(mut self) {
+        let _ = self.arret.send(true);
+        if let Some(f) = self.fil.take() {
+            let _ = f.join();
+        }
+    }
 }

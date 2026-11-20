@@ -17,9 +17,9 @@ pub const VALIDITE: Duration = Duration::from_secs(3600);
 const VERROU: i64 = 0x474D_5043;
 
 async fn aucun_utilisateur(etat: &Etat) -> sqlx::Result<bool> {
-    Ok(sqlx::query_scalar!("select not exists (select 1 from utilisateur) as \"vide!\"")
+    sqlx::query_scalar!("select not exists (select 1 from utilisateur) as \"vide!\"")
         .fetch_one(&etat.pool)
-        .await?)
+        .await
 }
 
 /// Au démarrage : si aucun utilisateur n'existe, crée un jeton et écrit l'URL dans les logs.
@@ -28,8 +28,14 @@ pub async fn annoncer_si_besoin(etat: &Etat) -> anyhow::Result<Option<String>> {
         return Ok(None);
     }
     let jeton = hex::encode(rand::random::<[u8; 32]>());
-    *etat.premier_compte.lock().unwrap() = Some(JetonPremierCompte { jeton: jeton.clone(), cree: Instant::now() });
-    let url = format!("{}/premier-compte?jeton={jeton}", etat.config.url_publique.trim_end_matches('/'));
+    *etat.premier_compte.lock().unwrap() = Some(JetonPremierCompte {
+        jeton: jeton.clone(),
+        cree: Instant::now(),
+    });
+    let url = format!(
+        "{}/premier-compte?jeton={jeton}",
+        etat.config.url_publique.trim_end_matches('/')
+    );
     tracing::warn!(url = %url, "Aucun compte : ouvrez ce lien (valable 1 h, usage unique) pour créer l'administrateur");
     Ok(Some(jeton))
 }
@@ -40,7 +46,11 @@ fn jeton_valide(etat: &Etat, jeton: &str) -> bool {
         Some(j) => {
             j.cree.elapsed() < VALIDITE
                 && j.jeton.len() == jeton.len()
-                && j.jeton.bytes().zip(jeton.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+                && j.jeton
+                    .bytes()
+                    .zip(jeton.bytes())
+                    .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                    == 0
         }
         None => false,
     }
@@ -61,7 +71,10 @@ pub struct Entree {
     mot_de_passe: String,
 }
 
-pub async fn creer(State(etat): State<Etat>, Json(e): Json<Entree>) -> Resultat<(StatusCode, Json<serde_json::Value>)> {
+pub async fn creer(
+    State(etat): State<Etat>,
+    Json(e): Json<Entree>,
+) -> Resultat<(StatusCode, Json<serde_json::Value>)> {
     if !jeton_valide(&etat, &e.jeton) {
         return Err(ErreurApi::Absent);
     }
@@ -73,7 +86,9 @@ pub async fn creer(State(etat): State<Etat>, Json(e): Json<Entree>) -> Resultat<
     let hash = mdp::hacher_async(e.mot_de_passe).await?;
 
     let mut tx = etat.pool.begin().await?;
-    sqlx::query!("select pg_advisory_xact_lock($1)", VERROU).execute(&mut *tx).await?;
+    sqlx::query!("select pg_advisory_xact_lock($1)", VERROU)
+        .execute(&mut *tx)
+        .await?;
     let vide = sqlx::query_scalar!("select not exists (select 1 from utilisateur) as \"vide!\"")
         .fetch_one(&mut *tx)
         .await?;
@@ -87,8 +102,19 @@ pub async fn creer(State(etat): State<Etat>, Json(e): Json<Entree>) -> Resultat<
     )
     .fetch_one(&mut *tx)
     .await?;
-    gmflow_core::journal::ecrire(&mut *tx, Some(id), "premier_compte", "utilisateur", Some(id.to_string()), json!({ "identifiant": identifiant })).await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(id),
+        "premier_compte",
+        "utilisateur",
+        Some(id.to_string()),
+        json!({ "identifiant": identifiant }),
+    )
+    .await?;
     tx.commit().await?;
     *etat.premier_compte.lock().unwrap() = None;
-    Ok((StatusCode::CREATED, Json(json!({ "id": id, "identifiant": identifiant, "role": "admin", "societe_id": null }))))
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({ "id": id, "identifiant": identifiant, "role": "admin", "societe_id": null })),
+    ))
 }

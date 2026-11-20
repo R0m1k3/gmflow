@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail_boite set uid = $4\n         where id = (select id from mail_boite\n                     where mail_id = $1 and boite_id = $2 and dossier = $3 and uid is null\n                     order by id limit 1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b306228f7798dc6c287d8c21895d91f24244c9cf1e0df5134aea4c99b6b524a8"
+}

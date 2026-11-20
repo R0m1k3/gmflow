@@ -50,18 +50,27 @@ async fn prendre_bail(pool: &PgPool, id: i64) -> sqlx::Result<Option<Boite>> {
 }
 
 async fn prolonger_bail(pool: &PgPool, id: i64) -> sqlx::Result<()> {
-    sqlx::query!("update boite_mail set releve_jusqu_a = now() + interval '15 minutes' where id = $1", id)
-        .execute(pool)
-        .await?;
+    sqlx::query!(
+        "update boite_mail set releve_jusqu_a = now() + interval '15 minutes' where id = $1",
+        id
+    )
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
 pub async fn relever(ctx: &Contexte, boite_id: i64) -> anyhow::Result<Bilan> {
     let Some(boite) = prendre_bail(&ctx.pool, boite_id).await? else {
-        tracing::info!(boite_id, "relève ignorée : bail déjà pris, boîte inactive ou en pause");
+        tracing::info!(
+            boite_id,
+            "relève ignorée : bail déjà pris, boîte inactive ou en pause"
+        );
         return Ok(Bilan::default());
     };
-    let mut bilan = Bilan { bail_obtenu: true, ..Default::default() };
+    let mut bilan = Bilan {
+        bail_obtenu: true,
+        ..Default::default()
+    };
     let resultat = relever_avec_bail(ctx, &boite, &mut bilan).await;
 
     match &resultat {
@@ -93,7 +102,15 @@ pub async fn relever(ctx: &Contexte, boite_id: i64) -> anyhow::Result<Bilan> {
             .fetch_one(&ctx.pool)
             .await?;
             if pause {
-                journal::ecrire(&ctx.pool, None, "pause_auto", "boite_mail", Some(boite.id.to_string()), json!({ "message": message })).await?;
+                journal::ecrire(
+                    &ctx.pool,
+                    None,
+                    "pause_auto",
+                    "boite_mail",
+                    Some(boite.id.to_string()),
+                    json!({ "message": message }),
+                )
+                .await?;
             }
             tracing::warn!(boite_id, erreur = %message, "relève en échec");
         }
@@ -102,13 +119,24 @@ pub async fn relever(ctx: &Contexte, boite_id: i64) -> anyhow::Result<Bilan> {
     Ok(bilan)
 }
 
-async fn relever_avec_bail(ctx: &Contexte, boite: &Boite, bilan: &mut Bilan) -> Result<(), ErreurImap> {
+async fn relever_avec_bail(
+    ctx: &Contexte,
+    boite: &Boite,
+    bilan: &mut Bilan,
+) -> Result<(), ErreurImap> {
     let mdp = ctx
         .chiffreur
         .dechiffrer_texte(&boite.mot_de_passe_chiffre)
         .map_err(|e| ErreurImap::Autre(e.to_string()))?;
     let port = u16::try_from(boite.port).map_err(|_| ErreurImap::Autre("port invalide".into()))?;
-    let mut session = imap::connecter(&boite.serveur, port, &boite.identifiant, &mdp, ctx.transport).await?;
+    let mut session = imap::connecter(
+        &boite.serveur,
+        port,
+        &boite.identifiant,
+        &mdp,
+        ctx.transport,
+    )
+    .await?;
 
     let mut erreurs = Vec::new();
     for dossier in &boite.dossiers {
@@ -117,7 +145,11 @@ async fn relever_avec_bail(ctx: &Contexte, boite: &Boite, bilan: &mut Bilan) -> 
         }
     }
     let _ = session.logout().await;
-    if erreurs.is_empty() { Ok(()) } else { Err(ErreurImap::Autre(erreurs.join(" ; "))) }
+    if erreurs.is_empty() {
+        Ok(())
+    } else {
+        Err(ErreurImap::Autre(erreurs.join(" ; ")))
+    }
 }
 
 fn erreur_base(e: impl std::fmt::Display) -> ErreurImap {
@@ -132,8 +164,15 @@ pub fn date_reprise(mois: i32) -> String {
     let mois_t = time::Month::try_from(mois_num as u8).expect("mois valide");
     let jour = d.day().min(28);
     let date = time::Date::from_calendar_date(annee, mois_t, jour).expect("date valide");
-    const NOMS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    format!("{}-{}-{}", date.day(), NOMS[mois_num as usize - 1], date.year())
+    const NOMS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    format!(
+        "{}-{}-{}",
+        date.day(),
+        NOMS[mois_num as usize - 1],
+        date.year()
+    )
 }
 
 async fn relever_dossier(
@@ -171,7 +210,16 @@ async fn relever_dossier(
                 .execute(&mut *tx)
                 .await
                 .map_err(erreur_base)?;
-                journal::ecrire(&mut *tx, None, "uidvalidity_change", "boite_mail", Some(boite.id.to_string()), json!({ "dossier": dossier })).await.map_err(erreur_base)?;
+                journal::ecrire(
+                    &mut *tx,
+                    None,
+                    "uidvalidity_change",
+                    "boite_mail",
+                    Some(boite.id.to_string()),
+                    json!({ "dossier": dossier }),
+                )
+                .await
+                .map_err(erreur_base)?;
             }
             sqlx::query!(
                 "insert into boite_dossier (boite_id, nom, uidvalidity, dernier_uid) values ($1, $2, $3, 0)
@@ -194,12 +242,21 @@ async fn relever_dossier(
         format!("UID {}:*", dernier + 1)
     };
     let trouves: HashSet<u32> = session.uid_search(&requete).await?;
-    let mut uids: Vec<u32> = trouves.into_iter().filter(|u| i64::from(*u) > dernier).collect();
+    let mut uids: Vec<u32> = trouves
+        .into_iter()
+        .filter(|u| i64::from(*u) > dernier)
+        .collect();
     uids.sort_unstable();
 
     for paquet in uids.chunks(PAQUET) {
-        prolonger_bail(&ctx.pool, boite.id).await.map_err(erreur_base)?;
-        let ensemble = paquet.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        prolonger_bail(&ctx.pool, boite.id)
+            .await
+            .map_err(erreur_base)?;
+        let ensemble = paquet
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
         let messages: Vec<(u32, Vec<u8>)> = {
             let flux = session.uid_fetch(&ensemble, "(UID BODY.PEEK[])").await?;
             let fetches: Vec<_> = flux.try_collect().await?;
@@ -209,8 +266,15 @@ async fn relever_dossier(
                 .collect()
         };
         bilan.messages_lus += messages.len();
-        let max = paquet.iter().copied().max().map(i64::from).unwrap_or(dernier);
-        let nouveaux = enregistrer_paquet(ctx, boite.id, dossier, &messages, max).await.map_err(erreur_base)?;
+        let max = paquet
+            .iter()
+            .copied()
+            .max()
+            .map(i64::from)
+            .unwrap_or(dernier);
+        let nouveaux = enregistrer_paquet(ctx, boite.id, dossier, &messages, max)
+            .await
+            .map_err(erreur_base)?;
         bilan.nouveaux_mails += nouveaux;
         dernier = max;
     }
@@ -264,7 +328,8 @@ async fn enregistrer_paquet(
             tokio::task::spawn_blocking(move || stockage::ecrire_eml(&racine, &brut)).await??
         };
         let d = eml::decouper(brut).unwrap_or_else(|_| decoupe_de_secours(brut));
-        let (mail_id, nouveau) = inserer_mail(&mut tx, &d, &chemin, &sha, brut.len() as i64).await?;
+        let (mail_id, nouveau) =
+            inserer_mail(&mut tx, &d, &chemin, &sha, brut.len() as i64).await?;
         if nouveau {
             nouveaux += 1;
         }
@@ -339,14 +404,28 @@ async fn inserer_mail(
     .fetch_one(&mut *tx)
     .await?;
     if autres > 0 && !d.message_id.starts_with("sha256:") {
-        journal::ecrire(&mut *tx, None, "message_id_reutilise", "mail", Some(id.to_string()), json!({ "message_id": d.message_id })).await?;
+        journal::ecrire(
+            &mut *tx,
+            None,
+            "message_id_reutilise",
+            "mail",
+            Some(id.to_string()),
+            json!({ "message_id": d.message_id }),
+        )
+        .await?;
     }
     Ok((id, true))
 }
 
 /// Lien boîte/dossier/UID. Après un changement d'UIDVALIDITY, la ligne sans UID du même mail
 /// reçoit le nouvel UID ; sinon une ligne est ajoutée.
-async fn rattacher(tx: &mut PgConnection, mail_id: i64, boite_id: i64, dossier: &str, uid: i64) -> anyhow::Result<()> {
+async fn rattacher(
+    tx: &mut PgConnection,
+    mail_id: i64,
+    boite_id: i64,
+    dossier: &str,
+    uid: i64,
+) -> anyhow::Result<()> {
     let maj = sqlx::query!(
         "update mail_boite set uid = $4
          where id = (select id from mail_boite

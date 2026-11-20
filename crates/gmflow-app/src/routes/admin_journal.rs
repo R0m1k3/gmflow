@@ -25,7 +25,11 @@ pub struct Ligne {
     details: Value,
 }
 
-pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>, Query(f): Query<Filtres>) -> Resultat<Json<Page<Ligne>>> {
+pub async fn lister(
+    _a: AccesAdmin,
+    State(etat): State<Etat>,
+    Query(f): Query<Filtres>,
+) -> Resultat<Json<Page<Ligne>>> {
     let (page, decalage) = decalage(f.page);
     let objet = f.objet_type.filter(|s| !s.is_empty());
     let total = sqlx::query_scalar!(
@@ -47,5 +51,9 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>, Query(f): Query<Fi
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page { total, page, elements }))
+    Ok(Json(Page {
+        total,
+        page,
+        elements,
+    }))
 }

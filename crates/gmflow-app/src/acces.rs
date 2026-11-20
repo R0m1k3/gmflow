@@ -81,8 +81,17 @@ impl FromRequestParts<Etat> for Acces {
             session.flush().await?;
             return Err(ErreurApi::NonConnecte);
         };
-        let role = if u.role == "admin" { Role::Admin } else { Role::Responsable };
-        Ok(Acces { utilisateur_id: su.id, identifiant: u.identifiant, role, societe_id: u.societe_id })
+        let role = if u.role == "admin" {
+            Role::Admin
+        } else {
+            Role::Responsable
+        };
+        Ok(Acces {
+            utilisateur_id: su.id,
+            identifiant: u.identifiant,
+            role,
+            societe_id: u.societe_id,
+        })
     }
 }
 

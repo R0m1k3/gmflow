@@ -27,7 +27,9 @@ fn url_admin() -> String {
 }
 
 fn url_base(admin: &str, nom: &str) -> String {
-    let (debut, _) = admin.rsplit_once('/').expect("URL PostgreSQL avec un nom de base");
+    let (debut, _) = admin
+        .rsplit_once('/')
+        .expect("URL PostgreSQL avec un nom de base");
     format!("{debut}/{nom}")
 }
 
@@ -36,18 +38,32 @@ impl BaseTest {
     pub async fn vide() -> Self {
         let admin = url_admin();
         let nom = format!("gmflow_test_{}", uuid::Uuid::new_v4().simple());
-        let mut c = PgConnection::connect(&admin).await.expect("connexion à la base d'administration");
-        sqlx::query(sqlx::AssertSqlSafe(format!("create database {nom}"))).execute(&mut c).await.expect("create database");
+        let mut c = PgConnection::connect(&admin)
+            .await
+            .expect("connexion à la base d'administration");
+        sqlx::query(sqlx::AssertSqlSafe(format!("create database {nom}")))
+            .execute(&mut c)
+            .await
+            .expect("create database");
         c.close().await.ok();
         let url = url_base(&admin, &nom);
-        let pool = crate::db::connecter(&url).await.expect("connexion à la base de test");
-        Self { pool, url, nom, admin }
+        let pool = crate::db::connecter(&url)
+            .await
+            .expect("connexion à la base de test");
+        Self {
+            pool,
+            url,
+            nom,
+            admin,
+        }
     }
 
     /// Base initialisée (migrations GMFlow, apalis, sessions).
     pub async fn nouvelle() -> Self {
         let b = Self::vide().await;
-        crate::db::initialiser(&b.pool).await.expect("initialisation");
+        crate::db::initialiser(&b.pool)
+            .await
+            .expect("initialisation");
         b
     }
 
@@ -65,9 +81,12 @@ impl BaseTest {
     pub async fn fermer(self) {
         self.pool.close().await;
         if let Ok(mut c) = PgConnection::connect(&self.admin).await {
-            let _ = sqlx::query(sqlx::AssertSqlSafe(format!("drop database if exists {} with (force)", self.nom)))
-                .execute(&mut c)
-                .await;
+            let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
+                "drop database if exists {} with (force)",
+                self.nom
+            )))
+            .execute(&mut c)
+            .await;
         }
     }
 }

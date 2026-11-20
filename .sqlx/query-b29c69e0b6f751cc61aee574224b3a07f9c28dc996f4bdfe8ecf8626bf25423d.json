@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select j.quand, u.identifiant as \"auteur?\", j.action, j.objet_type, j.objet_id, j.details\n           from journal j left join utilisateur u on u.id = j.auteur_id\n           where ($1::text is null or j.objet_type = $1)\n           order by j.quand desc, j.id desc\n           limit $2 offset $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "quand",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "quand"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "auteur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "action",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "action"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "objet_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "objet_type"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "objet_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "objet_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "details",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "details"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "b29c69e0b6f751cc61aee574224b3a07f9c28dc996f4bdfe8ecf8626bf25423d"
+}

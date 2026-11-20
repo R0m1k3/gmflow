@@ -77,7 +77,11 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<V
     Ok(Json(v))
 }
 
-pub async fn creer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Json(e): Json<Entree>) -> Resultat<Json<Societe>> {
+pub async fn creer(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Json(e): Json<Entree>,
+) -> Resultat<Json<Societe>> {
     let e = e.nettoyer()?;
     let mut tx = etat.pool.begin().await?;
     let s = sqlx::query_as!(
@@ -95,7 +99,15 @@ pub async fn creer(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>, Json(e):
     )
     .fetch_one(&mut *tx)
     .await?;
-    gmflow_core::journal::ecrire(&mut *tx, Some(a.utilisateur_id), "creation", "societe", Some(s.id.to_string()), json!(e)).await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "creation",
+        "societe",
+        Some(s.id.to_string()),
+        json!(e),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(s))
 }
@@ -126,7 +138,15 @@ pub async fn modifier(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ErreurApi::Absent)?;
-    gmflow_core::journal::ecrire(&mut *tx, Some(a.utilisateur_id), "modification", "societe", Some(id.to_string()), json!(e)).await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "modification",
+        "societe",
+        Some(id.to_string()),
+        json!(e),
+    )
+    .await?;
     tx.commit().await?;
     Ok(Json(s))
 }

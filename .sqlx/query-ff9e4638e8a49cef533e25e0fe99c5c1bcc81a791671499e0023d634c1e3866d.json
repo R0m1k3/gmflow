@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select valeur_chiffree from parametre where cle = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "valeur_chiffree",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "parametre",
+            "name": "valeur_chiffree"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ff9e4638e8a49cef533e25e0fe99c5c1bcc81a791671499e0023d634c1e3866d"
+}

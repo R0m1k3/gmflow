@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select p.mail_id, p.rang, p.nom, p.type_mime, p.sha256, m.chemin_eml\n         from piece_jointe p join mail m on m.id = p.mail_id where p.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mail_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "mail_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rang",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "type_mime",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "type_mime"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "sha256",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "chemin_eml",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "chemin_eml"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "02c5b87d82af4470ab34affbb6b9a69514f8cd1ada092406bc6912f44e81e2e1"
+}

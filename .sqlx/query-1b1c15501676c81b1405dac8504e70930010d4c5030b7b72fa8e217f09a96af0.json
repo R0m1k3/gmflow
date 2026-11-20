@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_mail set active = true, pause_auto = false, echecs_auth = 0 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1b1c15501676c81b1405dac8504e70930010d4c5030b7b72fa8e217f09a96af0"
+}
