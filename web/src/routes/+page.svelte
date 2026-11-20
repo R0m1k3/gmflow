@@ -31,6 +31,27 @@
         <div class="discret">mail{s.n > 1 ? 's' : ''} aujourd'hui</div>
       </a>
     {/each}
+    <a class="carte stat" href="/documents?verifie=non&etat=lu">
+      <div class="discret">Documents</div>
+      <div class="valeur nombre">{t.documents.lus_aujourdhui}</div>
+      <div class="discret">lu{t.documents.lus_aujourdhui > 1 ? 's' : ''} aujourd'hui, {t.documents.a_verifier} à vérifier</div>
+    </a>
+    {#if t.documents.a_lire || t.documents.erreur}
+      <a class="carte stat" href="/documents?etat={t.documents.erreur ? 'erreur' : 'a_lire'}">
+        <div class="discret">Lecture</div>
+        <div class="valeur nombre">{t.documents.a_lire}</div>
+        <div class="discret" class:rouge={t.documents.erreur > 0}>
+          à lire{t.documents.erreur ? `, ${t.documents.erreur} en erreur` : ''}
+        </div>
+      </a>
+    {/if}
+    {#if t.lecture}
+      <a class="carte stat" href="/admin/claude">
+        <div class="discret">Appels Claude de lecture aujourd'hui</div>
+        <div class="valeur nombre" class:rouge={t.lecture.appels_du_jour >= t.lecture.quota}>{t.lecture.appels_du_jour} / {t.lecture.quota}</div>
+        <div class="discret">{t.lecture.auto ? 'lecture automatique active' : 'lecture automatique coupée'}</div>
+      </a>
+    {/if}
     {#if t.claude}
       <a class="carte stat" href="/admin/claude">
         <div class="discret">Jeton Claude</div>

@@ -41,7 +41,16 @@ export interface FicheMail {
   objet: string;
   date_mail: string | null;
   corps_texte: string;
-  pieces: { id: number; nom: string; type_mime: string; taille: number }[];
+  pieces: {
+    id: number;
+    nom: string;
+    type_mime: string;
+    taille: number;
+    document_id: number | null;
+    document_etat: EtatDocument | null;
+    document_type: TypeDocument | null;
+    document_voie: Voie | null;
+  }[];
   boites: { boite_id: number; libelle: string; dossier: string }[];
 }
 
@@ -50,6 +59,8 @@ export interface Tableau {
   boites_alerte: { id: number; libelle: string; motif: 'erreur' | 'pause_auto'; depuis: string | null; message: string | null }[];
   claude?: { etat: string; teste_le?: string | null };
   stockage?: { octets: number; libre_pourcent: number | null };
+  documents: { a_lire: number; erreur: number; a_verifier: number; lus_aujourdhui: number };
+  lecture?: { auto: boolean; quota: number; appels_du_jour: number };
 }
 
 export interface Societe {
@@ -126,4 +137,116 @@ export interface LigneJournal {
   objet_type: string;
   objet_id: string | null;
   details: Record<string, unknown>;
+}
+
+export type TypeDocument = 'facture' | 'avoir' | 'bl' | 'relance' | 'devis' | 'autre';
+export type EtatDocument = 'a_lire' | 'en_cours' | 'lu' | 'ignore' | 'erreur';
+export type Voie = 'facturx' | 'xml' | 'pdf_texte' | 'tableur' | 'scan';
+
+export interface LigneDocument {
+  id: number;
+  mail_id: number;
+  nom_fichier: string;
+  etat: EtatDocument;
+  voie: Voie | null;
+  type: TypeDocument | null;
+  societe: string | null;
+  fournisseur_nom: string | null;
+  numero: string | null;
+  date_document: string | null;
+  montant_ttc: number | null;
+  message: string | null;
+  verifie: boolean;
+  date_mail: string | null;
+}
+
+export interface Confiance {
+  type?: number;
+  societe?: number;
+  fournisseur?: number;
+  numero?: number;
+  date?: number;
+  montants?: number;
+}
+
+export interface FicheDocument {
+  id: number;
+  mail_id: number;
+  mail_objet: string;
+  mail_expediteur: string;
+  piece_id: number;
+  nom_fichier: string;
+  type_mime: string;
+  etat: EtatDocument;
+  voie: Voie | null;
+  message: string | null;
+  type: TypeDocument | null;
+  societe_id: number | null;
+  societe: string | null;
+  fournisseur_nom: string | null;
+  fournisseur_siret: string | null;
+  fournisseur_tva: string | null;
+  numero: string | null;
+  date_document: string | null;
+  numero_commande: string | null;
+  montant_ht: number | null;
+  montant_tva: number | null;
+  montant_ttc: number | null;
+  confiance: Confiance;
+  texte: string | null;
+  modele: string | null;
+  effort: string | null;
+  copie_de: number | null;
+  lu_le: string | null;
+  verifie_le: string | null;
+  verifie_par: string | null;
+  type_corrige: boolean;
+  societe_corrigee: boolean;
+}
+
+export interface Compte {
+  cle: string | null;
+  n: number;
+}
+
+export interface Bilan {
+  par_etat: Compte[];
+  par_voie: Compte[];
+  par_type: Compte[];
+  verifies: number;
+  type_justes: number;
+  societe_justes: number;
+}
+
+export interface Reglage {
+  modele: string;
+  effort: string;
+}
+
+export interface Reglages {
+  extraction_texte: Reglage;
+  ocr_scan: Reglage;
+  nouvel_essai: Reglage;
+  lecture_auto: boolean;
+  quota_lecture_jour: number;
+}
+
+export interface ReglagesVue extends Reglages {
+  appels_lecture_du_jour: number;
+  modeles: string[];
+  efforts: string[];
+}
+
+export interface AppelClaude {
+  quand: string;
+  tache: string;
+  modele: string;
+  effort: string | null;
+  duree_ms: number;
+  succes: boolean;
+  message: string | null;
+}
+
+export interface Appels extends Page<AppelClaude> {
+  stats: { tache: string; modele: string; n: number; reussis: number; duree_moyenne_ms: number }[];
 }
