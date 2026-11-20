@@ -56,7 +56,7 @@ async fn seance_complete() {
     let url = attendre_url(&banc, id).await;
     assert_eq!(
         url,
-        "https://claude.ai/oauth/authorize?code=true&state=abc123"
+        "https://claude.com/cai/oauth/authorize?code=true&state=abc123"
     );
     coller_code(&banc, id, "code-de-test").await;
     tache.await.unwrap().unwrap();

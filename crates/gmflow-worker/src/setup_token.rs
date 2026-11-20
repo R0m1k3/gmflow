@@ -1,5 +1,9 @@
 //! Séance `claude setup-token` dans un pseudo-terminal, pilotée par la ligne `seance_claude`.
 //!
+//! Sortie vérifiée sur Claude CLI 2.1.318 (HOME vide) : bannière, URL
+//! `https://claude.com/cai/oauth/authorize?…`, puis « Paste code here if prompted > », sans question
+//! de premier lancement.
+//!
 //! demarrage → attente_code (URL lue) → code_recu (code collé dans l'UI) → terminee (jeton lu).
 //! Sinon : erreur (pas d'URL, pas de jeton, fin inattendue, worker redémarré) ou expiree (pas de
 //! code). Dans tous les cas le processus est tué, le code effacé et le HOME temporaire supprimé.
@@ -173,7 +177,11 @@ async fn piloter(ctx: &Contexte, id: Uuid, home: &DossierTemp) -> anyhow::Result
         let debut = Instant::now();
         let url = loop {
             lire(&mut rx, &mut sortie, &mut ferme);
-            if let Some(m) = motif_url().find(&texte(&sortie)) {
+            // L'URL n'est retenue qu'une fois suivie d'un blanc : elle peut arriver en plusieurs morceaux.
+            let t = texte(&sortie);
+            if let Some(m) = motif_url().find(&t)
+                && m.end() < t.len()
+            {
                 break m.as_str().to_string();
             }
             if ferme {
