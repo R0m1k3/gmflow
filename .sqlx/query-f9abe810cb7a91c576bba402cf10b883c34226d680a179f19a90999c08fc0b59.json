@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update rapprochement set rejete = true\n         where bl_id = $1 and facture_id <> $2 and methode <> 'manuel' and not rejete\n         returning facture_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "facture_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "rapprochement",
+            "name": "facture_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f9abe810cb7a91c576bba402cf10b883c34226d680a179f19a90999c08fc0b59"
+}

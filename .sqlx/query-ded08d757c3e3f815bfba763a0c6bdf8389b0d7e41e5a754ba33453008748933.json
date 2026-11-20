@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select b.id, b.numero, b.numero_commande, left(b.texte, $4) as texte\n                     from document b\n                     where b.type = 'bl' and b.etat = 'lu' and not b.rapprochement_ignore\n                       and b.fournisseur_id = $2 and b.id <> $1\n                       and (b.societe_id is null or $3::bigint is null or b.societe_id = $3)\n                       and not exists (select 1 from rapprochement r where r.bl_id = b.id\n                                       and (r.facture_id = $1 or not r.rejete))\n                     order by b.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "numero_commande",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero_commande"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "texte",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "ded08d757c3e3f815bfba763a0c6bdf8389b0d7e41e5a754ba33453008748933"
+}

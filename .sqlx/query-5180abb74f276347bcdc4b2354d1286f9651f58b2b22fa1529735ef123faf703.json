@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select (select type = 'facture' and etat = 'lu' from document where id = $1)\n              and (select type = 'bl' and etat = 'lu' from document where id = $2) as \"ok\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5180abb74f276347bcdc4b2354d1286f9651f58b2b22fa1529735ef123faf703"
+}

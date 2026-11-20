@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set numeros_bl = $2, lignes_lues = $3 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ba188e1cc56391cb1944f0dbc3f3441a1b0d45642b742400a9a04ad44cf1e125"
+}

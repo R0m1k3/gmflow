@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from rapprochement\n         where (facture_id = $1 or bl_id = $1) and methode <> 'manuel' and not rejete",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c83d10b8cfe25c01a59497158f6102e2a31a95e6211390112ea6a0779e0c4b5f"
+}

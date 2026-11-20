@@ -17,6 +17,7 @@ pub mod imap;
 pub mod journal;
 pub mod lecture;
 pub mod parametre;
+pub mod rapprochement;
 pub mod reglages;
 pub mod stockage;
 #[cfg(feature = "test-utils")]

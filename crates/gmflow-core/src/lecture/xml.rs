@@ -4,6 +4,8 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 use serde::Serialize;
 
+use super::extraction::{LIGNES_MAX, Ligne, lignes_utiles, numeros_utiles};
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Partie {
     pub nom: Option<String>,
@@ -24,6 +26,10 @@ pub struct DonneesXml {
     pub montant_ht: Option<f64>,
     pub montant_tva: Option<f64>,
     pub montant_ttc: Option<f64>,
+    /// Lignes articles (au plus `LIGNES_MAX`).
+    pub lignes: Vec<Ligne>,
+    /// Numéros des bons de livraison cités (en-tête ou lignes).
+    pub numeros_bl: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -78,8 +84,8 @@ fn remplir_montant(champ: &mut Option<f64>, v: &str) {
 pub fn lire(xml: &[u8]) -> Option<DonneesXml> {
     let mut lecteur = Reader::from_reader(xml);
     let mut pile: Vec<String> = Vec::new();
-    // Attribut schemeID de l'élément courant (identifiants CII).
-    let mut schema_id: Vec<Option<String>> = Vec::new();
+    // Attributs schemeID (identifiants CII) et unitCode (quantités) de chaque élément ouvert.
+    let mut attributs: Vec<(Option<String>, Option<String>)> = Vec::new();
     let mut format: Option<Format> = None;
     let mut d = DonneesXml::default();
     let mut code_type: Option<String> = None;
@@ -99,31 +105,44 @@ pub fn lire(xml: &[u8]) -> Option<DonneesXml> {
                         code_type = Some("381".into());
                     }
                 }
-                let sid = e
-                    .attributes()
-                    .flatten()
-                    .find(|a| nom_local(a.key.as_ref()) == "schemeID")
-                    .map(|a| a.value.to_string());
+                let attribut = |cle: &str| {
+                    e.attributes()
+                        .flatten()
+                        .find(|a| nom_local(a.key.as_ref()) == cle)
+                        .map(|a| a.value.to_string())
+                };
+                let attrs = (attribut("schemeID"), attribut("unitCode"));
+                // Début d'une ligne article.
+                let ligne = match (format, pile.len(), nom.as_str()) {
+                    (Some(Format::Cii), 2, "IncludedSupplyChainTradeLineItem") => pile
+                        .get(1)
+                        .is_some_and(|p| p == "SupplyChainTradeTransaction"),
+                    (Some(Format::Ubl), 1, "InvoiceLine" | "CreditNoteLine") => true,
+                    _ => false,
+                };
+                if ligne && d.lignes.len() <= LIGNES_MAX {
+                    d.lignes.push(Ligne::default());
+                }
                 pile.push(nom);
-                schema_id.push(sid);
+                attributs.push(attrs);
                 texte.clear();
             }
             Ok(Event::End(_)) => {
                 let v = texte.trim();
                 if !v.is_empty() {
                     let chemin = pile.join("/");
-                    let sid = schema_id.last().cloned().flatten();
+                    let (sid, unite) = attributs.last().cloned().unwrap_or_default();
                     match format {
                         Some(Format::Cii) => {
-                            cii(&chemin, sid.as_deref(), v, &mut d, &mut code_type)
+                            cii(&chemin, sid.as_deref(), unite, v, &mut d, &mut code_type)
                         }
-                        Some(Format::Ubl) => ubl(&chemin, v, &mut d, &mut code_type),
+                        Some(Format::Ubl) => ubl(&chemin, unite, v, &mut d, &mut code_type),
                         None => {}
                     }
                 }
                 texte.clear();
                 pile.pop();
-                schema_id.pop();
+                attributs.pop();
             }
             Ok(Event::Text(t)) => texte.push_str(&t.xml10_content()),
             Ok(Event::CData(c)) => texte.push_str(&c.into_inner()),
@@ -149,6 +168,8 @@ pub fn lire(xml: &[u8]) -> Option<DonneesXml> {
     }
     format?;
     d.type_doc = type_depuis_code(code_type.as_deref().unwrap_or("380")).into();
+    d.lignes = lignes_utiles(std::mem::take(&mut d.lignes));
+    d.numeros_bl = numeros_utiles(std::mem::take(&mut d.numeros_bl));
     Some(d)
 }
 
@@ -163,9 +184,44 @@ fn partie_cii(suite: &str, sid: Option<&str>, v: &str, p: &mut Partie) {
     }
 }
 
+fn quantite(ligne: &mut Ligne, v: &str, unite: Option<String>) {
+    if ligne.quantite.is_none() {
+        ligne.quantite = montant(v);
+        ligne.unite = unite;
+    }
+}
+
+fn ligne_cii(s: &str, unite: Option<String>, v: &str, d: &mut DonneesXml) {
+    if let Some(n) = s.strip_suffix("DespatchAdviceReferencedDocument/IssuerAssignedID")
+        && n.ends_with("SpecifiedLineTradeDelivery/")
+    {
+        d.numeros_bl.push(v.to_string());
+        return;
+    }
+    let Some(l) = d.lignes.last_mut() else {
+        return;
+    };
+    match s {
+        "SpecifiedTradeProduct/SellerAssignedID" => remplir(&mut l.reference, v),
+        "SpecifiedTradeProduct/GlobalID" | "SpecifiedTradeProduct/BuyerAssignedID" => {
+            remplir(&mut l.reference, v)
+        }
+        "SpecifiedTradeProduct/Name" => remplir(&mut l.designation, v),
+        "SpecifiedLineTradeDelivery/BilledQuantity" => quantite(l, v, unite),
+        "SpecifiedLineTradeAgreement/NetPriceProductTradePrice/ChargeAmount" => {
+            remplir_montant(&mut l.prix_unitaire_ht, v)
+        }
+        "SpecifiedLineTradeSettlement/SpecifiedTradeSettlementLineMonetarySummation/LineTotalAmount" => {
+            remplir_montant(&mut l.montant_ht, v)
+        }
+        _ => {}
+    }
+}
+
 fn cii(
     chemin: &str,
     sid: Option<&str>,
+    unite: Option<String>,
     v: &str,
     d: &mut DonneesXml,
     code_type: &mut Option<String>,
@@ -173,6 +229,16 @@ fn cii(
     let c = chemin
         .strip_prefix("CrossIndustryInvoice/")
         .unwrap_or(chemin);
+    if let Some(s) = c.strip_prefix("SupplyChainTradeTransaction/IncludedSupplyChainTradeLineItem/")
+    {
+        ligne_cii(s, unite, v, d);
+        return;
+    }
+    if c == "SupplyChainTradeTransaction/ApplicableHeaderTradeDelivery/DespatchAdviceReferencedDocument/IssuerAssignedID"
+    {
+        d.numeros_bl.push(v.to_string());
+        return;
+    }
     const ACCORD: &str = "SupplyChainTradeTransaction/ApplicableHeaderTradeAgreement/";
     const TOTAUX: &str = "SupplyChainTradeTransaction/ApplicableHeaderTradeSettlement/SpecifiedTradeSettlementHeaderMonetarySummation/";
     match c {
@@ -213,11 +279,45 @@ fn partie_ubl(suite: &str, v: &str, p: &mut Partie) {
     }
 }
 
-fn ubl(chemin: &str, v: &str, d: &mut DonneesXml, code_type: &mut Option<String>) {
+fn ligne_ubl(s: &str, unite: Option<String>, v: &str, d: &mut DonneesXml) {
+    if s == "DespatchLineReference/DocumentReference/ID" {
+        d.numeros_bl.push(v.to_string());
+        return;
+    }
+    let Some(l) = d.lignes.last_mut() else {
+        return;
+    };
+    match s {
+        "Item/SellersItemIdentification/ID" => remplir(&mut l.reference, v),
+        "Item/StandardItemIdentification/ID" => remplir(&mut l.reference, v),
+        "Item/Name" => remplir(&mut l.designation, v),
+        "Item/Description" => remplir(&mut l.designation, v),
+        "InvoicedQuantity" | "CreditedQuantity" => quantite(l, v, unite),
+        "Price/PriceAmount" => remplir_montant(&mut l.prix_unitaire_ht, v),
+        "LineExtensionAmount" => remplir_montant(&mut l.montant_ht, v),
+        _ => {}
+    }
+}
+
+fn ubl(
+    chemin: &str,
+    unite: Option<String>,
+    v: &str,
+    d: &mut DonneesXml,
+    code_type: &mut Option<String>,
+) {
     let Some((_, c)) = chemin.split_once('/') else {
         return;
     };
+    if let Some(s) = c
+        .strip_prefix("InvoiceLine/")
+        .or_else(|| c.strip_prefix("CreditNoteLine/"))
+    {
+        ligne_ubl(s, unite, v, d);
+        return;
+    }
     match c {
+        "DespatchDocumentReference/ID" => d.numeros_bl.push(v.to_string()),
         "ID" => remplir(&mut d.numero, v),
         "IssueDate" => {
             if d.date.is_none() {

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = 'a_lire', planifie_le = now(), message = null\n         where type = 'bl' and etat = 'lu' and not lignes_lues\n         returning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "355bdcc81098272d91727bdbc7ed7a155e6893ceb16e9466efe2abe22663f20e"
+}
