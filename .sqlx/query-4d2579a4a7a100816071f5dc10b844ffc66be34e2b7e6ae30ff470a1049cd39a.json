@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_mail set\n             dernier_test = case when serveur <> $3 or port <> $4 or identifiant <> $5 or $6::bytea is not null\n                                 then null else dernier_test end,\n             societe_id = $2, serveur = $3, port = $4, identifiant = $5,\n             mot_de_passe_chiffre = coalesce($6, mot_de_passe_chiffre),\n             libelle = $7, dossiers = $8, reprise_mois = $9,\n             smtp_serveur = $10, smtp_port = $11, smtp_securite = $12, dossier_envoyes = $13\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Int4",
+        "Text",
+        "Bytea",
+        "Text",
+        "TextArray",
+        "Int4",
+        "Text",
+        "Int4",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4d2579a4a7a100816071f5dc10b844ffc66be34e2b7e6ae30ff470a1049cd39a"
+}

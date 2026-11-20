@@ -3,7 +3,7 @@
 
 use gmflow_core::claude::{self, Appel};
 use gmflow_core::fournisseurs::{self, Candidat, Identification, Indices};
-use gmflow_core::{journal, parametre, reglages};
+use gmflow_core::{journal, reglages};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -95,10 +95,9 @@ async fn choisir(
     {
         return Ok(None);
     }
-    let Some(chiffre) = parametre::lire_secret(pool, parametre::CLAUDE_JETON).await? else {
+    let Some(acces) = gmflow_core::claude::acces(pool, &ctx.chiffreur).await? else {
         return Ok(None);
     };
-    let jeton = ctx.chiffreur.dechiffrer_texte(&chiffre)?;
     let mut prompt = format!(
         "Fournisseur du document : nom {} ; SIRET {} ; TVA {} ; expéditeur du mail : {}\n\nFiches existantes :\n",
         ind.nom.as_deref().unwrap_or("?"),
@@ -132,11 +131,11 @@ async fn choisir(
         "--tools",
         "",
     ];
-    let mut a = Appel::new(
+    let mut a = Appel::avec_acces(
         reglages::IDENTIFICATION_FOURNISSEUR,
         &reglage.modele,
         &prompt,
-        &jeton,
+        &acces,
     );
     a.effort = Some(&reglage.effort);
     a.args_en_plus = &args;

@@ -1,5 +1,6 @@
 //! Toutes les 5 minutes (heure ronde, UTC) : battement du worker, une relève par boîte active
-//! et non en pause, la pompe de lecture, puis la tâche d'alertes.
+//! et non en pause, les pompes de lecture et de tri, puis la tâche d'alertes ; une fois par
+//! jour, la purge des publicités de plus de 90 jours.
 
 use std::time::Duration;
 
@@ -27,6 +28,7 @@ pub async fn tour(pool: &PgPool) -> anyhow::Result<usize> {
         file::pousser_releve(pool, *id).await?;
     }
     crate::lecture::pompe_apres_releve(pool).await;
+    crate::tri::pompe_apres_releve(pool).await;
     file::pousser_envoi(pool, file::TacheEnvoi::Alertes).await?;
     Ok(boites.len())
 }
@@ -38,7 +40,7 @@ fn jusqu_au_prochain_tour() -> Duration {
     Duration::from_secs(PERIODE.as_secs() - s)
 }
 
-pub async fn boucle(pool: PgPool) {
+pub async fn boucle(pool: PgPool, fichiers: std::path::PathBuf) {
     // Battement immédiat : /health est vert dès le démarrage.
     let quand = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
@@ -54,6 +56,9 @@ pub async fn boucle(pool: PgPool) {
         match tour(&pool).await {
             Ok(n) => tracing::info!(boites = n, "relèves planifiées"),
             Err(e) => tracing::error!(erreur = ?e, "planification impossible"),
+        }
+        if let Err(e) = crate::purge::si_due(&pool, &fichiers).await {
+            tracing::error!(erreur = ?e, "purge des publicités impossible");
         }
     }
 }

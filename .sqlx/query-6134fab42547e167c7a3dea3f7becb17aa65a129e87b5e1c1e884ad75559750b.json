@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from mail m\n         where m.categorie = 'publicite'\n           and coalesce(m.date_mail, m.recu_le) < now() - make_interval(days => $1)\n           and m.recu_le < now() - make_interval(days => $1)\n           and not exists (\n               select 1 from document d\n               where d.mail_id = m.id\n                 and (d.type in ('facture', 'avoir', 'bl') or d.statut_depot is not null))\n           and not exists (select 1 from brouillon_reponse b where b.mail_id = m.id)\n         returning m.chemin_eml",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chemin_eml",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "chemin_eml"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6134fab42547e167c7a3dea3f7becb17aa65a129e87b5e1c1e884ad75559750b"
+}

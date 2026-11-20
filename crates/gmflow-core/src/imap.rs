@@ -133,3 +133,45 @@ pub async fn dossiers(session: &mut Session) -> Result<Vec<String>, ErreurImap> 
     v.sort();
     Ok(v)
 }
+
+/// Copie un message dans un dossier (APPEND), marqué comme lu : la réponse envoyée apparaît
+/// dans le dossier des envoyés de la boîte.
+pub async fn ajouter(session: &mut Session, dossier: &str, brut: &[u8]) -> Result<(), ErreurImap> {
+    timeout(DELAI, session.append(dossier, Some("(\\Seen)"), None, brut))
+        .await
+        .map_err(|_| ErreurImap::Autre(format!("délai de {} s dépassé", DELAI.as_secs())))??;
+    Ok(())
+}
+
+/// Les `n` derniers messages d'un dossier (bruts), sans les marquer comme lus.
+pub async fn derniers_messages(
+    session: &mut Session,
+    dossier: &str,
+    n: u32,
+) -> Result<Vec<Vec<u8>>, ErreurImap> {
+    use futures::TryStreamExt;
+    let boite = timeout(DELAI, session.examine(dossier))
+        .await
+        .map_err(|_| ErreurImap::Autre("délai dépassé".into()))??;
+    if boite.exists == 0 || n == 0 {
+        return Ok(Vec::new());
+    }
+    let debut = boite.exists.saturating_sub(n - 1).max(1);
+    let plage = format!("{debut}:{}", boite.exists);
+    let messages: Vec<Vec<u8>> = timeout(DELAI, async {
+        let fetches: Vec<_> = session
+            .fetch(&plage, "BODY.PEEK[]")
+            .await?
+            .try_collect()
+            .await?;
+        Ok::<_, async_imap::error::Error>(
+            fetches
+                .iter()
+                .filter_map(|f| f.body().map(<[u8]>::to_vec))
+                .collect(),
+        )
+    })
+    .await
+    .map_err(|_| ErreurImap::Autre("délai dépassé".into()))??;
+    Ok(messages)
+}

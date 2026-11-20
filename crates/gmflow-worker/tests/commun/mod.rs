@@ -209,12 +209,15 @@ pub async fn lire_tout(b: &Banc, mail_ids: &[i64]) {
     gmflow_worker::lecture::pompe(b.pool()).await.unwrap();
     let pool = b.pool().clone();
     let ids = mail_ids.to_vec();
+    // `a_verifier` sans contrôle : état transitoire de `depot::evaluer` (écrit avant la
+    // recherche de doublon), l'évaluation n'est pas finie.
     let fini = attendre(Duration::from_secs(30), || {
         let (pool, ids) = (pool.clone(), ids.clone());
         async move {
             let n: i64 = sqlx::query_scalar(
                 "select count(*) from document where mail_id = any($1) and (etat = 'en_cours' or (etat = 'a_lire' and planifie_le is not null and message is null)
-                   or (etat = 'lu' and type in ('facture', 'avoir') and statut_depot is null))",
+                   or (etat = 'lu' and type in ('facture', 'avoir')
+                       and (statut_depot is null or (statut_depot = 'a_verifier' and controles = '[]'))))",
             )
             .bind(&ids)
             .fetch_one(&pool)

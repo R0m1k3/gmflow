@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from mail m\n           where m.statut_reponse = 'a_repondre'\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id\n                           and ($1::bigint is null or b.societe_id = $1)\n                           and ($2::bigint is null or b.societe_id = $2))\n             and ($3::text is null or coalesce(m.priorite, 'normale') = $3)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "415e177bef8b240edfb73dda54153c4d036873065ea14acac64ce133fd933a49"
+}

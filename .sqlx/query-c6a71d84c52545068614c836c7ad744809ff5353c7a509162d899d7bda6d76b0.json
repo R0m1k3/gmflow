@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select adresse, domaine from expediteur_marque",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "expediteur_marque",
+            "name": "adresse"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "domaine",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "expediteur_marque",
+            "name": "domaine"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "c6a71d84c52545068614c836c7ad744809ff5353c7a509162d899d7bda6d76b0"
+}

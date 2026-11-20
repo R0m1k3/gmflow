@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,\n             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test\n         from boite_mail order by libelle",
+  "query": "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,\n             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test,\n             smtp_serveur, smtp_port, smtp_securite, dossier_envoyes\n         from boite_mail order by libelle",
   "describe": {
     "columns": [
       {
@@ -167,6 +167,50 @@
             "name": "dernier_test"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "smtp_serveur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_serveur"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "smtp_port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_port"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "smtp_securite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_securite"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "dossier_envoyes",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "dossier_envoyes"
+          }
+        }
       }
     ],
     "parameters": {
@@ -187,8 +231,12 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "2046ff0067b621a0fe63804871fb2c3f8e6d75d0d23d35e937bdf18eb33d7989"
+  "hash": "01ebfafc04ad89869691013a2cf03ee53b78d6101f75765e9407d63ce73ae911"
 }

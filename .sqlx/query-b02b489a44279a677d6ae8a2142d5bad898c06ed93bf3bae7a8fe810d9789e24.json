@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail set tri_etat = 'a_trier', tri_pris_le = null, tri_planifie_le = null\n         where tri_etat = 'en_cours' and tri_pris_le < now() - interval '30 minutes'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "b02b489a44279a677d6ae8a2142d5bad898c06ed93bf3bae7a8fe810d9789e24"
+}

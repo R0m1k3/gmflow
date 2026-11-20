@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select p.nom, p.type_mime, p.taille, d.etat as \"etat?\", d.type as \"type_document?\"\n           from piece_jointe p left join document d on d.piece_jointe_id = p.id\n           where p.mail_id = $1 order by p.rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "type_mime",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "type_mime"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "taille",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "taille"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "etat?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "type_document?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "f9ed1ed3fba71af0dfc9e020b0165704fbdf21116a43f72eb06a4a4e5b12a024"
+}

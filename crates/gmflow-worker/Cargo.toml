@@ -14,6 +14,7 @@ async-imap.workspace = true
 axum.workspace = true
 futures.workspace = true
 gmflow-core.workspace = true
+mail-parser.workspace = true
 hex.workspace = true
 portable-pty.workspace = true
 regex.workspace = true

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,\n             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test\n         from boite_mail where id = $1",
+  "query": "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,\n             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test,\n             smtp_serveur, smtp_port, smtp_securite, dossier_envoyes\n         from boite_mail where id = $1",
   "describe": {
     "columns": [
       {
@@ -167,6 +167,50 @@
             "name": "dernier_test"
           }
         }
+      },
+      {
+        "ordinal": 15,
+        "name": "smtp_serveur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_serveur"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "smtp_port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_port"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "smtp_securite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_securite"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "dossier_envoyes",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "dossier_envoyes"
+          }
+        }
       }
     ],
     "parameters": {
@@ -189,8 +233,12 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
       true
     ]
   },
-  "hash": "f560845cbad6dc962064a254c8cf4e84eb0ce969bfd9c3f0ccf9dd7a1ca878e0"
+  "hash": "5c1524e0822d0cdebb7997cf3f9acd85eb2f0f38c322538d08b830d10719f856"
 }

@@ -1,5 +1,6 @@
-//! Test du jeton Claude : un appel court avec le modèle et l'effort de l'extraction (pour
-//! vérifier aussi ce réglage), puis mise à jour de `claude_etat`.
+//! Test de l'accès Claude (setup token ou clé API, selon le mode choisi) : un appel court avec
+//! le modèle et l'effort de l'extraction (pour vérifier aussi ce réglage), puis mise à jour de
+//! `claude_etat`.
 
 use gmflow_core::{claude, parametre, reglages};
 use serde_json::{Value, json};
@@ -13,7 +14,7 @@ fn maintenant() -> String {
 }
 
 pub async fn tester(ctx: &Contexte) -> anyhow::Result<()> {
-    let Some(chiffre) = parametre::lire_secret(&ctx.pool, parametre::CLAUDE_JETON).await? else {
+    let Some(acces) = claude::acces(&ctx.pool, &ctx.chiffreur).await? else {
         parametre::ecrire(
             &ctx.pool,
             parametre::CLAUDE_ETAT,
@@ -22,8 +23,8 @@ pub async fn tester(ctx: &Contexte) -> anyhow::Result<()> {
         .await?;
         return Ok(());
     };
-    let jeton = ctx.chiffreur.dechiffrer_texte(&chiffre)?;
-    let fin: String = jeton
+    let fin: String = acces
+        .secret
         .chars()
         .rev()
         .take(4)
@@ -36,22 +37,20 @@ pub async fn tester(ctx: &Contexte) -> anyhow::Result<()> {
         .unwrap_or(Value::Null);
 
     let reglage = reglages::lire(&ctx.pool).await?.extraction_texte;
-    let r = claude::appeler(
-        &ctx.pool,
-        &ctx.config.claude_bin,
+    let mut a = claude::Appel::avec_acces(
         "test_jeton",
         &reglage.modele,
-        Some(&reglage.effort),
         "Réponds uniquement OK",
-        &[],
-        &jeton,
-    )
-    .await;
+        &acces,
+    );
+    a.effort = Some(&reglage.effort);
+    let r = claude::lancer(&ctx.pool, &ctx.config.claude_bin, &a).await;
     let quand = maintenant();
     match r {
         Ok(_) => {
             parametre::ecrire(&ctx.pool, parametre::CLAUDE_ETAT, &json!({
-                "etat": "valide", "message": "", "teste_le": quand, "utilise_le": quand, "fin": fin
+                "etat": "valide", "message": "", "teste_le": quand, "utilise_le": quand, "fin": fin,
+                "cle_api": acces.cle_api
             }))
             .await?;
             Ok(())
@@ -62,7 +61,7 @@ pub async fn tester(ctx: &Contexte) -> anyhow::Result<()> {
                 parametre::CLAUDE_ETAT,
                 &json!({
                     "etat": "erreur", "message": e.to_string(), "teste_le": quand,
-                    "utilise_le": precedent.get("utilise_le"), "fin": fin
+                    "utilise_le": precedent.get("utilise_le"), "fin": fin, "cle_api": acces.cle_api
                 }),
             )
             .await?;

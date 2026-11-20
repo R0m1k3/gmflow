@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select expediteur from mail where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "660104befadae2789ca29742198ae5155b42e8db4893e88c35f722748cafaf29"
+}

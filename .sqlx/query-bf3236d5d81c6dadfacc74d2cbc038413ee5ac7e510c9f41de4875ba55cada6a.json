@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update brouillon_reponse set statut = 'propose', modifie_le = now(),\n            erreur = 'génération interrompue, relancez-la'\n         where statut = 'generation' and modifie_le < now() - make_interval(mins => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bf3236d5d81c6dadfacc74d2cbc038413ee5ac7e510c9f41de4875ba55cada6a"
+}

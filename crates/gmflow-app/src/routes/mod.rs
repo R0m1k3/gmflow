@@ -11,6 +11,7 @@ pub mod fichiers;
 pub mod fournisseurs;
 pub mod mails;
 pub mod rapprochement;
+pub mod reponses;
 pub mod tableau;
 
 use std::path::PathBuf;
@@ -72,6 +73,29 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/boites", get(mails::boites))
         .route("/mails", get(mails::lister))
         .route("/mails/{id}", get(mails::fiche))
+        .route("/mails/{id}/categorie", put(reponses::changer_categorie))
+        .route("/mails/{id}/statut-reponse", post(reponses::changer_statut))
+        .route("/mails/{id}/brouillons", post(reponses::demander_brouillon))
+        .route("/brouillons/{id}", put(reponses::modifier_brouillon))
+        .route(
+            "/brouillons/{id}/abandonner",
+            post(reponses::abandonner_brouillon),
+        )
+        .route(
+            "/brouillons/{id}/envoyer",
+            post(reponses::envoyer_brouillon),
+        )
+        .route("/a-repondre", get(reponses::a_repondre))
+        .route("/a-repondre/compte", get(reponses::compte))
+        .route("/tri/semaines", get(reponses::semaines))
+        .route(
+            "/admin/expediteurs-marques",
+            get(reponses::marques).post(reponses::marquer),
+        )
+        .route(
+            "/admin/expediteurs-marques/{id}",
+            delete(reponses::supprimer_marque),
+        )
         .route("/pieces/{id}", get(fichiers::piece))
         .route("/tableau-de-bord", get(tableau::tableau))
         .route("/documents", get(documents::lister))
@@ -134,6 +158,11 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
             put(admin_claude::coller).delete(admin_claude::supprimer),
         )
         .route("/admin/claude/test", post(admin_claude::tester))
+        .route(
+            "/admin/claude/cle-api",
+            put(admin_claude::enregistrer_cle).delete(admin_claude::supprimer_cle),
+        )
+        .route("/admin/claude/acces", put(admin_claude::choisir_acces))
         .route("/admin/claude/seances", post(admin_claude::nouvelle_seance))
         .route("/admin/claude/seances/{id}", get(admin_claude::seance))
         .route("/admin/claude/seances/{id}/code", post(admin_claude::code))

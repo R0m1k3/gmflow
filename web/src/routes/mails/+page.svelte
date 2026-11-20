@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import { api, message } from '#lib/api.ts';
   import { quand } from '#lib/format.ts';
+  import { CATEGORIES, classeCategorie, libelleCategorie, libelleStatutReponse } from '#lib/reponses.ts';
   import type { BoiteVisible, LigneMail, Page, SocieteVisible } from '#lib/types.ts';
 
   let societes = $state<SocieteVisible[]>([]);
@@ -17,6 +18,8 @@
     du: p.get('du') ?? '',
     au: p.get('au') ?? '',
     q: p.get('q') ?? '',
+    // Par défaut, les publicités sont masquées ; « toutes » n'est pas envoyé à l'API.
+    categorie: p.get('categorie') ?? 'hors_publicite',
     page: Number(p.get('page') ?? '1')
   });
 
@@ -30,7 +33,14 @@
 
   function requete() {
     const q = new URLSearchParams();
-    for (const [k, v] of Object.entries(filtres)) if (v !== '' && !(k === 'page' && v === 1)) q.set(k, String(v));
+    for (const [k, v] of Object.entries(filtres))
+      if (v !== '' && !(k === 'page' && v === 1) && !(k === 'categorie' && v === 'hors_publicite')) q.set(k, String(v));
+    return q.toString();
+  }
+  function requeteApi() {
+    const q = new URLSearchParams(requete());
+    if (q.get('categorie') === 'toutes') q.delete('categorie');
+    else if (!q.has('categorie')) q.set('categorie', 'hors_publicite');
     return q.toString();
   }
 
@@ -38,7 +48,7 @@
     erreur = '';
     const q = requete();
     try {
-      resultat = await api.get<Page<LigneMail>>(`/api/mails${q ? '?' + q : ''}`);
+      resultat = await api.get<Page<LigneMail>>(`/api/mails?${requeteApi()}`);
       history.replaceState(history.state, '', `/mails${q ? '?' + q : ''}`);
     } catch (e) {
       erreur = message(e);
@@ -78,6 +88,15 @@
     </div>
     <div><label for="du">Du</label><input id="du" type="date" bind:value={filtres.du} /></div>
     <div><label for="au">Au</label><input id="au" type="date" bind:value={filtres.au} /></div>
+    <div>
+      <label for="c">Catégorie</label>
+      <select id="c" bind:value={filtres.categorie}>
+        <option value="hors_publicite">Toutes sauf publicités</option>
+        <option value="toutes">Toutes</option>
+        <option value="non_trie">Non triés</option>
+        {#each CATEGORIES as c (c)}<option value={c}>{libelleCategorie[c]}</option>{/each}
+      </select>
+    </div>
     <div><label for="q">Expéditeur ou objet</label><input id="q" type="search" bind:value={filtres.q} /></div>
   </div>
   <button>Filtrer</button>
@@ -87,18 +106,22 @@
 {#if resultat}
   <p class="discret">{resultat.total} mail{resultat.total > 1 ? 's' : ''}</p>
   <table>
-    <thead><tr><th>Date</th><th>Expéditeur</th><th>Objet</th><th>PJ</th><th>Boîtes</th></tr></thead>
+    <thead><tr><th>Date</th><th>Expéditeur</th><th>Objet</th><th>Catégorie</th><th>PJ</th><th>Boîtes</th></tr></thead>
     <tbody>
       {#each resultat.elements as m (m.id)}
         <tr class="cliquable" onclick={() => goto(`/mails/${m.id}`)}>
           <td class="date">{quand(m.date_mail)}</td>
           <td>{m.expediteur || '—'}</td>
           <td><a href="/mails/{m.id}">{m.objet || '(sans objet)'}</a></td>
+          <td>
+            {#if m.categorie}<span class="etiquette {classeCategorie[m.categorie]}">{libelleCategorie[m.categorie]}</span>{/if}
+            {#if m.statut_reponse}<span class="discret">{libelleStatutReponse[m.statut_reponse]}</span>{/if}
+          </td>
           <td class="nombre">{m.nb_pieces || ''}</td>
           <td class="discret">{m.boites.join(', ')}</td>
         </tr>
       {:else}
-        <tr><td colspan="5" class="discret">Aucun mail.</td></tr>
+        <tr><td colspan="6" class="discret">Aucun mail.</td></tr>
       {/each}
     </tbody>
   </table>

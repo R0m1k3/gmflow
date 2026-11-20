@@ -170,3 +170,13 @@ pub async fn envoyer(
     transport(e, mdp)?.send(message).await?;
     Ok(message_id)
 }
+
+/// Envoie un message déjà construit (réponse à un mail) avec cette configuration SMTP.
+pub async fn envoyer_message(
+    e: &Expedition,
+    mdp: Option<&str>,
+    message: lettre::Message,
+) -> anyhow::Result<()> {
+    transport(e, mdp)?.send(message).await?;
+    Ok(())
+}

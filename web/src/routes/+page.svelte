@@ -31,6 +31,11 @@
         <div class="discret">mail{s.n > 1 ? 's' : ''} aujourd'hui</div>
       </a>
     {/each}
+    <a class="carte stat" href="/a-repondre">
+      <div class="discret">Mails à répondre</div>
+      <div class="valeur nombre">{t.a_repondre}</div>
+      <div class="discret">question{t.a_repondre > 1 ? 's' : ''} en attente de réponse</div>
+    </a>
     <a class="carte stat" href="/documents?verifie=non&etat=lu">
       <div class="discret">Documents</div>
       <div class="valeur nombre">{t.documents.lus_aujourdhui}</div>
@@ -67,9 +72,20 @@
         <div class="discret">{t.lecture.auto ? 'lecture automatique active' : 'lecture automatique coupée'}</div>
       </a>
     {/if}
+    {#if t.tri}
+      <a class="carte stat" href="/admin/claude">
+        <div class="discret">Appels Claude de tri aujourd'hui</div>
+        <div class="valeur nombre" class:rouge={t.tri.appels_du_jour >= t.tri.quota}>{t.tri.appels_du_jour} / {t.tri.quota}</div>
+        <div class="discret" class:rouge={t.tri.en_erreur > 0}>
+          {t.tri.auto ? 'tri automatique actif' : 'tri automatique coupé'}{t.tri.en_attente ? `, ${t.tri.en_attente} en attente` : ''}{t.tri.en_erreur
+            ? `, ${t.tri.en_erreur} en erreur`
+            : ''}
+        </div>
+      </a>
+    {/if}
     {#if t.claude}
       <a class="carte stat" href="/admin/claude">
-        <div class="discret">Jeton Claude</div>
+        <div class="discret">Accès Claude</div>
         <div class="valeur">
           <span class="etiquette {t.claude.etat === 'valide' ? 'ok' : t.claude.etat === 'erreur' ? 'ko' : 'att'}">{libelleClaude[t.claude.etat] ?? t.claude.etat}</span>
         </div>

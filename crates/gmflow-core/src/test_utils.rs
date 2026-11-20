@@ -162,6 +162,8 @@ pub struct SmtpTest {
     pub port: u16,
     pub messages: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     pub refuser: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Identifiants reçus par AUTH PLAIN (sans le mot de passe).
+    pub connexions: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 impl SmtpTest {
@@ -173,7 +175,8 @@ impl SmtpTest {
         let port = ecoute.local_addr().unwrap().port();
         let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let refuser = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (m, r) = (messages.clone(), refuser.clone());
+        let connexions = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (m, r, c) = (messages.clone(), refuser.clone(), connexions.clone());
         // Fil à part avec son runtime : le serveur survit aux runtimes des tests et des workers.
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -186,7 +189,7 @@ impl SmtpTest {
                     let Ok((flux, _)) = ecoute.accept().await else {
                         return;
                     };
-                    let (m, r) = (m.clone(), r.clone());
+                    let (m, r, c) = (m.clone(), r.clone(), c.clone());
                     tokio::spawn(async move {
                         let (lecture, mut ecriture) = flux.into_split();
                         let mut lignes = BufReader::new(lecture);
@@ -199,7 +202,21 @@ impl SmtpTest {
                             }
                             let cmd = ligne.trim_end().to_ascii_uppercase();
                             let rep: &[u8] = if cmd.starts_with("EHLO") {
-                                b"250-smtp.test\r\n250 8BITMIME\r\n"
+                                b"250-smtp.test\r\n250-AUTH PLAIN\r\n250 8BITMIME\r\n"
+                            } else if cmd.starts_with("AUTH PLAIN ") {
+                                use base64::Engine;
+                                // Jeton relu dans la ligne d'origine (`cmd` est en majuscules).
+                                let jeton = ligne.trim().get(11..).unwrap_or_default();
+                                let brut = base64::engine::general_purpose::STANDARD
+                                    .decode(jeton)
+                                    .unwrap_or_default();
+                                let champs: Vec<&[u8]> = brut.split(|o| *o == 0).collect();
+                                if let Some(id) = champs.get(1) {
+                                    c.lock()
+                                        .unwrap()
+                                        .push(String::from_utf8_lossy(id).into_owned());
+                                }
+                                b"235 OK\r\n"
                             } else if cmd.starts_with("HELO") || cmd.starts_with("MAIL") {
                                 b"250 OK\r\n"
                             } else if cmd.starts_with("RCPT") {
@@ -239,7 +256,12 @@ impl SmtpTest {
             port,
             messages,
             refuser,
+            connexions,
         }
+    }
+
+    pub fn connexions(&self) -> Vec<String> {
+        self.connexions.lock().unwrap().clone()
     }
 
     pub fn recus(&self) -> Vec<String> {

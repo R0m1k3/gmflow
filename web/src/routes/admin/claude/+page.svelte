@@ -2,7 +2,7 @@
   import { api, message, sonder } from '#lib/api.ts';
   import { quand } from '#lib/format.ts';
   import { libelleTache } from '#lib/documents.ts';
-  import type { Appels, EtatClaude, Reglages, ReglagesVue, Seance } from '#lib/types.ts';
+  import type { Appels, EtatClaude, ExpediteurMarque, Reglages, ReglagesVue, Seance } from '#lib/types.ts';
 
   let etat = $state<EtatClaude | null>(null);
   let jeton = $state('');
@@ -51,6 +51,64 @@
     await chargerEtat();
   }
 
+  // Clé API Anthropic : alternative au setup token (facturée à l'usage par Anthropic).
+  let cle = $state('');
+  let infoAcces = $state('');
+  async function enregistrerCle(e: SubmitEvent) {
+    e.preventDefault();
+    erreur = '';
+    infoAcces = '';
+    try {
+      await api.put('/api/admin/claude/cle-api', { cle });
+      cle = '';
+      await chargerEtat();
+      infoAcces = etat?.acces?.mode === 'cle_api' ? 'Clé enregistrée, test en cours.' : 'Clé enregistrée. Choisissez « Clé API » pour l\'utiliser.';
+      if (etat?.etat === 'en_test') suivreEtat();
+    } catch (err) {
+      erreur = message(err);
+    }
+  }
+  async function supprimerCle() {
+    if (!confirm('Supprimer la clé API ? GMFlow reviendra au setup token.')) return;
+    erreur = '';
+    try {
+      await api.del('/api/admin/claude/cle-api');
+      await chargerEtat();
+    } catch (err) {
+      erreur = message(err);
+    }
+  }
+  async function choisirAcces(mode: string) {
+    erreur = '';
+    infoAcces = '';
+    try {
+      await api.put('/api/admin/claude/acces', { mode });
+      await chargerEtat();
+      suivreEtat();
+    } catch (err) {
+      erreur = message(err);
+      await chargerEtat();
+    }
+  }
+
+  let marques = $state<ExpediteurMarque[]>([]);
+  async function chargerMarques() {
+    marques = await api.get<ExpediteurMarque[]>('/api/admin/expediteurs-marques');
+  }
+  $effect(() => {
+    chargerMarques().catch((e) => (erreur = message(e)));
+  });
+  async function retirerMarque(m: ExpediteurMarque) {
+    if (!confirm(`Ne plus classer automatiquement ${m.domaine ?? m.adresse} en publicité ?`)) return;
+    erreur = '';
+    try {
+      await api.del(`/api/admin/expediteurs-marques/${m.id}`);
+      await chargerMarques();
+    } catch (err) {
+      erreur = message(err);
+    }
+  }
+
   const finals = ['terminee', 'erreur', 'expiree'];
   async function lancer() {
     erreur = '';
@@ -89,18 +147,13 @@
   let appels = $state<Appels | null>(null);
   let pageAppels = $state(1);
   const taches = ['extraction_texte', 'ocr_scan', 'nouvel_essai', 'identification_fournisseur'] as const;
+  const tachesTri = ['tri_mail', 'brouillon_reponse'] as const;
 
   async function chargerReglages() {
     vue = await api.get<ReglagesVue>('/api/admin/claude/reglages');
-    const { extraction_texte, ocr_scan, nouvel_essai, identification_fournisseur, lecture_auto, quota_lecture_jour } = vue;
-    reglages = {
-      extraction_texte: { ...extraction_texte },
-      ocr_scan: { ...ocr_scan },
-      nouvel_essai: { ...nouvel_essai },
-      identification_fournisseur: { ...identification_fournisseur },
-      lecture_auto,
-      quota_lecture_jour
-    };
+    // Copie des seuls réglages (sans les compteurs ni les listes de choix).
+    const { appels_lecture_du_jour: _l, appels_tri_du_jour: _t, modeles: _m, efforts: _e, ...r } = vue;
+    reglages = JSON.parse(JSON.stringify(r)) as Reglages;
   }
   async function chargerAppels() {
     appels = await api.get<Appels>(`/api/admin/claude/appels${pageAppels > 1 ? `?page=${pageAppels}` : ''}`);
@@ -115,7 +168,12 @@
     erreur = '';
     infoReglages = '';
     try {
-      await api.put('/api/admin/claude/reglages', { ...reglages, quota_lecture_jour: Number(reglages.quota_lecture_jour) });
+      await api.put('/api/admin/claude/reglages', {
+        ...reglages,
+        quota_lecture_jour: Number(reglages.quota_lecture_jour),
+        quota_tri_jour: Number(reglages.quota_tri_jour),
+        tri_depuis_jours: Number(reglages.tri_depuis_jours)
+      });
       await chargerReglages();
       infoReglages = 'Réglages enregistrés.';
     } catch (err) {
@@ -154,14 +212,21 @@
   {@const [texte, classe] = libelles[etat.etat] ?? [etat.etat, '']}
   <div class="carte">
     <div class="actions">
-      <span>Jeton : <span class="etiquette {classe}">{texte}</span></span>
-      {#if etat.fin}<span class="discret">se termine par …{etat.fin}</span>{/if}
+      <span>
+        {etat.acces?.mode === 'cle_api' ? 'Clé API' : 'Setup token'} :
+        <span class="etiquette {classe}">{etat.etat === 'absent' && etat.acces?.mode === 'cle_api' ? 'aucune clé' : texte}</span>
+      </span>
+      {#if etat.acces?.mode === 'cle_api'}
+        {#if etat.acces.cle_api_fin}<span class="discret">se termine par …{etat.acces.cle_api_fin}</span>{/if}
+      {:else if etat.fin}<span class="discret">se termine par …{etat.fin}</span>{/if}
       <span class="discret">testé {quand(etat.teste_le)}</span>
       <span class="discret">dernière utilisation {quand(etat.utilise_le)}</span>
       <span style="flex:1"></span>
       {#if etat.etat !== 'absent'}
         <button class="second" onclick={tester}>Tester</button>
-        <button class="danger" onclick={supprimer}>Supprimer</button>
+      {/if}
+      {#if etat.acces?.jeton ?? etat.etat !== 'absent'}
+        <button class="danger" onclick={supprimer}>Supprimer le jeton</button>
       {/if}
     </div>
     {#if etat.etat === 'erreur' && etat.message}<p class="discret">{etat.message}</p>{/if}
@@ -196,6 +261,31 @@
   <button>Enregistrer et tester</button>
   <span class="discret">Généré ailleurs avec <code>claude setup-token</code>. Il n'est plus jamais affiché ensuite.</span>
 </form>
+
+<h2>Ou utiliser une clé API Anthropic</h2>
+<div class="carte">
+  {#if infoAcces}<div class="bandeau ok">{infoAcces}</div>{/if}
+  <p class="discret">
+    Alternative au setup token : une clé de la console Anthropic, facturée à l'usage. GMFlow utilise l'une ou l'autre, jamais les deux.
+  </p>
+  {#if etat?.acces}
+    <div class="actions">
+      <span>Accès utilisé :</span>
+      <label class="choix"><input type="radio" name="acces" checked={etat.acces.mode === 'jeton'} onchange={() => choisirAcces('jeton')} /> setup token</label>
+      <label class="choix">
+        <input type="radio" name="acces" checked={etat.acces.mode === 'cle_api'} disabled={!etat.acces.cle_api} onchange={() => choisirAcces('cle_api')} />
+        clé API{etat.acces.cle_api ? ` (…${etat.acces.cle_api_fin ?? ''})` : ' (aucune)'}
+      </label>
+      <span style="flex:1"></span>
+      {#if etat.acces.cle_api}<button class="danger" onclick={supprimerCle}>Supprimer la clé</button>{/if}
+    </div>
+  {/if}
+  <form class="actions" style="margin-top:0.8rem" onsubmit={enregistrerCle}>
+    <input type="password" bind:value={cle} placeholder="sk-ant-api03-…" required autocomplete="off" style="max-width:420px" />
+    <button>{etat?.acces?.cle_api ? 'Remplacer la clé' : 'Enregistrer la clé'}</button>
+    <span class="discret">Elle n'est plus jamais affichée ensuite.</span>
+  </form>
+</div>
 
 <h2>Lecture des documents</h2>
 {#if vue && reglages}
@@ -235,6 +325,68 @@
     <button>Enregistrer</button>
   </form>
 {/if}
+
+<h2>Tri des mails et réponses</h2>
+{#if vue && reglages}
+  <form class="carte" onsubmit={enregistrerReglages}>
+    <table class="reglages">
+      <thead><tr><th>Tâche</th><th>Modèle</th><th>Effort</th></tr></thead>
+      <tbody>
+        {#each tachesTri as t (t)}
+          <tr>
+            <td>{libelleTache[t]}</td>
+            <td>
+              <select bind:value={reglages[t].modele} aria-label="Modèle : {libelleTache[t]}">
+                {#each vue.modeles as m (m)}<option value={m}>{m}</option>{/each}
+              </select>
+            </td>
+            <td>
+              <select bind:value={reglages[t].effort} aria-label="Effort : {libelleTache[t]}">
+                {#each vue.efforts as ef (ef)}<option value={ef}>{ef}</option>{/each}
+              </select>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+    <div class="champs">
+      <div>
+        <label for="qtri">Appels de tri par jour (au plus)</label>
+        <input id="qtri" type="number" min="0" bind:value={reglages.quota_tri_jour} />
+        <div class="discret">
+          {vue.appels_tri_du_jour} aujourd'hui. Les mails reconnus par les en-têtes (listes, no-reply, expéditeurs marqués) ne coûtent rien.
+        </div>
+      </div>
+      <div>
+        <label for="dtri">Trier les mails reçus depuis (jours)</label>
+        <input id="dtri" type="number" min="1" max="365" bind:value={reglages.tri_depuis_jours} />
+        <div class="discret">Les mails plus anciens restent non triés.</div>
+      </div>
+      <div class="case">
+        <label><input type="checkbox" bind:checked={reglages.tri_auto} /> Tri automatique des nouveaux mails</label>
+        <div class="discret">Les brouillons ne sont jamais automatiques : ils se demandent mail par mail.</div>
+      </div>
+    </div>
+    <button>Enregistrer</button>
+  </form>
+{/if}
+
+<h3>Expéditeurs toujours classés en publicité</h3>
+<p class="discret">Ajoutés depuis la fiche d'un mail (« Toujours publicité »). Leurs mails sont classés sans appel à Claude et supprimés après 90 jours.</p>
+<table>
+  <thead><tr><th>Adresse ou domaine</th><th>Ajouté</th><th></th></tr></thead>
+  <tbody>
+    {#each marques as m (m.id)}
+      <tr>
+        <td>{m.domaine ? `tout le domaine ${m.domaine}` : m.adresse}</td>
+        <td class="discret">{quand(m.cree_le)}{m.cree_par ? ` par ${m.cree_par}` : ''}</td>
+        <td><button class="second" onclick={() => retirerMarque(m)}>Retirer</button></td>
+      </tr>
+    {:else}
+      <tr><td colspan="3" class="discret">Aucun expéditeur marqué.</td></tr>
+    {/each}
+  </tbody>
+</table>
 
 <h2>Appels à Claude</h2>
 {#if appels}
@@ -286,5 +438,8 @@
   .reglages { margin-bottom: 1rem; }
   .reglages select { max-width: 12rem; }
   .stats { margin-bottom: 0.8rem; }
+  .choix { display: flex; gap: 0.3rem; align-items: center; color: var(--encre); font-size: 1rem; margin: 0; }
+  .choix input { width: auto; }
+  h3 { font-size: 0.98rem; margin: 1.3rem 0 0.4rem; font-weight: 650; }
   .case label { display: flex; gap: 0.4rem; align-items: center; color: var(--encre); font-size: 1rem; margin-top: 1.4rem; }
 </style>

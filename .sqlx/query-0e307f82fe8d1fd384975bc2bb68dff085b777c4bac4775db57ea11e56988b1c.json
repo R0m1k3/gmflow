@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with c as (\n            select id from mail\n            where tri_etat = 'a_trier'\n              and (tri_planifie_le is null or tri_planifie_le < now() - interval '30 minutes')\n              and (not $1 or tri_message is null)\n            order by coalesce(date_mail, recu_le) desc\n            limit $2\n            for update skip locked\n         )\n         update mail m set tri_planifie_le = now() from c where m.id = c.id\n         returning m.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0e307f82fe8d1fd384975bc2bb68dff085b777c4bac4775db57ea11e56988b1c"
+}

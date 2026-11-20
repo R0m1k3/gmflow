@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, message_id, expediteur, destinataires, objet, date_mail, corps_texte from mail where id = $1",
+  "query": "update mail set tri_etat = 'en_cours', tri_pris_le = now()\n         where id = $1 and tri_etat = 'a_trier'\n         returning id, expediteur, objet, corps_texte, chemin_eml",
   "describe": {
     "columns": [
       {
@@ -16,17 +16,6 @@
       },
       {
         "ordinal": 1,
-        "name": "message_id",
-        "type_info": "Text",
-        "origin": {
-          "Table": {
-            "table": "mail",
-            "name": "message_id"
-          }
-        }
-      },
-      {
-        "ordinal": 2,
         "name": "expediteur",
         "type_info": "Text",
         "origin": {
@@ -37,18 +26,7 @@
         }
       },
       {
-        "ordinal": 3,
-        "name": "destinataires",
-        "type_info": "TextArray",
-        "origin": {
-          "Table": {
-            "table": "mail",
-            "name": "destinataires"
-          }
-        }
-      },
-      {
-        "ordinal": 4,
+        "ordinal": 2,
         "name": "objet",
         "type_info": "Text",
         "origin": {
@@ -59,24 +37,24 @@
         }
       },
       {
-        "ordinal": 5,
-        "name": "date_mail",
-        "type_info": "Timestamptz",
-        "origin": {
-          "Table": {
-            "table": "mail",
-            "name": "date_mail"
-          }
-        }
-      },
-      {
-        "ordinal": 6,
+        "ordinal": 3,
         "name": "corps_texte",
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "mail",
             "name": "corps_texte"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "chemin_eml",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "chemin_eml"
           }
         }
       }
@@ -91,10 +69,8 @@
       false,
       false,
       false,
-      false,
-      true,
       false
     ]
   },
-  "hash": "e6a6e65ff88b0a129d5e6f1cc76d5aac35033864bea7398d442df16baadc61f1"
+  "hash": "ea58cd34ca50b242984eb3d47a3d9bac5324fb01c12cf00387830684fb7ce07e"
 }

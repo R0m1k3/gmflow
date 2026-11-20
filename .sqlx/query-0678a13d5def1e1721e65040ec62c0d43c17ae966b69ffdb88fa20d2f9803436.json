@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update brouillon_reponse set statut = 'abandonne', modifie_le = now()\n         where id = $1 and statut in ('propose', 'modifie')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0678a13d5def1e1721e65040ec62c0d43c17ae966b69ffdb88fa20d2f9803436"
+}

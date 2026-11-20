@@ -65,6 +65,8 @@ pub struct Filtres {
     du: Option<String>,
     au: Option<String>,
     q: Option<String>,
+    /// Une catégorie, `hors_publicite` (toutes sauf les publicités) ou `non_trie`.
+    categorie: Option<String>,
     page: Option<i64>,
 }
 
@@ -77,6 +79,22 @@ pub struct LigneMail {
     date_mail: Option<time::OffsetDateTime>,
     nb_pieces: i64,
     boites: Vec<String>,
+    categorie: Option<String>,
+    statut_reponse: Option<String>,
+}
+
+pub fn filtre_categorie(v: &Option<String>) -> Resultat<Option<String>> {
+    match v.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(None),
+        Some(c)
+            if c == "hors_publicite"
+                || c == "non_trie"
+                || gmflow_core::tri::CATEGORIES.contains(&c) =>
+        {
+            Ok(Some(c.to_string()))
+        }
+        Some(c) => Err(ErreurApi::Donnees(format!("catégorie inconnue : {c}"))),
+    }
 }
 
 pub fn date(v: &Option<String>) -> Resultat<Option<time::Date>> {
@@ -108,6 +126,7 @@ pub async fn lister(
     let q = motif(&f.q);
     let (page, decalage) = decalage(f.page);
     let acces_societe = acces.societe_filtre();
+    let categorie = filtre_categorie(&f.categorie)?;
 
     let total = sqlx::query_scalar!(
         r#"select count(*) as "n!" from mail m
@@ -118,13 +137,18 @@ pub async fn lister(
                            and ($3::bigint is null or b.id = $3))
              and ($4::date is null or coalesce(m.date_mail, m.recu_le) >= ($4::date::timestamp at time zone 'Europe/Paris'))
              and ($5::date is null or coalesce(m.date_mail, m.recu_le) < (($5::date + 1)::timestamp at time zone 'Europe/Paris'))
-             and ($6::text is null or m.expediteur ilike $6 or m.objet ilike $6)"#,
+             and ($6::text is null or m.expediteur ilike $6 or m.objet ilike $6)
+             and ($7::text is null
+                  or ($7 = 'hors_publicite' and m.categorie is distinct from 'publicite')
+                  or ($7 = 'non_trie' and m.categorie is null)
+                  or m.categorie = $7)"#,
         acces_societe,
         f.societe,
         f.boite,
         du,
         au,
-        q
+        q,
+        categorie
     )
     .fetch_one(&etat.pool)
     .await?;
@@ -135,7 +159,8 @@ pub async fn lister(
                (select count(*) from piece_jointe p where p.mail_id = m.id) as "nb_pieces!",
                array(select distinct b.libelle from mail_boite mb join boite_mail b on b.id = mb.boite_id
                      where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)
-                     order by b.libelle) as "boites!"
+                     order by b.libelle) as "boites!",
+               m.categorie, m.statut_reponse
            from mail m
            where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
@@ -145,6 +170,10 @@ pub async fn lister(
              and ($4::date is null or coalesce(m.date_mail, m.recu_le) >= ($4::date::timestamp at time zone 'Europe/Paris'))
              and ($5::date is null or coalesce(m.date_mail, m.recu_le) < (($5::date + 1)::timestamp at time zone 'Europe/Paris'))
              and ($6::text is null or m.expediteur ilike $6 or m.objet ilike $6)
+             and ($9::text is null
+                  or ($9 = 'hors_publicite' and m.categorie is distinct from 'publicite')
+                  or ($9 = 'non_trie' and m.categorie is null)
+                  or m.categorie = $9)
            order by coalesce(m.date_mail, m.recu_le) desc, m.id desc
            limit $7 offset $8"#,
         acces_societe,
@@ -154,7 +183,8 @@ pub async fn lister(
         au,
         q,
         PAR_PAGE,
-        decalage
+        decalage,
+        categorie
     )
     .fetch_all(&etat.pool)
     .await?;
@@ -196,6 +226,14 @@ pub struct FicheMail {
     corps_texte: String,
     pieces: Vec<PieceVue>,
     boites: Vec<BoiteDuMail>,
+    categorie: Option<String>,
+    categorie_par: Option<String>,
+    resume: Option<String>,
+    priorite: Option<String>,
+    statut_reponse: Option<String>,
+    tri_etat: Option<String>,
+    tri_message: Option<String>,
+    brouillons: Vec<super::reponses::BrouillonVue>,
 }
 
 /// Vrai si le mail a au moins une ligne `mail_boite` visible par cet accès.
@@ -219,7 +257,9 @@ pub async fn fiche(
         return Err(ErreurApi::Absent);
     }
     let m = sqlx::query!(
-        "select id, message_id, expediteur, destinataires, objet, date_mail, corps_texte from mail where id = $1",
+        "select id, message_id, expediteur, destinataires, objet, date_mail, corps_texte, categorie,
+                categorie_par, resume, priorite, statut_reponse, tri_etat, tri_message
+         from mail where id = $1",
         id
     )
     .fetch_one(&etat.pool)
@@ -255,5 +295,13 @@ pub async fn fiche(
         corps_texte: m.corps_texte,
         pieces,
         boites,
+        categorie: m.categorie,
+        categorie_par: m.categorie_par,
+        resume: m.resume,
+        priorite: m.priorite,
+        statut_reponse: m.statut_reponse,
+        tri_etat: m.tri_etat,
+        tri_message: m.tri_message,
+        brouillons: super::reponses::brouillons_du_mail(&etat, &acces, id).await?,
     }))
 }

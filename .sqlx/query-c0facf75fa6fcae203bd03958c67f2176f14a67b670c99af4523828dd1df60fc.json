@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into expediteur_marque (adresse, domaine, cree_par) values ($1, $2, $3)\n         on conflict do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c0facf75fa6fcae203bd03958c67f2176f14a67b670c99af4523828dd1df60fc"
+}

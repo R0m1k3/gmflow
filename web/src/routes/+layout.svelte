@@ -24,6 +24,17 @@
       });
   });
 
+  // Nombre de mails à répondre, relu à chaque changement de page.
+  let aRepondre = $state(0);
+  $effect(() => {
+    void page.url.pathname;
+    if (!session.moi) return;
+    api
+      .get<{ n: number }>('/api/a-repondre/compte')
+      .then((v) => (aRepondre = v.n))
+      .catch(() => {});
+  });
+
   async function deconnecter() {
     await api.post('/api/deconnexion');
     session.moi = null;
@@ -33,6 +44,7 @@
 
   const liens = [
     { href: '/', texte: 'Tableau de bord' },
+    { href: '/a-repondre', texte: 'À répondre' },
     { href: '/mails', texte: 'Mails' },
     { href: '/documents', texte: 'Documents' },
     { href: '/depots', texte: 'Dépôts' },
@@ -59,7 +71,10 @@
     <nav>
       <div class="marque">GMFlow</div>
       {#each liens as l (l.href)}
-        <a href={l.href} class:actif={actif(l.href)}>{l.texte}</a>
+        <a href={l.href} class:actif={actif(l.href)}>
+          {l.texte}
+          {#if l.href === '/a-repondre' && aRepondre > 0}<span class="pastille">{aRepondre}</span>{/if}
+        </a>
       {/each}
       {#if session.moi.role === 'admin'}
         <div class="section">Administration</div>
@@ -82,6 +97,7 @@
   .marque { font-weight: 700; font-size: 1.1rem; color: var(--accent); padding: 0 0.5rem 0.9rem; letter-spacing: 0.01em; }
   nav a { color: var(--encre); text-decoration: none; padding: 0.38rem 0.5rem; border-radius: var(--rayon); }
   nav a:hover { background: var(--fond); }
+  .pastille { float: right; font-size: 0.75rem; font-weight: 600; min-width: 1.4rem; text-align: center; padding: 0 0.35rem; border-radius: 99px; background: var(--attention-clair); color: var(--attention); border: 1px solid #ecd29a; }
   nav a.actif { background: var(--accent-clair); color: var(--accent); font-weight: 600; }
   .section { font-size: 0.78rem; color: var(--gris); padding: 1rem 0.5rem 0.3rem; }
   .pied { margin-top: auto; padding: 0.5rem; display: grid; gap: 0.5rem; }
