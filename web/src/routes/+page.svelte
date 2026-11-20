@@ -36,6 +36,21 @@
       <div class="valeur nombre">{t.documents.lus_aujourdhui}</div>
       <div class="discret">lu{t.documents.lus_aujourdhui > 1 ? 's' : ''} aujourd'hui, {t.documents.a_verifier} à vérifier</div>
     </a>
+    <a class="carte stat" href="/depots">
+      <div class="discret">Dépôts Dext / Yooz</div>
+      <div class="valeur nombre">{t.depots.a_verifier}</div>
+      <div class="discret">
+        facture{t.depots.a_verifier > 1 ? 's' : ''} à vérifier, {t.depots.prets} prête{t.depots.prets > 1 ? 's' : ''},
+        {t.depots.deposes_mois} déposée{t.depots.deposes_mois > 1 ? 's' : ''} ce mois-ci
+      </div>
+    </a>
+    {#if t.depots.bloques}
+      <a class="carte stat" href="/depots?onglet=erreur">
+        <div class="discret">Dépôts bloqués</div>
+        <div class="valeur nombre rouge">{t.depots.bloques}</div>
+        <div class="discret rouge">en erreur ou doublons à examiner</div>
+      </a>
+    {/if}
     {#if t.documents.a_lire || t.documents.erreur}
       <a class="carte stat" href="/documents?etat={t.documents.erreur ? 'erreur' : 'a_lire'}">
         <div class="discret">Lecture</div>

@@ -2,8 +2,8 @@
   import { api, message } from '#lib/api.ts';
   import type { Societe } from '#lib/types.ts';
 
-  type Form = { id: number | null; raison_sociale: string; siret: string; tva: string; adresses: string; outil_depot: string; adresse_depot: string; archivee: boolean };
-  const vide = (): Form => ({ id: null, raison_sociale: '', siret: '', tva: '', adresses: '', outil_depot: '', adresse_depot: '', archivee: false });
+  type Form = { id: number | null; raison_sociale: string; siret: string; tva: string; adresses: string; outil_depot: string; adresse_depot: string; depot_auto: boolean; archivee: boolean };
+  const vide = (): Form => ({ id: null, raison_sociale: '', siret: '', tva: '', adresses: '', outil_depot: '', adresse_depot: '', depot_auto: false, archivee: false });
 
   let liste = $state<Societe[]>([]);
   let f = $state<Form | null>(null);
@@ -17,7 +17,7 @@
   });
 
   function editer(s: Societe) {
-    f = { id: s.id, raison_sociale: s.raison_sociale, siret: s.siret ?? '', tva: s.tva ?? '', adresses: (s.adresses ?? []).join('\n'), outil_depot: s.outil_depot ?? '', adresse_depot: s.adresse_depot ?? '', archivee: s.archivee };
+    f = { id: s.id, raison_sociale: s.raison_sociale, siret: s.siret ?? '', tva: s.tva ?? '', adresses: (s.adresses ?? []).join('\n'), outil_depot: s.outil_depot ?? '', adresse_depot: s.adresse_depot ?? '', depot_auto: s.depot_auto, archivee: s.archivee };
   }
 
   async function enregistrer(e: SubmitEvent) {
@@ -31,6 +31,7 @@
       adresses: f.adresses.split('\n').map((l) => l.trim()).filter(Boolean),
       outil_depot: f.outil_depot || null,
       adresse_depot: f.adresse_depot,
+      depot_auto: f.depot_auto,
       archivee: f.archivee
     };
     try {
@@ -61,6 +62,10 @@
       <div><label for="ad">Adresse de dépôt</label><input id="ad" type="email" bind:value={f.adresse_depot} /></div>
     </div>
     <p><label for="adr">Adresses (une par ligne)</label><textarea id="adr" rows="3" bind:value={f.adresses}></textarea></p>
+    <p>
+      <label><input type="checkbox" bind:checked={f.depot_auto} /> Dépôt automatique : les factures qui passent tous les contrôles partent seules</label>
+      <span class="discret">Sinon, chaque facture attend « Valider et déposer ».</span>
+    </p>
     <p><label><input type="checkbox" bind:checked={f.archivee} /> Archivée</label></p>
     <div class="actions"><button>Enregistrer</button><button type="button" class="second" onclick={() => (f = null)}>Annuler</button></div>
   </form>
@@ -75,7 +80,7 @@
       <tr>
         <td>{s.raison_sociale} {#if s.archivee}<span class="etiquette">archivée</span>{/if}</td>
         <td class="nombre">{s.siret ?? '—'}</td>
-        <td>{s.outil_depot ? `${s.outil_depot} · ${s.adresse_depot ?? ''}` : '—'}</td>
+        <td>{s.outil_depot ? `${s.outil_depot} · ${s.adresse_depot ?? ''}` : '—'}{#if s.depot_auto} <span class="etiquette ok">auto</span>{/if}</td>
         <td><button class="second" onclick={() => editer(s)}>Modifier</button></td>
       </tr>
     {:else}

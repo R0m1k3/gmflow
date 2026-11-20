@@ -2,7 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, message } from '#lib/api.ts';
-  import { classeEtat, libelleEtat, libelleType, libelleVoie, TYPES } from '#lib/documents.ts';
+  import { classeEtat, classeStatutDepot, libelleEtat, libelleStatutDepot, libelleType, libelleVoie, STATUTS_DEPOT, TYPES } from '#lib/documents.ts';
   import { dateSimple, montant } from '#lib/format.ts';
   import type { Bilan, EtatDocument, LigneDocument, Page, SocieteVisible, Voie } from '#lib/types.ts';
 
@@ -18,6 +18,8 @@
     etat: p.get('etat') ?? '',
     voie: p.get('voie') ?? '',
     verifie: p.get('verifie') ?? '',
+    statut_depot: p.get('statut_depot') ?? '',
+    fournisseur: p.get('fournisseur') ?? '',
     du: p.get('du') ?? '',
     au: p.get('au') ?? '',
     q: p.get('q') ?? '',
@@ -96,6 +98,23 @@
       <div class="discret">des documents vérifiés (objectif : plus de 95 %)</div>
     </div>
   </div>
+  {#if bilan.semaines.length}
+    <div class="carte semaines">
+      <div class="discret">Documents validés sans correction, semaine par semaine</div>
+      <table>
+        <thead><tr><th>Semaine du</th><th>Vérifiés ou validés</th><th>Sans correction</th></tr></thead>
+        <tbody>
+          {#each bilan.semaines as s (s.semaine)}
+            <tr>
+              <td>{dateSimple(s.semaine)}</td>
+              <td class="nombre">{s.valides}</td>
+              <td class="nombre">{pourcent(s.sans_correction, s.valides)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  {/if}
 {/if}
 
 <form class="carte filtres" onsubmit={chercher}>
@@ -136,6 +155,13 @@
         <option value="oui">Vérifiés</option>
       </select>
     </div>
+    <div>
+      <label for="sd">Dépôt</label>
+      <select id="sd" bind:value={filtres.statut_depot}>
+        <option value="">Tous</option>
+        {#each STATUTS_DEPOT as st (st)}<option value={st}>{libelleStatutDepot[st]}</option>{/each}
+      </select>
+    </div>
     <div><label for="du">Du</label><input id="du" type="date" bind:value={filtres.du} /></div>
     <div><label for="au">Au</label><input id="au" type="date" bind:value={filtres.au} /></div>
     <div><label for="q">Fournisseur, numéro ou objet</label><input id="q" type="search" bind:value={filtres.q} /></div>
@@ -156,12 +182,13 @@
           <td class="date">{dateSimple(d.date_document ?? d.date_mail?.slice(0, 10))}</td>
           <td>{d.type ? libelleType[d.type] : '—'}</td>
           <td>{d.societe ?? '—'}</td>
-          <td>{d.fournisseur_nom ?? '—'}</td>
+          <td>{d.fournisseur ?? d.fournisseur_nom ?? '—'}</td>
           <td>{d.numero ?? '—'}</td>
           <td class="nombre">{montant(d.montant_ttc)}</td>
           <td>
             <span class="etiquette {classeEtat[d.etat]}" title={d.message ?? ''}>{libelleEtat[d.etat]}</span>
             {#if d.verifie}<span class="etiquette ok" title="Vérifié à la main">✓</span>{/if}
+            {#if d.statut_depot}<br /><span class="etiquette {classeStatutDepot[d.statut_depot]}" title={d.controles.map((c) => c.message).join('\n')}>{libelleStatutDepot[d.statut_depot]}</span>{/if}
           </td>
           <td class="discret fichier"><a href="/documents/{d.id}">{d.nom_fichier}</a>{#if d.voie}<br />{libelleVoie[d.voie]}{/if}</td>
         </tr>
@@ -180,7 +207,7 @@
 {/if}
 
 <style>
-  .filtres, .bilan { margin-bottom: 1rem; }
+  .filtres, .bilan, .semaines { margin-bottom: 1rem; }
   .stat { display: grid; gap: 0.2rem; }
   .valeur { font-size: 1.5rem; font-weight: 650; }
   .bon { color: var(--accent); }
