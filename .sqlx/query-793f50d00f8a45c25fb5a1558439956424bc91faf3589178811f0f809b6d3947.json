@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into document (piece_jointe_id, mail_id, sha256)\n         select p.id, p.mail_id, p.sha256 from piece_jointe p\n         where not exists (select 1 from document d where d.piece_jointe_id = p.id)\n         on conflict (piece_jointe_id) do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "793f50d00f8a45c25fb5a1558439956424bc91faf3589178811f0f809b6d3947"
+}

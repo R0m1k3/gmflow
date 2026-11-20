@@ -277,6 +277,9 @@ async fn relever_dossier(
             .map_err(erreur_base)?;
         bilan.nouveaux_mails += nouveaux;
         dernier = max;
+        if nouveaux > 0 {
+            crate::lecture::pompe_apres_releve(&ctx.pool).await;
+        }
     }
 
     // Dossier vide ou sans message dans la période : tout ce qui existe est considéré comme vu.

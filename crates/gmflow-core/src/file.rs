@@ -1,5 +1,5 @@
-//! Deux files apalis : `boites` (relève, test de connexion) et `claude` (séance setup-token,
-//! test du jeton). Chaque tâche est poussée avec un nombre d'essais explicite : apalis rejoue
+//! Trois files apalis : `boites` (relève, test de connexion), `claude` (séance setup-token,
+//! test du jeton) et `lecture` (lecture des pièces jointes). Chaque tâche est poussée avec un nombre d'essais explicite : apalis rejoue
 //! sinon jusqu'à 25 fois.
 
 use apalis::prelude::{TaskBuilder, TaskSink};
@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 pub const FILE_BOITES: &str = "boites";
 pub const FILE_CLAUDE: &str = "claude";
+pub const FILE_LECTURE: &str = "lecture";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TacheBoite {
@@ -21,6 +22,29 @@ pub enum TacheBoite {
 pub enum TacheClaude {
     SeanceSetupToken { seance_id: Uuid },
     TestJeton,
+}
+
+/// `forcer` : relecture demandée par un administrateur (pas de reprise d'un document identique).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TacheLecture {
+    LireDocument { document_id: i64, forcer: bool },
+}
+
+pub fn stockage_lecture(pool: &PgPool) -> PostgresStorage<TacheLecture> {
+    PostgresStorage::new(pool).with_config(Config::default().queue(FILE_LECTURE))
+}
+
+pub async fn pousser_lecture(pool: &PgPool, document_id: i64, forcer: bool) -> anyhow::Result<()> {
+    let tache = TaskBuilder::new(TacheLecture::LireDocument {
+        document_id,
+        forcer,
+    })
+    .max_attempts(1)
+    .build();
+    stockage_lecture(pool)
+        .push_task(tache)
+        .await
+        .map_err(|e| anyhow::anyhow!("file lecture : {e}"))
 }
 
 pub fn stockage_boites(pool: &PgPool) -> PostgresStorage<TacheBoite> {

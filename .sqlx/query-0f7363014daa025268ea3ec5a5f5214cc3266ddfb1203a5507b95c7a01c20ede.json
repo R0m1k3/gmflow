@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = 'a_lire', voie = $2, message = $3, pris_le = null where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f7363014daa025268ea3ec5a5f5214cc3266ddfb1203a5507b95c7a01c20ede"
+}

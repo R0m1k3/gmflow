@@ -1,6 +1,7 @@
-//! Test du jeton Claude : un appel court à haiku, puis mise à jour de `claude_etat`.
+//! Test du jeton Claude : un appel court avec le modèle et l'effort de l'extraction (pour
+//! vérifier aussi ce réglage), puis mise à jour de `claude_etat`.
 
-use gmflow_core::{claude, parametre};
+use gmflow_core::{claude, parametre, reglages};
 use serde_json::{Value, json};
 
 use crate::Contexte;
@@ -34,12 +35,13 @@ pub async fn tester(ctx: &Contexte) -> anyhow::Result<()> {
         .await?
         .unwrap_or(Value::Null);
 
+    let reglage = reglages::lire(&ctx.pool).await?.extraction_texte;
     let r = claude::appeler(
         &ctx.pool,
         &ctx.config.claude_bin,
         "test_jeton",
-        "haiku",
-        None,
+        &reglage.modele,
+        Some(&reglage.effort),
         "Réponds uniquement OK",
         &[],
         &jeton,

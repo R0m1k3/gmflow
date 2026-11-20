@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"verifies!\",\n                  count(*) filter (where not type_corrige) as \"type_justes!\",\n                  count(*) filter (where not societe_corrigee) as \"societe_justes!\"\n           from document d\n           where verifie_le is not null\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "verifies!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "type_justes!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "societe_justes!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "46a9a4df6c6e6d32176bf49bd2561ff0893c5bc9bbd5eca46b29387e04ff1ad7"
+}

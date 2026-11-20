@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = 'a_lire', pris_le = null, planifie_le = null\n         where etat = 'en_cours' and pris_le < now() - interval '30 minutes'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "67101f912e0269738b8033449bfdbd99a1b5b72088b97851b87f7080dffb7b10"
+}

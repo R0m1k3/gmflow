@@ -79,7 +79,9 @@ impl BaseTest {
 
     /// Supprime la base. À appeler en fin de test (une base reste en cas d'échec, pour l'examiner).
     pub async fn fermer(self) {
-        self.pool.close().await;
+        // Une connexion coupée par l'arrêt d'un worker peut ne jamais être rendue : on n'attend
+        // pas indéfiniment, la suppression forcée de la base ferme ce qui reste.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), self.pool.close()).await;
         if let Ok(mut c) = PgConnection::connect(&self.admin).await {
             let _ = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "drop database if exists {} with (force)",

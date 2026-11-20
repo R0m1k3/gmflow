@@ -79,7 +79,7 @@ pub struct LigneMail {
     boites: Vec<String>,
 }
 
-fn date(v: &Option<String>) -> Resultat<Option<time::Date>> {
+pub fn date(v: &Option<String>) -> Resultat<Option<time::Date>> {
     let format = time::macros::format_description!("[year]-[month]-[day]");
     match v.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         None => Ok(None),
@@ -90,7 +90,7 @@ fn date(v: &Option<String>) -> Resultat<Option<time::Date>> {
 }
 
 /// Motif ILIKE : les caractères spéciaux de la saisie sont échappés.
-fn motif(q: &Option<String>) -> Option<String> {
+pub fn motif(q: &Option<String>) -> Option<String> {
     let q = q.as_deref().map(str::trim).filter(|s| !s.is_empty())?;
     let echappe = q
         .replace('\\', "\\\\")
@@ -171,6 +171,10 @@ pub struct PieceVue {
     nom: String,
     type_mime: String,
     taille: i64,
+    document_id: Option<i64>,
+    document_etat: Option<String>,
+    document_type: Option<String>,
+    document_voie: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -222,7 +226,10 @@ pub async fn fiche(
     .await?;
     let pieces = sqlx::query_as!(
         PieceVue,
-        "select id, nom, type_mime, taille from piece_jointe where mail_id = $1 order by rang",
+        r#"select p.id, p.nom, p.type_mime, p.taille, d.id as "document_id?",
+                  d.etat as "document_etat?", d.type as "document_type?", d.voie as "document_voie?"
+           from piece_jointe p left join document d on d.piece_jointe_id = p.id
+           where p.mail_id = $1 order by p.rang"#,
         id
     )
     .fetch_all(&etat.pool)

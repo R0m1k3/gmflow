@@ -1,0 +1,265 @@
+//! Appel de lecture à Claude : prompt, schéma JSON de la réponse et contrôle de la réponse.
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use super::societe::SocieteRef;
+
+pub const TYPES: &[&str] = &["facture", "avoir", "bl", "relance", "devis", "autre"];
+
+/// Longueur maximale du texte d'un document envoyé à Claude.
+pub const TEXTE_MAX: usize = 20_000;
+
+pub const PROMPT_SYSTEME: &str = "Tu lis des documents reçus par mail par des magasins : factures, \
+avoirs, bons de livraison (BL), relances, devis. Tu réponds uniquement avec la sortie structurée \
+demandée, selon le schéma. Tu n'inventes rien : un champ absent ou illisible vaut null. Les dates \
+sont au format AAAA-MM-JJ, les montants en euros avec un point décimal. La confiance de chaque \
+champ va de 0 (deviné) à 1 (lu sans ambiguïté).";
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Fournisseur {
+    pub nom: Option<String>,
+    pub siret: Option<String>,
+    pub tva: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Confiance {
+    pub r#type: f64,
+    pub societe: f64,
+    pub fournisseur: f64,
+    pub numero: f64,
+    pub date: f64,
+    pub montants: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Extraction {
+    pub r#type: String,
+    pub societe_id: Option<i64>,
+    pub fournisseur: Fournisseur,
+    pub numero: Option<String>,
+    pub date: Option<String>,
+    pub numero_commande: Option<String>,
+    pub montant_ht: Option<f64>,
+    pub montant_tva: Option<f64>,
+    pub montant_ttc: Option<f64>,
+    pub confiance: Confiance,
+    /// Transcription d'un scan (absente pour un document déjà en texte).
+    #[serde(default)]
+    pub texte: Option<String>,
+}
+
+fn chaine_ou_null() -> Value {
+    json!({ "type": ["string", "null"] })
+}
+
+fn nombre_ou_null() -> Value {
+    json!({ "type": ["number", "null"] })
+}
+
+fn confiance() -> Value {
+    json!({ "type": "number", "minimum": 0, "maximum": 1 })
+}
+
+/// Schéma JSON de la réponse. `avec_texte` : demande aussi la transcription (scans).
+pub fn schema(avec_texte: bool) -> Value {
+    let mut proprietes = json!({
+        "type": { "type": "string", "enum": TYPES },
+        "societe_id": { "type": ["integer", "null"] },
+        "fournisseur": {
+            "type": "object",
+            "properties": { "nom": chaine_ou_null(), "siret": chaine_ou_null(), "tva": chaine_ou_null() },
+            "required": ["nom", "siret", "tva"],
+            "additionalProperties": false
+        },
+        "numero": chaine_ou_null(),
+        "date": chaine_ou_null(),
+        "numero_commande": chaine_ou_null(),
+        "montant_ht": nombre_ou_null(),
+        "montant_tva": nombre_ou_null(),
+        "montant_ttc": nombre_ou_null(),
+        "confiance": {
+            "type": "object",
+            "properties": {
+                "type": confiance(), "societe": confiance(), "fournisseur": confiance(),
+                "numero": confiance(), "date": confiance(), "montants": confiance()
+            },
+            "required": ["type", "societe", "fournisseur", "numero", "date", "montants"],
+            "additionalProperties": false
+        }
+    });
+    let mut requis = vec![
+        "type",
+        "societe_id",
+        "fournisseur",
+        "numero",
+        "date",
+        "numero_commande",
+        "montant_ht",
+        "montant_tva",
+        "montant_ttc",
+        "confiance",
+    ];
+    if avec_texte {
+        proprietes["texte"] = json!({ "type": "string" });
+        requis.push("texte");
+    }
+    json!({
+        "type": "object",
+        "properties": proprietes,
+        "required": requis,
+        "additionalProperties": false
+    })
+}
+
+/// Contexte du mail envoyé avec le document : le strict utile.
+pub struct ContexteMail<'a> {
+    pub expediteur: &'a str,
+    pub objet: &'a str,
+    pub corps: &'a str,
+    pub nom_fichier: &'a str,
+}
+
+pub enum Contenu<'a> {
+    /// Texte lu par le code (PDF texte, tableur).
+    Texte(&'a str),
+    /// Fichier à lire par Claude (scan, image), dans le dossier de travail.
+    Fichier { nom: &'a str, pages: usize },
+}
+
+fn tronquer(s: &str, n: usize) -> &str {
+    match s.char_indices().nth(n) {
+        Some((i, _)) => &s[..i],
+        None => s,
+    }
+}
+
+pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Contenu<'_>) -> String {
+    let mut p = String::new();
+    p.push_str("Structures destinataires possibles (societe_id) :\n");
+    for s in societes {
+        p.push_str(&format!(
+            "- {} : {} ; SIRET {} ; TVA {} ; adresses : {}\n",
+            s.id,
+            s.raison_sociale,
+            s.siret.as_deref().unwrap_or("?"),
+            s.tva.as_deref().unwrap_or("?"),
+            if s.adresses.is_empty() {
+                "?".to_string()
+            } else {
+                s.adresses.join(" | ")
+            }
+        ));
+    }
+    p.push_str(
+        "societe_id = la structure destinataire du document (acheteur, client, adresse de \
+         livraison), null si aucune ne correspond. Le fournisseur est l'émetteur du document.\n\n",
+    );
+    p.push_str(&format!(
+        "Mail qui accompagne le document :\nDe : {}\nObjet : {}\n{}\n\nFichier : {}\n\n",
+        mail.expediteur,
+        mail.objet,
+        tronquer(mail.corps.trim(), 1000),
+        mail.nom_fichier
+    ));
+    match contenu {
+        Contenu::Texte(t) => {
+            p.push_str("Contenu du document (texte extrait) :\n<<<\n");
+            p.push_str(tronquer(t, TEXTE_MAX));
+            p.push_str("\n>>>\n");
+        }
+        Contenu::Fichier { nom, pages } => {
+            let pages = if *pages > 10 {
+                format!(" Il a {pages} pages : lis les 10 premières.")
+            } else {
+                String::new()
+            };
+            p.push_str(&format!(
+                "Le document est le fichier {nom} du dossier courant : lis-le avec l'outil Read.{pages} \
+                 Donne aussi dans « texte » sa transcription fidèle (texte brut, lignes de tableau \
+                 séparées par des retours à la ligne).\n"
+            ));
+        }
+    }
+    p
+}
+
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum ErreurExtraction {
+    #[error("réponse sans sortie structurée")]
+    Absente,
+    #[error("sortie non conforme au schéma : {0}")]
+    Schema(String),
+}
+
+fn sans_cloture(s: &str) -> &str {
+    let s = s.trim();
+    let s = s
+        .strip_prefix("```json")
+        .or_else(|| s.strip_prefix("```"))
+        .unwrap_or(s);
+    s.strip_suffix("```").unwrap_or(s).trim()
+}
+
+/// Réponse JSON de Claude CLI -> extraction contrôlée. La sortie structurée est dans
+/// `structured_output` ; à défaut, `result` peut contenir le JSON en texte.
+pub fn depuis_reponse(
+    reponse: &Value,
+    societes: &[SocieteRef],
+) -> Result<Extraction, ErreurExtraction> {
+    let valeur = match reponse.get("structured_output") {
+        Some(v) if v.is_object() => v.clone(),
+        _ => {
+            let r = reponse
+                .get("result")
+                .and_then(Value::as_str)
+                .ok_or(ErreurExtraction::Absente)?;
+            serde_json::from_str(sans_cloture(r)).map_err(|_| ErreurExtraction::Absente)?
+        }
+    };
+    let e: Extraction =
+        serde_json::from_value(valeur).map_err(|err| ErreurExtraction::Schema(err.to_string()))?;
+    controler(&e, societes)?;
+    Ok(e)
+}
+
+fn controler(e: &Extraction, societes: &[SocieteRef]) -> Result<(), ErreurExtraction> {
+    let err = |m: String| Err(ErreurExtraction::Schema(m));
+    if !TYPES.contains(&e.r#type.as_str()) {
+        return err(format!("type inconnu « {} »", e.r#type));
+    }
+    if let Some(id) = e.societe_id
+        && !societes.iter().any(|s| s.id == id)
+    {
+        return err(format!("societe_id {id} hors de la liste"));
+    }
+    if let Some(d) = &e.date
+        && date(d).is_none()
+    {
+        return err(format!("date « {d} » hors format AAAA-MM-JJ"));
+    }
+    let c = &e.confiance;
+    for v in [
+        c.r#type,
+        c.societe,
+        c.fournisseur,
+        c.numero,
+        c.date,
+        c.montants,
+    ] {
+        if !(0.0..=1.0).contains(&v) {
+            return err(format!("confiance {v} hors de 0..1"));
+        }
+    }
+    Ok(())
+}
+
+/// AAAA-MM-JJ -> date.
+pub fn date(s: &str) -> Option<time::Date> {
+    time::Date::parse(
+        s.trim(),
+        time::macros::format_description!("[year]-[month]-[day]"),
+    )
+    .ok()
+}

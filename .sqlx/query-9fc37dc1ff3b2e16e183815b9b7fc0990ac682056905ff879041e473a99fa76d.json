@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select quand, tache, modele, effort, duree_ms, succes, message from appel_claude\n         order by quand desc, id desc limit $1 offset $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "quand",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "quand"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "tache",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "tache"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "modele",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "modele"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "effort",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "effort"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "duree_ms",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "duree_ms"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "succes",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "succes"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "message"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "9fc37dc1ff3b2e16e183815b9b7fc0990ac682056905ff879041e473a99fa76d"
+}

@@ -3,7 +3,7 @@
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use gmflow_core::{file, journal, parametre};
+use gmflow_core::{file, journal, parametre, reglages};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -187,4 +187,114 @@ pub async fn code(
         });
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize)]
+pub struct ReglagesVue {
+    #[serde(flatten)]
+    reglages: reglages::Reglages,
+    appels_lecture_du_jour: i64,
+    modeles: &'static [&'static str],
+    efforts: &'static [&'static str],
+}
+
+pub async fn reglages(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<ReglagesVue>> {
+    Ok(Json(ReglagesVue {
+        reglages: reglages::lire(&etat.pool).await?,
+        appels_lecture_du_jour: reglages::appels_lecture_du_jour(&etat.pool).await?,
+        modeles: reglages::MODELES,
+        efforts: reglages::EFFORTS,
+    }))
+}
+
+pub async fn modifier_reglages(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Json(r): Json<reglages::Reglages>,
+) -> Resultat<Json<reglages::Reglages>> {
+    r.controler().map_err(ErreurApi::Donnees)?;
+    let avant = reglages::lire(&etat.pool).await?;
+    reglages::ecrire(&etat.pool, &r).await?;
+    journal::ecrire(
+        &etat.pool,
+        Some(a.utilisateur_id),
+        "reglages_claude",
+        "parametre",
+        Some(reglages::CLE.into()),
+        json!({ "avant": avant, "apres": r }),
+    )
+    .await?;
+    Ok(Json(r))
+}
+
+#[derive(Deserialize)]
+pub struct PageAppels {
+    page: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct AppelVue {
+    #[serde(with = "time::serde::rfc3339")]
+    quand: time::OffsetDateTime,
+    tache: String,
+    modele: String,
+    effort: Option<String>,
+    duree_ms: i32,
+    succes: bool,
+    message: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct StatTache {
+    tache: String,
+    modele: String,
+    n: i64,
+    reussis: i64,
+    duree_moyenne_ms: i64,
+}
+
+#[derive(Serialize)]
+pub struct Appels {
+    #[serde(flatten)]
+    page: super::mails::Page<AppelVue>,
+    /// Sur les 30 derniers jours, par tâche et modèle.
+    stats: Vec<StatTache>,
+}
+
+/// Journal des appels Claude (tâche, modèle, effort, durée, résultat).
+pub async fn appels(
+    _a: AccesAdmin,
+    State(etat): State<Etat>,
+    axum::extract::Query(p): axum::extract::Query<PageAppels>,
+) -> Resultat<Json<Appels>> {
+    let (page, decalage) = super::mails::decalage(p.page);
+    let total = sqlx::query_scalar!(r#"select count(*) as "n!" from appel_claude"#)
+        .fetch_one(&etat.pool)
+        .await?;
+    let elements = sqlx::query_as!(
+        AppelVue,
+        "select quand, tache, modele, effort, duree_ms, succes, message from appel_claude
+         order by quand desc, id desc limit $1 offset $2",
+        super::mails::PAR_PAGE,
+        decalage
+    )
+    .fetch_all(&etat.pool)
+    .await?;
+    let stats = sqlx::query_as!(
+        StatTache,
+        r#"select tache, modele, count(*) as "n!", count(*) filter (where succes) as "reussis!",
+                  coalesce(avg(duree_ms), 0)::int8 as "duree_moyenne_ms!"
+           from appel_claude where quand > now() - interval '30 days'
+           group by tache, modele order by tache, modele"#
+    )
+    .fetch_all(&etat.pool)
+    .await?;
+    Ok(Json(Appels {
+        page: super::mails::Page {
+            total,
+            page,
+            elements,
+        },
+        stats,
+    }))
 }
