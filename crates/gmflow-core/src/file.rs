@@ -1,5 +1,6 @@
-//! Trois files apalis : `boites` (relève, test de connexion), `claude` (séance setup-token,
-//! test du jeton) et `lecture` (lecture des pièces jointes). Chaque tâche est poussée avec un nombre d'essais explicite : apalis rejoue
+//! Quatre files apalis : `boites` (relève, test de connexion), `claude` (séance setup-token,
+//! test du jeton), `lecture` (lecture des pièces jointes) et `envoi` (dépôts Dext/Yooz, test
+//! de l'expédition, alertes). Chaque tâche est poussée avec un nombre d'essais explicite : apalis rejoue
 //! sinon jusqu'à 25 fois.
 
 use apalis::prelude::{TaskBuilder, TaskSink};
@@ -11,6 +12,7 @@ use uuid::Uuid;
 pub const FILE_BOITES: &str = "boites";
 pub const FILE_CLAUDE: &str = "claude";
 pub const FILE_LECTURE: &str = "lecture";
+pub const FILE_ENVOI: &str = "envoi";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TacheBoite {
@@ -28,6 +30,35 @@ pub enum TacheClaude {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TacheLecture {
     LireDocument { document_id: i64, forcer: bool },
+}
+
+/// Tâches d'envoi de mails depuis l'adresse d'expédition. Jamais rejouées par apalis : un
+/// dépôt en échec se relance depuis l'interface, pour ne jamais déposer deux fois.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TacheEnvoi {
+    /// Dépôt d'une facture. `forcer` : un administrateur passe outre un doublon.
+    Deposer {
+        document_id: i64,
+        forcer: bool,
+        auteur_id: Option<i64>,
+    },
+    TestExpedition {
+        destinataire: String,
+    },
+    /// Alertes de relève (boîte en échec depuis plus de 30 min, puis rétablie).
+    Alertes,
+}
+
+pub fn stockage_envoi(pool: &PgPool) -> PostgresStorage<TacheEnvoi> {
+    PostgresStorage::new(pool).with_config(Config::default().queue(FILE_ENVOI))
+}
+
+pub async fn pousser_envoi(pool: &PgPool, tache: TacheEnvoi) -> anyhow::Result<()> {
+    let tache = TaskBuilder::new(tache).max_attempts(1).build();
+    stockage_envoi(pool)
+        .push_task(tache)
+        .await
+        .map_err(|e| anyhow::anyhow!("file envoi : {e}"))
 }
 
 pub fn stockage_lecture(pool: &PgPool) -> PostgresStorage<TacheLecture> {

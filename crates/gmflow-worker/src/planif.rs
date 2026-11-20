@@ -1,5 +1,5 @@
 //! Toutes les 5 minutes (heure ronde, UTC) : battement du worker, une relève par boîte active
-//! et non en pause, puis la pompe de lecture.
+//! et non en pause, la pompe de lecture, puis la tâche d'alertes.
 
 use std::time::Duration;
 
@@ -27,6 +27,7 @@ pub async fn tour(pool: &PgPool) -> anyhow::Result<usize> {
         file::pousser_releve(pool, *id).await?;
     }
     crate::lecture::pompe_apres_releve(pool).await;
+    file::pousser_envoi(pool, file::TacheEnvoi::Alertes).await?;
     Ok(boites.len())
 }
 

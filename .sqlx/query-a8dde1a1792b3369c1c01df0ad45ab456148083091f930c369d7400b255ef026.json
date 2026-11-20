@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva, d.societe_id,\n                  d.corrections ? 'fournisseur_id' as \"fixe!\", m.expediteur\n           from document d join mail m on m.id = d.mail_id\n           where d.id = $1 and d.etat = 'lu'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fournisseur_nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_nom"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fournisseur_siret",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_siret"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fournisseur_tva",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_tva"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "fixe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "a8dde1a1792b3369c1c01df0ad45ab456148083091f930c369d7400b255ef026"
+}

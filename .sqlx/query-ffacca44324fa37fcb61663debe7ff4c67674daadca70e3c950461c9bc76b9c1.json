@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select societe_defaut_id from fournisseur where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "societe_defaut_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "societe_defaut_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "ffacca44324fa37fcb61663debe7ff4c67674daadca70e3c950461c9bc76b9c1"
+}

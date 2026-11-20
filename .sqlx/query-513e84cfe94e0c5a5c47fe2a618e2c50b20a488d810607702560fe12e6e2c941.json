@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update fournisseur set fusionne_dans = $2 where id = $1 or fusionne_dans = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "513e84cfe94e0c5a5c47fe2a618e2c50b20a488d810607702560fe12e6e2c941"
+}

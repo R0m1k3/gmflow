@@ -3,12 +3,16 @@
 
 pub mod claude;
 pub mod config;
+pub mod controles;
 pub mod crypto;
 pub mod db;
+pub mod depot;
 pub mod eml;
+pub mod expedition;
 pub mod file;
 #[cfg(feature = "test-utils")]
 pub mod fixtures;
+pub mod fournisseurs;
 pub mod imap;
 pub mod journal;
 pub mod lecture;

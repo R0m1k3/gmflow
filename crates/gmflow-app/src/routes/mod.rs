@@ -1,11 +1,14 @@
 pub mod admin_boites;
 pub mod admin_claude;
+pub mod admin_expedition;
 pub mod admin_journal;
 pub mod admin_societes;
 pub mod admin_utilisateurs;
 pub mod auth;
+pub mod depots;
 pub mod documents;
 pub mod fichiers;
+pub mod fournisseurs;
 pub mod mails;
 pub mod tableau;
 
@@ -72,8 +75,27 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/tableau-de-bord", get(tableau::tableau))
         .route("/documents", get(documents::lister))
         .route("/documents/bilan", get(documents::bilan))
-        .route("/documents/{id}", get(documents::fiche))
         .route("/documents/{id}/verifier", post(documents::verifier))
+        .route(
+            "/documents/{id}",
+            get(documents::fiche).put(documents::corriger),
+        )
+        .route("/documents/{id}/controler", post(documents::controler))
+        .route("/documents/{id}/deposer", post(documents::deposer))
+        .route("/depots/suivi", get(depots::suivi))
+        .route("/fournisseurs", get(fournisseurs::lister))
+        .route("/fournisseurs/{id}", get(fournisseurs::fiche))
+        .route("/admin/fournisseurs", post(fournisseurs::creer))
+        .route("/admin/fournisseurs/{id}", put(fournisseurs::modifier))
+        .route(
+            "/admin/fournisseurs/{id}/fusionner",
+            post(fournisseurs::fusionner),
+        )
+        .route(
+            "/admin/expedition",
+            get(admin_expedition::lire).put(admin_expedition::modifier),
+        )
+        .route("/admin/expedition/test", post(admin_expedition::tester))
         .route("/admin/documents/{id}/relire", post(documents::relire))
         .route(
             "/admin/claude/reglages",

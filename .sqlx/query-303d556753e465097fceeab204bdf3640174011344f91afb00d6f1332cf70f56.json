@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select etat from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "303d556753e465097fceeab204bdf3640174011344f91afb00d6f1332cf70f56"
+}

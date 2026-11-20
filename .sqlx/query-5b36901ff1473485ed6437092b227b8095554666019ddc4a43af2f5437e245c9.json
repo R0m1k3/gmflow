@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select e.id, e.quand, e.adresse, e.outil, e.etat, e.message, u.identifiant as \"auteur?\"\n           from envoi_depot e left join utilisateur u on u.id = e.auteur_id\n           where e.document_id = $1 order by e.quand desc",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envoi_depot",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "quand",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "envoi_depot",
+            "name": "quand"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "envoi_depot",
+            "name": "adresse"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "outil",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "envoi_depot",
+            "name": "outil"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "envoi_depot",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "envoi_depot",
+            "name": "message"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "auteur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "identifiant"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "5b36901ff1473485ed6437092b227b8095554666019ddc4a43af2f5437e245c9"
+}

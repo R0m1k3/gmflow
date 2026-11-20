@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id from document\n         where statut_depot in ('a_verifier', 'pret', 'doublon')\n           and ($1::bigint is null or societe_id = $1)\n           and ($2::bigint is null or fournisseur_id = $2)\n         order by id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9039d411a1926eb8773592dbc4aa0492a29880bdca862d064d1190602303346d"
+}

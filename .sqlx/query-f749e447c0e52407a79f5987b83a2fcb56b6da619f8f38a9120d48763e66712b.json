@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, libelle, derniere_erreur, erreur_depuis, pause_auto from boite_mail\n         where erreur_depuis < now() - interval '30 minutes' and alerte_le is null\n         order by id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "derniere_erreur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "derniere_erreur"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "erreur_depuis",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "erreur_depuis"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "pause_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "pause_auto"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "f749e447c0e52407a79f5987b83a2fcb56b6da619f8f38a9120d48763e66712b"
+}

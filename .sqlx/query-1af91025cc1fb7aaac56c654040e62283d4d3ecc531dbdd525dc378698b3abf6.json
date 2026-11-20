@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update societe set raison_sociale = $2, siret = $3, tva = $4, adresses = $5, outil_depot = $6,\n             adresse_depot = $7, archivee = $8\n         where id = $1\n         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee",
+  "query": "select id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto from societe order by raison_sociale",
   "describe": {
     "columns": [
       {
@@ -90,19 +90,21 @@
             "name": "archivee"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "depot_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "depot_auto"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": [
-        "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Text",
-        "Text",
-        "Bool"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -112,8 +114,9 @@
       false,
       true,
       true,
+      false,
       false
     ]
   },
-  "hash": "82643913f4aee640dcd64843c5f937897b103421bdb13806d89db15205e90d1f"
+  "hash": "1af91025cc1fb7aaac56c654040e62283d4d3ecc531dbdd525dc378698b3abf6"
 }

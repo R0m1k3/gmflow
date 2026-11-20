@@ -17,6 +17,7 @@ pub struct Societe {
     outil_depot: Option<String>,
     adresse_depot: Option<String>,
     archivee: bool,
+    depot_auto: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -34,6 +35,8 @@ pub struct Entree {
     adresse_depot: Option<String>,
     #[serde(default)]
     archivee: bool,
+    #[serde(default)]
+    depot_auto: bool,
 }
 
 fn tableau_vide() -> Value {
@@ -60,6 +63,13 @@ impl Entree {
         {
             return Err(ErreurApi::Donnees("outil de dépôt : dext ou yooz".into()));
         }
+        if let Some(a) = &self.adresse_depot
+            && !gmflow_core::expedition::adresse_valide(a)
+        {
+            return Err(ErreurApi::Donnees(format!(
+                "adresse de dépôt « {a} » invalide"
+            )));
+        }
         if !self.adresses.is_array() {
             return Err(ErreurApi::Donnees("adresses : liste attendue".into()));
         }
@@ -70,7 +80,7 @@ impl Entree {
 pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vec<Societe>>> {
     let v = sqlx::query_as!(
         Societe,
-        "select id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee from societe order by raison_sociale"
+        "select id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto from societe order by raison_sociale"
     )
     .fetch_all(&etat.pool)
     .await?;
@@ -86,16 +96,17 @@ pub async fn creer(
     let mut tx = etat.pool.begin().await?;
     let s = sqlx::query_as!(
         Societe,
-        "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee)
-         values ($1, $2, $3, $4, $5, $6, $7)
-         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee",
+        "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)
+         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
         e.raison_sociale,
         e.siret,
         e.tva,
         e.adresses,
         e.outil_depot,
         e.adresse_depot,
-        e.archivee
+        e.archivee,
+        e.depot_auto
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -109,6 +120,10 @@ pub async fn creer(
     )
     .await?;
     tx.commit().await?;
+    // Adresse de dépôt ou dépôt automatique changés : les factures en attente sont revues.
+    gmflow_core::depot::reevaluer(&etat.pool, Some(s.id), None)
+        .await
+        .map_err(ErreurApi::Interne)?;
     Ok(Json(s))
 }
 
@@ -123,9 +138,9 @@ pub async fn modifier(
     let s = sqlx::query_as!(
         Societe,
         "update societe set raison_sociale = $2, siret = $3, tva = $4, adresses = $5, outil_depot = $6,
-             adresse_depot = $7, archivee = $8
+             adresse_depot = $7, archivee = $8, depot_auto = $9
          where id = $1
-         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee",
+         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
         id,
         e.raison_sociale,
         e.siret,
@@ -133,7 +148,8 @@ pub async fn modifier(
         e.adresses,
         e.outil_depot,
         e.adresse_depot,
-        e.archivee
+        e.archivee,
+        e.depot_auto
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -148,5 +164,9 @@ pub async fn modifier(
     )
     .await?;
     tx.commit().await?;
+    // Adresse de dépôt ou dépôt automatique changés : les factures en attente sont revues.
+    gmflow_core::depot::reevaluer(&etat.pool, Some(id), None)
+        .await
+        .map_err(ErreurApi::Interne)?;
     Ok(Json(s))
 }

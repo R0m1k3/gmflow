@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set statut_depot = coalesce(statut_depot, 'a_verifier') where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab9bebbbe800c3feee0fa6e4e8b1e41c6dab074edaa7935e4a264d8c7cc6887c"
+}

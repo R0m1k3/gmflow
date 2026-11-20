@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee)\n         values ($1, $2, $3, $4, $5, $6, $7)\n         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee",
+  "query": "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto)\n         values ($1, $2, $3, $4, $5, $6, $7, $8)\n         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
   "describe": {
     "columns": [
       {
@@ -90,6 +90,17 @@
             "name": "archivee"
           }
         }
+      },
+      {
+        "ordinal": 8,
+        "name": "depot_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "depot_auto"
+          }
+        }
       }
     ],
     "parameters": {
@@ -100,6 +111,7 @@
         "Jsonb",
         "Text",
         "Text",
+        "Bool",
         "Bool"
       ]
     },
@@ -111,8 +123,9 @@
       false,
       true,
       true,
+      false,
       false
     ]
   },
-  "hash": "cc5448ebe294e8746986863dbdcf99d5ab4d4756c3bca64182f887d5ab20e4ec"
+  "hash": "5870a89ba1e0ed5d6bc23aec656539b479ba25b51b242a289c1a981592171151"
 }

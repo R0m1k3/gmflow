@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_mail set alerte_le = null where id = any($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f713c6a148f6937762a6025c6c850ceb19a06e1c166f01fe1858bdbcf5a59f1f"
+}

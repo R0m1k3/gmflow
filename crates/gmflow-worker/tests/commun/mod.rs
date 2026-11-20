@@ -6,6 +6,7 @@ use gmflow_core::claude::DossierTemp;
 use gmflow_core::crypto::Chiffreur;
 use gmflow_core::imap::Transport;
 use gmflow_core::test_utils::{self, BaseTest, CLE_TEST, MDP_IMAP};
+use gmflow_core::{eml, stockage};
 use gmflow_worker::{Contexte, DelaisSeance};
 
 pub struct Banc {
@@ -146,4 +147,82 @@ impl WorkersTest {
             let _ = f.join();
         }
     }
+}
+
+/// Dépose un mail (fichier `.eml`, lignes `mail`, `piece_jointe`, `mail_boite`) reçu par une
+/// boîte de `societe_id`. Rend l'id du mail.
+pub async fn mail(b: &Banc, societe_id: i64, brut: &[u8]) -> i64 {
+    let boite: i64 = sqlx::query_scalar(
+        "insert into boite_mail (societe_id, libelle, serveur, identifiant, mot_de_passe_chiffre)
+         values ($1, 'Boîte', 'imap.test', 'x', '\\x00') returning id",
+    )
+    .bind(societe_id)
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    let (chemin, sha) = stockage::ecrire_eml(&b.ctx.config.fichiers, brut).unwrap();
+    let d = eml::decouper(brut).unwrap();
+    let id: i64 = sqlx::query_scalar(
+        "insert into mail (message_id, empreinte_contenu, expediteur, destinataires, objet, date_mail,
+                           corps_texte, chemin_eml, sha256, taille)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id",
+    )
+    .bind(&d.message_id)
+    .bind(&d.empreinte_contenu)
+    .bind(&d.expediteur)
+    .bind(&d.destinataires)
+    .bind(&d.objet)
+    .bind(d.date)
+    .bind(&d.corps_texte)
+    .bind(&chemin)
+    .bind(&sha)
+    .bind(brut.len() as i64)
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    for p in &d.pieces {
+        sqlx::query("insert into piece_jointe (mail_id, rang, nom, type_mime, taille, sha256) values ($1, $2, $3, $4, $5, $6)")
+            .bind(id)
+            .bind(p.rang)
+            .bind(&p.nom)
+            .bind(&p.type_mime)
+            .bind(p.taille)
+            .bind(&p.sha256)
+            .execute(b.pool())
+            .await
+            .unwrap();
+    }
+    sqlx::query(
+        "insert into mail_boite (mail_id, boite_id, dossier, uid) values ($1, $2, 'INBOX', $1)",
+    )
+    .bind(id)
+    .bind(boite)
+    .execute(b.pool())
+    .await
+    .unwrap();
+    id
+}
+
+/// Pompe, puis attente que plus aucun document de `mail_ids` ne soit à lire, en cours, ou lu
+/// sans ses contrôles de dépôt (fait juste après la lecture).
+pub async fn lire_tout(b: &Banc, mail_ids: &[i64]) {
+    gmflow_worker::lecture::pompe(b.pool()).await.unwrap();
+    let pool = b.pool().clone();
+    let ids = mail_ids.to_vec();
+    let fini = attendre(Duration::from_secs(30), || {
+        let (pool, ids) = (pool.clone(), ids.clone());
+        async move {
+            let n: i64 = sqlx::query_scalar(
+                "select count(*) from document where mail_id = any($1) and (etat = 'en_cours' or (etat = 'a_lire' and planifie_le is not null and message is null)
+                   or (etat = 'lu' and type in ('facture', 'avoir') and statut_depot is null))",
+            )
+            .bind(&ids)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            n == 0
+        }
+    })
+    .await;
+    assert!(fini, "lectures non terminées");
 }

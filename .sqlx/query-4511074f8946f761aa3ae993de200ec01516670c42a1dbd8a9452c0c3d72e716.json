@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct lower(split_part(identifiant, '@', 2)) as \"d!\" from boite_mail\n           where identifiant like '%@%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "d!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4511074f8946f761aa3ae993de200ec01516670c42a1dbd8a9452c0c3d72e716"
+}
