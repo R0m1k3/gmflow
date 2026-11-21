@@ -7,9 +7,13 @@ pub mod crypto;
 pub mod db;
 pub mod eml;
 pub mod file;
+#[cfg(feature = "test-utils")]
+pub mod fixtures;
 pub mod imap;
 pub mod journal;
+pub mod lecture;
 pub mod parametre;
+pub mod reglages;
 pub mod stockage;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;

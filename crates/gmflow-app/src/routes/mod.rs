@@ -4,6 +4,7 @@ pub mod admin_journal;
 pub mod admin_societes;
 pub mod admin_utilisateurs;
 pub mod auth;
+pub mod documents;
 pub mod fichiers;
 pub mod mails;
 pub mod tableau;
@@ -69,6 +70,16 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/mails/{id}", get(mails::fiche))
         .route("/pieces/{id}", get(fichiers::piece))
         .route("/tableau-de-bord", get(tableau::tableau))
+        .route("/documents", get(documents::lister))
+        .route("/documents/bilan", get(documents::bilan))
+        .route("/documents/{id}", get(documents::fiche))
+        .route("/documents/{id}/verifier", post(documents::verifier))
+        .route("/admin/documents/{id}/relire", post(documents::relire))
+        .route(
+            "/admin/claude/reglages",
+            get(admin_claude::reglages).put(admin_claude::modifier_reglages),
+        )
+        .route("/admin/claude/appels", get(admin_claude::appels))
         .route(
             "/admin/boites",
             get(admin_boites::lister).post(admin_boites::creer),

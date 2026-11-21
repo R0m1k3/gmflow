@@ -6,7 +6,7 @@ edition.workspace = true
 [features]
 # Outils de test (bases jetables, envoi IMAP en clair vers le serveur de test).
 # Jamais activée dans les images publiées.
-test-utils = []
+test-utils = ["dep:rust_xlsxwriter"]
 
 [dependencies]
 aes-gcm.workspace = true
@@ -15,9 +15,13 @@ apalis.workspace = true
 apalis-postgres.workspace = true
 async-imap.workspace = true
 base64.workspace = true
+calamine.workspace = true
 futures.workspace = true
 hex.workspace = true
+lopdf.workspace = true
 mail-parser.workspace = true
+pdf-extract.workspace = true
+quick-xml.workspace = true
 rand.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -32,3 +36,4 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 webpki-roots.workspace = true
+rust_xlsxwriter = { workspace = true, optional = true }

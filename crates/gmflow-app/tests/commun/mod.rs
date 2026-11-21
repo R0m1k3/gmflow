@@ -145,6 +145,13 @@ impl Appli {
         r.cookie.expect("cookie de session")
     }
 
+    pub async fn compter(&self, requete: &str) -> i64 {
+        sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(requete.to_string()))
+            .fetch_one(self.pool())
+            .await
+            .unwrap()
+    }
+
     pub async fn fermer(self) {
         self.base.fermer().await;
     }

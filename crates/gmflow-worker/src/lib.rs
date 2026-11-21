@@ -1,5 +1,7 @@
-//! Worker GMFlow : relève IMAP, test des boîtes, séances setup-token et test du jeton Claude.
+//! Worker GMFlow : relève IMAP, test des boîtes, lecture des pièces jointes, séances
+//! setup-token et test du jeton Claude.
 
+pub mod lecture;
 pub mod planif;
 pub mod releve;
 pub mod sante;
@@ -12,7 +14,7 @@ use std::sync::Arc;
 use apalis::prelude::*;
 use gmflow_core::config::Config;
 use gmflow_core::crypto::Chiffreur;
-use gmflow_core::file::{self, TacheBoite, TacheClaude};
+use gmflow_core::file::{self, TacheBoite, TacheClaude, TacheLecture};
 use gmflow_core::imap::Transport;
 use sqlx::PgPool;
 
@@ -59,7 +61,18 @@ async fn tache_claude(tache: TacheClaude, ctx: Data<Contexte>) -> Result<(), Box
     Ok(())
 }
 
-/// Lance les deux workers apalis : `boites` (4 tâches à la fois) et `claude` (1 à la fois),
+async fn tache_lecture(tache: TacheLecture, ctx: Data<Contexte>) -> Result<(), BoxDynError> {
+    match tache {
+        TacheLecture::LireDocument {
+            document_id,
+            forcer,
+        } => lecture::lire(&ctx, document_id, forcer).await?,
+    }
+    Ok(())
+}
+
+/// Lance les trois workers apalis : `boites` (4 tâches à la fois), `claude` (1 à la fois) et
+/// `lecture` (2 à la fois),
 /// jusqu'à ce que `arret` passe à vrai (jamais en production). LISTEN/NOTIFY : une tâche
 /// poussée par l'app est prise tout de suite, sans attendre le tour de scrutation (30 s).
 pub async fn lancer_files(
@@ -82,12 +95,20 @@ pub async fn lancer_files(
         .concurrency(1)
         .parallelize(tokio::spawn)
         .build(tache_claude);
-    let (a, b) = tokio::join!(
+    let lecture = WorkerBuilder::new("gmflow-lecture")
+        .backend(file::stockage_lecture(&ctx.pool).with_pubsub())
+        .data(ctx.clone())
+        .concurrency(2)
+        .parallelize(tokio::spawn)
+        .build(tache_lecture);
+    let (a, b, c) = tokio::join!(
         boites.run_until(signal(arret.clone())),
-        claude.run_until(signal(arret))
+        claude.run_until(signal(arret.clone())),
+        lecture.run_until(signal(arret))
     );
     a.map_err(|e| anyhow::anyhow!("worker boites : {e}"))?;
     b.map_err(|e| anyhow::anyhow!("worker claude : {e}"))?;
+    c.map_err(|e| anyhow::anyhow!("worker lecture : {e}"))?;
     Ok(())
 }
 

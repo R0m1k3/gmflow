@@ -1,7 +1,8 @@
 <script lang="ts">
   import { api, message, sonder } from '#lib/api.ts';
   import { quand } from '#lib/format.ts';
-  import type { EtatClaude, Seance } from '#lib/types.ts';
+  import { libelleTache } from '#lib/documents.ts';
+  import type { Appels, EtatClaude, Reglages, ReglagesVue, Seance } from '#lib/types.ts';
 
   let etat = $state<EtatClaude | null>(null);
   let jeton = $state('');
@@ -82,6 +83,53 @@
     }
   }
 
+  let vue = $state<ReglagesVue | null>(null);
+  let reglages = $state<Reglages | null>(null);
+  let infoReglages = $state('');
+  let appels = $state<Appels | null>(null);
+  let pageAppels = $state(1);
+  const taches = ['extraction_texte', 'ocr_scan', 'nouvel_essai'] as const;
+
+  async function chargerReglages() {
+    vue = await api.get<ReglagesVue>('/api/admin/claude/reglages');
+    const { extraction_texte, ocr_scan, nouvel_essai, lecture_auto, quota_lecture_jour } = vue;
+    reglages = {
+      extraction_texte: { ...extraction_texte },
+      ocr_scan: { ...ocr_scan },
+      nouvel_essai: { ...nouvel_essai },
+      lecture_auto,
+      quota_lecture_jour
+    };
+  }
+  async function chargerAppels() {
+    appels = await api.get<Appels>(`/api/admin/claude/appels${pageAppels > 1 ? `?page=${pageAppels}` : ''}`);
+  }
+  $effect(() => {
+    chargerReglages().catch((e) => (erreur = message(e)));
+    chargerAppels().catch((e) => (erreur = message(e)));
+  });
+  async function enregistrerReglages(e: SubmitEvent) {
+    e.preventDefault();
+    if (!reglages) return;
+    erreur = '';
+    infoReglages = '';
+    try {
+      await api.put('/api/admin/claude/reglages', { ...reglages, quota_lecture_jour: Number(reglages.quota_lecture_jour) });
+      await chargerReglages();
+      infoReglages = 'Réglages enregistrés.';
+    } catch (err) {
+      erreur = message(err);
+    }
+  }
+  function allerAppels(n: number) {
+    pageAppels = n;
+    chargerAppels().catch((e) => (erreur = message(e)));
+  }
+  let pagesAppels = $derived(appels ? Math.max(1, Math.ceil(appels.total / 50)) : 1);
+  function duree(ms: number) {
+    return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s`;
+  }
+
   const libelles: Record<string, [string, string]> = {
     valide: ['valide', 'ok'],
     erreur: ['en erreur', 'ko'],
@@ -147,3 +195,95 @@
   <button>Enregistrer et tester</button>
   <span class="discret">Généré ailleurs avec <code>claude setup-token</code>. Il n'est plus jamais affiché ensuite.</span>
 </form>
+
+<h2>Lecture des documents</h2>
+{#if vue && reglages}
+  <form class="carte" onsubmit={enregistrerReglages}>
+    {#if infoReglages}<div class="bandeau ok">{infoReglages}</div>{/if}
+    <table class="reglages">
+      <thead><tr><th>Tâche</th><th>Modèle</th><th>Effort</th></tr></thead>
+      <tbody>
+        {#each taches as t (t)}
+          <tr>
+            <td>{libelleTache[t]}</td>
+            <td>
+              <select bind:value={reglages[t].modele} aria-label="Modèle : {libelleTache[t]}">
+                {#each vue.modeles as m (m)}<option value={m}>{m}</option>{/each}
+              </select>
+            </td>
+            <td>
+              <select bind:value={reglages[t].effort} aria-label="Effort : {libelleTache[t]}">
+                {#each vue.efforts as ef (ef)}<option value={ef}>{ef}</option>{/each}
+              </select>
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+    <div class="champs">
+      <div>
+        <label for="quota">Appels de lecture par jour (au plus)</label>
+        <input id="quota" type="number" min="0" bind:value={reglages.quota_lecture_jour} />
+        <div class="discret">{vue.appels_lecture_du_jour} aujourd'hui. Au-delà, les documents attendent le lendemain.</div>
+      </div>
+      <div class="case">
+        <label><input type="checkbox" bind:checked={reglages.lecture_auto} /> Lecture automatique des nouvelles pièces jointes</label>
+        <div class="discret">Coupée, rien n'est lu, même sans Claude. « Relire » sur un document marche toujours.</div>
+      </div>
+    </div>
+    <button>Enregistrer</button>
+  </form>
+{/if}
+
+<h2>Appels à Claude</h2>
+{#if appels}
+  {#if appels.stats.length}
+    <table class="stats">
+      <thead><tr><th>Sur 30 jours</th><th>Modèle</th><th>Appels</th><th>Réussis</th><th>Durée moyenne</th></tr></thead>
+      <tbody>
+        {#each appels.stats as s (s.tache + s.modele)}
+          <tr>
+            <td>{libelleTache[s.tache] ?? s.tache}</td>
+            <td>{s.modele}</td>
+            <td class="nombre">{s.n}</td>
+            <td class="nombre">{s.reussis} ({Math.round((100 * s.reussis) / Math.max(1, s.n))} %)</td>
+            <td class="nombre">{duree(s.duree_moyenne_ms)}</td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
+  {/if}
+  <table>
+    <thead><tr><th>Quand</th><th>Tâche</th><th>Modèle</th><th>Durée</th><th>Résultat</th></tr></thead>
+    <tbody>
+      {#each appels.elements as a, i (i)}
+        <tr>
+          <td class="date">{quand(a.quand)}</td>
+          <td>{libelleTache[a.tache] ?? a.tache}</td>
+          <td>{a.modele}{a.effort ? `, ${a.effort}` : ''}</td>
+          <td class="nombre">{duree(a.duree_ms)}</td>
+          <td>
+            <span class="etiquette {a.succes ? 'ok' : 'ko'}">{a.succes ? 'réussi' : 'échec'}</span>
+            {#if a.message}<span class="discret">{a.message}</span>{/if}
+          </td>
+        </tr>
+      {:else}
+        <tr><td colspan="5" class="discret">Aucun appel.</td></tr>
+      {/each}
+    </tbody>
+  </table>
+  {#if pagesAppels > 1}
+    <div class="pagination">
+      <button class="second" disabled={pageAppels <= 1} onclick={() => allerAppels(pageAppels - 1)}>Précédent</button>
+      <span class="discret">Page {pageAppels} sur {pagesAppels}</span>
+      <button class="second" disabled={pageAppels >= pagesAppels} onclick={() => allerAppels(pageAppels + 1)}>Suivant</button>
+    </div>
+  {/if}
+{/if}
+
+<style>
+  .reglages { margin-bottom: 1rem; }
+  .reglages select { max-width: 12rem; }
+  .stats { margin-bottom: 0.8rem; }
+  .case label { display: flex; gap: 0.4rem; align-items: center; color: var(--encre); font-size: 1rem; margin-top: 1.4rem; }
+</style>

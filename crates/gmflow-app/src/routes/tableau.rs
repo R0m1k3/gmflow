@@ -33,6 +33,18 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
     )
     .fetch_all(&etat.pool)
     .await?;
+    let docs = sqlx::query!(
+        r#"select count(*) filter (where etat = 'a_lire') as "a_lire!",
+                  count(*) filter (where etat = 'erreur') as "erreur!",
+                  count(*) filter (where etat = 'lu' and verifie_le is null) as "a_verifier!",
+                  count(*) filter (where etat = 'lu' and lu_le >= (date_trunc('day', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris')) as "lus_aujourdhui!"
+           from document d
+           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))"#,
+        filtre
+    )
+    .fetch_one(&etat.pool)
+    .await?;
     let rfc = |t: Option<time::OffsetDateTime>| {
         t.and_then(|t| {
             t.format(&time::format_description::well_known::Rfc3339)
@@ -46,6 +58,10 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
             "motif": if b.pause_auto { "pause_auto" } else { "erreur" },
             "depuis": rfc(b.erreur_depuis), "message": b.derniere_erreur,
         })).collect::<Vec<_>>(),
+        "documents": {
+            "a_lire": docs.a_lire, "erreur": docs.erreur, "a_verifier": docs.a_verifier,
+            "lus_aujourdhui": docs.lus_aujourdhui,
+        },
     });
     if acces.est_admin() {
         let claude = gmflow_core::parametre::lire(&etat.pool, gmflow_core::parametre::CLAUDE_ETAT)
@@ -56,6 +72,12 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
                 .fetch_one(&etat.pool)
                 .await?;
         r["claude"] = json!({ "etat": claude.get("etat").cloned().unwrap_or(json!("absent")), "teste_le": claude.get("teste_le") });
+        let r_lecture = gmflow_core::reglages::lire(&etat.pool).await?;
+        r["lecture"] = json!({
+            "auto": r_lecture.lecture_auto,
+            "quota": r_lecture.quota_lecture_jour,
+            "appels_du_jour": gmflow_core::reglages::appels_lecture_du_jour(&etat.pool).await?,
+        });
         r["stockage"] =
             json!({ "octets": octets, "libre_pourcent": libre_pourcent(&etat.config.fichiers) });
     }

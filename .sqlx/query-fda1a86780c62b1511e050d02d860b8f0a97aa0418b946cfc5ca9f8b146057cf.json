@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set type = $2, societe_id = $3, verifie_le = now(), verifie_par = $4,\n            type_corrige = type_corrige or $5, societe_corrigee = societe_corrigee or $6\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fda1a86780c62b1511e050d02d860b8f0a97aa0418b946cfc5ca9f8b146057cf"
+}

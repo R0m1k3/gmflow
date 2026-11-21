@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select mail_id from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mail_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "mail_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c74c539c7466a640b832f49197418797a9c7ab4f5eaa9283ca8e30975fd3e059"
+}

@@ -33,7 +33,8 @@
 
   const liens = [
     { href: '/', texte: 'Tableau de bord' },
-    { href: '/mails', texte: 'Mails' }
+    { href: '/mails', texte: 'Mails' },
+    { href: '/documents', texte: 'Documents' }
   ];
   const liensAdmin = [
     { href: '/admin/structures', texte: 'Structures' },

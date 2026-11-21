@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update parametre set valeur = jsonb_set(valeur, '{utilise_le}', to_jsonb($1::text))\n         where cle = $2 and jsonb_typeof(valeur) = 'object'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "417bcb04b8e70474e04411d2673bac8a574051ea876e2bc371edf30532c8507f"
+}

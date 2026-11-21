@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import { api, message } from '#lib/api.ts';
   import { quand, taille } from '#lib/format.ts';
+  import { classeEtat, libelleEtat, libelleType } from '#lib/documents.ts';
   import type { FicheMail } from '#lib/types.ts';
 
   let m = $state<FicheMail | null>(null);
@@ -35,6 +36,12 @@
             <td><a href="/api/pieces/{p.id}" download>{p.nom}</a></td>
             <td class="discret">{p.type_mime}</td>
             <td class="nombre">{taille(p.taille)}</td>
+            <td>
+              {#if p.document_id && p.document_etat}
+                <a href="/documents/{p.document_id}">{p.document_type ? libelleType[p.document_type] : 'Document'}</a>
+                <span class="etiquette {classeEtat[p.document_etat]}">{libelleEtat[p.document_etat]}</span>
+              {/if}
+            </td>
           </tr>
         {/each}
       </tbody>

@@ -122,7 +122,17 @@ impl WorkersTest {
                 .enable_all()
                 .build()
                 .unwrap();
-            let _ = rt.block_on(gmflow_worker::lancer_files(ctx, rx));
+            // Pool propre à ce runtime : une connexion ouverte ici meurt avec lui, elle ne
+            // doit pas revenir dans le pool du test.
+            rt.block_on(async move {
+                let mut ctx = ctx;
+                ctx.pool = gmflow_core::db::connecter(&ctx.config.database_url)
+                    .await
+                    .unwrap();
+                let pool = ctx.pool.clone();
+                let _ = gmflow_worker::lancer_files(ctx, rx).await;
+                let _ = tokio::time::timeout(Duration::from_secs(5), pool.close()).await;
+            });
         });
         Self {
             arret,

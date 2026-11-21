@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = $2, voie = $3, message = $4, type = $5, societe_id = $6,\n            fournisseur_nom = $7, fournisseur_siret = $8, fournisseur_tva = $9, numero = $10,\n            date_document = $11, numero_commande = $12,\n            montant_ht = $13::float8::numeric(14, 2), montant_tva = $14::float8::numeric(14, 2),\n            montant_ttc = $15::float8::numeric(14, 2), confiance = $16, texte = $17,\n            resultat = $18, modele = $19, effort = $20, copie_de = null, pris_le = null,\n            lu_le = case when $2 in ('lu', 'ignore', 'erreur') then now() else lu_le end\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Date",
+        "Text",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Jsonb",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "da1314d0cc12d9b103d80aec05226c314b49021558cfb1f42e9faffc6b4f98a0"
+}

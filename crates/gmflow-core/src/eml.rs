@@ -149,3 +149,11 @@ pub fn extraire_piece(brut: &[u8], rang: i32) -> Result<Vec<u8>, ErreurEml> {
         .ok_or(ErreurEml::PieceAbsente(rang))?;
     Ok(part.decoded().into_owned())
 }
+
+/// Le mail vient d'une liste de diffusion (en-tête `List-Unsubscribe`).
+pub fn liste_diffusion(brut: &[u8]) -> bool {
+    MessageParser::default()
+        .parse_headers(brut)
+        .map(|m| m.headers().contains("List-Unsubscribe"))
+        .unwrap_or(false)
+}
