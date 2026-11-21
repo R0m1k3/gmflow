@@ -21,7 +21,7 @@ impl Config {
             database_url,
             cle,
             url_publique: std::env::var("GMFLOW_URL_PUBLIQUE")
-                .unwrap_or_else(|_| "http://localhost:8080".into()),
+                .unwrap_or_else(|_| "http://localhost:8347".into()),
             fichiers: std::env::var("GMFLOW_FICHIERS")
                 .unwrap_or_else(|_| "/data/fichiers".into())
                 .into(),

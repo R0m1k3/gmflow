@@ -71,7 +71,7 @@ impl BaseTest {
         Config {
             database_url: self.url.clone(),
             cle: CLE_TEST,
-            url_publique: "http://localhost:8080".into(),
+            url_publique: "http://localhost:8347".into(),
             fichiers,
             claude_bin: "claude".into(),
         }

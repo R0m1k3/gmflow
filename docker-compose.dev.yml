@@ -1,14 +1,14 @@
 # Essai local : docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-# Construit les images ici, ajoute GreenMail (serveur mail de test) et publie l'app sur 8080.
+# Construit les images ici, ajoute GreenMail (serveur mail de test) et publie l'app sur 8347.
 # Le worker est construit avec `test-utils` : GMFLOW_IMAP_CLAIR_TEST=1 le fait parler à
 # GreenMail en IMAP sans TLS. Les images publiées sur GHCR n'ont pas cette fonction.
 services:
   app:
     image: gmflow-app:dev
     build: { context: ., target: app }
-    ports: ["8080:8080"]
+    ports: ["8347:8347"]
     environment:
-      GMFLOW_URL_PUBLIQUE: http://localhost:8080
+      GMFLOW_URL_PUBLIQUE: http://localhost:8347
 
   worker:
     image: gmflow-worker:dev

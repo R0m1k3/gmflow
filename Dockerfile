@@ -38,7 +38,7 @@ COPY --from=rust /out/gmflow-app /usr/local/bin/gmflow-app
 COPY --from=web /web/build /srv/web
 ENV GMFLOW_WEB=/srv/web GMFLOW_FICHIERS=/data/fichiers
 USER gmflow
-EXPOSE 8080
+EXPOSE 8347
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s CMD ["/usr/local/bin/gmflow-app", "sante"]
 CMD ["/usr/local/bin/gmflow-app"]
 

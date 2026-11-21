@@ -10,7 +10,7 @@ export default defineConfig({
     })
   ],
   server: {
-    // En développement : l'API tourne sur 8080.
-    proxy: { '/api': 'http://localhost:8080', '/health': 'http://localhost:8080' }
+    // En développement : l'API tourne sur 8347 (GMFLOW_PORT).
+    proxy: { '/api': 'http://localhost:8347', '/health': 'http://localhost:8347' }
   }
 });
