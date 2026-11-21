@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = 'a_lire', planifie_le = now(), message = null,\n            verifie_le = null, verifie_par = null, type_corrige = false, societe_corrigee = false\n         where id = $1 and etat <> 'en_cours' and coalesce(statut_depot, '') <> 'en_envoi'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8bbd9603fd1d35bcd4db39e4d843ce11e22a5ecfd7c531391c7c6dae26dd9e0"
+}

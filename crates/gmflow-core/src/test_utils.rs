@@ -155,3 +155,106 @@ pub async fn drapeaux(compte: &str, dossier: &str) -> Vec<Vec<String>> {
     s.logout().await.ok();
     v
 }
+
+/// Serveur SMTP de test, en clair et sans authentification : garde chaque message reçu.
+/// `refuser` : répond 550 au destinataire (envoi en échec).
+pub struct SmtpTest {
+    pub port: u16,
+    pub messages: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    pub refuser: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SmtpTest {
+    pub async fn demarrer() -> Self {
+        use std::sync::atomic::Ordering;
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let ecoute = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        ecoute.set_nonblocking(true).unwrap();
+        let port = ecoute.local_addr().unwrap().port();
+        let messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let refuser = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (m, r) = (messages.clone(), refuser.clone());
+        // Fil à part avec son runtime : le serveur survit aux runtimes des tests et des workers.
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let ecoute = tokio::net::TcpListener::from_std(ecoute).unwrap();
+                loop {
+                    let Ok((flux, _)) = ecoute.accept().await else {
+                        return;
+                    };
+                    let (m, r) = (m.clone(), r.clone());
+                    tokio::spawn(async move {
+                        let (lecture, mut ecriture) = flux.into_split();
+                        let mut lignes = BufReader::new(lecture);
+                        let _ = ecriture.write_all(b"220 smtp.test ESMTP\r\n").await;
+                        let mut ligne = String::new();
+                        loop {
+                            ligne.clear();
+                            if lignes.read_line(&mut ligne).await.unwrap_or(0) == 0 {
+                                return;
+                            }
+                            let cmd = ligne.trim_end().to_ascii_uppercase();
+                            let rep: &[u8] = if cmd.starts_with("EHLO") {
+                                b"250-smtp.test\r\n250 8BITMIME\r\n"
+                            } else if cmd.starts_with("HELO") || cmd.starts_with("MAIL") {
+                                b"250 OK\r\n"
+                            } else if cmd.starts_with("RCPT") {
+                                if r.load(Ordering::SeqCst) {
+                                    b"550 refus de test\r\n"
+                                } else {
+                                    b"250 OK\r\n"
+                                }
+                            } else if cmd == "DATA" {
+                                let _ = ecriture.write_all(b"354 suite\r\n").await;
+                                let mut corps = String::new();
+                                loop {
+                                    ligne.clear();
+                                    if lignes.read_line(&mut ligne).await.unwrap_or(0) == 0 {
+                                        return;
+                                    }
+                                    if ligne == ".\r\n" {
+                                        break;
+                                    }
+                                    corps.push_str(&ligne);
+                                }
+                                m.lock().unwrap().push(corps);
+                                b"250 recu\r\n"
+                            } else if cmd == "QUIT" {
+                                let _ = ecriture.write_all(b"221 au revoir\r\n").await;
+                                return;
+                            } else {
+                                b"250 OK\r\n"
+                            };
+                            let _ = ecriture.write_all(rep).await;
+                        }
+                    });
+                }
+            });
+        });
+        Self {
+            port,
+            messages,
+            refuser,
+        }
+    }
+
+    pub fn recus(&self) -> Vec<String> {
+        self.messages.lock().unwrap().clone()
+    }
+
+    /// Configuration d'expédition vers ce serveur.
+    pub fn expedition(&self) -> crate::expedition::Expedition {
+        crate::expedition::Expedition {
+            serveur: "127.0.0.1".into(),
+            port: self.port,
+            securite: "clair".into(),
+            identifiant: String::new(),
+            adresse: "gmflow@test.local".into(),
+            nom: Some("GMFlow".into()),
+        }
+    }
+}

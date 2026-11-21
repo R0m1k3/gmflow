@@ -47,7 +47,7 @@ fn facturx_lu_sans_claude() {
                 donnees.vendeur.nom.as_deref(),
                 Some("Grossiste Durand & Fils")
             );
-            assert_eq!(donnees.vendeur.tva.as_deref(), Some("FR40552100554"));
+            assert_eq!(donnees.vendeur.tva.as_deref(), Some("FR96552100554"));
             assert_eq!(donnees.montant_ht, Some(100.0));
             assert_eq!(donnees.montant_tva, Some(20.0));
             assert_eq!(donnees.montant_ttc, Some(120.0));

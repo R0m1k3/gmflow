@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update envoi_depot set etat = 'envoye', message_id_smtp = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b5406bfcc3f65413d93ec191cc7350e4c8cc329806e36467cdf649731a574ba8"
+}

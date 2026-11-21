@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select s.depot_auto from document d join societe s on s.id = d.societe_id where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "depot_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "depot_auto"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0cf8e3e511d4918b800630e1a85b1bc98df090c523cbfc62a147ca24c39efd77"
+}

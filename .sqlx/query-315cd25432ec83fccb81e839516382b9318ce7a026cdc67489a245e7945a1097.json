@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select societe_id from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "societe_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "315cd25432ec83fccb81e839516382b9318ce7a026cdc67489a245e7945a1097"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update envoi_depot set etat = 'erreur',\n            message = 'envoi interrompu : état inconnu, vérifier dans Dext ou Yooz avant de redéposer'\n         where etat = 'en_cours' and quand < now() - make_interval(mins => $1)\n         returning document_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envoi_depot",
+            "name": "document_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "86c176f281c782535699b023f721663dd325444e6e4e6871748f32bdb76d1b45"
+}

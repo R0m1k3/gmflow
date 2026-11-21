@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update parametre set valeur_chiffree = null where cle = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6119eeef8101aa227aadd93f6e1e4d9d977dc6a466257578f49a3437c2057736"
+}

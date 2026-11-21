@@ -1,0 +1,93 @@
+//! Contrôles avant dépôt : identifiants, montants, société, fournisseur, dates.
+
+use gmflow_core::controles::{
+    Facture, cle_tva_fr, controler, siren_valide, siret_valide, tva_valide,
+};
+
+fn codes(f: &Facture<'_>, jour: time::Date) -> Vec<String> {
+    controler(f, jour).into_iter().map(|e| e.code).collect()
+}
+
+fn jour() -> time::Date {
+    time::macros::date!(2026 - 11 - 20)
+}
+
+fn bonne() -> Facture<'static> {
+    Facture {
+        societe_id: Some(1),
+        confiance_societe: 1.0,
+        fournisseur_statut: Some("valide"),
+        fournisseur_siret: Some("55210055400013"),
+        fournisseur_tva: Some("FR96552100554"),
+        numero: Some("F-1"),
+        date: Some(time::macros::date!(2026 - 11 - 12)),
+        ht: Some(100.0),
+        tva: Some(20.0),
+        ttc: Some(120.0),
+        adresse_depot: true,
+    }
+}
+
+#[test]
+fn identifiants() {
+    assert!(siret_valide("552 100 554 00013"));
+    assert!(siret_valide("73282932000074"));
+    assert!(!siret_valide("73282932000075"));
+    assert!(!siret_valide("7328293200007"));
+    // La Poste : somme des chiffres multiple de 5.
+    assert!(siret_valide("35600000000001"));
+    assert!(!siret_valide("35600000000002"));
+    assert!(siren_valide("552100554"));
+    assert!(!siren_valide("552100555"));
+    assert_eq!(cle_tva_fr("552100554"), Some(96));
+    assert_eq!(cle_tva_fr("380129866"), Some(89));
+    assert!(tva_valide("FR 96 552100554"));
+    assert!(!tva_valide("FR40552100554"));
+    assert!(tva_valide("DE123456789"));
+    assert!(!tva_valide("123456789"));
+}
+
+#[test]
+fn facture_conforme() {
+    assert!(controler(&bonne(), jour()).is_empty());
+}
+
+#[test]
+fn chaque_controle() {
+    let mut f = bonne();
+    f.ttc = Some(120.03);
+    assert_eq!(codes(&f, jour()), ["montants"]);
+    f.ttc = Some(120.02);
+    assert!(codes(&f, jour()).is_empty(), "0,02 € toléré");
+
+    let mut f = bonne();
+    f.fournisseur_siret = Some("55210055400014");
+    assert_eq!(codes(&f, jour()), ["identifiants"]);
+
+    let mut f = bonne();
+    f.confiance_societe = 0.85;
+    assert_eq!(codes(&f, jour()), ["societe"]);
+    f.societe_id = None;
+    assert_eq!(codes(&f, jour()), ["societe"]);
+
+    let mut f = bonne();
+    f.adresse_depot = false;
+    assert_eq!(codes(&f, jour()), ["depot"]);
+
+    let mut f = bonne();
+    f.fournisseur_statut = Some("a_confirmer");
+    assert_eq!(codes(&f, jour()), ["fournisseur"]);
+    f.fournisseur_statut = None;
+    assert_eq!(codes(&f, jour()), ["fournisseur"]);
+
+    let mut f = bonne();
+    f.date = Some(time::macros::date!(2026 - 11 - 21));
+    assert_eq!(codes(&f, jour()), ["date"]);
+    f.date = Some(time::macros::date!(2025 - 10 - 01));
+    assert_eq!(codes(&f, jour()), ["date"]);
+
+    let mut f = bonne();
+    f.numero = None;
+    f.date = None;
+    assert_eq!(codes(&f, jour()), ["incomplet"]);
+}

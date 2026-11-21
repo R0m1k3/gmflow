@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select controles from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "controles",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "controles"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c3e83a8cf072861f462e6fb22b6ccee3e50d9f4aeb0d9e92316e5a2a0b5efece"
+}

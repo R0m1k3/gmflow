@@ -34,12 +34,15 @@
   const liens = [
     { href: '/', texte: 'Tableau de bord' },
     { href: '/mails', texte: 'Mails' },
-    { href: '/documents', texte: 'Documents' }
+    { href: '/documents', texte: 'Documents' },
+    { href: '/depots', texte: 'Dépôts' },
+    { href: '/fournisseurs', texte: 'Fournisseurs' }
   ];
   const liensAdmin = [
     { href: '/admin/structures', texte: 'Structures' },
     { href: '/admin/boites', texte: 'Boîtes surveillées' },
     { href: '/admin/utilisateurs', texte: 'Utilisateurs' },
+    { href: '/admin/expedition', texte: 'Expédition' },
     { href: '/admin/claude', texte: 'Claude' },
     { href: '/admin/journal', texte: 'Journal' }
   ];

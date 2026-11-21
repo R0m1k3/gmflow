@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set valide_le = now(), valide_par = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d6c2bf5f264272109dd1e4494ec0df5abd736c086a2680658cf218d1e2be99c1"
+}

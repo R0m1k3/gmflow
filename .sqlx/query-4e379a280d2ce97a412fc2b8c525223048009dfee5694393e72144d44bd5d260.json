@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,\n                  s.raison_sociale as \"societe?\", d.fournisseur_nom, d.numero, d.date_document,\n                  d.montant_ttc::float8 as montant_ttc, d.message,\n                  d.verifie_le is not null as \"verifie!\", m.date_mail\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))\n             and ($2::bigint is null or d.societe_id = $2)\n             and ($3::text is null or d.type = $3)\n             and ($4::text is null or d.etat = $4)\n             and (not $5 or d.etat <> 'ignore')\n             and ($6::text is null or d.voie = $6)\n             and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)\n             and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)\n             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)\n             and ($10::bool is null or (d.verifie_le is not null) = $10)\n           order by m.date_mail desc nulls last, d.id desc\n           limit $11 offset $12",
+  "query": "select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,\n                  s.raison_sociale as \"societe?\", d.fournisseur_nom, d.numero, d.date_document,\n                  d.montant_ttc::float8 as montant_ttc, d.message,\n                  d.verifie_le is not null as \"verifie!\", m.date_mail,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\", d.statut_depot, d.controles\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))\n             and ($2::bigint is null or d.societe_id = $2)\n             and ($3::text is null or d.type = $3)\n             and ($4::text is null or d.etat = $4)\n             and (not $5 or d.etat <> 'ignore')\n             and ($6::text is null or d.voie = $6)\n             and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)\n             and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)\n             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)\n             and ($10::bool is null or (d.verifie_le is not null) = $10)\n             and ($11::text is null or d.statut_depot = $11)\n             and ($12::bigint is null or d.fournisseur_id = $12)\n           order by m.date_mail desc nulls last, d.id desc\n           limit $13 offset $14",
   "describe": {
     "columns": [
       {
@@ -146,6 +146,50 @@
             "name": "date_mail"
           }
         }
+      },
+      {
+        "ordinal": 14,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "fournisseur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "controles",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "controles"
+          }
+        }
       }
     ],
     "parameters": {
@@ -160,6 +204,8 @@
         "Date",
         "Text",
         "Bool",
+        "Text",
+        "Int8",
         "Int8",
         "Int8"
       ]
@@ -178,8 +224,12 @@
       null,
       true,
       null,
-      true
+      true,
+      true,
+      false,
+      true,
+      false
     ]
   },
-  "hash": "77883270aa6e03de8ca4045146f13f31a3bc9e47077b784249938ee0ae769be3"
+  "hash": "4e379a280d2ce97a412fc2b8c525223048009dfee5694393e72144d44bd5d260"
 }

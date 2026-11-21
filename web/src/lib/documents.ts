@@ -1,4 +1,4 @@
-import type { EtatDocument, TypeDocument, Voie } from './types.ts';
+import type { EtatDocument, StatutDepot, TypeDocument, Voie } from './types.ts';
 
 export const TYPES: TypeDocument[] = ['facture', 'avoir', 'bl', 'relance', 'devis', 'autre'];
 
@@ -39,5 +39,28 @@ export const libelleTache: Record<string, string> = {
   extraction_texte: 'Extraction (PDF texte, tableur)',
   ocr_scan: 'Lecture des scans',
   nouvel_essai: 'Nouvel essai après échec',
+  identification_fournisseur: 'Rapprochement des fournisseurs',
   test_jeton: 'Test du jeton'
 };
+
+export const STATUTS_DEPOT: StatutDepot[] = ['a_verifier', 'pret', 'en_envoi', 'depose', 'erreur', 'doublon'];
+
+export const libelleStatutDepot: Record<StatutDepot, string> = {
+  a_verifier: 'à vérifier',
+  pret: 'prêt à déposer',
+  en_envoi: 'envoi en cours',
+  depose: 'déposé',
+  erreur: 'dépôt en erreur',
+  doublon: 'doublon'
+};
+
+export const classeStatutDepot: Record<StatutDepot, string> = {
+  a_verifier: 'att',
+  pret: 'att',
+  en_envoi: 'att',
+  depose: 'ok',
+  erreur: 'ko',
+  doublon: 'ko'
+};
+
+export const libelleOutil: Record<string, string> = { dext: 'Dext', yooz: 'Yooz' };

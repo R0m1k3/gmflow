@@ -45,6 +45,22 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
     )
     .fetch_one(&etat.pool)
     .await?;
+    let depots = sqlx::query!(
+        r#"select count(*) filter (where statut_depot = 'a_verifier') as "a_verifier!",
+                  count(*) filter (where statut_depot = 'pret') as "prets!",
+                  count(*) filter (where statut_depot in ('erreur', 'doublon')) as "bloques!",
+                  (select count(*) from envoi_depot e
+                    where e.etat = 'envoye'
+                      and e.quand >= (date_trunc('month', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris')
+                      and ($1::bigint is null or e.societe_id = $1)) as "deposes_mois!"
+           from document d
+           where d.statut_depot is not null
+             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))"#,
+        filtre
+    )
+    .fetch_one(&etat.pool)
+    .await?;
     let rfc = |t: Option<time::OffsetDateTime>| {
         t.and_then(|t| {
             t.format(&time::format_description::well_known::Rfc3339)
@@ -61,6 +77,10 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
         "documents": {
             "a_lire": docs.a_lire, "erreur": docs.erreur, "a_verifier": docs.a_verifier,
             "lus_aujourdhui": docs.lus_aujourdhui,
+        },
+        "depots": {
+            "a_verifier": depots.a_verifier, "prets": depots.prets, "bloques": depots.bloques,
+            "deposes_mois": depots.deposes_mois,
         },
     });
     if acces.est_admin() {

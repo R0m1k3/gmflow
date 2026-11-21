@@ -18,7 +18,7 @@ const TEXTE_CONSERVE: usize = 200_000;
 const VOIES_CLAUDE: &[&str] = &["pdf_texte", "tableur", "scan"];
 
 /// Claude peut-il lire maintenant (jeton présent, quota du jour non atteint) ? Sinon, pourquoi.
-async fn claude_indisponible(
+pub(crate) async fn claude_indisponible(
     pool: &PgPool,
     r: &reglages::Reglages,
 ) -> anyhow::Result<Option<String>> {
@@ -366,6 +366,9 @@ pub async fn lire(ctx: &Contexte, document_id: i64, forcer: bool) -> anyhow::Res
         return Ok(());
     };
     let resultat = lire_pris(ctx, document_id, forcer, doc).await;
+    if resultat.is_ok() {
+        apres_lecture(ctx, document_id).await;
+    }
     if let Err(e) = &resultat {
         // Erreur imprévue (fichier absent, base) : le document est marqué en erreur, pas bloqué.
         let _ = sqlx::query!(
@@ -378,6 +381,34 @@ pub async fn lire(ctx: &Contexte, document_id: i64, forcer: bool) -> anyhow::Res
         .await;
     }
     resultat
+}
+
+/// Après une lecture réussie : fiche fournisseur, contrôles et statut de dépôt. Une erreur ici
+/// ne remet pas la lecture en cause : elle est journalisée, et la fiche du document permet de
+/// relancer les contrôles.
+pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
+    let etat = sqlx::query_scalar!("select etat from document where id = $1", document_id)
+        .fetch_optional(&ctx.pool)
+        .await;
+    if !matches!(etat, Ok(Some(ref e)) if e == "lu") {
+        return;
+    }
+    if let Err(e) = crate::fournisseur::rattacher(ctx, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "rattachement au fournisseur impossible");
+    }
+    if let Err(e) = gmflow_core::depot::evaluer_et_deposer(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "contrôles avant dépôt impossibles");
+    }
+}
+
+/// Exemples de corrections du fournisseur probable, à ajouter au prompt.
+async fn exemples_pour(pool: &PgPool, expediteur: &str, texte: Option<&str>) -> String {
+    match crate::fournisseur::pre_identifier(pool, expediteur, texte).await {
+        Ok(Some(f)) => crate::fournisseur::exemples(pool, f)
+            .await
+            .unwrap_or_default(),
+        _ => String::new(),
+    }
 }
 
 struct Entree {
@@ -429,7 +460,8 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
                 corps: &e.corps,
                 nom_fichier: &e.nom,
             };
-            let prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(&texte));
+            let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(&texte));
+            prompt.push_str(&exemples_pour(pool, &e.expediteur, Some(&texte)).await);
             match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, None).await? {
                 Lecture::Faite(ex, reglage) => {
                     lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage)
@@ -448,7 +480,7 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
                 corps: &e.corps,
                 nom_fichier: &e.nom,
             };
-            let prompt = extraction::prompt(
+            let mut prompt = extraction::prompt(
                 &mail,
                 &soc,
                 &Contenu::Fichier {
@@ -456,6 +488,7 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
                     pages,
                 },
             );
+            prompt.push_str(&exemples_pour(pool, &e.expediteur, None).await);
             match lire_par_claude(
                 ctx,
                 id,

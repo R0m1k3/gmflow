@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set statut_depot = $2, controles = $3 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57c39463dc880895512d2820febe78142be34cdb1521da2fcca30c1cea471a69"
+}

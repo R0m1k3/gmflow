@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from fournisseur f\n           where f.fusionne_dans is null and ($1::text is null or f.statut = $1)\n             and ($2::text is null or f.nom ilike $2 or f.siret ilike $2 or f.tva ilike $2\n                  or array_to_string(f.domaines, ' ') ilike $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0c4a6340261d0a748a550909f9a7beac25731d9877b68c6b934bbf1201f3ebf6"
+}

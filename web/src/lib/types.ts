@@ -60,6 +60,7 @@ export interface Tableau {
   claude?: { etat: string; teste_le?: string | null };
   stockage?: { octets: number; libre_pourcent: number | null };
   documents: { a_lire: number; erreur: number; a_verifier: number; lus_aujourdhui: number };
+  depots: { a_verifier: number; prets: number; bloques: number; deposes_mois: number };
   lecture?: { auto: boolean; quota: number; appels_du_jour: number };
 }
 
@@ -71,6 +72,7 @@ export interface Societe {
   adresses: string[];
   outil_depot: 'dext' | 'yooz' | null;
   adresse_depot: string | null;
+  depot_auto: boolean;
   archivee: boolean;
 }
 
@@ -158,6 +160,17 @@ export interface LigneDocument {
   message: string | null;
   verifie: boolean;
   date_mail: string | null;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  statut_depot: StatutDepot | null;
+  controles: Controle[];
+}
+
+export type StatutDepot = 'a_verifier' | 'pret' | 'en_envoi' | 'depose' | 'erreur' | 'doublon';
+
+export interface Controle {
+  code: string;
+  message: string;
 }
 
 export interface Confiance {
@@ -202,6 +215,84 @@ export interface FicheDocument {
   verifie_par: string | null;
   type_corrige: boolean;
   societe_corrigee: boolean;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  fournisseur_statut: StatutFournisseur | null;
+  statut_depot: StatutDepot | null;
+  controles: Controle[];
+  valide_le: string | null;
+  valide_par: string | null;
+  corrections: Record<string, { avant: unknown; apres: unknown }>;
+  societe_adresse_depot: string | null;
+  societe_outil_depot: string | null;
+  envois: Envoi[];
+}
+
+export interface Envoi {
+  id: number;
+  quand: string;
+  adresse: string;
+  outil: string | null;
+  etat: 'en_cours' | 'envoye' | 'erreur';
+  message: string | null;
+  auteur: string | null;
+}
+
+export type StatutFournisseur = 'a_confirmer' | 'valide';
+
+export interface LigneFournisseur {
+  id: number;
+  nom: string;
+  siret: string | null;
+  tva: string | null;
+  domaines: string[];
+  statut: StatutFournisseur;
+  societe_defaut_id: number | null;
+  societe_defaut: string | null;
+  nb_documents: number;
+  a_verifier: number;
+}
+
+export interface Fournisseur {
+  id: number;
+  nom: string;
+  siret: string | null;
+  tva: string | null;
+  domaines: string[];
+  statut: StatutFournisseur;
+  societe_defaut_id: number | null;
+  format_bl: string | null;
+  notes: string | null;
+  fusionne_dans: number | null;
+  cree_le: string;
+}
+
+export interface Expedition {
+  serveur: string;
+  port: number;
+  securite: 'tls' | 'starttls';
+  identifiant: string;
+  adresse: string;
+  nom: string | null;
+}
+
+export interface ExpeditionVue {
+  expedition: Expedition | null;
+  mot_de_passe_enregistre: boolean;
+  alerte_destinataires: string[];
+  dernier_test: { quand: string; ok: boolean; message: string | null } | null;
+}
+
+export interface LigneSuivi {
+  societe_id: number | null;
+  societe: string | null;
+  recues: number;
+  deposees: number;
+  pretes: number;
+  a_verifier: number;
+  en_erreur: number;
+  doublons: number;
+  montant_depose: number;
 }
 
 export interface Compte {
@@ -216,6 +307,7 @@ export interface Bilan {
   verifies: number;
   type_justes: number;
   societe_justes: number;
+  semaines: { semaine: string; valides: number; sans_correction: number }[];
 }
 
 export interface Reglage {
@@ -227,6 +319,7 @@ export interface Reglages {
   extraction_texte: Reglage;
   ocr_scan: Reglage;
   nouvel_essai: Reglage;
+  identification_fournisseur: Reglage;
   lecture_auto: boolean;
   quota_lecture_jour: number;
 }

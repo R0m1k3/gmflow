@@ -5,16 +5,16 @@ mod commun;
 
 use std::time::Duration;
 
-use commun::{Banc, WorkersTest, attendre};
+use commun::{Banc, WorkersTest, attendre, lire_tout, mail};
 use gmflow_core::fixtures::{self, SIRET_A, SIRET_B};
-use gmflow_core::{eml, parametre, reglages, stockage};
+use gmflow_core::{parametre, reglages};
 use gmflow_worker::lecture;
 use serde_json::{Value, json};
 
 fn extraction(type_doc: &str, societe_id: Option<i64>, avec_texte: bool) -> Value {
     let mut v = json!({
         "type": type_doc, "societe_id": societe_id,
-        "fournisseur": { "nom": "Durand", "siret": null, "tva": "FR40552100554" },
+        "fournisseur": { "nom": "Durand", "siret": null, "tva": "FR96552100554" },
         "numero": "F-1", "date": "2026-11-12", "numero_commande": null,
         "montant_ht": 50.0, "montant_tva": 10.0, "montant_ttc": 60.0,
         "confiance": { "type": 0.95, "societe": 0.5, "fournisseur": 0.9, "numero": 1, "date": 1, "montants": 0.9 }
@@ -99,60 +99,6 @@ async fn quota(b: &Banc, n: i64) {
     reglages::ecrire(b.pool(), &r).await.unwrap();
 }
 
-/// Dépose un mail (fichier `.eml`, lignes `mail`, `piece_jointe`, `mail_boite`) reçu par une
-/// boîte de `societe_id`. Rend l'id du mail.
-async fn mail(b: &Banc, societe_id: i64, brut: &[u8]) -> i64 {
-    let boite: i64 = sqlx::query_scalar(
-        "insert into boite_mail (societe_id, libelle, serveur, identifiant, mot_de_passe_chiffre)
-         values ($1, 'Boîte', 'imap.test', 'x', '\\x00') returning id",
-    )
-    .bind(societe_id)
-    .fetch_one(b.pool())
-    .await
-    .unwrap();
-    let (chemin, sha) = stockage::ecrire_eml(&b.ctx.config.fichiers, brut).unwrap();
-    let d = eml::decouper(brut).unwrap();
-    let id: i64 = sqlx::query_scalar(
-        "insert into mail (message_id, empreinte_contenu, expediteur, destinataires, objet, date_mail,
-                           corps_texte, chemin_eml, sha256, taille)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id",
-    )
-    .bind(&d.message_id)
-    .bind(&d.empreinte_contenu)
-    .bind(&d.expediteur)
-    .bind(&d.destinataires)
-    .bind(&d.objet)
-    .bind(d.date)
-    .bind(&d.corps_texte)
-    .bind(&chemin)
-    .bind(&sha)
-    .bind(brut.len() as i64)
-    .fetch_one(b.pool())
-    .await
-    .unwrap();
-    for p in &d.pieces {
-        sqlx::query("insert into piece_jointe (mail_id, rang, nom, type_mime, taille, sha256) values ($1, $2, $3, $4, $5, $6)")
-            .bind(id)
-            .bind(p.rang)
-            .bind(&p.nom)
-            .bind(&p.type_mime)
-            .bind(p.taille)
-            .bind(&p.sha256)
-            .execute(b.pool())
-            .await
-            .unwrap();
-    }
-    sqlx::query(
-        "insert into mail_boite (mail_id, boite_id, dossier, uid) values ($1, $2, 'INBOX', $1)",
-    )
-    .bind(id)
-    .bind(boite)
-    .execute(b.pool())
-    .await
-    .unwrap();
-    id
-}
-
 #[derive(Debug, sqlx::FromRow)]
 struct Doc {
     id: i64,
@@ -179,28 +125,6 @@ async fn docs(b: &Banc, mail_id: i64) -> Vec<Doc> {
     .fetch_all(b.pool())
     .await
     .unwrap()
-}
-
-/// Pompe, puis attente que plus aucun document de `mail_ids` ne soit à lire ou en cours.
-async fn lire_tout(b: &Banc, mail_ids: &[i64]) {
-    lecture::pompe(b.pool()).await.unwrap();
-    let pool = b.pool().clone();
-    let ids = mail_ids.to_vec();
-    let fini = attendre(Duration::from_secs(30), || {
-        let (pool, ids) = (pool.clone(), ids.clone());
-        async move {
-            let n: i64 = sqlx::query_scalar(
-                "select count(*) from document where mail_id = any($1) and (etat = 'en_cours' or (etat = 'a_lire' and planifie_le is not null and message is null))",
-            )
-            .bind(&ids)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            n == 0
-        }
-    })
-    .await;
-    assert!(fini, "lectures non terminées");
 }
 
 #[tokio::test]

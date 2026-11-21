@@ -118,6 +118,17 @@ pub fn pdf_scan() -> Vec<u8> {
 
 /// Facture CII (profil Factur-X), acheteur identifié par `siret_acheteur`.
 pub fn xml_cii(numero: &str, siret_acheteur: &str, avoir: bool) -> String {
+    xml_cii_du(numero, siret_acheteur, avoir, "20261112")
+}
+
+/// Date du jour au format AAAAMMJJ (factures de test toujours « récentes » pour les contrôles).
+pub fn aujourdhui_aaaammjj() -> String {
+    let d = crate::controles::aujourdhui_paris();
+    format!("{:04}{:02}{:02}", d.year(), u8::from(d.month()), d.day())
+}
+
+/// Facture CII datée de `date` (AAAAMMJJ).
+pub fn xml_cii_du(numero: &str, siret_acheteur: &str, avoir: bool, date: &str) -> String {
     let code = if avoir { "381" } else { "380" };
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -126,14 +137,14 @@ pub fn xml_cii(numero: &str, siret_acheteur: &str, avoir: bool) -> String {
   <rsm:ExchangedDocument>
     <ram:ID>{numero}</ram:ID>
     <ram:TypeCode>{code}</ram:TypeCode>
-    <ram:IssueDateTime><udt:DateTimeString format="102">20261112</udt:DateTimeString></ram:IssueDateTime>
+    <ram:IssueDateTime><udt:DateTimeString format="102">{date}</udt:DateTimeString></ram:IssueDateTime>
   </rsm:ExchangedDocument>
   <rsm:SupplyChainTradeTransaction>
     <ram:ApplicableHeaderTradeAgreement>
       <ram:SellerTradeParty>
         <ram:Name>Grossiste Durand &amp; Fils</ram:Name>
         <ram:SpecifiedLegalOrganization><ram:ID schemeID="0002">55210055400013</ram:ID></ram:SpecifiedLegalOrganization>
-        <ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">FR40552100554</ram:ID></ram:SpecifiedTaxRegistration>
+        <ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">FR96552100554</ram:ID></ram:SpecifiedTaxRegistration>
       </ram:SellerTradeParty>
       <ram:BuyerTradeParty>
         <ram:Name>Magasin</ram:Name>

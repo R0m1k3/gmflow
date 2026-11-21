@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set statut_depot = 'erreur' where id = any($1) and statut_depot = 'en_envoi'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7098f4daea0febfc2df49cc97fc151e797da200a7623a2482f45243179e74142"
+}

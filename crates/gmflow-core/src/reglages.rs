@@ -16,7 +16,13 @@ pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 pub const EXTRACTION_TEXTE: &str = "extraction_texte";
 pub const OCR_SCAN: &str = "ocr_scan";
 pub const NOUVEL_ESSAI: &str = "nouvel_essai";
-pub const TACHES_LECTURE: &[&str] = &[EXTRACTION_TEXTE, OCR_SCAN, NOUVEL_ESSAI];
+pub const IDENTIFICATION_FOURNISSEUR: &str = "identification_fournisseur";
+pub const TACHES_LECTURE: &[&str] = &[
+    EXTRACTION_TEXTE,
+    OCR_SCAN,
+    NOUVEL_ESSAI,
+    IDENTIFICATION_FOURNISSEUR,
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Reglage {
@@ -29,10 +35,16 @@ pub struct Reglages {
     pub extraction_texte: Reglage,
     pub ocr_scan: Reglage,
     pub nouvel_essai: Reglage,
+    #[serde(default = "defaut_identification")]
+    pub identification_fournisseur: Reglage,
     /// Lecture automatique des pièces jointes reçues.
     pub lecture_auto: bool,
     /// Nombre maximal d'appels de lecture par jour (UTC).
     pub quota_lecture_jour: i64,
+}
+
+fn defaut_identification() -> Reglage {
+    r("haiku", "low")
 }
 
 fn r(modele: &str, effort: &str) -> Reglage {
@@ -48,6 +60,7 @@ impl Default for Reglages {
             extraction_texte: r("haiku", "low"),
             ocr_scan: r("haiku", "medium"),
             nouvel_essai: r("sonnet", "medium"),
+            identification_fournisseur: defaut_identification(),
             lecture_auto: true,
             quota_lecture_jour: 100,
         }
@@ -59,6 +72,7 @@ impl Reglages {
         match tache {
             OCR_SCAN => &self.ocr_scan,
             NOUVEL_ESSAI => &self.nouvel_essai,
+            IDENTIFICATION_FOURNISSEUR => &self.identification_fournisseur,
             _ => &self.extraction_texte,
         }
     }
@@ -69,6 +83,7 @@ impl Reglages {
             (EXTRACTION_TEXTE, &self.extraction_texte),
             (OCR_SCAN, &self.ocr_scan),
             (NOUVEL_ESSAI, &self.nouvel_essai),
+            (IDENTIFICATION_FOURNISSEUR, &self.identification_fournisseur),
         ] {
             if !MODELES.contains(&r.modele.as_str()) {
                 return Err(format!("{nom} : modèle « {} » inconnu", r.modele));

@@ -88,15 +88,16 @@
   let infoReglages = $state('');
   let appels = $state<Appels | null>(null);
   let pageAppels = $state(1);
-  const taches = ['extraction_texte', 'ocr_scan', 'nouvel_essai'] as const;
+  const taches = ['extraction_texte', 'ocr_scan', 'nouvel_essai', 'identification_fournisseur'] as const;
 
   async function chargerReglages() {
     vue = await api.get<ReglagesVue>('/api/admin/claude/reglages');
-    const { extraction_texte, ocr_scan, nouvel_essai, lecture_auto, quota_lecture_jour } = vue;
+    const { extraction_texte, ocr_scan, nouvel_essai, identification_fournisseur, lecture_auto, quota_lecture_jour } = vue;
     reglages = {
       extraction_texte: { ...extraction_texte },
       ocr_scan: { ...ocr_scan },
       nouvel_essai: { ...nouvel_essai },
+      identification_fournisseur: { ...identification_fournisseur },
       lecture_auto,
       quota_lecture_jour
     };

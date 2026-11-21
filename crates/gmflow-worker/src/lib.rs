@@ -1,6 +1,8 @@
-//! Worker GMFlow : relève IMAP, test des boîtes, lecture des pièces jointes, séances
-//! setup-token et test du jeton Claude.
+//! Worker GMFlow : relève IMAP, test des boîtes, lecture des pièces jointes, fiches
+//! fournisseurs, dépôts Dext/Yooz et alertes, séances setup-token et test du jeton Claude.
 
+pub mod envoi;
+pub mod fournisseur;
 pub mod lecture;
 pub mod planif;
 pub mod releve;
@@ -14,7 +16,7 @@ use std::sync::Arc;
 use apalis::prelude::*;
 use gmflow_core::config::Config;
 use gmflow_core::crypto::Chiffreur;
-use gmflow_core::file::{self, TacheBoite, TacheClaude, TacheLecture};
+use gmflow_core::file::{self, TacheBoite, TacheClaude, TacheEnvoi, TacheLecture};
 use gmflow_core::imap::Transport;
 use sqlx::PgPool;
 
@@ -71,8 +73,23 @@ async fn tache_lecture(tache: TacheLecture, ctx: Data<Contexte>) -> Result<(), B
     Ok(())
 }
 
-/// Lance les trois workers apalis : `boites` (4 tâches à la fois), `claude` (1 à la fois) et
-/// `lecture` (2 à la fois),
+async fn tache_envoi(tache: TacheEnvoi, ctx: Data<Contexte>) -> Result<(), BoxDynError> {
+    match tache {
+        TacheEnvoi::Deposer {
+            document_id,
+            forcer,
+            auteur_id,
+        } => envoi::deposer(&ctx, document_id, forcer, auteur_id).await?,
+        TacheEnvoi::TestExpedition { destinataire } => {
+            envoi::tester_expedition(&ctx, &destinataire).await?
+        }
+        TacheEnvoi::Alertes => envoi::alertes(&ctx).await?,
+    }
+    Ok(())
+}
+
+/// Lance les quatre workers apalis : `boites` (4 tâches à la fois), `claude` (1 à la fois),
+/// `lecture` (2 à la fois) et `envoi` (1 à la fois : un dépôt n'en croise jamais un autre),
 /// jusqu'à ce que `arret` passe à vrai (jamais en production). LISTEN/NOTIFY : une tâche
 /// poussée par l'app est prise tout de suite, sans attendre le tour de scrutation (30 s).
 pub async fn lancer_files(
@@ -101,14 +118,22 @@ pub async fn lancer_files(
         .concurrency(2)
         .parallelize(tokio::spawn)
         .build(tache_lecture);
-    let (a, b, c) = tokio::join!(
+    let envoi = WorkerBuilder::new("gmflow-envoi")
+        .backend(file::stockage_envoi(&ctx.pool).with_pubsub())
+        .data(ctx.clone())
+        .concurrency(1)
+        .parallelize(tokio::spawn)
+        .build(tache_envoi);
+    let (a, b, c, d) = tokio::join!(
         boites.run_until(signal(arret.clone())),
         claude.run_until(signal(arret.clone())),
-        lecture.run_until(signal(arret))
+        lecture.run_until(signal(arret.clone())),
+        envoi.run_until(signal(arret))
     );
     a.map_err(|e| anyhow::anyhow!("worker boites : {e}"))?;
     b.map_err(|e| anyhow::anyhow!("worker claude : {e}"))?;
     c.map_err(|e| anyhow::anyhow!("worker lecture : {e}"))?;
+    d.map_err(|e| anyhow::anyhow!("worker envoi : {e}"))?;
     Ok(())
 }
 
@@ -122,6 +147,7 @@ pub async fn lancer(config: Config) -> anyhow::Result<()> {
         DelaisSeance::default(),
     );
     setup_token::fermer_seances_ouvertes(&ctx.pool).await?;
+    envoi::envois_interrompus(&ctx.pool).await?;
     tokio::spawn(planif::boucle(ctx.pool.clone()));
     tokio::spawn(sante::serveur(ctx.pool.clone()));
     tracing::info!(transport = ?ctx.transport, "GMFlow worker démarré");

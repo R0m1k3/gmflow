@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set fournisseur_id = $2,\n            societe_id = case when $3 then $4 else societe_id end,\n            confiance = case when $3 then confiance || '{\"societe\": 0.9, \"societe_par_regle\": true}'::jsonb\n                             else confiance end\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a4bd6bcd32dc9bf993893d30249f4ccfe4541846e3158dd0d45b848de8b8338"
+}

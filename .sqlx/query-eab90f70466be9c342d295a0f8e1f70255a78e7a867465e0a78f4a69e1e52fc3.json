@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where statut_depot = 'a_verifier') as \"a_verifier!\",\n                  count(*) filter (where statut_depot = 'pret') as \"prets!\",\n                  count(*) filter (where statut_depot in ('erreur', 'doublon')) as \"bloques!\",\n                  (select count(*) from envoi_depot e\n                    where e.etat = 'envoye'\n                      and e.quand >= (date_trunc('month', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris')\n                      and ($1::bigint is null or e.societe_id = $1)) as \"deposes_mois!\"\n           from document d\n           where d.statut_depot is not null\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "a_verifier!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "prets!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "bloques!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "deposes_mois!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "eab90f70466be9c342d295a0f8e1f70255a78e7a867465e0a78f4a69e1e52fc3"
+}
