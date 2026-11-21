@@ -9,7 +9,7 @@ pub mod routes;
 
 use std::net::SocketAddr;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use gmflow_core::config::Config;
 use tower_sessions_sqlx_store::PostgresStore;
 
@@ -38,9 +38,20 @@ pub async fn lancer(config: Config) -> Result<()> {
 
     let web = std::env::var("GMFLOW_WEB").unwrap_or_else(|_| "/srv/web".into());
     let app = routes::routeur(etat, store, Some(web.into()));
-    let adresse = SocketAddr::from(([0, 0, 0, 0], 8080));
+    let adresse = SocketAddr::from(([0, 0, 0, 0], port_ecoute()?));
     tracing::info!(%adresse, "GMFlow app démarrée");
     let ecoute = tokio::net::TcpListener::bind(adresse).await?;
     axum::serve(ecoute, app).await?;
     Ok(())
+}
+
+/// Port d'écoute de l'app : `GMFLOW_PORT`, 8347 par défaut (8080 est souvent déjà pris).
+fn port_ecoute() -> Result<u16> {
+    match std::env::var("GMFLOW_PORT") {
+        Ok(v) if !v.trim().is_empty() => v
+            .trim()
+            .parse()
+            .with_context(|| format!("GMFLOW_PORT invalide : {v:?}")),
+        _ => Ok(8347),
+    }
 }
