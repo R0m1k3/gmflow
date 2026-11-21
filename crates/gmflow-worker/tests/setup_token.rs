@@ -106,6 +106,31 @@ async fn sans_code_expiree() {
 }
 
 #[tokio::test]
+async fn annulee_depuis_l_ui() {
+    let banc = Banc::new().await;
+    let id = seance(&banc, "demarrage").await;
+    let ctx = banc.ctx.clone();
+    let tache = tokio::spawn(async move { setup_token::executer(&ctx, id).await });
+    attendre_url(&banc, id).await;
+    sqlx::query("update seance_claude set etat = 'erreur', message = 'annulée' where id = $1")
+        .bind(id)
+        .execute(banc.pool())
+        .await
+        .unwrap();
+    // Le worker arrête Claude CLI sans erreur et garde l'état posé par l'UI.
+    tokio::time::timeout(Duration::from_secs(10), tache)
+        .await
+        .expect("le worker n'a pas vu l'annulation")
+        .unwrap()
+        .unwrap();
+    let (etat, _, code, message) = etat_de(&banc, id).await;
+    assert_eq!(etat, "erreur");
+    assert_eq!(message.as_deref(), Some("annulée"));
+    assert!(code.is_none());
+    banc.fermer().await;
+}
+
+#[tokio::test]
 async fn redemarrage_du_worker() {
     let banc = Banc::new().await;
     let id = seance(&banc, "attente_code").await;

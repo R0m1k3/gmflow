@@ -164,7 +164,15 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         )
         .route("/admin/claude/acces", put(admin_claude::choisir_acces))
         .route("/admin/claude/seances", post(admin_claude::nouvelle_seance))
+        .route(
+            "/admin/claude/seances/en-cours",
+            get(admin_claude::seance_en_cours),
+        )
         .route("/admin/claude/seances/{id}", get(admin_claude::seance))
+        .route(
+            "/admin/claude/seances/{id}/annuler",
+            post(admin_claude::annuler_seance),
+        )
         .route("/admin/claude/seances/{id}/code", post(admin_claude::code))
         .route(
             "/admin/societes",

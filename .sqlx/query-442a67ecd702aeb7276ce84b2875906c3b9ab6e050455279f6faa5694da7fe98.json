@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update seance_claude set etat = $2, message = $3, code_chiffre = null\n         where id = $1 and etat in ('demarrage', 'attente_code', 'code_recu')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "442a67ecd702aeb7276ce84b2875906c3b9ab6e050455279f6faa5694da7fe98"
+}

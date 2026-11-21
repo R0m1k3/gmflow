@@ -6,7 +6,8 @@
 //!
 //! demarrage → attente_code (URL lue) → code_recu (code collé dans l'UI) → terminee (jeton lu).
 //! Sinon : erreur (pas d'URL, pas de jeton, fin inattendue, worker redémarré) ou expiree (pas de
-//! code). Dans tous les cas le processus est tué, le code effacé et le HOME temporaire supprimé.
+//! code), ou annulée depuis l'UI (etat `erreur`, message « annulée », gardés tels quels). Dans tous
+//! les cas le processus est tué, le code effacé et le HOME temporaire supprimé.
 
 use std::io::{Read, Write};
 use std::sync::OnceLock;
@@ -68,7 +69,9 @@ pub async fn fermer_seances_ouvertes(pool: &PgPool) -> anyhow::Result<()> {
 
 async fn terminer(pool: &PgPool, id: Uuid, etat: &str, message: Option<&str>) -> sqlx::Result<()> {
     sqlx::query!(
-        "update seance_claude set etat = $2, message = $3, code_chiffre = null where id = $1",
+        // Une séance déjà fermée (annulée depuis l'UI) garde son état et son message.
+        "update seance_claude set etat = $2, message = $3, code_chiffre = null
+         where id = $1 and etat in ('demarrage', 'attente_code', 'code_recu')",
         id,
         etat,
         message
@@ -115,6 +118,7 @@ pub async fn executer(ctx: &Contexte, id: Uuid) -> anyhow::Result<()> {
 enum Fin {
     Termine,
     Expiree,
+    Annulee,
 }
 
 async fn piloter(ctx: &Contexte, id: Uuid, home: &DossierTemp) -> anyhow::Result<()> {
@@ -226,7 +230,8 @@ async fn piloter(ctx: &Contexte, id: Uuid, home: &DossierTemp) -> anyhow::Result
                 break;
             }
             if l.etat != "attente_code" {
-                anyhow::bail!("séance interrompue (état {})", l.etat);
+                // Annulée depuis l'UI (ou fermée par le délai) : on arrête Claude CLI sans erreur.
+                return Ok(Fin::Annulee);
             }
             if debut.elapsed() > ctx.delais.code {
                 return Ok(Fin::Expiree);
@@ -266,6 +271,9 @@ async fn piloter(ctx: &Contexte, id: Uuid, home: &DossierTemp) -> anyhow::Result
             file::pousser_test_jeton(&ctx.pool).await?;
         }
         Fin::Expiree => terminer(&ctx.pool, id, "expiree", Some("aucun code reçu")).await?,
+        Fin::Annulee => {
+            tracing::info!(%id, "séance setup-token fermée hors du worker (annulée ou expirée)")
+        }
     }
     Ok(())
 }

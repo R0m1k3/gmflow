@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { api, message, sonder } from '#lib/api.ts';
+  import { api, ErreurApi, message, sonder } from '#lib/api.ts';
   import { quand } from '#lib/format.ts';
   import { libelleTache } from '#lib/documents.ts';
   import type { Appels, EtatClaude, ExpediteurMarque, Reglages, ReglagesVue, Seance } from '#lib/types.ts';
@@ -110,6 +110,33 @@
   }
 
   const finals = ['terminee', 'erreur', 'expiree'];
+  let arreterSuivi: (() => void) | null = null;
+  function suivreSeance() {
+    arreterSuivi?.();
+    arreterSuivi = sonder(async () => {
+      seance = await api.get<Seance>(`/api/admin/claude/seances/${seanceId}`);
+      if (finals.includes(seance.etat)) {
+        await chargerEtat();
+        if (seance.etat === 'terminee') suivreEtat();
+        return false;
+      }
+      return true;
+    });
+  }
+  // Séance ouverte (page fermée ou rechargée) : on la reprend avec son lien et le champ du code.
+  async function reprendre(): Promise<boolean> {
+    const s = await api.get<(Seance & { id: string }) | null>('/api/admin/claude/seances/en-cours');
+    if (!s) return false;
+    seanceId = s.id;
+    seance = { etat: s.etat, url: s.url, message: s.message };
+    codeEnvoye = s.etat === 'code_recu';
+    suivreSeance();
+    return true;
+  }
+  $effect(() => {
+    reprendre().catch(() => {});
+    return () => arreterSuivi?.();
+  });
   async function lancer() {
     erreur = '';
     codeEnvoye = false;
@@ -117,15 +144,19 @@
     try {
       seanceId = (await api.post<{ id: string }>('/api/admin/claude/seances')).id;
       seance = { etat: 'demarrage', url: null, message: null };
-      sonder(async () => {
-        seance = await api.get<Seance>(`/api/admin/claude/seances/${seanceId}`);
-        if (finals.includes(seance.etat)) {
-          await chargerEtat();
-          if (seance.etat === 'terminee') suivreEtat();
-          return false;
-        }
-        return true;
-      });
+      suivreSeance();
+    } catch (err) {
+      // Une séance est déjà ouverte : on la reprend au lieu de bloquer.
+      if (err instanceof ErreurApi && err.code === 409 && (await reprendre().catch(() => false))) return;
+      erreur = message(err);
+    }
+  }
+  async function annuler() {
+    erreur = '';
+    try {
+      await api.post(`/api/admin/claude/seances/${seanceId}/annuler`);
+      seance = await api.get<Seance>(`/api/admin/claude/seances/${seanceId}`);
+      arreterSuivi?.();
     } catch (err) {
       erreur = message(err);
     }
@@ -247,9 +278,14 @@
         </form>
       {/if}
     {/if}
+    <p><button class="second" onclick={annuler}>Annuler la séance</button></p>
   {:else}
     {#if seance}
-      <div class="bandeau {seance.etat === 'terminee' ? 'ok' : 'erreur'}">{etapes[seance.etat]}{seance.message ? ` ${seance.message}` : ''}</div>
+      {#if seance.message === 'annulée'}
+        <p class="discret">Séance annulée.</p>
+      {:else}
+        <div class="bandeau {seance.etat === 'terminee' ? 'ok' : 'erreur'}">{etapes[seance.etat]}{seance.message ? ` ${seance.message}` : ''}</div>
+      {/if}
     {/if}
     <button onclick={lancer}>Lancer la séance</button>
   {/if}

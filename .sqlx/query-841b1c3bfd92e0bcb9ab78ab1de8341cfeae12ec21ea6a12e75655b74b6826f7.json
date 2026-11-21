@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, etat, url, message from seance_claude\n         where etat in ('demarrage', 'attente_code', 'code_recu')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "seance_claude",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "seance_claude",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "seance_claude",
+            "name": "url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "seance_claude",
+            "name": "message"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "841b1c3bfd92e0bcb9ab78ab1de8341cfeae12ec21ea6a12e75655b74b6826f7"
+}

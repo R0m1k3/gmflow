@@ -145,3 +145,86 @@ async fn jeton_jamais_renvoye() {
     assert_eq!(r.json["etat"], "absent");
     app.fermer().await;
 }
+
+async fn en_cours(app: &Appli, c: &str) -> serde_json::Value {
+    let r = app
+        .requete("GET", "/api/admin/claude/seances/en-cours", None, Some(c))
+        .await;
+    assert_eq!(r.code, StatusCode::OK);
+    r.json
+}
+
+#[tokio::test]
+async fn seance_reprise_et_annulee() {
+    let app = Appli::new().await;
+    app.utilisateur("admin", MDP, "admin", None).await;
+    let c = app.connecter("admin", MDP).await;
+    assert!(en_cours(&app, &c).await.is_null());
+
+    let id = app
+        .requete("POST", "/api/admin/claude/seances", None, Some(&c))
+        .await
+        .json["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    sqlx::query("update seance_claude set etat = 'attente_code', url = 'https://claude.ai/x'")
+        .execute(app.pool())
+        .await
+        .unwrap();
+    // Page rechargée : la séance ouverte est retrouvée avec son lien.
+    let r = en_cours(&app, &c).await;
+    assert_eq!(r["id"], id.as_str());
+    assert_eq!(r["etat"], "attente_code");
+    assert_eq!(r["url"], "https://claude.ai/x");
+
+    let annuler = format!("/api/admin/claude/seances/{id}/annuler");
+    assert_eq!(
+        app.requete("POST", &annuler, None, Some(&c)).await.code,
+        StatusCode::NO_CONTENT
+    );
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/admin/claude/seances/{id}"),
+            None,
+            Some(&c),
+        )
+        .await;
+    assert_eq!(r.json["etat"], "erreur");
+    assert_eq!(r.json["message"], "annulée");
+    assert!(en_cours(&app, &c).await.is_null());
+    // Annuler deux fois ne fait rien ; une séance inconnue est absente.
+    assert_eq!(
+        app.requete("POST", &annuler, None, Some(&c)).await.code,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        app.requete(
+            "POST",
+            "/api/admin/claude/seances/00000000-0000-0000-0000-000000000000/annuler",
+            None,
+            Some(&c)
+        )
+        .await
+        .code,
+        StatusCode::NOT_FOUND
+    );
+    // Une nouvelle séance peut partir tout de suite.
+    assert_eq!(
+        app.requete("POST", "/api/admin/claude/seances", None, Some(&c))
+            .await
+            .code,
+        StatusCode::OK
+    );
+
+    // Une séance ouverte au-delà de son délai n'est plus « en cours ».
+    sqlx::query(
+        "update seance_claude set expire_le = now() - interval '1 second' where etat = 'demarrage'",
+    )
+    .execute(app.pool())
+    .await
+    .unwrap();
+    assert!(en_cours(&app, &c).await.is_null());
+    app.fermer().await;
+}
