@@ -182,6 +182,40 @@ async fn echec_sans_second_essai() {
 }
 
 #[tokio::test]
+async fn code_refuse_par_claude() {
+    let banc = Banc::new().await;
+    let id = seance(&banc, "demarrage").await;
+    file::pousser_seance(banc.pool(), id).await.unwrap();
+    let worker = WorkersTest::demarrer(banc.ctx.clone());
+
+    attendre_url(&banc, id).await;
+    coller_code(&banc, id, "refuse").await;
+    // Le CLI reste ouvert : l'erreur vient du message, bien avant les 60 s du délai du jeton.
+    assert!(
+        attendre(Duration::from_secs(10), || async {
+            etat_de(&banc, id).await.0 == "erreur"
+        })
+        .await
+    );
+    let message = etat_de(&banc, id).await.3.unwrap();
+    assert!(message.contains("code refusé par Claude"), "{message}");
+    assert!(
+        message.contains("OAuth error: That code wasn't accepted"),
+        "{message}"
+    );
+    assert!(!message.contains("Press Enter"), "{message}");
+    worker.arreter();
+    banc.fermer().await;
+}
+
+#[test]
+fn texte_terminal_blancs_et_jeton() {
+    let t =
+        setup_token::texte_terminal(b"\x1b[32mToken\x1b[2Ccreated\x1b[0m sk-ant-oat01-ab_c\r\n");
+    assert_eq!(t, "Token  created sk-ant-oat01-ab_c\n");
+}
+
+#[tokio::test]
 async fn test_du_jeton() {
     let banc = Banc::new().await;
     // Sans jeton : absent.

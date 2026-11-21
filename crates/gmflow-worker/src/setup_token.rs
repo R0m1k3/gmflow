@@ -1,8 +1,11 @@
 //! Séance `claude setup-token` dans un pseudo-terminal, pilotée par la ligne `seance_claude`.
 //!
-//! Sortie vérifiée sur Claude CLI 2.1.318 (HOME vide) : bannière, URL
+//! Sortie vérifiée sur Claude CLI 2.1.318 et 2.1.323 (HOME vide) : bannière, URL
 //! `https://claude.com/cai/oauth/authorize?…`, puis « Paste code here if prompted > », sans question
-//! de premier lancement.
+//! de premier lancement. Code refusé : « OAuth error: That code wasn't accepted… Press Enter to
+//! retry. », et le CLI reste ouvert : on s'arrête tout de suite avec ce message. Code accepté :
+//! « Long-lived authentication token created successfully! » puis le jeton. Les espaces de l'écran
+//! Ink arrivent souvent en déplacements du curseur (`ESC [ n C`) : ils redeviennent des blancs.
 //!
 //! demarrage → attente_code (URL lue) → code_recu (code collé dans l'UI) → terminee (jeton lu).
 //! Sinon : erreur (pas d'URL, pas de jeton, fin inattendue, worker redémarré) ou expiree (pas de
@@ -50,6 +53,33 @@ fn motif_url() -> &'static Regex {
 fn motif_jeton() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
     R.get_or_init(|| Regex::new(r"sk-ant-oat\d+-[A-Za-z0-9_-]+").unwrap())
+}
+
+fn motif_refus() -> &'static Regex {
+    static R: OnceLock<Regex> = OnceLock::new();
+    R.get_or_init(|| Regex::new(r"(?i)OAuth error").unwrap())
+}
+
+/// Sortie du terminal en texte : déplacements du curseur vers la droite changés en blancs, puis
+/// codes ANSI retirés.
+pub fn texte_terminal(sortie: &[u8]) -> String {
+    static R: OnceLock<regex::bytes::Regex> = OnceLock::new();
+    let r = R.get_or_init(|| regex::bytes::Regex::new(r"\x1b\[(\d*)C").unwrap());
+    let blancs = r.replace_all(sortie, |c: &regex::bytes::Captures| {
+        let n = std::str::from_utf8(&c[1])
+            .ok()
+            .and_then(|n| n.parse::<usize>().ok())
+            .unwrap_or(1);
+        vec![b' '; n.clamp(1, 200)]
+    });
+    String::from_utf8_lossy(&strip_ansi_escapes::strip(&blancs)).into_owned()
+}
+
+/// Fin de sortie lisible pour un message d'erreur (blancs resserrés, 200 caractères au plus).
+fn fin_lisible(texte: &str) -> String {
+    let t = texte.split_whitespace().collect::<Vec<_>>().join(" ");
+    let n = t.chars().count();
+    t.chars().skip(n.saturating_sub(200)).collect()
 }
 
 /// Au démarrage du worker : aucune séance ouverte ne peut survivre.
@@ -108,7 +138,8 @@ pub async fn executer(ctx: &Contexte, id: Uuid) -> anyhow::Result<()> {
     match resultat {
         Ok(()) => Ok(()),
         Err(e) => {
-            let message: String = e.to_string().chars().take(300).collect();
+            let message: String = e.to_string().chars().take(400).collect();
+            tracing::warn!(%id, "séance setup-token en échec : {message}");
             terminer(&ctx.pool, id, "erreur", Some(&message)).await?;
             Err(e)
         }
@@ -175,7 +206,7 @@ async fn piloter(ctx: &Contexte, id: Uuid, home: &DossierTemp) -> anyhow::Result
                 }
             }
         };
-        let texte = |sortie: &[u8]| String::from_utf8_lossy(&strip_ansi_escapes::strip(sortie)).into_owned();
+        let texte = texte_terminal;
 
         // 1. L'URL de connexion.
         let debut = Instant::now();
@@ -239,21 +270,39 @@ async fn piloter(ctx: &Contexte, id: Uuid, home: &DossierTemp) -> anyhow::Result
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
 
-        // 3. Le jeton, dans la sortie qui suit le code.
+        // 3. Le jeton, dans la sortie qui suit le code. Retenu une fois suivi d'un autre caractère
+        // (ou à la fin du CLI) : il peut arriver en plusieurs morceaux. Code refusé : on laisse une
+        // seconde au message pour arriver en entier, puis on s'arrête avec lui.
         let depuis = sortie.len();
         let debut = Instant::now();
+        let mut refus: Option<Instant> = None;
         let jeton = loop {
             lire(&mut rx, &mut sortie, &mut ferme);
-            if let Some(m) = motif_jeton().find(&texte(&sortie[depuis..])) {
+            let t = texte(&sortie[depuis..]);
+            if let Some(m) = motif_jeton().find(&t)
+                && (m.end() < t.len() || ferme)
+            {
                 break m.as_str().to_string();
             }
+            if let Some(m) = motif_refus().find(&t) {
+                let vu = *refus.get_or_insert_with(Instant::now);
+                if ferme || vu.elapsed() >= Duration::from_secs(1) {
+                    let message = t[m.start()..].split("Press Enter").next().unwrap_or_default();
+                    anyhow::bail!(
+                        "code refusé par Claude ({}). Relancez une séance et collez le code de la nouvelle page, en entier.",
+                        fin_lisible(message)
+                    );
+                }
+            }
             if ferme {
-                let fin = texte(&sortie[depuis..]);
-                let fin: String = fin.trim().chars().take(200).collect();
-                anyhow::bail!("Claude CLI s'est arrêté sans donner de jeton : {fin}");
+                anyhow::bail!("Claude CLI s'est arrêté sans donner de jeton : {}", fin_lisible(&t));
             }
             if debut.elapsed() > ctx.delais.jeton {
-                anyhow::bail!("pas de jeton {} s après le code", ctx.delais.jeton.as_secs());
+                anyhow::bail!(
+                    "pas de jeton {} s après le code. Fin de la sortie : {}",
+                    ctx.delais.jeton.as_secs(),
+                    fin_lisible(&t)
+                );
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         };
