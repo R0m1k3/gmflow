@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_mail set derniere_erreur = $2, erreur_depuis = coalesce(erreur_depuis, now()),\n                     echecs_auth = case when $3 then echecs_auth + 1 else echecs_auth end,\n                     pause_auto = pause_auto or ($3 and echecs_auth + 1 >= $4),\n                     releve_jusqu_a = null\n                 where id = $1\n                 returning pause_auto",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pause_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "pause_auto"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Bool",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "61634a6b167d6b54da1393ed0ea8e73c124991bfd777e184225dbf6e0b4083de"
+}

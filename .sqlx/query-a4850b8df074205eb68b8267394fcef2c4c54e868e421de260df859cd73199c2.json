@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                          where mb.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)) as \"ok!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a4850b8df074205eb68b8267394fcef2c4c54e868e421de260df859cd73199c2"
+}

@@ -1,0 +1,118 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee)\n         values ($1, $2, $3, $4, $5, $6, $7)\n         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "raison_sociale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "siret",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "siret"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "tva",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "tva"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "adresses",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "adresses"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "outil_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "outil_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "adresse_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "adresse_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "archivee",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "archivee"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "cc5448ebe294e8746986863dbdcf99d5ab4d4756c3bca64182f887d5ab20e4ec"
+}

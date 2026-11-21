@@ -1,0 +1,65 @@
+# Stack Portainer de GMFlow (dépôt Git). Variables : voir .env.example.
+name: gmflow
+
+services:
+  postgres:
+    # Version majeure fixée : passer de 16 à 17 demande une migration des données.
+    # Les versions mineures arrivent par le tag mouvant `16`.
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gmflow
+      POSTGRES_USER: gmflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [interne]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gmflow -d gmflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    image: ghcr.io/r0m1k3/gmflow-app:latest
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://gmflow:${POSTGRES_PASSWORD}@postgres:5432/gmflow
+      GMFLOW_CLE_CHIFFREMENT: ${GMFLOW_CLE_CHIFFREMENT:?GMFLOW_CLE_CHIFFREMENT manquante}
+      GMFLOW_URL_PUBLIQUE: ${GMFLOW_URL_PUBLIQUE:-https://gmflow.ffnancy.fr}
+    volumes:
+      - fichiers:/data/fichiers
+    # `npm` : Nginx Proxy Manager joint app:8080. Aucun port publié.
+    networks: [interne, npm]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  worker:
+    image: ghcr.io/r0m1k3/gmflow-worker:latest
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://gmflow:${POSTGRES_PASSWORD}@postgres:5432/gmflow
+      GMFLOW_CLE_CHIFFREMENT: ${GMFLOW_CLE_CHIFFREMENT:?GMFLOW_CLE_CHIFFREMENT manquante}
+      GMFLOW_URL_PUBLIQUE: ${GMFLOW_URL_PUBLIQUE:-https://gmflow.ffnancy.fr}
+    volumes:
+      - fichiers:/data/fichiers
+    # `sortie` : IMAP et Claude. /health sur 8081, non publié.
+    networks: [interne, sortie]
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+volumes:
+  pgdata:
+  fichiers:
+
+networks:
+  interne:
+    internal: true
+  sortie: {}
+  npm:
+    external: true
+    name: ${NPM_RESEAU:-nginx_default}

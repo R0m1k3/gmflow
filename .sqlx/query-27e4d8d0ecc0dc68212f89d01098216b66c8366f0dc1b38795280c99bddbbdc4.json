@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update seance_claude set etat = 'attente_code', url = $2, expire_le = now() + make_interval(secs => $3)\n             where id = $1 and etat = 'demarrage'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "27e4d8d0ecc0dc68212f89d01098216b66c8366f0dc1b38795280c99bddbbdc4"
+}

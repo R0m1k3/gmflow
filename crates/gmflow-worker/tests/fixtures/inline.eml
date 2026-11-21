@@ -1,0 +1,35 @@
+From: factures@grossiste.test
+To: compta@frouard.test
+Subject: Facture avec logo
+Date: Sat, 14 Nov 2026 08:00:00 +0100
+Message-ID: <inline-1@grossiste.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="ext"
+
+--ext
+Content-Type: multipart/related; boundary="rel"
+
+--rel
+Content-Type: text/html; charset=utf-8
+
+<html><body><img src="cid:logo@grossiste"><p>Facture jointe.</p></body></html>
+--rel
+Content-Type: image/png; name="logo.png"
+Content-Disposition: inline; filename="logo.png"
+Content-ID: <logo@grossiste>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAA
+--rel--
+--ext
+Content-Type: application/pdf; name="F-inline.pdf"
+Content-Disposition: attachment; filename="F-inline.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSBhdXRyZSBmYWN0dXJlCv/+/fz7+vn49/b19PPy8fDv7u3s6+rp6Ofm5eTj4uHg
+397d3Nva2djX1tXU09LR0M/OzczLysnIx8bFxMPCwcC/vr28u7q5uLe2tbSzsrGwr66trKuqqain
+pqWko6KhoJ+enZybmpmYl5aVlJOSkZCPjo2Mi4qJiIeGhYSDgoGAf359fHt6eXh3dnV0c3JxcG9u
+bWxramloZ2ZlZGNiYWBfXl1cW1pZWFdWVVRTUlFQT05NTEtKSUhHRkVEQ0JBQD8+PTw7Ojk4NzY1
+NDMyMTAvLi0sKyopKCcmJSQjIiEgHx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA=
+--ext--

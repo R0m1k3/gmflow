@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_mail set releve_jusqu_a = now() + interval '15 minutes' where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e3f71859a998db6a90431bb702537cedb76f374c94032fd0486361b38deb4222"
+}

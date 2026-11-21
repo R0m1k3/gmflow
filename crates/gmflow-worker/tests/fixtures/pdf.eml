@@ -1,0 +1,26 @@
+Received: from smtp.grossiste.test by mx1.frouard.test; Wed, 18 Nov 2026 09:30:05 +0100
+From: "Grossiste Est" <factures@grossiste.test>
+To: compta@frouard.test
+Cc: michael@frouard.test
+Subject: =?utf-8?q?Facture_n=C2=B02026-001?=
+Date: Wed, 18 Nov 2026 09:30:00 +0100
+Message-ID: <facture-2026-001@grossiste.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=utf-8
+
+Veuillez trouver la facture ci-jointe.
+--b1
+Content-Type: application/pdf; name="F2026-001.pdf"
+Content-Disposition: attachment; filename="F2026-001.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKMSAwIG9iajw8Pj5lbmRvYmoKdHJhaWxlcjw8Pj4KJSVFT0YKAAECAwQFBgcICQoL
+DA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNE
+RUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9
+fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2
+t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v
+8PHy8/T19vf4+fr7/P3+/w==
+--b1--

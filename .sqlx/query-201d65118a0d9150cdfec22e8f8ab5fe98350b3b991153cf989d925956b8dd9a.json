@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_dossier set dernier_uid = greatest(dernier_uid, $3) where boite_id = $1 and nom = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "201d65118a0d9150cdfec22e8f8ab5fe98350b3b991153cf989d925956b8dd9a"
+}

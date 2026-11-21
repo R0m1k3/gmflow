@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail_boite set uid = null where boite_id = $1 and dossier = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e3af0c0d8e547b2f601620d33e868971d083c0aef46318cdc530bfc5b4a4f3ed"
+}

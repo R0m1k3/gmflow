@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into parametre (cle, valeur_chiffree) values ($1, $2)\n         on conflict (cle) do update set valeur_chiffree = excluded.valeur_chiffree, modifie_le = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "79d185ccfc54e6fe824716dc195677faa803f23b882d290984f6020699eceb28"
+}

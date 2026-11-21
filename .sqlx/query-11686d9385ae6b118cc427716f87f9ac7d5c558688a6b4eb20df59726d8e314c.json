@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee from societe order by raison_sociale",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "raison_sociale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "siret",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "siret"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "tva",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "tva"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "adresses",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "adresses"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "outil_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "outil_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "adresse_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "adresse_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "archivee",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "archivee"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "11686d9385ae6b118cc427716f87f9ac7d5c558688a6b4eb20df59726d8e314c"
+}

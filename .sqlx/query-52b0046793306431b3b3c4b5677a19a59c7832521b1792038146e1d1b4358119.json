@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update seance_claude set code_chiffre = null where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "52b0046793306431b3b3c4b5677a19a59c7832521b1792038146e1d1b4358119"
+}

@@ -1,0 +1,31 @@
+[package]
+name = "gmflow-worker"
+version.workspace = true
+edition.workspace = true
+
+[features]
+test-utils = ["gmflow-core/test-utils"]
+
+[dependencies]
+anyhow.workspace = true
+apalis.workspace = true
+apalis-postgres.workspace = true
+async-imap.workspace = true
+axum.workspace = true
+futures.workspace = true
+gmflow-core.workspace = true
+hex.workspace = true
+portable-pty.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+strip-ansi-escapes.workspace = true
+time.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+gmflow-core = { workspace = true, features = ["test-utils"] }
+tower.workspace = true

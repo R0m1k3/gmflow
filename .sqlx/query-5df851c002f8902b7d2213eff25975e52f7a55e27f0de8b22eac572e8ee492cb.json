@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into mail_boite (mail_id, boite_id, dossier, uid) values ($1, $2, $3, $4)\n             on conflict (boite_id, dossier, uid) do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5df851c002f8902b7d2213eff25975e52f7a55e27f0de8b22eac572e8ee492cb"
+}

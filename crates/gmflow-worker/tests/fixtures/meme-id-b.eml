@@ -1,0 +1,23 @@
+From: factures@grossiste.test
+To: compta@frouard.test
+Subject: Votre document
+Date: Fri, 13 Nov 2026 08:00:00 +0100
+Message-ID: <reutilise@grossiste.test>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="b3"
+
+--b3
+Content-Type: text/plain; charset=utf-8
+
+Document joint.
+--b3
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="B.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJSBhdXRyZSBmYWN0dXJlCv/+/fz7+vn49/b19PPy8fDv7u3s6+rp6Ofm5eTj4uHg
+397d3Nva2djX1tXU09LR0M/OzczLysnIx8bFxMPCwcC/vr28u7q5uLe2tbSzsrGwr66trKuqqain
+pqWko6KhoJ+enZybmpmYl5aVlJOSkZCPjo2Mi4qJiIeGhYSDgoGAf359fHt6eXh3dnV0c3JxcG9u
+bWxramloZ2ZlZGNiYWBfXl1cW1pZWFdWVVRTUlFQT05NTEtKSUhHRkVEQ0JBQD8+PTw7Ojk4NzY1
+NDMyMTAvLi0sKyopKCcmJSQjIiEgHx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA=
+--b3--

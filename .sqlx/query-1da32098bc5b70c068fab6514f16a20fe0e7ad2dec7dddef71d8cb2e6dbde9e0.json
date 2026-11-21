@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select not exists (select 1 from utilisateur) as \"vide!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "vide!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1da32098bc5b70c068fab6514f16a20fe0e7ad2dec7dddef71d8cb2e6dbde9e0"
+}
