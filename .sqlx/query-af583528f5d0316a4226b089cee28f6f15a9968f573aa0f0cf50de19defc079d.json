@@ -1,0 +1,132 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                  d.montant_ht::float8 as montant_ht, d.fournisseur_id, fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", p.nom as nom_fichier\n           from document d\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = any($1)\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "type!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_document",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_document"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "numero_commande",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero_commande"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "montant_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fournisseur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "nom_fichier",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      null,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "af583528f5d0316a4226b089cee28f6f15a9968f573aa0f0cf50de19defc079d"
+}

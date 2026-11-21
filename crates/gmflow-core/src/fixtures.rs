@@ -258,3 +258,114 @@ pub fn eml(message_id: &str, objet: &str, pieces: &[(&str, &str, &[u8])], liste:
     m.push_str("--LIMITE--\r\n");
     m.into_bytes()
 }
+
+/// Ligne de facture de test : référence, désignation, quantité, prix unitaire HT.
+pub type LigneTest<'a> = (&'a str, &'a str, f64, f64);
+
+/// Facture CII avec lignes articles, n° de commande et n° de BL cité (en-tête), datée de
+/// `date` (AAAAMMJJ). HT = somme des lignes, TVA 20 %.
+pub fn xml_cii_lignes(
+    numero: &str,
+    siret_acheteur: &str,
+    date: &str,
+    commande: &str,
+    bl: Option<&str>,
+    lignes: &[LigneTest<'_>],
+) -> String {
+    let mut items = String::new();
+    let mut ht = 0.0;
+    for (i, (reference, nom, qte, prix)) in lignes.iter().enumerate() {
+        let total = qte * prix;
+        ht += total;
+        items.push_str(&format!(
+            r#"    <ram:IncludedSupplyChainTradeLineItem>
+      <ram:AssociatedDocumentLineDocument><ram:LineID>{n}</ram:LineID></ram:AssociatedDocumentLineDocument>
+      <ram:SpecifiedTradeProduct><ram:SellerAssignedID>{reference}</ram:SellerAssignedID><ram:Name>{nom}</ram:Name></ram:SpecifiedTradeProduct>
+      <ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice><ram:ChargeAmount>{prix:.2}</ram:ChargeAmount></ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>
+      <ram:SpecifiedLineTradeDelivery><ram:BilledQuantity unitCode="C62">{qte}</ram:BilledQuantity></ram:SpecifiedLineTradeDelivery>
+      <ram:SpecifiedLineTradeSettlement><ram:SpecifiedTradeSettlementLineMonetarySummation><ram:LineTotalAmount>{total:.2}</ram:LineTotalAmount></ram:SpecifiedTradeSettlementLineMonetarySummation></ram:SpecifiedLineTradeSettlement>
+    </ram:IncludedSupplyChainTradeLineItem>
+"#,
+            n = i + 1
+        ));
+    }
+    let livraison = bl
+        .map(|b| {
+            format!(
+                "<ram:ApplicableHeaderTradeDelivery><ram:DespatchAdviceReferencedDocument><ram:IssuerAssignedID>{b}</ram:IssuerAssignedID></ram:DespatchAdviceReferencedDocument></ram:ApplicableHeaderTradeDelivery>"
+            )
+        })
+        .unwrap_or_default();
+    let tva = (ht * 0.2 * 100.0).round() / 100.0;
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100" xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
+  <rsm:ExchangedDocument>
+    <ram:ID>{numero}</ram:ID>
+    <ram:TypeCode>380</ram:TypeCode>
+    <ram:IssueDateTime><udt:DateTimeString format="102">{date}</udt:DateTimeString></ram:IssueDateTime>
+  </rsm:ExchangedDocument>
+  <rsm:SupplyChainTradeTransaction>
+{items}    <ram:ApplicableHeaderTradeAgreement>
+      <ram:SellerTradeParty>
+        <ram:Name>Grossiste Durand &amp; Fils</ram:Name>
+        <ram:SpecifiedLegalOrganization><ram:ID schemeID="0002">55210055400013</ram:ID></ram:SpecifiedLegalOrganization>
+        <ram:SpecifiedTaxRegistration><ram:ID schemeID="VA">FR96552100554</ram:ID></ram:SpecifiedTaxRegistration>
+      </ram:SellerTradeParty>
+      <ram:BuyerTradeParty>
+        <ram:Name>Magasin</ram:Name>
+        <ram:SpecifiedLegalOrganization><ram:ID schemeID="0002">{siret_acheteur}</ram:ID></ram:SpecifiedLegalOrganization>
+      </ram:BuyerTradeParty>
+      <ram:BuyerOrderReferencedDocument><ram:IssuerAssignedID>{commande}</ram:IssuerAssignedID></ram:BuyerOrderReferencedDocument>
+    </ram:ApplicableHeaderTradeAgreement>
+    {livraison}
+    <ram:ApplicableHeaderTradeSettlement>
+      <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+        <ram:LineTotalAmount>{ht:.2}</ram:LineTotalAmount>
+        <ram:TaxBasisTotalAmount>{ht:.2}</ram:TaxBasisTotalAmount>
+        <ram:TaxTotalAmount currencyID="EUR">{tva:.2}</ram:TaxTotalAmount>
+        <ram:GrandTotalAmount>{ttc:.2}</ram:GrandTotalAmount>
+      </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+    </ram:ApplicableHeaderTradeSettlement>
+  </rsm:SupplyChainTradeTransaction>
+</rsm:CrossIndustryInvoice>"#,
+        ttc = ht + tva
+    )
+}
+
+/// Facture UBL avec deux lignes, un BL cité en en-tête et un autre sur une ligne.
+pub fn xml_ubl_facture_lignes(numero: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:ID>{numero}</cbc:ID>
+  <cbc:IssueDate>2026-11-10</cbc:IssueDate>
+  <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+  <cac:OrderReference><cbc:ID>PO-9</cbc:ID></cac:OrderReference>
+  <cac:DespatchDocumentReference><cbc:ID>BL-900</cbc:ID></cac:DespatchDocumentReference>
+  <cac:AccountingSupplierParty><cac:Party>
+    <cac:PartyName><cbc:Name>Fournitures Martin</cbc:Name></cac:PartyName>
+  </cac:Party></cac:AccountingSupplierParty>
+  <cac:TaxTotal><cbc:TaxAmount currencyID="EUR">7.00</cbc:TaxAmount></cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:TaxExclusiveAmount currencyID="EUR">35.00</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="EUR">42.00</cbc:TaxInclusiveAmount>
+  </cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="KGM">2.5</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">25.00</cbc:LineExtensionAmount>
+    <cac:Item><cbc:Name>Terreau</cbc:Name><cac:SellersItemIdentification><cbc:ID>T-01</cbc:ID></cac:SellersItemIdentification></cac:Item>
+    <cac:Price><cbc:PriceAmount currencyID="EUR">10.00</cbc:PriceAmount></cac:Price>
+  </cac:InvoiceLine>
+  <cac:InvoiceLine>
+    <cbc:ID>2</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">1</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">10.00</cbc:LineExtensionAmount>
+    <cac:DespatchLineReference><cbc:LineID>1</cbc:LineID><cac:DocumentReference><cbc:ID>BL-901</cbc:ID></cac:DocumentReference></cac:DespatchLineReference>
+    <cac:Item><cbc:Description>Pot en terre</cbc:Description></cac:Item>
+    <cac:Price><cbc:PriceAmount currencyID="EUR">10.00</cbc:PriceAmount></cac:Price>
+  </cac:InvoiceLine>
+</Invoice>"#
+    )
+}

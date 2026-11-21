@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select format_bl from fournisseur where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "format_bl",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "format_bl"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1bdbc9fe5e79ca08b3a31c31279485dbcea8f222bdf277c0a68b08f54e1e854c"
+}

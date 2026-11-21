@@ -315,5 +315,8 @@ pub async fn fusionner(
     depot::reevaluer(&etat.pool, None, Some(f.cible_id))
         .await
         .map_err(ErreurApi::Interne)?;
+    gmflow_core::rapprochement::recalculer_fournisseur(&etat.pool, f.cible_id)
+        .await
+        .map_err(ErreurApi::Interne)?;
     Ok(Json(ResultatFusion { documents: n }))
 }

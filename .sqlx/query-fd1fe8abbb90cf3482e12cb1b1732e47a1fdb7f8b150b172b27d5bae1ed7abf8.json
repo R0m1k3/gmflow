@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from document d\n           where d.type = 'bl' and d.etat = 'lu' and not d.lignes_lues\n             and ($1::bigint is null or d.societe_id = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fd1fe8abbb90cf3482e12cb1b1732e47a1fdb7f8b150b172b27d5bae1ed7abf8"
+}

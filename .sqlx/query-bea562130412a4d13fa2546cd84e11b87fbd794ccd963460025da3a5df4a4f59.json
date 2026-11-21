@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select montant_ht::float8 from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "montant_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bea562130412a4d13fa2546cd84e11b87fbd794ccd963460025da3a5df4a4f59"
+}

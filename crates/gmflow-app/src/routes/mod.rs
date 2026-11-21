@@ -10,6 +10,7 @@ pub mod documents;
 pub mod fichiers;
 pub mod fournisseurs;
 pub mod mails;
+pub mod rapprochement;
 pub mod tableau;
 
 use std::path::PathBuf;
@@ -19,7 +20,7 @@ use axum::extract::{Request, State};
 use axum::http::{Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_sessions::cookie::SameSite;
 use tower_sessions::{Expiry, SessionManagerLayer};
@@ -83,6 +84,20 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/documents/{id}/controler", post(documents::controler))
         .route("/documents/{id}/deposer", post(documents::deposer))
         .route("/depots/suivi", get(depots::suivi))
+        .route(
+            "/rapprochement",
+            get(rapprochement::vue).post(rapprochement::lier),
+        )
+        .route("/rapprochement/{id}", delete(rapprochement::delier))
+        .route("/documents/{id}/rapprochement", get(rapprochement::detail))
+        .route(
+            "/documents/{id}/rapprochement-ignore",
+            post(rapprochement::ignorer),
+        )
+        .route(
+            "/admin/rapprochement/relire-bl",
+            post(rapprochement::relire_bl),
+        )
         .route("/fournisseurs", get(fournisseurs::lister))
         .route("/fournisseurs/{id}", get(fournisseurs::fiche))
         .route("/admin/fournisseurs", post(fournisseurs::creer))

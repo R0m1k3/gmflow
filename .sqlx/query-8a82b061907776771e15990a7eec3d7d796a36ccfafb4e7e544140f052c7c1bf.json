@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into rapprochement (facture_id, bl_id, methode, auteur_id) values ($1, $2, 'manuel', $3)\n         on conflict (facture_id, bl_id) do update\n           set methode = 'manuel', rejete = false, auteur_id = $3, cree_le = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8a82b061907776771e15990a7eec3d7d796a36ccfafb4e7e544140f052c7c1bf"
+}

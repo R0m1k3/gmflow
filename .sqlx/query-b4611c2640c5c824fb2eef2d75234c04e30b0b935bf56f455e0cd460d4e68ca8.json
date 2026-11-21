@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update rapprochement set rejete = true, ecart_montant = null, ecarts = '[]' where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4611c2640c5c824fb2eef2d75234c04e30b0b935bf56f455e0cd460d4e68ca8"
+}

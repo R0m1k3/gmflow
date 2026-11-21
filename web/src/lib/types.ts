@@ -343,3 +343,71 @@ export interface AppelClaude {
 export interface Appels extends Page<AppelClaude> {
   stats: { tache: string; modele: string; n: number; reussis: number; duree_moyenne_ms: number }[];
 }
+
+export interface DocRap {
+  id: number;
+  type: TypeDocument;
+  numero: string | null;
+  date_document: string | null;
+  numero_commande: string | null;
+  montant_ht: number | null;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  societe: string | null;
+  nom_fichier: string;
+}
+
+export type MethodeRapprochement = 'commande' | 'numero_bl' | 'facture_citee' | 'manuel';
+
+export interface EcartLigne {
+  reference: string | null;
+  designation: string | null;
+  qte_bl: number;
+  qte_facture: number;
+}
+
+export interface Rapproche {
+  facture: DocRap;
+  bls: (DocRap & { lien_id: number; methode: MethodeRapprochement })[];
+  ecart_montant: number | null;
+  ecarts: EcartLigne[];
+}
+
+export interface ResumeFournisseur {
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  bls: number;
+  factures: number;
+  bl_sans_facture: number;
+  factures_sans_bl: number;
+  factures_avec_ecart: number;
+}
+
+export interface VueRapprochement {
+  resume: ResumeFournisseur[];
+  bl_sans_facture: DocRap[];
+  factures_sans_bl: DocRap[];
+  avec_ecart: Rapproche[];
+  sans_ecart: Rapproche[];
+  tronque: boolean;
+  bl_sans_lignes: number;
+}
+
+export interface LigneArticle {
+  rang: number;
+  reference: string | null;
+  designation: string | null;
+  quantite: number | null;
+  unite: string | null;
+  prix_unitaire_ht: number | null;
+  montant_ht: number | null;
+}
+
+export interface DetailRapprochement {
+  lignes: LigneArticle[];
+  lignes_lues: boolean;
+  numeros_bl: string[];
+  ignore: boolean;
+  liens: { id: number; methode: MethodeRapprochement; ecart_montant: number | null; ecarts: EcartLigne[]; auteur: string | null; autre: DocRap }[];
+  candidats: DocRap[];
+}

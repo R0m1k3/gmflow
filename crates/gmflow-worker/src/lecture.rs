@@ -136,6 +136,10 @@ struct Lu {
     tva: Option<f64>,
     ttc: Option<f64>,
     confiance: Value,
+    /// Lignes articles et n° de BL cités ; `lignes_lues` : les lignes ont été demandées.
+    lignes: Vec<extraction::Ligne>,
+    numeros_bl: Vec<String>,
+    lignes_lues: bool,
     texte: Option<String>,
     resultat: Option<Value>,
     modele: Option<String>,
@@ -151,6 +155,16 @@ fn tronquer(s: String, n: usize) -> String {
 }
 
 async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
+    let mut tx = pool.begin().await?;
+    gmflow_core::rapprochement::ecrire_lignes(&mut tx, id, &lu.lignes).await?;
+    sqlx::query!(
+        "update document set numeros_bl = $2, lignes_lues = $3 where id = $1",
+        id,
+        &lu.numeros_bl,
+        lu.lignes_lues
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "update document set etat = $2, voie = $3, message = $4, type = $5, societe_id = $6,
             fournisseur_nom = $7, fournisseur_siret = $8, fournisseur_tva = $9, numero = $10,
@@ -181,8 +195,9 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
         lu.modele,
         lu.effort
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -213,21 +228,37 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
     else {
         return Ok(false);
     };
+    let mut tx = pool.begin().await?;
     sqlx::query!(
         "update document d set (etat, voie, message, type, societe_id, fournisseur_nom,
             fournisseur_siret, fournisseur_tva, numero, date_document, numero_commande, montant_ht,
-            montant_tva, montant_ttc, confiance, texte, resultat, modele, effort) =
+            montant_tva, montant_ttc, confiance, texte, resultat, modele, effort, numeros_bl,
+            lignes_lues) =
           (select s.etat, s.voie, s.message, s.type, s.societe_id, s.fournisseur_nom,
             s.fournisseur_siret, s.fournisseur_tva, s.numero, s.date_document, s.numero_commande,
             s.montant_ht, s.montant_tva, s.montant_ttc, s.confiance, s.texte, s.resultat, s.modele,
-            s.effort from document s where s.id = $2),
+            s.effort, s.numeros_bl, s.lignes_lues from document s where s.id = $2),
           copie_de = $2, pris_le = null, lu_le = now()
          where d.id = $1",
         id,
         source
     )
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+    sqlx::query!("delete from ligne_document where document_id = $1", id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!(
+        "insert into ligne_document (document_id, rang, reference, designation, quantite, unite,
+                                     prix_unitaire_ht, montant_ht)
+         select $1, rang, reference, designation, quantite, unite, prix_unitaire_ht, montant_ht
+         from ligne_document where document_id = $2",
+        id,
+        source
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(true)
 }
 
@@ -263,6 +294,9 @@ fn lu_depuis_xml(
         tva: d.montant_tva,
         ttc: d.montant_ttc,
         confiance: confiance_xml(societe_id.is_some()),
+        lignes: d.lignes.clone(),
+        numeros_bl: d.numeros_bl.clone(),
+        lignes_lues: true,
         texte,
         resultat: serde_json::to_value(&d).ok(),
         ..Default::default()
@@ -280,7 +314,11 @@ fn lu_depuis_extraction(
     if societe_code.is_some() {
         confiance["societe"] = json!(1.0);
     }
-    let resultat = serde_json::to_value(&e).ok();
+    // Les lignes sont gardées dans leur table, pas en double dans le résultat brut.
+    let resultat = serde_json::to_value(&e).ok().map(|mut v| {
+        v["lignes"] = json!(e.lignes.len());
+        v
+    });
     Lu {
         etat: "lu",
         voie: Some(voie.code()),
@@ -294,6 +332,9 @@ fn lu_depuis_extraction(
         ttc: e.montant_ttc,
         fournisseur: e.fournisseur,
         confiance,
+        lignes: e.lignes,
+        numeros_bl: e.numeros_bl,
+        lignes_lues: true,
         texte: texte_code.or(e.texte),
         resultat,
         modele: Some(reglage.modele.clone()),
@@ -383,14 +424,18 @@ pub async fn lire(ctx: &Contexte, document_id: i64, forcer: bool) -> anyhow::Res
     resultat
 }
 
-/// Après une lecture réussie : fiche fournisseur, contrôles et statut de dépôt. Une erreur ici
-/// ne remet pas la lecture en cause : elle est journalisée, et la fiche du document permet de
-/// relancer les contrôles.
+/// Après une lecture : fiche fournisseur, contrôles et statut de dépôt, puis rapprochement
+/// des BL et des factures. Une erreur ici ne remet pas la lecture en cause : elle est
+/// journalisée, et la fiche du document permet de relancer les contrôles.
 pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
     let etat = sqlx::query_scalar!("select etat from document where id = $1", document_id)
         .fetch_optional(&ctx.pool)
         .await;
     if !matches!(etat, Ok(Some(ref e)) if e == "lu") {
+        // Relu en erreur ou ignoré : ses liens automatiques tombent.
+        if let Err(e) = gmflow_core::rapprochement::recalculer(&ctx.pool, document_id).await {
+            tracing::warn!(document = document_id, erreur = ?e, "rapprochement impossible");
+        }
         return;
     }
     if let Err(e) = crate::fournisseur::rattacher(ctx, document_id).await {
@@ -399,14 +444,32 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
     if let Err(e) = gmflow_core::depot::evaluer_et_deposer(&ctx.pool, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "contrôles avant dépôt impossibles");
     }
+    if let Err(e) = gmflow_core::rapprochement::recalculer(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "rapprochement impossible");
+    }
 }
 
-/// Exemples de corrections du fournisseur probable, à ajouter au prompt.
+/// Exemples de corrections du fournisseur probable, et format habituel de ses BL, à ajouter
+/// au prompt.
 async fn exemples_pour(pool: &PgPool, expediteur: &str, texte: Option<&str>) -> String {
     match crate::fournisseur::pre_identifier(pool, expediteur, texte).await {
-        Ok(Some(f)) => crate::fournisseur::exemples(pool, f)
-            .await
-            .unwrap_or_default(),
+        Ok(Some(f)) => {
+            let mut s = crate::fournisseur::exemples(pool, f)
+                .await
+                .unwrap_or_default();
+            if let Ok(Some(format)) =
+                sqlx::query_scalar!("select format_bl from fournisseur where id = $1", f)
+                    .fetch_one(pool)
+                    .await
+                && !format.trim().is_empty()
+            {
+                s.push_str(&format!(
+                    "\nFormat habituel des bons de livraison de ce fournisseur : {}\n",
+                    format.trim()
+                ));
+            }
+            s
+        }
         _ => String::new(),
     }
 }

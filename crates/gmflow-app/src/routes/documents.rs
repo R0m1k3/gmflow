@@ -240,7 +240,7 @@ async fn mail_du_document(etat: &Etat, id: i64) -> Resultat<i64> {
 }
 
 /// 404 si le document n'existe pas ou n'est pas visible par cet accès.
-async fn controler_visible(etat: &Etat, acces: &Acces, id: i64) -> Resultat<()> {
+pub(crate) async fn controler_visible(etat: &Etat, acces: &Acces, id: i64) -> Resultat<()> {
     let mail_id = mail_du_document(etat, id).await?;
     if !mail_visible(etat, acces, mail_id).await? {
         return Err(ErreurApi::Absent);
@@ -382,6 +382,9 @@ pub async fn verifier(
     depot::evaluer_et_deposer(&etat.pool, id)
         .await
         .map_err(ErreurApi::Interne)?;
+    gmflow_core::rapprochement::recalculer(&etat.pool, id)
+        .await
+        .map_err(ErreurApi::Interne)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -507,7 +510,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
 
 /// Un responsable ne corrige ni ne valide que les documents de sa structure (ou sans
 /// structure reconnue). 404 si le document n'est pas visible.
-async fn controler_modifiable(etat: &Etat, acces: &Acces, id: i64) -> Resultat<()> {
+pub(crate) async fn controler_modifiable(etat: &Etat, acces: &Acces, id: i64) -> Resultat<()> {
     controler_visible(etat, acces, id).await?;
     if let Some(s) = acces.societe_filtre() {
         let societe = sqlx::query_scalar!("select societe_id from document where id = $1", id)
@@ -696,6 +699,9 @@ pub async fn corriger(
     .await?;
     tx.commit().await?;
     depot::evaluer_et_deposer(&etat.pool, id)
+        .await
+        .map_err(ErreurApi::Interne)?;
+    gmflow_core::rapprochement::recalculer(&etat.pool, id)
         .await
         .map_err(ErreurApi::Interne)?;
     Ok(StatusCode::NO_CONTENT)

@@ -1,9 +1,11 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { api, message, sonder } from '#lib/api.ts';
+  import { libelleMethode, libelleUnite, SEUIL_ECART } from '#lib/documents.ts';
   import { classeEtat, classeStatutDepot, libelleEtat, libelleOutil, libelleStatutDepot, libelleType, libelleVoie, TYPES } from '#lib/documents.ts';
   import { dateSimple, montant, quand } from '#lib/format.ts';
   import { session } from '#lib/session.svelte.ts';
+  import type { DetailRapprochement } from '#lib/types.ts';
   import type { FicheDocument, LigneFournisseur, Page, SocieteVisible, TypeDocument } from '#lib/types.ts';
 
   let d = $state<FicheDocument | null>(null);
@@ -25,6 +27,8 @@
   let fiches = $state<LigneFournisseur[]>([]);
   let rechercheFiche = $state('');
   let arret: (() => void) | null = null;
+  let rap = $state<DetailRapprochement | null>(null);
+  let candidat = $state('');
 
   const texte = (v: string | number | null) => (v === null ? '' : String(v));
   const enCours = (v: FicheDocument) =>
@@ -44,8 +48,43 @@
       tva: texte(v.montant_tva),
       ttc: texte(v.montant_ttc)
     };
+    if (v.etat === 'lu') {
+      rap = await api.get<DetailRapprochement>(`/api/documents/${v.id}/rapprochement`);
+    }
     return enCours(v);
   }
+
+  async function actionRap(f: () => Promise<unknown>, ok: string) {
+    erreur = '';
+    info = '';
+    try {
+      await f();
+      await charger();
+      info = ok;
+    } catch (err) {
+      erreur = message(err);
+    }
+  }
+  function lier() {
+    if (!d || !candidat) return;
+    const autre = Number(candidat);
+    const [facture_id, bl_id] = d.type === 'facture' ? [d.id, autre] : [autre, d.id];
+    candidat = '';
+    actionRap(() => api.post('/api/rapprochement', { facture_id, bl_id }), 'Documents reliés.');
+  }
+  function delier(id: number) {
+    if (!confirm('Défaire ce lien ? Un lien trouvé automatiquement ne sera pas recréé.')) return;
+    actionRap(() => api.del(`/api/rapprochement/${id}`), 'Lien défait.');
+  }
+  function basculerIgnore() {
+    if (!d || !rap) return;
+    const ignore = !rap.ignore;
+    actionRap(
+      () => api.post(`/api/documents/${d!.id}/rapprochement-ignore`, { ignore }),
+      ignore ? 'Document sorti du rapprochement.' : 'Document remis dans le rapprochement.'
+    );
+  }
+  const quantite = (v: number | null) => (v === null ? '—' : v.toLocaleString('fr-FR'));
   async function chercherFiches() {
     const q = rechercheFiche.trim();
     fiches = (await api.get<Page<LigneFournisseur>>(`/api/fournisseurs${q ? `?q=${encodeURIComponent(q)}` : ''}`)).elements;
@@ -322,6 +361,81 @@
     </form>
   {/if}
 
+  {#if d.etat === 'lu' && rap}
+    {#if d.type === 'facture' || d.type === 'bl'}
+      <h2>Rapprochement</h2>
+      <div class="carte rap">
+        {#if d.type === 'facture' && rap.numeros_bl.length}
+          <div class="discret">BL cités par la facture : {rap.numeros_bl.join(', ')}</div>
+        {/if}
+        {#if rap.ignore}
+          <div class="discret">Pas de correspondance attendue : ce document n'est pas rapproché automatiquement.</div>
+        {/if}
+        {#each rap.liens as l (l.id)}
+          <div class="lien">
+            <div class="actions">
+              <span>{l.autre.type === 'bl' ? 'BL' : 'Facture'} <a href="/documents/{l.autre.id}">{l.autre.numero ?? l.autre.nom_fichier}</a></span>
+              <span class="discret">{dateSimple(l.autre.date_document)} · {montant(l.autre.montant_ht)} HT · {libelleMethode[l.methode]}{l.auteur ? ` (${l.auteur})` : ''}</span>
+              <span style="flex:1"></span>
+              <button class="second" onclick={() => delier(l.id)}>Défaire</button>
+            </div>
+          </div>
+        {:else}
+          <div class="discret">Aucun {d.type === 'facture' ? 'BL rapproché' : 'facture rapprochée'}.</div>
+        {/each}
+        {#if rap.liens.length}
+          {@const l0 = rap.liens[0]}
+          <div>
+            Écart de montant HT (facture moins BL) :
+            {#if l0.ecart_montant === null}<span class="discret">non calculable (montant manquant)</span>
+            {:else}<span class="etiquette {Math.abs(l0.ecart_montant) > SEUIL_ECART ? 'ko' : 'ok'}">{montant(l0.ecart_montant)}</span>{/if}
+          </div>
+          {#if l0.ecarts.length}
+            <table>
+              <thead><tr><th>Article</th><th class="nombre">Livré (BL)</th><th class="nombre">Facturé</th></tr></thead>
+              <tbody>
+                {#each l0.ecarts as e, i (i)}
+                  <tr><td>{e.reference ?? ''} {e.designation ?? ''}</td><td class="nombre">{quantite(e.qte_bl)}</td><td class="nombre">{quantite(e.qte_facture)}</td></tr>
+                {/each}
+              </tbody>
+            </table>
+          {/if}
+        {/if}
+        {#if rap.candidats.length}
+          <form class="actions" onsubmit={(e) => { e.preventDefault(); lier(); }}>
+            <select bind:value={candidat} style="max-width:28rem" aria-label="Document à relier">
+              <option value="">Relier à {d.type === 'facture' ? 'un BL' : 'une facture'} du même fournisseur…</option>
+              {#each rap.candidats as c (c.id)}
+                <option value={String(c.id)}>{c.numero ?? c.nom_fichier} · {dateSimple(c.date_document)} · {montant(c.montant_ht)}</option>
+              {/each}
+            </select>
+            <button class="second" disabled={!candidat}>Relier</button>
+          </form>
+        {/if}
+        <div><button class="second" onclick={basculerIgnore}>{rap.ignore ? 'Remettre dans le rapprochement' : 'Pas de correspondance attendue'}</button></div>
+      </div>
+    {/if}
+    {#if rap.lignes.length}
+      <h2>Lignes ({rap.lignes.length})</h2>
+      <table>
+        <thead><tr><th>Référence</th><th>Désignation</th><th class="nombre">Quantité</th><th class="nombre">Prix unit. HT</th><th class="nombre">Montant HT</th></tr></thead>
+        <tbody>
+          {#each rap.lignes as l (l.rang)}
+            <tr>
+              <td>{l.reference ?? '—'}</td>
+              <td>{l.designation ?? '—'}</td>
+              <td class="nombre">{quantite(l.quantite)}{l.unite ? ` ${libelleUnite(l.unite)}` : ''}</td>
+              <td class="nombre">{l.prix_unitaire_ht === null ? '—' : montant(l.prix_unitaire_ht)}</td>
+              <td class="nombre">{montant(l.montant_ht)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {:else if d.type === 'bl' && !rap.lignes_lues}
+      <p class="discret">BL lu sans ses lignes (avant le module de rapprochement) : un administrateur peut le relire.</p>
+    {/if}
+  {/if}
+
   {#if d.texte}
     <details>
       <summary>Texte du document</summary>
@@ -338,6 +452,7 @@
   a.bouton.second { background: #fff; color: var(--accent); }
   details { margin-top: 1.5rem; }
   .depot { display: grid; gap: 0.5rem; }
+  .rap { display: grid; gap: 0.6rem; }
   .controles { margin: 0; padding-left: 1.1rem; }
   fieldset { border: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; }
   fieldset > button { justify-self: start; }

@@ -10,6 +10,9 @@ pub const TYPES: &[&str] = &["facture", "avoir", "bl", "relance", "devis", "autr
 /// Longueur maximale du texte d'un document envoyé à Claude.
 pub const TEXTE_MAX: usize = 20_000;
 
+/// Lignes articles gardées par document (les suivantes sont ignorées).
+pub const LIGNES_MAX: usize = 200;
+
 pub const PROMPT_SYSTEME: &str = "Tu lis des documents reçus par mail par des magasins : factures, \
 avoirs, bons de livraison (BL), relances, devis. Tu réponds uniquement avec la sortie structurée \
 demandée, selon le schéma. Tu n'inventes rien : un champ absent ou illisible vaut null. Les dates \
@@ -21,6 +24,43 @@ pub struct Fournisseur {
     pub nom: Option<String>,
     pub siret: Option<String>,
     pub tva: Option<String>,
+}
+
+/// Ligne article d'un BL ou d'une facture.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Ligne {
+    #[serde(default)]
+    pub reference: Option<String>,
+    #[serde(default)]
+    pub designation: Option<String>,
+    #[serde(default)]
+    pub quantite: Option<f64>,
+    #[serde(default)]
+    pub unite: Option<String>,
+    #[serde(default)]
+    pub prix_unitaire_ht: Option<f64>,
+    #[serde(default)]
+    pub montant_ht: Option<f64>,
+}
+
+impl Ligne {
+    /// Ligne sans aucune information utile.
+    pub fn vide(&self) -> bool {
+        let rien = |s: &Option<String>| s.as_deref().is_none_or(|v| v.trim().is_empty());
+        rien(&self.reference)
+            && rien(&self.designation)
+            && self.quantite.is_none()
+            && self.montant_ht.is_none()
+    }
+}
+
+/// Lignes utiles, au plus `LIGNES_MAX`.
+pub fn lignes_utiles(lignes: Vec<Ligne>) -> Vec<Ligne> {
+    lignes
+        .into_iter()
+        .filter(|l| !l.vide())
+        .take(LIGNES_MAX)
+        .collect()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -45,6 +85,12 @@ pub struct Extraction {
     pub montant_tva: Option<f64>,
     pub montant_ttc: Option<f64>,
     pub confiance: Confiance,
+    /// Lignes articles (obligatoires pour un BL, si lisibles pour une facture).
+    #[serde(default)]
+    pub lignes: Vec<Ligne>,
+    /// Numéros des bons de livraison cités par une facture.
+    #[serde(default)]
+    pub numeros_bl: Vec<String>,
     /// Transcription d'un scan (absente pour un document déjà en texte).
     #[serde(default)]
     pub texte: Option<String>,
@@ -79,6 +125,20 @@ pub fn schema(avec_texte: bool) -> Value {
         "montant_ht": nombre_ou_null(),
         "montant_tva": nombre_ou_null(),
         "montant_ttc": nombre_ou_null(),
+        "lignes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "reference": chaine_ou_null(), "designation": chaine_ou_null(),
+                    "quantite": nombre_ou_null(), "unite": chaine_ou_null(),
+                    "prix_unitaire_ht": nombre_ou_null(), "montant_ht": nombre_ou_null()
+                },
+                "required": ["reference", "designation", "quantite", "unite", "prix_unitaire_ht", "montant_ht"],
+                "additionalProperties": false
+            }
+        },
+        "numeros_bl": { "type": "array", "items": { "type": "string" } },
         "confiance": {
             "type": "object",
             "properties": {
@@ -99,6 +159,8 @@ pub fn schema(avec_texte: bool) -> Value {
         "montant_ht",
         "montant_tva",
         "montant_ttc",
+        "lignes",
+        "numeros_bl",
         "confiance",
     ];
     if avec_texte {
@@ -154,8 +216,15 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     }
     p.push_str(
         "societe_id = la structure destinataire du document (acheteur, client, adresse de \
-         livraison), null si aucune ne correspond. Le fournisseur est l'émetteur du document.\n\n",
+         livraison), null si aucune ne correspond. Le fournisseur est l'émetteur du document.\n",
     );
+    p.push_str(&format!(
+        "lignes = les lignes articles (référence, désignation, quantité, unité, prix unitaire HT, \
+         montant HT de la ligne) : toutes pour un bon de livraison, et pour une facture ou un avoir \
+         quand elles sont lisibles ; au plus {LIGNES_MAX} lignes, sans les lignes de total ni de \
+         port ; liste vide sinon. numeros_bl = les numéros de bons de livraison cités par une \
+         facture (liste vide sinon).\n\n"
+    ));
     p.push_str(&format!(
         "Mail qui accompagne le document :\nDe : {}\nObjet : {}\n{}\n\nFichier : {}\n\n",
         mail.expediteur,
@@ -218,9 +287,11 @@ pub fn depuis_reponse(
             serde_json::from_str(sans_cloture(r)).map_err(|_| ErreurExtraction::Absente)?
         }
     };
-    let e: Extraction =
+    let mut e: Extraction =
         serde_json::from_value(valeur).map_err(|err| ErreurExtraction::Schema(err.to_string()))?;
     controler(&e, societes)?;
+    e.lignes = lignes_utiles(std::mem::take(&mut e.lignes));
+    e.numeros_bl = numeros_utiles(std::mem::take(&mut e.numeros_bl));
     Ok(e)
 }
 
@@ -262,4 +333,16 @@ pub fn date(s: &str) -> Option<time::Date> {
         time::macros::format_description!("[year]-[month]-[day]"),
     )
     .ok()
+}
+
+/// Numéros non vides et distincts (au plus 50).
+pub fn numeros_utiles(numeros: Vec<String>) -> Vec<String> {
+    let mut v: Vec<String> = Vec::new();
+    for n in numeros {
+        let n = n.trim().to_string();
+        if !n.is_empty() && !v.contains(&n) && v.len() < 50 {
+            v.push(n);
+        }
+    }
+    v
 }

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct facture_id from rapprochement where facture_id = $1 or bl_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "facture_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "rapprochement",
+            "name": "facture_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "152a34eb2ca0cf4ab191a33b1d40dbabcb1fe94f4050947eca431b44be4a6166"
+}

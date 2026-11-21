@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select facture_id, bl_id from rapprochement where id = $1 and not rejete",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "facture_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "rapprochement",
+            "name": "facture_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bl_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "rapprochement",
+            "name": "bl_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0c12bc6a167b12eab6dd905244d4ce830410a7a1542c674efa2e29826ceac8bd"
+}

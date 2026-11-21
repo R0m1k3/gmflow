@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select type, fournisseur_id, lignes_lues, numeros_bl, rapprochement_ignore\n         from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "lignes_lues",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "lignes_lues"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "numeros_bl",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numeros_bl"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "rapprochement_ignore",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "rapprochement_ignore"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "51b940423974a47184948ac6b1f157426e588548b97dbf07933e677ef7aeb07f"
+}

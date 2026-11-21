@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into ligne_document (document_id, rang, reference, designation, quantite, unite,\n                                     prix_unitaire_ht, montant_ht)\n         select $1, rang, reference, designation, quantite, unite, prix_unitaire_ht, montant_ht\n         from ligne_document where document_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "18d74cd21e854a4ea18c2e7f43bf7623c1e8533bdab98c375b6ba5b9377c1891"
+}
