@@ -13,7 +13,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    networks: [interne]
+    # Nom propre à GMFlow : `postgres` est déjà pris sur le réseau de NPM (autres stacks),
+    # l'app, branchée aussi sur ce réseau, joindrait la mauvaise base.
+    networks:
+      interne:
+        aliases: [gmflow-postgres]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U gmflow -d gmflow"]
       interval: 10s
@@ -26,13 +30,17 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgres://gmflow:${POSTGRES_PASSWORD}@postgres:5432/gmflow
+      DATABASE_URL: postgres://gmflow:${POSTGRES_PASSWORD}@gmflow-postgres:5432/gmflow
       GMFLOW_CLE_CHIFFREMENT: ${GMFLOW_CLE_CHIFFREMENT:?GMFLOW_CLE_CHIFFREMENT manquante}
       GMFLOW_URL_PUBLIQUE: ${GMFLOW_URL_PUBLIQUE:-https://gmflow.ffnancy.fr}
     volumes:
       - fichiers:/data/fichiers
-    # `npm` : Nginx Proxy Manager joint app:8080. Aucun port publié.
-    networks: [interne, npm]
+    # `npm` : Nginx Proxy Manager joint gmflow-app:8080 (`app` est ambigu sur ce réseau).
+    # Aucun port publié.
+    networks:
+      interne: {}
+      npm:
+        aliases: [gmflow-app]
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -42,7 +50,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     environment:
-      DATABASE_URL: postgres://gmflow:${POSTGRES_PASSWORD}@postgres:5432/gmflow
+      DATABASE_URL: postgres://gmflow:${POSTGRES_PASSWORD}@gmflow-postgres:5432/gmflow
       GMFLOW_CLE_CHIFFREMENT: ${GMFLOW_CLE_CHIFFREMENT:?GMFLOW_CLE_CHIFFREMENT manquante}
       GMFLOW_URL_PUBLIQUE: ${GMFLOW_URL_PUBLIQUE:-https://gmflow.ffnancy.fr}
     volumes:
