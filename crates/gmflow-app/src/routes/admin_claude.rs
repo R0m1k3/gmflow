@@ -1,4 +1,5 @@
-//! Jeton Claude : collage, test, séance setup-token. Le jeton n'est jamais renvoyé.
+//! Accès Claude : setup token (collage, séance setup-token) ou clé API Anthropic, test, réglages
+//! par tâche. Aucun secret n'est jamais renvoyé : seulement ses 4 derniers caractères.
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -13,10 +14,152 @@ use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
 
 pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Value>> {
-    let v = parametre::lire(&etat.pool, parametre::CLAUDE_ETAT)
+    let mut v = parametre::lire(&etat.pool, parametre::CLAUDE_ETAT)
         .await?
         .unwrap_or_else(|| json!({ "etat": "absent" }));
+    let mode = gmflow_core::claude::mode_acces(&etat.pool).await?;
+    let jeton = parametre::lire_secret(&etat.pool, parametre::CLAUDE_JETON)
+        .await?
+        .is_some();
+    let cle = parametre::lire_secret(&etat.pool, parametre::CLAUDE_CLE_API)
+        .await?
+        .is_some();
+    let fin_cle = parametre::lire(&etat.pool, parametre::CLAUDE_CLE_API)
+        .await?
+        .and_then(|v| v.get("fin").cloned());
+    if v.is_object() {
+        v["acces"] =
+            json!({ "mode": mode, "jeton": jeton, "cle_api": cle, "cle_api_fin": fin_cle });
+    }
     Ok(Json(v))
+}
+
+fn fin(s: &str) -> String {
+    let c: Vec<char> = s.chars().collect();
+    c[c.len().saturating_sub(4)..].iter().collect()
+}
+
+#[derive(Deserialize)]
+pub struct EntreeCle {
+    cle: String,
+}
+
+/// Clé API Anthropic, alternative au setup token (facturée à l'usage).
+pub async fn enregistrer_cle(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Json(e): Json<EntreeCle>,
+) -> Resultat<StatusCode> {
+    let cle = e.cle.trim();
+    if !cle.starts_with("sk-ant-api") || cle.len() < 20 || cle.chars().any(char::is_whitespace) {
+        return Err(ErreurApi::Donnees("clé attendue : sk-ant-api…".into()));
+    }
+    let chiffre = etat.chiffreur.chiffrer(cle.as_bytes());
+    let mode = gmflow_core::claude::mode_acces(&etat.pool).await?;
+    let mut tx = etat.pool.begin().await?;
+    parametre::ecrire_secret(&mut *tx, parametre::CLAUDE_CLE_API, &chiffre).await?;
+    parametre::ecrire(
+        &mut *tx,
+        parametre::CLAUDE_CLE_API,
+        &json!({ "fin": fin(cle) }),
+    )
+    .await?;
+    journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "cle_api_enregistree",
+        "claude",
+        None,
+        json!({}),
+    )
+    .await?;
+    tx.commit().await?;
+    if mode == "cle_api" {
+        file::pousser_test_jeton(&etat.pool).await?;
+    }
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Supprime la clé API ; si elle était utilisée, GMFlow revient au setup token.
+pub async fn supprimer_cle(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+) -> Resultat<StatusCode> {
+    let mode = gmflow_core::claude::mode_acces(&etat.pool).await?;
+    let mut tx = etat.pool.begin().await?;
+    parametre::supprimer(&mut *tx, parametre::CLAUDE_CLE_API).await?;
+    if mode == "cle_api" {
+        parametre::ecrire(
+            &mut *tx,
+            parametre::CLAUDE_ACCES,
+            &json!({ "mode": "jeton" }),
+        )
+        .await?;
+    }
+    journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "cle_api_supprimee",
+        "claude",
+        None,
+        json!({}),
+    )
+    .await?;
+    tx.commit().await?;
+    if mode == "cle_api" {
+        file::pousser_test_jeton(&etat.pool).await?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+pub struct EntreeAcces {
+    mode: String,
+}
+
+/// Choix du secret utilisé pour les appels : `jeton` ou `cle_api`.
+pub async fn choisir_acces(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Json(e): Json<EntreeAcces>,
+) -> Resultat<StatusCode> {
+    let cle = match e.mode.as_str() {
+        "jeton" => parametre::CLAUDE_JETON,
+        "cle_api" => parametre::CLAUDE_CLE_API,
+        _ => return Err(ErreurApi::Donnees("mode : jeton ou cle_api".into())),
+    };
+    if parametre::lire_secret(&etat.pool, cle).await?.is_none() {
+        return Err(ErreurApi::Conflit(if e.mode == "jeton" {
+            "aucun setup token enregistré".into()
+        } else {
+            "aucune clé API enregistrée".into()
+        }));
+    }
+    let mut tx = etat.pool.begin().await?;
+    parametre::ecrire(
+        &mut *tx,
+        parametre::CLAUDE_ACCES,
+        &json!({ "mode": e.mode }),
+    )
+    .await?;
+    parametre::ecrire(
+        &mut *tx,
+        parametre::CLAUDE_ETAT,
+        &json!({ "etat": "en_test", "message": "" }),
+    )
+    .await?;
+    journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "acces_claude",
+        "claude",
+        None,
+        json!({ "mode": e.mode }),
+    )
+    .await?;
+    tx.commit().await?;
+    file::pousser_test_jeton(&etat.pool).await?;
+    Ok(StatusCode::ACCEPTED)
 }
 
 #[derive(Deserialize)]
@@ -51,14 +194,18 @@ pub async fn supprimer(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
 ) -> Resultat<StatusCode> {
+    let mode = gmflow_core::claude::mode_acces(&etat.pool).await?;
     let mut tx = etat.pool.begin().await?;
     parametre::supprimer(&mut *tx, parametre::CLAUDE_JETON).await?;
-    parametre::ecrire(
-        &mut *tx,
-        parametre::CLAUDE_ETAT,
-        &json!({ "etat": "absent", "message": "" }),
-    )
-    .await?;
+    // L'état décrit le secret utilisé : il ne change que si c'était le setup token.
+    if mode == "jeton" {
+        parametre::ecrire(
+            &mut *tx,
+            parametre::CLAUDE_ETAT,
+            &json!({ "etat": "absent", "message": "" }),
+        )
+        .await?;
+    }
     journal::ecrire(
         &mut *tx,
         Some(a.utilisateur_id),
@@ -194,6 +341,7 @@ pub struct ReglagesVue {
     #[serde(flatten)]
     reglages: reglages::Reglages,
     appels_lecture_du_jour: i64,
+    appels_tri_du_jour: i64,
     modeles: &'static [&'static str],
     efforts: &'static [&'static str],
 }
@@ -202,6 +350,7 @@ pub async fn reglages(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json
     Ok(Json(ReglagesVue {
         reglages: reglages::lire(&etat.pool).await?,
         appels_lecture_du_jour: reglages::appels_lecture_du_jour(&etat.pool).await?,
+        appels_tri_du_jour: reglages::appels_tri_du_jour(&etat.pool).await?,
         modeles: reglages::MODELES,
         efforts: reglages::EFFORTS,
     }))

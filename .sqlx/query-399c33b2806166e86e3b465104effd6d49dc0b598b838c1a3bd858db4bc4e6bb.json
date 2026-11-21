@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select not exists (\n              select 1 from parametre\n              where cle = $1 and (valeur->>'quand')::timestamptz > now() - interval '24 hours'\n           ) as \"d!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "d!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "399c33b2806166e86e3b465104effd6d49dc0b598b838c1a3bd858db4bc4e6bb"
+}

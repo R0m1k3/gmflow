@@ -19,9 +19,11 @@ pub mod lecture;
 pub mod parametre;
 pub mod rapprochement;
 pub mod reglages;
+pub mod reponse;
 pub mod stockage;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
+pub mod tri;
 
 /// Logs JSON sur la sortie standard (consultables dans Portainer).
 pub fn initialiser_logs() {

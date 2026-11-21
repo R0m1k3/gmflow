@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, statut, boite_id from brouillon_reponse\n         where mail_id = $1 and statut in ('generation', 'propose', 'modifie', 'envoi') for update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "statut",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "statut"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "boite_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "boite_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "29d4f942e2fafab2694206619d913c86e4b3cd419de7cf2827411147b74759c9"
+}

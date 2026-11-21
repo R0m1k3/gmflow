@@ -1,6 +1,7 @@
-//! Quatre files apalis : `boites` (relève, test de connexion), `claude` (séance setup-token,
-//! test du jeton), `lecture` (lecture des pièces jointes) et `envoi` (dépôts Dext/Yooz, test
-//! de l'expédition, alertes). Chaque tâche est poussée avec un nombre d'essais explicite : apalis rejoue
+//! Six files apalis : `boites` (relève, test de connexion), `claude` (séance setup-token,
+//! test du jeton), `lecture` (lecture des pièces jointes), `envoi` (dépôts Dext/Yooz, test
+//! de l'expédition, alertes, réponses aux mails), `tri` (tri des mails) et `redaction`
+//! (brouillons de réponse, à la demande). Chaque tâche est poussée avec un nombre d'essais explicite : apalis rejoue
 //! sinon jusqu'à 25 fois.
 
 use apalis::prelude::{TaskBuilder, TaskSink};
@@ -13,6 +14,20 @@ pub const FILE_BOITES: &str = "boites";
 pub const FILE_CLAUDE: &str = "claude";
 pub const FILE_LECTURE: &str = "lecture";
 pub const FILE_ENVOI: &str = "envoi";
+pub const FILE_TRI: &str = "tri";
+pub const FILE_REDACTION: &str = "redaction";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TacheTri {
+    TrierMail { mail_id: i64 },
+}
+
+/// Brouillon de réponse, généré seulement quand un utilisateur le demande. File à part : un
+/// clic n'attend pas derrière le tri de 200 mails.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum TacheRedaction {
+    GenererBrouillon { brouillon_id: i64 },
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TacheBoite {
@@ -47,6 +62,40 @@ pub enum TacheEnvoi {
     },
     /// Alertes de relève (boîte en échec depuis plus de 30 min, puis rétablie).
     Alertes,
+    /// Réponse à un mail, depuis la boîte d'origine. Poussée uniquement par le clic « Envoyer »
+    /// d'un utilisateur ; jamais rejouée.
+    EnvoyerReponse {
+        brouillon_id: i64,
+        auteur_id: Option<i64>,
+    },
+}
+
+pub fn stockage_tri(pool: &PgPool) -> PostgresStorage<TacheTri> {
+    PostgresStorage::new(pool).with_config(Config::default().queue(FILE_TRI))
+}
+
+pub async fn pousser_tri(pool: &PgPool, mail_id: i64) -> anyhow::Result<()> {
+    let tache = TaskBuilder::new(TacheTri::TrierMail { mail_id })
+        .max_attempts(1)
+        .build();
+    stockage_tri(pool)
+        .push_task(tache)
+        .await
+        .map_err(|e| anyhow::anyhow!("file tri : {e}"))
+}
+
+pub fn stockage_redaction(pool: &PgPool) -> PostgresStorage<TacheRedaction> {
+    PostgresStorage::new(pool).with_config(Config::default().queue(FILE_REDACTION))
+}
+
+pub async fn pousser_brouillon(pool: &PgPool, brouillon_id: i64) -> anyhow::Result<()> {
+    let tache = TaskBuilder::new(TacheRedaction::GenererBrouillon { brouillon_id })
+        .max_attempts(1)
+        .build();
+    stockage_redaction(pool)
+        .push_task(tache)
+        .await
+        .map_err(|e| anyhow::anyhow!("file redaction : {e}"))
 }
 
 pub fn stockage_envoi(pool: &PgPool) -> PostgresStorage<TacheEnvoi> {

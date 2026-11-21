@@ -22,10 +22,7 @@ pub(crate) async fn claude_indisponible(
     pool: &PgPool,
     r: &reglages::Reglages,
 ) -> anyhow::Result<Option<String>> {
-    if parametre::lire_secret(pool, parametre::CLAUDE_JETON)
-        .await?
-        .is_none()
-    {
+    if !claude::acces_configure(pool).await? {
         return Ok(Some("jeton Claude absent".into()));
     }
     if reglages::appels_lecture_du_jour(pool).await? >= r.quota_lecture_jour {
@@ -350,7 +347,7 @@ async fn appel_lecture(
     reglage: &reglages::Reglage,
     prompt: &str,
     avec_fichier: Option<&std::path::Path>,
-    jeton: &str,
+    acces: &claude::Acces,
 ) -> Result<Result<Extraction, ErreurExtraction>, ErreurClaude> {
     let schema = extraction::schema(avec_fichier.is_some()).to_string();
     let mut args: Vec<&str> = vec![
@@ -366,7 +363,7 @@ async fn appel_lecture(
     } else {
         args.extend(["--tools", ""]);
     }
-    let mut a = Appel::new(tache, &reglage.modele, prompt, jeton);
+    let mut a = Appel::avec_acces(tache, &reglage.modele, prompt, acces);
     a.effort = Some(&reglage.effort);
     a.args_en_plus = &args;
     a.dossier = avec_fichier;
@@ -376,7 +373,7 @@ async fn appel_lecture(
     Ok(extraction::depuis_reponse(&sortie.json, &societes))
 }
 
-async fn noter_utilisation(pool: &PgPool) {
+pub(crate) async fn noter_utilisation(pool: &PgPool) {
     let quand = time::OffsetDateTime::now_utc()
         .format(&time::format_description::well_known::Rfc3339)
         .unwrap_or_default();
@@ -611,15 +608,14 @@ async fn lire_par_claude(
         remettre(pool, id, voie, &raison).await?;
         return Ok(Lecture::Reportee);
     }
-    let Some(chiffre) = parametre::lire_secret(pool, parametre::CLAUDE_JETON).await? else {
+    let Some(acces) = claude::acces(pool, &ctx.chiffreur).await? else {
         remettre(pool, id, voie, "jeton Claude absent").await?;
         return Ok(Lecture::Reportee);
     };
-    let jeton = ctx.chiffreur.dechiffrer_texte(&chiffre)?;
     let mut derniere_erreur = String::new();
     for (essai, tache) in [tache, reglages::NOUVEL_ESSAI].into_iter().enumerate() {
         let reglage = r.pour(tache).clone();
-        match appel_lecture(ctx, tache, &reglage, prompt, dossier, &jeton).await {
+        match appel_lecture(ctx, tache, &reglage, prompt, dossier, &acces).await {
             Ok(Ok(ex)) => {
                 noter_utilisation(pool).await;
                 return Ok(Lecture::Faite(ex, reglage));

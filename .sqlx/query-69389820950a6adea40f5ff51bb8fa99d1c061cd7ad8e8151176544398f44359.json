@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail set categorie = $2, categorie_par = 'humain', tri_etat = 'trie', trie_le = now(),\n            tri_message = null,\n            statut_reponse = case\n                when $2 = 'question' then coalesce(statut_reponse, 'a_repondre')\n                when statut_reponse = 'a_repondre' then null\n                else statut_reponse end\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "69389820950a6adea40f5ff51bb8fa99d1c061cd7ad8e8151176544398f44359"
+}

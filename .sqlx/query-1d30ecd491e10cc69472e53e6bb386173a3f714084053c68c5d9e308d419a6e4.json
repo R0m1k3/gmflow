@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from expediteur_marque where id = $1 returning adresse, domaine",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "expediteur_marque",
+            "name": "adresse"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "domaine",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "expediteur_marque",
+            "name": "domaine"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "1d30ecd491e10cc69472e53e6bb386173a3f714084053c68c5d9e308d419a6e4"
+}

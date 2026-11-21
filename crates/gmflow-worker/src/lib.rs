@@ -5,18 +5,24 @@ pub mod envoi;
 pub mod fournisseur;
 pub mod lecture;
 pub mod planif;
+pub mod purge;
+pub mod redaction;
 pub mod releve;
+pub mod reponse;
 pub mod sante;
 pub mod setup_token;
 pub mod test_boite;
 pub mod test_jeton;
+pub mod tri;
 
 use std::sync::Arc;
 
 use apalis::prelude::*;
 use gmflow_core::config::Config;
 use gmflow_core::crypto::Chiffreur;
-use gmflow_core::file::{self, TacheBoite, TacheClaude, TacheEnvoi, TacheLecture};
+use gmflow_core::file::{
+    self, TacheBoite, TacheClaude, TacheEnvoi, TacheLecture, TacheRedaction, TacheTri,
+};
 use gmflow_core::imap::Transport;
 use sqlx::PgPool;
 
@@ -83,7 +89,30 @@ async fn tache_envoi(tache: TacheEnvoi, ctx: Data<Contexte>) -> Result<(), BoxDy
         TacheEnvoi::TestExpedition { destinataire } => {
             envoi::tester_expedition(&ctx, &destinataire).await?
         }
-        TacheEnvoi::Alertes => envoi::alertes(&ctx).await?,
+        TacheEnvoi::Alertes => {
+            reponse::interrompus(&ctx.pool).await?;
+            envoi::alertes(&ctx).await?
+        }
+        TacheEnvoi::EnvoyerReponse {
+            brouillon_id,
+            auteur_id,
+        } => reponse::envoyer(&ctx, brouillon_id, auteur_id).await?,
+    }
+    Ok(())
+}
+
+async fn tache_tri(tache: TacheTri, ctx: Data<Contexte>) -> Result<(), BoxDynError> {
+    match tache {
+        TacheTri::TrierMail { mail_id } => tri::trier(&ctx, mail_id).await?,
+    }
+    Ok(())
+}
+
+async fn tache_redaction(tache: TacheRedaction, ctx: Data<Contexte>) -> Result<(), BoxDynError> {
+    match tache {
+        TacheRedaction::GenererBrouillon { brouillon_id } => {
+            redaction::generer(&ctx, brouillon_id).await?
+        }
     }
     Ok(())
 }
@@ -124,16 +153,32 @@ pub async fn lancer_files(
         .concurrency(1)
         .parallelize(tokio::spawn)
         .build(tache_envoi);
-    let (a, b, c, d) = tokio::join!(
+    let tri = WorkerBuilder::new("gmflow-tri")
+        .backend(file::stockage_tri(&ctx.pool).with_pubsub())
+        .data(ctx.clone())
+        .concurrency(2)
+        .parallelize(tokio::spawn)
+        .build(tache_tri);
+    let redaction = WorkerBuilder::new("gmflow-redaction")
+        .backend(file::stockage_redaction(&ctx.pool).with_pubsub())
+        .data(ctx.clone())
+        .concurrency(1)
+        .parallelize(tokio::spawn)
+        .build(tache_redaction);
+    let (a, b, c, d, e, f) = tokio::join!(
         boites.run_until(signal(arret.clone())),
         claude.run_until(signal(arret.clone())),
         lecture.run_until(signal(arret.clone())),
-        envoi.run_until(signal(arret))
+        envoi.run_until(signal(arret.clone())),
+        tri.run_until(signal(arret.clone())),
+        redaction.run_until(signal(arret))
     );
     a.map_err(|e| anyhow::anyhow!("worker boites : {e}"))?;
     b.map_err(|e| anyhow::anyhow!("worker claude : {e}"))?;
     c.map_err(|e| anyhow::anyhow!("worker lecture : {e}"))?;
     d.map_err(|e| anyhow::anyhow!("worker envoi : {e}"))?;
+    e.map_err(|e| anyhow::anyhow!("worker tri : {e}"))?;
+    f.map_err(|e| anyhow::anyhow!("worker redaction : {e}"))?;
     Ok(())
 }
 
@@ -148,7 +193,11 @@ pub async fn lancer(config: Config) -> anyhow::Result<()> {
     );
     setup_token::fermer_seances_ouvertes(&ctx.pool).await?;
     envoi::envois_interrompus(&ctx.pool).await?;
-    tokio::spawn(planif::boucle(ctx.pool.clone()));
+    reponse::interrompus(&ctx.pool).await?;
+    tokio::spawn(planif::boucle(
+        ctx.pool.clone(),
+        ctx.config.fichiers.clone(),
+    ));
     tokio::spawn(sante::serveur(ctx.pool.clone()));
     tracing::info!(transport = ?ctx.transport, "GMFlow worker démarré");
     let (_garde, arret) = tokio::sync::watch::channel(false);

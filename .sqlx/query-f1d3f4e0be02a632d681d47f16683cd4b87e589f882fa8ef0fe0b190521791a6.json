@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail set statut_reponse = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f1d3f4e0be02a632d681d47f16683cd4b87e589f882fa8ef0fe0b190521791a6"
+}

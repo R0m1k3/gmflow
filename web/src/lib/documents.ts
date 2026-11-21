@@ -40,6 +40,8 @@ export const libelleTache: Record<string, string> = {
   ocr_scan: 'Lecture des scans',
   nouvel_essai: 'Nouvel essai après échec',
   identification_fournisseur: 'Rapprochement des fournisseurs',
+  tri_mail: 'Tri des mails',
+  brouillon_reponse: 'Brouillons de réponse',
   test_jeton: 'Test du jeton'
 };
 

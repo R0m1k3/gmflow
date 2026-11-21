@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select statut_reponse from mail where id = $1 for update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "statut_reponse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "statut_reponse"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "51fae0e84ec33dbe467f9ca96b136a5c438c30f36331df0edf3c11af4b11efac"
+}

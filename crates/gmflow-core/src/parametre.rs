@@ -5,6 +5,10 @@ use sqlx::PgExecutor;
 
 pub const CLAUDE_JETON: &str = "claude_jeton";
 pub const CLAUDE_ETAT: &str = "claude_etat";
+/// Clé API Anthropic (chiffrée), alternative au setup token ; `valeur` = `{"fin": "abcd"}`.
+pub const CLAUDE_CLE_API: &str = "claude_cle_api";
+/// Secret utilisé pour les appels : `{"mode": "jeton" | "cle_api"}`.
+pub const CLAUDE_ACCES: &str = "claude_acces";
 pub const WORKER_BATTEMENT: &str = "worker_battement";
 
 pub async fn lire<'e>(db: impl PgExecutor<'e>, cle: &str) -> sqlx::Result<Option<Value>> {

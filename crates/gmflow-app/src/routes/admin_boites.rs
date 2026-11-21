@@ -27,6 +27,10 @@ pub struct Boite {
     #[serde(with = "time::serde::rfc3339::option")]
     erreur_depuis: Option<time::OffsetDateTime>,
     dernier_test: Option<Value>,
+    smtp_serveur: Option<String>,
+    smtp_port: Option<i32>,
+    smtp_securite: Option<String>,
+    dossier_envoyes: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -43,6 +47,20 @@ pub struct Entree {
     dossiers: Vec<String>,
     #[serde(default = "trois")]
     reprise_mois: i32,
+    /// Envoi des réponses (lot 5) : serveur SMTP de la boîte, mêmes identifiants qu'en IMAP.
+    #[serde(default)]
+    smtp_serveur: Option<String>,
+    #[serde(default)]
+    smtp_port: Option<i32>,
+    #[serde(default)]
+    smtp_securite: Option<String>,
+    /// Dossier IMAP des messages envoyés (copie des réponses, exemples de ton).
+    #[serde(default)]
+    dossier_envoyes: Option<String>,
+}
+
+fn vide(v: Option<String>) -> Option<String> {
+    v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 fn port_imaps() -> i32 {
@@ -85,13 +103,39 @@ impl Entree {
             ));
         }
         self.mot_de_passe = self.mot_de_passe.filter(|m| !m.is_empty());
+        self.dossier_envoyes = vide(self.dossier_envoyes);
+        self.smtp_serveur = vide(self.smtp_serveur);
+        self.smtp_securite = vide(self.smtp_securite);
+        if self.smtp_serveur.is_some() {
+            let securite = self.smtp_securite.get_or_insert_with(|| "tls".into());
+            let permise = gmflow_core::expedition::SECURITES.contains(&securite.as_str())
+                || (cfg!(feature = "test-utils") && securite == "clair");
+            if !permise {
+                return Err(ErreurApi::Donnees("sécurité SMTP : tls ou starttls".into()));
+            }
+            let defaut = if securite == "starttls" { 587 } else { 465 };
+            let port = *self.smtp_port.get_or_insert(defaut);
+            if !(1..=65535).contains(&port) {
+                return Err(ErreurApi::Donnees("port SMTP invalide".into()));
+            }
+            if !gmflow_core::expedition::adresse_valide(&self.identifiant) {
+                return Err(ErreurApi::Donnees(
+                    "pour envoyer des réponses, l'identifiant de la boîte doit être une adresse mail"
+                        .into(),
+                ));
+            }
+        } else {
+            self.smtp_port = None;
+            self.smtp_securite = None;
+        }
         Ok(self)
     }
 
     fn journal(&self) -> Value {
         json!({ "societe_id": self.societe_id, "libelle": self.libelle, "serveur": self.serveur, "port": self.port,
                 "identifiant": self.identifiant, "dossiers": self.dossiers, "reprise_mois": self.reprise_mois,
-                "mot_de_passe_change": self.mot_de_passe.is_some() })
+                "mot_de_passe_change": self.mot_de_passe.is_some(), "smtp_serveur": self.smtp_serveur,
+                "smtp_port": self.smtp_port, "smtp_securite": self.smtp_securite, "dossier_envoyes": self.dossier_envoyes })
     }
 }
 
@@ -99,7 +143,8 @@ async fn lire(etat: &Etat, id: i64) -> Resultat<Boite> {
     sqlx::query_as!(
         Boite,
         "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,
-             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test
+             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test,
+             smtp_serveur, smtp_port, smtp_securite, dossier_envoyes
          from boite_mail where id = $1",
         id
     )
@@ -112,7 +157,8 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<V
     let v = sqlx::query_as!(
         Boite,
         "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,
-             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test
+             echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test,
+             smtp_serveur, smtp_port, smtp_securite, dossier_envoyes
          from boite_mail order by libelle"
     )
     .fetch_all(&etat.pool)
@@ -147,8 +193,9 @@ pub async fn creer(
     let chiffre = etat.chiffreur.chiffrer(mdp.as_bytes());
     let mut tx = etat.pool.begin().await?;
     let id = sqlx::query_scalar!(
-        "insert into boite_mail (societe_id, libelle, serveur, port, identifiant, mot_de_passe_chiffre, dossiers, reprise_mois)
-         values ($1, $2, $3, $4, $5, $6, $7, $8) returning id",
+        "insert into boite_mail (societe_id, libelle, serveur, port, identifiant, mot_de_passe_chiffre, dossiers, reprise_mois,
+                                 smtp_serveur, smtp_port, smtp_securite, dossier_envoyes)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id",
         e.societe_id,
         e.libelle,
         e.serveur,
@@ -156,7 +203,11 @@ pub async fn creer(
         e.identifiant,
         chiffre,
         &e.dossiers,
-        e.reprise_mois
+        e.reprise_mois,
+        e.smtp_serveur,
+        e.smtp_port,
+        e.smtp_securite,
+        e.dossier_envoyes
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -193,7 +244,8 @@ pub async fn modifier(
                                  then null else dernier_test end,
              societe_id = $2, serveur = $3, port = $4, identifiant = $5,
              mot_de_passe_chiffre = coalesce($6, mot_de_passe_chiffre),
-             libelle = $7, dossiers = $8, reprise_mois = $9
+             libelle = $7, dossiers = $8, reprise_mois = $9,
+             smtp_serveur = $10, smtp_port = $11, smtp_securite = $12, dossier_envoyes = $13
          where id = $1",
         id,
         e.societe_id,
@@ -203,7 +255,11 @@ pub async fn modifier(
         chiffre,
         e.libelle,
         &e.dossiers,
-        e.reprise_mois
+        e.reprise_mois,
+        e.smtp_serveur,
+        e.smtp_port,
+        e.smtp_securite,
+        e.dossier_envoyes
     )
     .execute(&mut *tx)
     .await?;

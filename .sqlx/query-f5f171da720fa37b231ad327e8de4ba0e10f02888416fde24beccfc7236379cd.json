@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update brouillon_reponse set statut = 'envoye', envoye_le = now(), envoye_par = $2,\n            message_id_envoye = $3, erreur = null, modifie_le = now()\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f5f171da720fa37b231ad327e8de4ba0e10f02888416fde24beccfc7236379cd"
+}

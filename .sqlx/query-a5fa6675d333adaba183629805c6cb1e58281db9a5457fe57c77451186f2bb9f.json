@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update brouillon_reponse set statut = 'modifie', modifie_le = now(),\n            erreur = 'envoi interrompu : état inconnu, vérifiez le dossier des envoyés avant de renvoyer'\n         where statut = 'envoi' and modifie_le < now() - make_interval(mins => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a5fa6675d333adaba183629805c6cb1e58281db9a5457fe57c77451186f2bb9f"
+}

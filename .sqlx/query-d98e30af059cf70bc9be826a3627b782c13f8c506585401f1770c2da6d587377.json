@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select texte from brouillon_reponse\n         where boite_id = $1 and statut = 'envoye' and texte <> ''\n         order by envoye_le desc limit $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "texte",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "texte"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d98e30af059cf70bc9be826a3627b782c13f8c506585401f1770c2da6d587377"
+}

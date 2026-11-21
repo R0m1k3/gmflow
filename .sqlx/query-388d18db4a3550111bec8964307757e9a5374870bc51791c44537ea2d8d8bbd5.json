@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select categorie from mail where id = $1 for update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "categorie",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "categorie"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "388d18db4a3550111bec8964307757e9a5374870bc51791c44537ea2d8d8bbd5"
+}

@@ -60,6 +60,8 @@ pub struct Appel<'a> {
     pub prompt: &'a str,
     pub args_en_plus: &'a [&'a str],
     pub jeton: &'a str,
+    /// `jeton` est une clé API Anthropic (`ANTHROPIC_API_KEY`) et non un setup token.
+    pub cle_api: bool,
     pub dossier: Option<&'a std::path::Path>,
     pub delai: Duration,
 }
@@ -73,10 +75,74 @@ impl<'a> Appel<'a> {
             prompt,
             args_en_plus: &[],
             jeton,
+            cle_api: false,
             dossier: None,
             delai: DELAI,
         }
     }
+
+    /// Appel avec l'accès configuré (setup token ou clé API).
+    pub fn avec_acces(tache: &'a str, modele: &'a str, prompt: &'a str, acces: &'a Acces) -> Self {
+        let mut a = Self::new(tache, modele, prompt, &acces.secret);
+        a.cle_api = acces.cle_api;
+        a
+    }
+}
+
+/// Secret utilisé pour appeler Claude : setup token (abonnement) ou clé API Anthropic,
+/// selon le mode choisi dans l'administration (`parametre.claude_acces`).
+#[derive(Clone)]
+pub struct Acces {
+    pub secret: String,
+    pub cle_api: bool,
+}
+
+impl std::fmt::Debug for Acces {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Acces")
+            .field("cle_api", &self.cle_api)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Mode d'accès choisi : `jeton` (défaut) ou `cle_api`.
+pub async fn mode_acces(pool: &PgPool) -> sqlx::Result<String> {
+    Ok(crate::parametre::lire(pool, crate::parametre::CLAUDE_ACCES)
+        .await?
+        .and_then(|v| v.get("mode").and_then(Value::as_str).map(str::to_string))
+        .filter(|m| m == "cle_api")
+        .unwrap_or_else(|| "jeton".into()))
+}
+
+fn cle_secret(mode: &str) -> &'static str {
+    if mode == "cle_api" {
+        crate::parametre::CLAUDE_CLE_API
+    } else {
+        crate::parametre::CLAUDE_JETON
+    }
+}
+
+/// Un secret est-il enregistré pour le mode choisi ?
+pub async fn acces_configure(pool: &PgPool) -> sqlx::Result<bool> {
+    let mode = mode_acces(pool).await?;
+    Ok(crate::parametre::lire_secret(pool, cle_secret(&mode))
+        .await?
+        .is_some())
+}
+
+/// Le secret du mode choisi, déchiffré.
+pub async fn acces(
+    pool: &PgPool,
+    chiffreur: &crate::crypto::Chiffreur,
+) -> anyhow::Result<Option<Acces>> {
+    let mode = mode_acces(pool).await?;
+    let Some(chiffre) = crate::parametre::lire_secret(pool, cle_secret(&mode)).await? else {
+        return Ok(None);
+    };
+    Ok(Some(Acces {
+        secret: chiffreur.dechiffrer_texte(&chiffre)?,
+        cle_api: mode == "cle_api",
+    }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -143,7 +209,14 @@ async fn executer(claude_bin: &str, a: &Appel<'_>) -> Result<Value, ErreurClaude
         )
         .env("HOME", &home.0)
         .env("DISABLE_AUTOUPDATER", "1")
-        .env("CLAUDE_CODE_OAUTH_TOKEN", a.jeton)
+        .env(
+            if a.cle_api {
+                "ANTHROPIC_API_KEY"
+            } else {
+                "CLAUDE_CODE_OAUTH_TOKEN"
+            },
+            a.jeton,
+        )
         .stdin(std::process::Stdio::null())
         .kill_on_drop(true);
     let sortie = tokio::time::timeout(a.delai, cmd.output())
@@ -176,4 +249,23 @@ fn message_json(json: &Value) -> String {
             .unwrap_or("réponse en erreur sans message"),
         500,
     )
+}
+
+/// Sortie structurée d'une réponse de Claude CLI (`--json-schema`) : `structured_output`, ou à
+/// défaut le JSON écrit dans `result` (éventuellement entre balises de code).
+pub fn sortie_structuree(reponse: &Value) -> Option<Value> {
+    if let Some(v) = reponse.get("structured_output")
+        && v.is_object()
+    {
+        return Some(v.clone());
+    }
+    let r = reponse.get("result")?.as_str()?.trim();
+    let r = r
+        .strip_prefix("```json")
+        .or_else(|| r.strip_prefix("```"))
+        .unwrap_or(r);
+    let r = r.strip_suffix("```").unwrap_or(r).trim();
+    serde_json::from_str::<Value>(r)
+        .ok()
+        .filter(Value::is_object)
 }

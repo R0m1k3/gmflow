@@ -74,6 +74,7 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
             "motif": if b.pause_auto { "pause_auto" } else { "erreur" },
             "depuis": rfc(b.erreur_depuis), "message": b.derniere_erreur,
         })).collect::<Vec<_>>(),
+        "a_repondre": super::reponses::compte_a_repondre(&acces, &etat).await?,
         "documents": {
             "a_lire": docs.a_lire, "erreur": docs.erreur, "a_verifier": docs.a_verifier,
             "lus_aujourdhui": docs.lus_aujourdhui,
@@ -97,6 +98,21 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
             "auto": r_lecture.lecture_auto,
             "quota": r_lecture.quota_lecture_jour,
             "appels_du_jour": gmflow_core::reglages::appels_lecture_du_jour(&etat.pool).await?,
+        });
+        r["tri"] = json!({
+            "auto": r_lecture.tri_auto,
+            "quota": r_lecture.quota_tri_jour,
+            "appels_du_jour": gmflow_core::reglages::appels_tri_du_jour(&etat.pool).await?,
+            "en_attente": sqlx::query_scalar!(
+                r#"select count(*) as "n!" from mail where tri_etat in ('a_trier', 'en_cours')"#
+            )
+            .fetch_one(&etat.pool)
+            .await?,
+            "en_erreur": sqlx::query_scalar!(
+                r#"select count(*) as "n!" from mail where tri_etat = 'erreur'"#
+            )
+            .fetch_one(&etat.pool)
+            .await?,
         });
         r["stockage"] =
             json!({ "octets": octets, "libre_pourcent": libre_pourcent(&etat.config.fichiers) });

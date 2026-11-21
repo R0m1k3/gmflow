@@ -1192,6 +1192,7 @@ dependencies = [
  "futures",
  "gmflow-core",
  "hex",
+ "mail-parser",
  "portable-pty",
  "regex",
  "serde",

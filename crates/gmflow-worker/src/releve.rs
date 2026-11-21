@@ -279,6 +279,7 @@ async fn relever_dossier(
         dernier = max;
         if nouveaux > 0 {
             crate::lecture::pompe_apres_releve(&ctx.pool).await;
+            crate::tri::pompe_apres_releve(&ctx.pool).await;
         }
     }
 

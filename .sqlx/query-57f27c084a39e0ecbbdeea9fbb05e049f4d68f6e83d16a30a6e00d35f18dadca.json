@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail set tri_etat = 'a_trier'\n         where tri_etat is null and categorie is null\n           and coalesce(date_mail, recu_le) >= now() - make_interval(days => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57f27c084a39e0ecbbdeea9fbb05e049f4d68f6e83d16a30a6e00d35f18dadca"
+}

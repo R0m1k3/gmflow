@@ -10,12 +10,19 @@
   let compteurs = $state<Compteur[]>([]);
   let erreur = $state('');
   let info = $state('');
-  let f = $state({ societe_id: '', libelle: '', serveur: '', port: 993, identifiant: '', mot_de_passe: '', reprise_mois: 3, dossiers: [] as string[] });
+  let f = $state({
+    societe_id: '', libelle: '', serveur: '', port: 993, identifiant: '', mot_de_passe: '', reprise_mois: 3, dossiers: [] as string[],
+    smtp_serveur: '', smtp_port: null as number | null, smtp_securite: 'tls', dossier_envoyes: ''
+  });
   let testEnCours = $state(false);
 
   function remplir(v: Boite) {
     b = v;
-    f = { societe_id: String(v.societe_id), libelle: v.libelle, serveur: v.serveur, port: v.port, identifiant: v.identifiant, mot_de_passe: '', reprise_mois: v.reprise_mois, dossiers: [...v.dossiers] };
+    f = {
+      societe_id: String(v.societe_id), libelle: v.libelle, serveur: v.serveur, port: v.port, identifiant: v.identifiant, mot_de_passe: '',
+      reprise_mois: v.reprise_mois, dossiers: [...v.dossiers],
+      smtp_serveur: v.smtp_serveur ?? '', smtp_port: v.smtp_port, smtp_securite: v.smtp_securite ?? 'tls', dossier_envoyes: v.dossier_envoyes ?? ''
+    };
   }
   async function lire(): Promise<Boite> {
     const v = (await api.get<Boite[]>('/api/admin/boites')).find((x) => String(x.id) === id);
@@ -33,6 +40,21 @@
 
   // Dossiers proposés : ceux du serveur (dernier test) et ceux déjà cochés.
   let proposes = $derived([...new Set([...(b?.dernier_test?.dossiers ?? []), ...f.dossiers])].sort());
+  // Dossier des envoyés : ceux du serveur dont le nom y ressemble d'abord.
+  let envoyesProposes = $derived(
+    [...new Set([...(b?.dernier_test?.dossiers ?? []), ...(f.dossier_envoyes ? [f.dossier_envoyes] : [])])].sort(
+      (x, y) => Number(/sent|envoy/i.test(y)) - Number(/sent|envoy/i.test(x)) || x.localeCompare(y)
+    )
+  );
+
+  // Réglages SMTP déduits du serveur IMAP (Gmail, Infomaniak, sinon « imap. » → « smtp. »).
+  function proposerSmtp() {
+    const h = f.serveur.trim().toLowerCase();
+    f.smtp_serveur = h === 'imap.gmail.com' ? 'smtp.gmail.com' : h === 'mail.infomaniak.com' ? 'mail.infomaniak.com' : h.replace(/^imap\./, 'smtp.');
+    f.smtp_port = 465;
+    f.smtp_securite = 'tls';
+    if (!f.dossier_envoyes) f.dossier_envoyes = envoyesProposes.find((d) => /sent|envoy/i.test(d)) ?? '';
+  }
 
   async function action(fn: () => Promise<unknown>, ok?: string) {
     erreur = '';
@@ -48,7 +70,14 @@
   const enregistrer = (e: SubmitEvent) => {
     e.preventDefault();
     return action(async () => {
-      remplir(await api.put<Boite>(`/api/admin/boites/${id}`, { ...f, societe_id: Number(f.societe_id), mot_de_passe: f.mot_de_passe || null }));
+      remplir(
+        await api.put<Boite>(`/api/admin/boites/${id}`, {
+          ...f,
+          societe_id: Number(f.societe_id),
+          mot_de_passe: f.mot_de_passe || null,
+          smtp_port: f.smtp_port || null
+        })
+      );
       compteurs = await api.get<Compteur[]>(`/api/admin/boites/${id}/compteurs`);
     }, 'Enregistré.');
   };
@@ -132,7 +161,33 @@
         <label class="dossier"><input type="checkbox" value={d} bind:group={f.dossiers} /> {d}</label>
       {/each}
     </div>
-    <div class="actions" style="margin-top:0.8rem"><button>Enregistrer</button></div>
+    <h2>Réponses</h2>
+    <p class="discret">
+      Serveur d'envoi des réponses, avec le même identifiant et le même mot de passe. Sans serveur SMTP, les brouillons restent
+      possibles mais rien ne peut partir. Le dossier des envoyés reçoit une copie de chaque réponse et sert d'exemple de ton.
+    </p>
+    <div class="champs">
+      <div><label for="smtp">Serveur SMTP</label><input id="smtp" bind:value={f.smtp_serveur} placeholder="aucun" /></div>
+      <div><label for="sp">Port</label><input id="sp" type="number" min="1" max="65535" bind:value={f.smtp_port} placeholder="465" /></div>
+      <div>
+        <label for="ss">Sécurité</label>
+        <select id="ss" bind:value={f.smtp_securite}>
+          <option value="tls">TLS (port 465)</option>
+          <option value="starttls">STARTTLS (port 587)</option>
+        </select>
+      </div>
+      <div>
+        <label for="env">Dossier des envoyés</label>
+        <select id="env" bind:value={f.dossier_envoyes}>
+          <option value="">aucun (pas de copie)</option>
+          {#each envoyesProposes as d (d)}<option value={d}>{d}</option>{/each}
+        </select>
+      </div>
+    </div>
+    <div class="actions" style="margin-top:0.8rem">
+      <button>Enregistrer</button>
+      <button type="button" class="second" onclick={proposerSmtp}>Proposer d'après le serveur IMAP</button>
+    </div>
   </form>
 
   <h2>Compteurs sur la période de reprise ({b.reprise_mois} mois)</h2>

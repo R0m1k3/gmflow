@@ -31,6 +31,59 @@ export interface LigneMail {
   date_mail: string | null;
   nb_pieces: number;
   boites: string[];
+  categorie: Categorie | null;
+  statut_reponse: StatutReponse | null;
+}
+
+export type Categorie = 'question' | 'information' | 'document_seul' | 'publicite' | 'notification';
+export type Priorite = 'haute' | 'normale' | 'basse';
+export type StatutReponse = 'a_repondre' | 'repondu' | 'sans_suite';
+export type StatutBrouillon = 'generation' | 'propose' | 'modifie' | 'envoi' | 'envoye' | 'abandonne';
+
+export interface Brouillon {
+  id: number;
+  boite_id: number;
+  boite: string;
+  texte: string;
+  statut: StatutBrouillon;
+  modele: string | null;
+  effort: string | null;
+  erreur: string | null;
+  cree_le: string;
+  modifie_le: string;
+  envoye_le: string | null;
+  envoye_par: string | null;
+  smtp: boolean;
+}
+
+export interface LigneARepondre {
+  id: number;
+  expediteur: string;
+  objet: string;
+  date_mail: string | null;
+  resume: string | null;
+  priorite: Priorite | null;
+  categorie_par: string | null;
+  structures: string[];
+  boites: string[];
+  brouillon: StatutBrouillon | null;
+}
+
+export interface SemaineTri {
+  debut: string;
+  fin: string;
+  par_categorie: { cle: Categorie | null; n: number }[];
+  a_repondre: number;
+  repondu: number;
+  sans_suite: number;
+}
+
+export interface ExpediteurMarque {
+  id: number;
+  adresse: string | null;
+  domaine: string | null;
+  cree_le: string;
+  cree_par: string | null;
 }
 
 export interface FicheMail {
@@ -52,6 +105,14 @@ export interface FicheMail {
     document_voie: Voie | null;
   }[];
   boites: { boite_id: number; libelle: string; dossier: string }[];
+  categorie: Categorie | null;
+  categorie_par: 'regle' | 'claude' | 'humain' | null;
+  resume: string | null;
+  priorite: Priorite | null;
+  statut_reponse: StatutReponse | null;
+  tri_etat: 'a_trier' | 'en_cours' | 'trie' | 'erreur' | null;
+  tri_message: string | null;
+  brouillons: Brouillon[];
 }
 
 export interface Tableau {
@@ -62,6 +123,8 @@ export interface Tableau {
   documents: { a_lire: number; erreur: number; a_verifier: number; lus_aujourdhui: number };
   depots: { a_verifier: number; prets: number; bloques: number; deposes_mois: number };
   lecture?: { auto: boolean; quota: number; appels_du_jour: number };
+  a_repondre: number;
+  tri?: { auto: boolean; quota: number; appels_du_jour: number; en_attente: number; en_erreur: number };
 }
 
 export interface Societe {
@@ -99,6 +162,10 @@ export interface Boite {
   derniere_erreur: string | null;
   erreur_depuis: string | null;
   dernier_test: TestBoite | null;
+  smtp_serveur: string | null;
+  smtp_port: number | null;
+  smtp_securite: 'tls' | 'starttls' | 'clair' | null;
+  dossier_envoyes: string | null;
 }
 
 export interface Compteur {
@@ -124,6 +191,7 @@ export interface EtatClaude {
   teste_le?: string;
   utilise_le?: string | null;
   fin?: string;
+  acces?: { mode: 'jeton' | 'cle_api'; jeton: boolean; cle_api: boolean; cle_api_fin: string | null };
 }
 
 export interface Seance {
@@ -322,10 +390,16 @@ export interface Reglages {
   identification_fournisseur: Reglage;
   lecture_auto: boolean;
   quota_lecture_jour: number;
+  tri_mail: Reglage;
+  brouillon_reponse: Reglage;
+  tri_auto: boolean;
+  quota_tri_jour: number;
+  tri_depuis_jours: number;
 }
 
 export interface ReglagesVue extends Reglages {
   appels_lecture_du_jour: number;
+  appels_tri_du_jour: number;
   modeles: string[];
   efforts: string[];
 }
