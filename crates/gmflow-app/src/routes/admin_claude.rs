@@ -244,12 +244,7 @@ pub async fn nouvelle_seance(
 ) -> Resultat<Json<SeanceCreee>> {
     let mut tx = etat.pool.begin().await?;
     // Une séance jamais prise par le worker (arrêté) ne bloque pas les suivantes au-delà de son délai.
-    sqlx::query!(
-        "update seance_claude set etat = 'expiree', message = 'délai dépassé', code_chiffre = null
-         where etat in ('demarrage', 'attente_code', 'code_recu') and expire_le < now()"
-    )
-    .execute(&mut *tx)
-    .await?;
+    expirer_seances(&mut *tx).await?;
     let id =
         sqlx::query_scalar!("insert into seance_claude (etat) values ('demarrage') returning id")
             .fetch_one(&mut *tx)
@@ -293,6 +288,81 @@ pub async fn seance(
     .await?
     .ok_or(ErreurApi::Absent)?;
     Ok(Json(s))
+}
+
+/// Ferme les séances restées ouvertes au-delà de leur délai (worker arrêté ou page fermée).
+async fn expirer_seances(c: impl sqlx::PgExecutor<'_>) -> sqlx::Result<()> {
+    sqlx::query!(
+        "update seance_claude set etat = 'expiree', message = 'délai dépassé', code_chiffre = null
+         where etat in ('demarrage', 'attente_code', 'code_recu') and expire_le < now()"
+    )
+    .execute(c)
+    .await?;
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct SeanceEnCours {
+    id: Uuid,
+    etat: String,
+    url: Option<String>,
+    message: Option<String>,
+}
+
+/// La séance ouverte, s'il y en a une : la page la reprend après un rechargement.
+pub async fn seance_en_cours(
+    _a: AccesAdmin,
+    State(etat): State<Etat>,
+) -> Resultat<Json<Option<SeanceEnCours>>> {
+    expirer_seances(&etat.pool).await?;
+    let s = sqlx::query_as!(
+        SeanceEnCours,
+        "select id, etat, url, message from seance_claude
+         where etat in ('demarrage', 'attente_code', 'code_recu')"
+    )
+    .fetch_optional(&etat.pool)
+    .await?;
+    Ok(Json(s))
+}
+
+/// Annule une séance ouverte. Le worker le voit à son prochain tour et arrête Claude CLI.
+pub async fn annuler_seance(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<Uuid>,
+) -> Resultat<StatusCode> {
+    let n = sqlx::query!(
+        "update seance_claude set etat = 'erreur', message = 'annulée', code_chiffre = null
+         where id = $1 and etat in ('demarrage', 'attente_code', 'code_recu')",
+        id
+    )
+    .execute(&etat.pool)
+    .await?
+    .rows_affected();
+    if n == 0 {
+        let existe = sqlx::query_scalar!(
+            "select exists (select 1 from seance_claude where id = $1) as \"ok!\"",
+            id
+        )
+        .fetch_one(&etat.pool)
+        .await?;
+        // Déjà finie : rien à annuler, ce n'est pas une erreur.
+        return if existe {
+            Ok(StatusCode::NO_CONTENT)
+        } else {
+            Err(ErreurApi::Absent)
+        };
+    }
+    journal::ecrire(
+        &etat.pool,
+        Some(a.utilisateur_id),
+        "annulation_setup_token",
+        "claude",
+        Some(id.to_string()),
+        json!({}),
+    )
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[derive(Deserialize)]
