@@ -2,7 +2,8 @@
 # Faux Claude CLI pour les tests (l'environnement de l'enfant est vidé : tout passe par les
 # arguments et le jeton).
 # - `setup-token` : imprime une URL entourée de codes ANSI, lit le code, imprime un jeton
-#   (code « mauvais » : échec).
+#   (code « mauvais » : échec ; code « refuse » : message d'erreur OAuth du vrai CLI, espaces en
+#   déplacements du curseur, et le CLI reste ouvert).
 # - `-p ...` : réponse JSON qui renvoie les arguments et l'environnement reçus ;
 #   jeton contenant « mauvais » : réponse en erreur.
 if [ "$1" = "setup-token" ]; then
@@ -11,6 +12,11 @@ if [ "$1" = "setup-token" ]; then
   printf 'Paste code here if prompted > '
   read code
   if [ "$code" = "mauvais" ]; then printf 'Invalid code\r\n'; exit 1; fi
+  if [ "$code" = "refuse" ]; then
+    printf 'OAuth\033[1Cerror:\033[1CThat\033[1Ccode\033[1Cwasn'"'"'t accepted. Sign in again to get a new code.Press Enter to retry.\r\n'
+    read encore
+    exit 0
+  fi
   printf '\r\n\033[32mLong-lived authentication token created:\033[0m\r\n'
   printf 'sk-ant-oat01-test_123\r\n'
   exit 0
