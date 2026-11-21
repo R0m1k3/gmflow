@@ -60,5 +60,5 @@ La fonction `test-utils` (IMAP en clair, outils de test) n'est jamais activée d
 
 GitHub Actions publie `ghcr.io/r0m1k3/gmflow-app:latest` et `gmflow-worker:latest` (et `sha-<court>`)
 à chaque push sur `main` et chaque lundi. Stack Portainer depuis ce dépôt (`docker-compose.yml`,
-variables de `.env.example`), Watchtower pour les mises à jour, Nginx Proxy Manager vers `app:8080`.
+variables de `.env.example`), Watchtower pour les mises à jour, Nginx Proxy Manager vers `gmflow-app:8080`.
 Premier démarrage : l'URL du premier compte administrateur est dans les logs de l'app (valable 1 h).
