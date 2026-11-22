@@ -31,8 +31,16 @@ pub enum TacheRedaction {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TacheBoite {
-    Releve { boite_id: i64 },
-    TestBoite { boite_id: i64 },
+    Releve {
+        boite_id: i64,
+    },
+    TestBoite {
+        boite_id: i64,
+    },
+    /// Essai de paramètres pas encore enregistrés, ou essai SMTP (module `essai_boite`).
+    Essai {
+        essai_id: Uuid,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -157,6 +165,10 @@ pub async fn pousser_releve(pool: &PgPool, boite_id: i64) -> anyhow::Result<()> 
 
 pub async fn pousser_test_boite(pool: &PgPool, boite_id: i64) -> anyhow::Result<()> {
     pousser_boite(pool, TacheBoite::TestBoite { boite_id }).await
+}
+
+pub async fn pousser_essai_boite(pool: &PgPool, essai_id: Uuid) -> anyhow::Result<()> {
+    pousser_boite(pool, TacheBoite::Essai { essai_id }).await
 }
 
 pub async fn pousser_seance(pool: &PgPool, seance_id: Uuid) -> anyhow::Result<()> {

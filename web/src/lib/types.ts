@@ -321,6 +321,11 @@ export interface LigneFournisseur {
   societe_defaut: string | null;
   nb_documents: number;
   a_verifier: number;
+  /** Ligne d'état (refonte) : documents lus visibles, de la société choisie (`?societe=`). */
+  factures_mois: number;
+  a_valider: number;
+  bl_sans_facture: number;
+  dernier_document: string | null;
 }
 
 export interface Fournisseur {
@@ -486,4 +491,282 @@ export interface DetailRapprochement {
   ignore: boolean;
   liens: { id: number; methode: MethodeRapprochement; ecart_montant: number | null; ecarts: EcartLigne[]; auteur: string | null; autre: DocRap }[];
   candidats: DocRap[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Refonte de l'interface : contrat dans docs/api-refonte.md.
+
+/** Réponse d'erreur de l'API ; `code` seulement pour certains 409 (voir api-refonte.md). */
+export interface ErreurCorps {
+  erreur: string;
+  code?: CodeRefus;
+}
+
+export type CodeRefus =
+  | 'etat'
+  | 'deja_envoye'
+  | 'expedition'
+  | 'erreur_envoi'
+  | 'doublon'
+  | 'sans_adresse'
+  | 'smtp_absent';
+
+export interface CompteursATraiter {
+  bloque: number;
+  a_valider: number;
+  a_repondre: number;
+  total: number;
+}
+
+export type GenreBloque = 'envoi_erreur' | 'doublon' | 'illisible' | 'boite' | 'claude';
+
+export interface Bloque {
+  genre: GenreBloque;
+  document_id: number | null;
+  boite_id: number | null;
+  /** Libellé de la boîte, ou nom du fichier du document. */
+  libelle: string | null;
+  /** Boîte : `pause_auto` ou `erreur` ; Claude : `absent` ou `erreur`. */
+  motif: string | null;
+  message: string | null;
+  depuis: string | null;
+  type: TypeDocument | null;
+  fournisseur: string | null;
+  numero: string | null;
+  societe_id: number | null;
+  societe: string | null;
+}
+
+export interface DocumentAValider {
+  id: number;
+  mail_id: number;
+  type: 'facture' | 'avoir' | 'bl';
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  fournisseur_a_confirmer: boolean;
+  numero: string | null;
+  societe_id: number | null;
+  societe: string | null;
+  date_document: string | null;
+  recu_le: string;
+  montant_ttc: number | null;
+  /** Première alerte en une phrase, ou null. */
+  alerte: string | null;
+  nb_alertes: number;
+  statut_depot: StatutDepot | null;
+  /** Déjà vérifié (facture vérifiée mais pas encore envoyée). */
+  verifie: boolean;
+}
+
+export interface MailARepondre {
+  id: number;
+  expediteur: string;
+  objet: string;
+  date_mail: string | null;
+  resume: string | null;
+  priorite: Priorite | null;
+  societes: string[];
+  brouillon: StatutBrouillon | null;
+}
+
+export interface FileATraiter {
+  compteurs: CompteursATraiter;
+  bloque: Bloque[];
+  a_valider: DocumentAValider[];
+  a_repondre: MailARepondre[];
+  /** Premier document à valider (« Commencer »). */
+  suivant: number | null;
+}
+
+/** Corps de `PUT /api/documents/{id}` et des corrections de `valider`. */
+export interface CorrectionDocument {
+  type: TypeDocument;
+  societe_id: number | null;
+  fournisseur_id: number | null;
+  numero: string | null;
+  date_document: string | null;
+  numero_commande: string | null;
+  montant_ht: number | null;
+  montant_tva: number | null;
+  montant_ttc: number | null;
+}
+
+export interface DemandeValidation {
+  corrections?: CorrectionDocument | null;
+  /** Administrateur seulement : envoyer un doublon quand même. */
+  forcer?: boolean;
+}
+
+export interface ResultatValidation {
+  id: number;
+  statut_depot: StatutDepot | null;
+  /** Envoi à Dext/Yooz demandé. */
+  envoi: boolean;
+  /** Document suivant de la file, ou null : « Tout est validé ». */
+  suivant: number | null;
+}
+
+export interface EtatFournisseur {
+  factures_mois: number;
+  a_valider: number;
+  bl_sans_facture: number;
+}
+
+export type ElementFil =
+  | {
+      genre: 'document';
+      id: number;
+      mail_id: number;
+      type: 'facture' | 'avoir' | 'bl';
+      numero: string | null;
+      /** Date du document, à défaut du mail (AAAA-MM-JJ) : sert au classement. */
+      date: string;
+      date_document: string | null;
+      montant_ht: number | null;
+      montant_ttc: number | null;
+      statut_depot: StatutDepot | null;
+      verifie: boolean;
+      societe_id: number | null;
+      societe: string | null;
+      rapproche: boolean;
+      nb_alertes: number;
+    }
+  | {
+      genre: 'mail';
+      id: number;
+      date: string;
+      date_mail: string | null;
+      expediteur: string;
+      objet: string;
+      categorie: Categorie | null;
+      statut_reponse: StatutReponse | null;
+      resume: string | null;
+      /** Documents de ce fournisseur portés par le mail (aussi dans le fil). */
+      document_ids: number[];
+    };
+
+export interface FilFournisseur {
+  fournisseur: Fournisseur;
+  etat: EtatFournisseur;
+  mois: { mois: string; elements: ElementFil[] }[];
+  a_rapprocher: {
+    bl_sans_facture: DocRap[];
+    factures_sans_bl: DocRap[];
+    avec_ecart: Rapproche[];
+    tronque: boolean;
+  };
+}
+
+export interface InterpretationRecherche {
+  mots: string[];
+  montant: number | null;
+  nombres: number[];
+  date: { jour: number; mois: number; annee: number | null } | null;
+}
+
+export interface DocumentTrouve {
+  id: number;
+  mail_id: number;
+  type: TypeDocument | null;
+  etat: EtatDocument;
+  statut_depot: StatutDepot | null;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  numero: string | null;
+  date_document: string | null;
+  montant_ht: number | null;
+  montant_ttc: number | null;
+  societe_id: number | null;
+  societe: string | null;
+  nom_fichier: string;
+  recu_le: string;
+  verifie: boolean;
+}
+
+export interface MailTrouve {
+  id: number;
+  expediteur: string;
+  objet: string;
+  date_mail: string | null;
+  categorie: Categorie | null;
+  statut_reponse: StatutReponse | null;
+  resume: string | null;
+  nb_pieces: number;
+}
+
+export interface ResultatsRecherche {
+  interpretation: InterpretationRecherche;
+  documents: { total: number; elements: DocumentTrouve[] };
+  mails: { total: number; elements: MailTrouve[] };
+}
+
+export type CleEtape = 'societes' | 'boites' | 'claude' | 'envoi' | 'utilisateurs';
+
+export interface EtapeMiseEnRoute {
+  cle: CleEtape;
+  fait: boolean;
+  resume: string;
+  manques: string[];
+}
+
+export interface MiseEnRoute {
+  etapes: EtapeMiseEnRoute[];
+  terminee: boolean;
+}
+
+/** Corps de `POST /api/admin/boites/tester`. */
+export interface DemandeEssaiBoite {
+  boite_id?: number;
+  serveur?: string;
+  port?: number;
+  identifiant?: string;
+  mot_de_passe?: string;
+  /** false : SMTP seulement. */
+  imap?: boolean;
+  smtp_serveur?: string;
+  smtp_port?: number;
+  smtp_securite?: 'tls' | 'starttls';
+}
+
+export interface DossierImap {
+  /** Nom IMAP (à enregistrer tel quel). */
+  nom: string;
+  /** Nom lisible. */
+  affiche: string;
+  envoyes: boolean;
+  non_selectionnable: boolean;
+}
+
+export interface EssaiBoite {
+  etat: 'en_cours' | 'termine';
+  cree_le: string;
+  boite_id: number | null;
+  identifiant: string;
+  imap: { serveur: string; port: number } | null;
+  smtp: { serveur: string; port: number; securite: string } | null;
+  resultat_imap: {
+    ok: boolean;
+    message: string;
+    detail: string | null;
+    dossiers: DossierImap[];
+    reception: string | null;
+    envoyes: string | null;
+  } | null;
+  resultat_smtp: { ok: boolean; message: string; detail: string | null } | null;
+  termine_le: string | null;
+}
+
+export interface BlEnAttente {
+  societe_id: number | null;
+  societe: string | null;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  bl: number;
+}
+
+export interface BilanMois {
+  mois: string;
+  societes: LigneSuivi[];
+  bl_en_attente: BlEnAttente[];
+  qualite: { lecture: Bilan; tri: SemaineTri[] };
 }

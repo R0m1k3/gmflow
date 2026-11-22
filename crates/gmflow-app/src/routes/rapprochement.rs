@@ -26,12 +26,12 @@ const DOCUMENTS_MAX: i64 = 5000;
 /// Éléments rendus au plus par liste.
 const LISTE_MAX: usize = 300;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct Filtres {
-    societe: Option<i64>,
-    fournisseur: Option<i64>,
-    du: Option<String>,
-    au: Option<String>,
+    pub(crate) societe: Option<i64>,
+    pub(crate) fournisseur: Option<i64>,
+    pub(crate) du: Option<String>,
+    pub(crate) au: Option<String>,
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow)]
@@ -78,15 +78,15 @@ pub struct ResumeFournisseur {
 
 #[derive(Serialize)]
 pub struct Vue {
-    resume: Vec<ResumeFournisseur>,
-    bl_sans_facture: Vec<DocRap>,
-    factures_sans_bl: Vec<DocRap>,
-    avec_ecart: Vec<Rapproche>,
-    sans_ecart: Vec<Rapproche>,
+    pub(crate) resume: Vec<ResumeFournisseur>,
+    pub(crate) bl_sans_facture: Vec<DocRap>,
+    pub(crate) factures_sans_bl: Vec<DocRap>,
+    pub(crate) avec_ecart: Vec<Rapproche>,
+    pub(crate) sans_ecart: Vec<Rapproche>,
     /// Plus de `DOCUMENTS_MAX` documents : seuls les plus récents sont examinés.
-    tronque: bool,
+    pub(crate) tronque: bool,
     /// BL lus avant le lot 4, sans lignes (à relire pour comparer les quantités).
-    bl_sans_lignes: i64,
+    pub(crate) bl_sans_lignes: i64,
 }
 
 struct Lien {

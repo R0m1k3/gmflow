@@ -565,15 +565,25 @@ fn centimes(v: Option<f64>) -> Option<f64> {
     v.map(|x| (x * 100.0).round() / 100.0)
 }
 
-/// Correction des champs lus (type, structure, fournisseur, numéro, date, montants), puis
-/// nouveaux contrôles. Vaut vérification du document.
-pub async fn corriger(
-    acces: Acces,
-    State(etat): State<Etat>,
-    Path(id): Path<i64>,
-    Json(c): Json<Correction>,
-) -> Resultat<StatusCode> {
-    controler_modifiable(&etat, &acces, id).await?;
+/// Correction dont les entrées ont été contrôlées (type, structure permise, fournisseur,
+/// date), prête à appliquer.
+pub(crate) struct CorrectionNette {
+    r#type: String,
+    societe_id: Option<i64>,
+    fournisseur_id: Option<i64>,
+    numero: Option<String>,
+    date_document: Option<time::Date>,
+    numero_commande: Option<String>,
+    ht: Option<f64>,
+    tva: Option<f64>,
+    ttc: Option<f64>,
+}
+
+async fn nettoyer_correction(
+    etat: &Etat,
+    acces: &Acces,
+    c: Correction,
+) -> Resultat<CorrectionNette> {
     if !TYPES.contains(&c.r#type.as_str()) {
         return Err(ErreurApi::Donnees(format!("type inconnu : {}", c.r#type)));
     }
@@ -600,14 +610,27 @@ pub async fn corriger(
             return Err(ErreurApi::Donnees("fournisseur inconnu".into()));
         }
     }
-    let date_doc = date(&c.date_document)?;
-    let (numero, commande) = (texte_net(&c.numero), texte_net(&c.numero_commande));
-    let (ht, tva, ttc) = (
-        centimes(c.montant_ht),
-        centimes(c.montant_tva),
-        centimes(c.montant_ttc),
-    );
-    let mut tx = etat.pool.begin().await?;
+    Ok(CorrectionNette {
+        date_document: date(&c.date_document)?,
+        numero: texte_net(&c.numero),
+        numero_commande: texte_net(&c.numero_commande),
+        ht: centimes(c.montant_ht),
+        tva: centimes(c.montant_tva),
+        ttc: centimes(c.montant_ttc),
+        r#type: c.r#type,
+        societe_id: c.societe_id,
+        fournisseur_id: c.fournisseur_id,
+    })
+}
+
+/// Applique une correction dans la transaction (document verrouillé) : champs, historique des
+/// corrections, vérification par cet utilisateur, journal.
+async fn appliquer_correction(
+    tx: &mut sqlx::PgConnection,
+    acces: &Acces,
+    id: i64,
+    c: &CorrectionNette,
+) -> Resultat<()> {
     let a = sqlx::query!(
         r#"select etat, statut_depot, type, societe_id, fournisseur_id, numero, date_document,
                   numero_commande, montant_ht::float8 as ht, montant_tva::float8 as tva,
@@ -640,16 +663,20 @@ pub async fn corriger(
         json!(a.fournisseur_id),
         json!(c.fournisseur_id),
     );
-    noter("numero", json!(a.numero), json!(numero));
+    noter("numero", json!(a.numero), json!(c.numero));
     noter(
         "date_document",
         json!(a.date_document.map(|d| d.to_string())),
-        json!(date_doc.map(|d| d.to_string())),
+        json!(c.date_document.map(|d| d.to_string())),
     );
-    noter("numero_commande", json!(a.numero_commande), json!(commande));
-    noter("montant_ht", json!(centimes(a.ht)), json!(ht));
-    noter("montant_tva", json!(centimes(a.tva)), json!(tva));
-    noter("montant_ttc", json!(centimes(a.ttc)), json!(ttc));
+    noter(
+        "numero_commande",
+        json!(a.numero_commande),
+        json!(c.numero_commande),
+    );
+    noter("montant_ht", json!(centimes(a.ht)), json!(c.ht));
+    noter("montant_tva", json!(centimes(a.tva)), json!(c.tva));
+    noter("montant_ttc", json!(centimes(a.ttc)), json!(c.ttc));
     let corrections = fusionner_corrections(&a.corrections, &changements);
     let type_change = changements.iter().any(|(c, _, _)| *c == "type");
     let societe_change = changements.iter().any(|(c, _, _)| *c == "societe_id");
@@ -666,12 +693,12 @@ pub async fn corriger(
         c.r#type,
         c.societe_id,
         c.fournisseur_id,
-        numero,
-        date_doc,
-        commande,
-        ht,
-        tva,
-        ttc,
+        c.numero,
+        c.date_document,
+        c.numero_commande,
+        c.ht,
+        c.tva,
+        c.ttc,
         corrections,
         !changements.is_empty(),
         acces.utilisateur_id,
@@ -697,6 +724,21 @@ pub async fn corriger(
         Value::Object(details),
     )
     .await?;
+    Ok(())
+}
+
+/// Correction des champs lus (type, structure, fournisseur, numéro, date, montants), puis
+/// nouveaux contrôles. Vaut vérification du document.
+pub async fn corriger(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+    Json(c): Json<Correction>,
+) -> Resultat<StatusCode> {
+    controler_modifiable(&etat, &acces, id).await?;
+    let c = nettoyer_correction(&etat, &acces, c).await?;
+    let mut tx = etat.pool.begin().await?;
+    appliquer_correction(&mut tx, &acces, id, &c).await?;
     tx.commit().await?;
     depot::evaluer_et_deposer(&etat.pool, id)
         .await
@@ -818,4 +860,254 @@ pub async fn deposer(
     .await
     .map_err(ErreurApi::Interne)?;
     Ok(StatusCode::ACCEPTED)
+}
+
+#[derive(Deserialize, Default)]
+pub struct DemandeValidation {
+    /// Champs corrigés (mêmes champs que `PUT /api/documents/{id}`) ; absent : rien à corriger.
+    #[serde(default)]
+    corrections: Option<Correction>,
+    /// Administrateur seulement : envoyer un doublon quand même.
+    #[serde(default)]
+    forcer: bool,
+}
+
+/// Société choisie dans l'interface, pour donner le document suivant de la même file.
+#[derive(Deserialize)]
+pub struct ContexteFile {
+    societe: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct Validation {
+    id: i64,
+    statut_depot: Option<String>,
+    /// L'envoi à Dext/Yooz a été demandé (facture ou avoir).
+    envoi: bool,
+    /// Document suivant de la file « À valider » (même ordre que `GET /api/a-traiter`).
+    suivant: Option<i64>,
+}
+
+fn refus(code: &'static str, message: &str) -> ErreurApi {
+    ErreurApi::ConflitCode {
+        code,
+        message: message.into(),
+    }
+}
+
+/// « Valider » en un appel : corrections éventuelles, vérification, puis pour une facture ou un
+/// avoir, contrôles, doublon et demande d'envoi à Dext/Yooz, le tout dans une transaction (rien
+/// n'est gardé si l'envoi est refusé). Un BL (ou un autre type) est seulement vérifié. Rend le
+/// document suivant de la file.
+pub async fn valider(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+    Query(f): Query<ContexteFile>,
+    Json(dv): Json<DemandeValidation>,
+) -> Resultat<Json<Validation>> {
+    controler_modifiable(&etat, &acces, id).await?;
+    if dv.forcer && !acces.est_admin() {
+        return Err(ErreurApi::Interdit);
+    }
+    let correction = match dv.corrections {
+        Some(c) => Some(nettoyer_correction(&etat, &acces, c).await?),
+        None => None,
+    };
+    let place = super::a_traiter::place_dans_file(&etat, id).await?;
+    let mut tx = etat.pool.begin().await?;
+    let a = sqlx::query!(
+        "select etat, statut_depot from document where id = $1 for update",
+        id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if a.etat != "lu" {
+        return Err(refus("etat", "seul un document lu peut être validé"));
+    }
+    if matches!(a.statut_depot.as_deref(), Some("en_envoi" | "depose")) {
+        return Err(refus(
+            "deja_envoye",
+            "document déjà envoyé ou en cours d'envoi",
+        ));
+    }
+    match &correction {
+        Some(c) => appliquer_correction(&mut tx, &acces, id, c).await?,
+        None => {
+            sqlx::query!(
+                "update document set verifie_le = now(), verifie_par = $2 where id = $1",
+                id,
+                acces.utilisateur_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            journal::ecrire(
+                &mut *tx,
+                Some(acces.utilisateur_id),
+                "verification",
+                "document",
+                Some(id.to_string()),
+                json!({}),
+            )
+            .await?;
+        }
+    }
+    let statut = depot::evaluer_dans(&mut tx, id)
+        .await
+        .map_err(ErreurApi::Interne)?;
+    let type_doc = sqlx::query_scalar!("select type from document where id = $1", id)
+        .fetch_one(&mut *tx)
+        .await?;
+    let envoi = type_doc
+        .as_deref()
+        .is_some_and(|t| depot::TYPES_DEPOSES.contains(&t));
+    if envoi {
+        if gmflow_core::parametre::lire(&mut *tx, gmflow_core::expedition::CLE)
+            .await?
+            .is_none()
+        {
+            return Err(refus(
+                "expedition",
+                "adresse d'envoi vers Dext/Yooz non configurée (Réglages)",
+            ));
+        }
+        let controles = sqlx::query_scalar!("select controles from document where id = $1", id)
+            .fetch_one(&mut *tx)
+            .await?;
+        let sans_adresse = controles
+            .as_array()
+            .is_some_and(|v| v.iter().any(|c| c["code"] == "depot"));
+        match statut.as_deref() {
+            Some("erreur") if !acces.est_admin() => {
+                return Err(refus(
+                    "erreur_envoi",
+                    "envoi précédent en échec : seul un administrateur peut renvoyer",
+                ));
+            }
+            Some("doublon") if !dv.forcer => {
+                let message = controles
+                    .as_array()
+                    .and_then(|v| v.iter().find(|c| c["code"] == "doublon"))
+                    .and_then(|c| c["message"].as_str())
+                    .unwrap_or("facture déjà reçue");
+                return Err(refus(
+                    "doublon",
+                    &format!("doublon : {message} ; envoi bloqué"),
+                ));
+            }
+            _ if sans_adresse => {
+                return Err(refus(
+                    "sans_adresse",
+                    "la société n'a pas d'adresse d'envoi vers Dext ou Yooz",
+                ));
+            }
+            _ => {}
+        }
+        sqlx::query!(
+            "update document set valide_le = now(), valide_par = $2 where id = $1",
+            id,
+            acces.utilisateur_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        journal::ecrire(
+            &mut *tx,
+            Some(acces.utilisateur_id),
+            "validation",
+            "document",
+            Some(id.to_string()),
+            json!({ "statut": statut, "forcer": dv.forcer, "controles": controles, "par": "valider" }),
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    // La file d'envoi n'est pas dans la transaction (apalis) : poussée juste après. Si elle
+    // échouait, le document resterait validé sans envoi, comme avec `deposer`.
+    if envoi {
+        file::pousser_envoi(
+            &etat.pool,
+            file::TacheEnvoi::Deposer {
+                document_id: id,
+                forcer: dv.forcer,
+                auteur_id: Some(acces.utilisateur_id),
+            },
+        )
+        .await
+        .map_err(ErreurApi::Interne)?;
+    }
+    gmflow_core::rapprochement::recalculer(&etat.pool, id)
+        .await
+        .map_err(ErreurApi::Interne)?;
+    let suivant = super::a_traiter::suivant(&etat, &acces, f.societe, id, place).await?;
+    Ok(Json(Validation {
+        id,
+        statut_depot: statut,
+        envoi,
+        suivant,
+    }))
+}
+
+/// « Écarter » : un doublon (vu par un humain, jamais envoyé) ou un document illisible (passé
+/// en « Écarté »). Le document quitte la file « À traiter ».
+pub async fn ecarter(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+    Query(f): Query<ContexteFile>,
+) -> Resultat<Json<Validation>> {
+    controler_modifiable(&etat, &acces, id).await?;
+    let place = super::a_traiter::place_dans_file(&etat, id).await?;
+    let mut tx = etat.pool.begin().await?;
+    let a = sqlx::query!(
+        "select etat, statut_depot from document where id = $1 for update",
+        id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    let action = if a.statut_depot.as_deref() == Some("doublon") {
+        sqlx::query!(
+            "update document set verifie_le = now(), verifie_par = $2 where id = $1",
+            id,
+            acces.utilisateur_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        "doublon_ecarte"
+    } else if a.etat == "erreur" {
+        sqlx::query!(
+            "update document set etat = 'ignore', verifie_le = now(), verifie_par = $2,
+                statut_depot = null, controles = '[]'
+             where id = $1",
+            id,
+            acces.utilisateur_id
+        )
+        .execute(&mut *tx)
+        .await?;
+        "illisible_ecarte"
+    } else {
+        return Err(refus(
+            "etat",
+            "seuls un doublon ou un document illisible peuvent être écartés",
+        ));
+    };
+    journal::ecrire(
+        &mut *tx,
+        Some(acces.utilisateur_id),
+        action,
+        "document",
+        Some(id.to_string()),
+        json!({ "etat": a.etat, "statut_depot": a.statut_depot }),
+    )
+    .await?;
+    tx.commit().await?;
+    let statut_depot = sqlx::query_scalar!("select statut_depot from document where id = $1", id)
+        .fetch_one(&etat.pool)
+        .await?;
+    let suivant = super::a_traiter::suivant(&etat, &acces, f.societe, id, place).await?;
+    Ok(Json(Validation {
+        id,
+        statut_depot,
+        envoi: false,
+        suivant,
+    }))
 }

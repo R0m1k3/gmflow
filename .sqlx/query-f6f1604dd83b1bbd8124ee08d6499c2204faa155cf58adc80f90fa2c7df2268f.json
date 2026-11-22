@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where role = 'admin') as \"admins!\",\n                  count(*) filter (where role = 'responsable') as \"responsables!\"\n           from utilisateur where actif",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "admins!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "responsables!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "f6f1604dd83b1bbd8124ee08d6499c2204faa155cf58adc80f90fa2c7df2268f"
+}

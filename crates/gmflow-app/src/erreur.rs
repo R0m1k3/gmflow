@@ -15,6 +15,9 @@ pub enum ErreurApi {
     Absent,
     #[error("{0}")]
     Conflit(String),
+    /// Conflit avec un code stable pour l'interface (`{"erreur": "...", "code": "doublon"}`).
+    #[error("{message}")]
+    ConflitCode { code: &'static str, message: String },
     #[error("trop d'essais, réessayez dans 15 minutes")]
     TropDEssais,
     #[error("erreur interne")]
@@ -56,13 +59,17 @@ impl IntoResponse for ErreurApi {
             ErreurApi::NonConnecte => StatusCode::UNAUTHORIZED,
             ErreurApi::Interdit => StatusCode::FORBIDDEN,
             ErreurApi::Absent => StatusCode::NOT_FOUND,
-            ErreurApi::Conflit(_) => StatusCode::CONFLICT,
+            ErreurApi::Conflit(_) | ErreurApi::ConflitCode { .. } => StatusCode::CONFLICT,
             ErreurApi::TropDEssais => StatusCode::TOO_MANY_REQUESTS,
             ErreurApi::Interne(e) => {
                 tracing::error!(erreur = ?e, "erreur interne");
                 StatusCode::INTERNAL_SERVER_ERROR
             }
         };
-        (code, Json(json!({ "erreur": self.to_string() }))).into_response()
+        let corps = match &self {
+            ErreurApi::ConflitCode { code, message } => json!({ "erreur": message, "code": code }),
+            _ => json!({ "erreur": self.to_string() }),
+        };
+        (code, Json(corps)).into_response()
     }
 }

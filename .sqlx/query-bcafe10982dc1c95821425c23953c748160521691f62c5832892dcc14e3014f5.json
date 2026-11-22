@@ -1,0 +1,117 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select m.id, m.expediteur, m.objet, m.date_mail, m.categorie, m.statut_reponse, m.resume,\n                  ((coalesce(m.date_mail, m.recu_le)) at time zone 'Europe/Paris')::date as \"date!\",\n                  array(select d.id from document d where d.mail_id = m.id and d.fournisseur_id = $3\n                        order by d.id) as \"document_ids!\"\n           from mail m, fournisseur f\n           where f.id = $3\n             and m.categorie is distinct from 'publicite'\n             and (exists (select 1 from document d where d.mail_id = m.id and d.fournisseur_id = f.id)\n                  or lower(substring(m.expediteur from '@([A-Za-z0-9.-]+)')) = any(f.domaines))\n             and coalesce(m.date_mail, m.recu_le)\n                 >= (date_trunc('month', now() at time zone 'Europe/Paris') - make_interval(months => $4 - 1))\n                    at time zone 'Europe/Paris'\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id\n                           and ($1::bigint is null or b.societe_id = $1)\n                           and ($2::bigint is null or b.societe_id = $2))\n           order by coalesce(m.date_mail, m.recu_le) desc, m.id desc\n           limit 1000",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_mail",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "date_mail"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "categorie",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "categorie"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "statut_reponse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "statut_reponse"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "resume",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "resume"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "date!",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "document_ids!",
+        "type_info": "Int8Array",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "bcafe10982dc1c95821425c23953c748160521691f62c5832892dcc14e3014f5"
+}

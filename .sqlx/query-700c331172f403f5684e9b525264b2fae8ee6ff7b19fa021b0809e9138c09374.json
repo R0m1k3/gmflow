@@ -1,0 +1,202 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.id, d.mail_id, d.type, d.etat, d.statut_depot, d.fournisseur_id,\n                      coalesce(fo.nom, d.fournisseur_nom) as fournisseur, d.numero, d.date_document,\n                      d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,\n                      d.societe_id, s.raison_sociale as \"societe?\", p.nom as nom_fichier,\n                      coalesce(m.date_mail, m.recu_le) as \"recu_le!\",\n                      d.verifie_le is not null as \"verifie!\",\n                      count(*) over () as \"total!\"\n               from document d\n               join mail m on m.id = d.mail_id\n               join piece_jointe p on p.id = d.piece_jointe_id\n               left join fournisseur fo on fo.id = d.fournisseur_id\n               left join societe s on s.id = d.societe_id\n               where d.etat <> 'ignore'\n                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                             where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n                 and ($2::bigint is null or d.societe_id = $2\n                      or (d.societe_id is null\n                          and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                                      where mb.mail_id = d.mail_id and b.societe_id = $2)))\n                 and ($3::text is null or d.type = $3)\n                 and ($4::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $4)\n                 and ($5::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $5)\n                 and not exists (\n                       select 1 from unnest($6::text[]) w\n                       where not coalesce(d.fournisseur_nom ilike w or fo.nom ilike w or d.numero ilike w\n                                  or d.numero_commande ilike w or m.objet ilike w\n                                  or m.expediteur ilike w or p.nom ilike w, false))\n                 and not exists (\n                       select 1 from unnest($7::text[], $8::float8[]) as n(motif, valeur)\n                       where not coalesce(d.numero ilike n.motif or d.numero_commande ilike n.motif\n                                  or m.objet ilike n.motif or p.nom ilike n.motif\n                                  or d.montant_ttc = n.valeur::numeric(14, 2)\n                                  or d.montant_ht = n.valeur::numeric(14, 2), false))\n                 and ($9::float8 is null or d.montant_ttc = $9::numeric(14, 2)\n                      or d.montant_ht = $9::numeric(14, 2) or d.montant_tva = $9::numeric(14, 2))\n                 and ($10::int is null\n                      or (extract(day from d.date_document)::int = $10\n                          and extract(month from d.date_document)::int = $11\n                          and ($12::int is null or extract(year from d.date_document)::int = $12))\n                      or (extract(day from (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris'))::int = $10\n                          and extract(month from (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris'))::int = $11\n                          and ($12::int is null\n                               or extract(year from (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris'))::int = $12)))\n               order by coalesce(m.date_mail, m.recu_le) desc, d.id desc\n               limit $13",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "mail_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "mail_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "fournisseur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "date_document",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_document"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "montant_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "montant_ttc",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "nom_fichier",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "recu_le!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "verifie!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Date",
+        "Date",
+        "TextArray",
+        "TextArray",
+        "Float8Array",
+        "Float8",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      null,
+      true,
+      true,
+      null,
+      null,
+      true,
+      false,
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "700c331172f403f5684e9b525264b2fae8ee6ff7b19fa021b0809e9138c09374"
+}

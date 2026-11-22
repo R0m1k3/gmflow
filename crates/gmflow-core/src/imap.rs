@@ -134,6 +134,128 @@ pub async fn dossiers(session: &mut Session) -> Result<Vec<String>, ErreurImap> 
     Ok(v)
 }
 
+/// Dossier vu par `LIST`, pour l'assistant d'ajout d'une boîte.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Dossier {
+    /// Nom IMAP tel quel (UTF-7 modifié) : c'est lui qu'on enregistre.
+    pub nom: String,
+    /// Nom lisible (UTF-7 modifié décodé).
+    pub affiche: String,
+    /// Marqué `\Sent` par le serveur (RFC 6154).
+    pub envoyes: bool,
+    /// Non sélectionnable (`\Noselect`) : simple niveau de hiérarchie.
+    pub non_selectionnable: bool,
+}
+
+/// Tous les dossiers du serveur avec leurs attributs, triés par nom.
+pub async fn dossiers_detail(session: &mut Session) -> Result<Vec<Dossier>, ErreurImap> {
+    use async_imap::types::NameAttribute;
+    use futures::TryStreamExt;
+    let noms: Vec<_> = timeout(DELAI, async {
+        session
+            .list(Some(""), Some("*"))
+            .await?
+            .try_collect::<Vec<_>>()
+            .await
+    })
+    .await
+    .map_err(|_| ErreurImap::Autre("délai dépassé pendant LIST".into()))??;
+    let mut v: Vec<Dossier> = noms
+        .iter()
+        .map(|n| Dossier {
+            nom: n.name().to_string(),
+            affiche: decoder_utf7(n.name()),
+            envoyes: n
+                .attributes()
+                .iter()
+                .any(|a| matches!(a, NameAttribute::Sent)),
+            non_selectionnable: n
+                .attributes()
+                .iter()
+                .any(|a| matches!(a, NameAttribute::NoSelect)),
+        })
+        .collect();
+    v.sort_by(|a, b| a.nom.cmp(&b.nom));
+    Ok(v)
+}
+
+/// Noms usuels du dossier des envoyés, du plus sûr au moins sûr (comparés en minuscules,
+/// sur le nom décodé).
+const NOMS_ENVOYES: &[&str] = &[
+    "sent",
+    "inbox.sent",
+    "inbox/sent",
+    "envoyés",
+    "inbox.envoyés",
+    "messages envoyés",
+    "éléments envoyés",
+    "sent messages",
+    "sent items",
+    "sent mail",
+    "[gmail]/sent mail",
+    "[gmail]/messages envoyés",
+];
+
+/// Dossier des envoyés repéré : attribut `\Sent`, sinon un nom usuel, sinon un nom qui
+/// contient « sent » ou « envoy ».
+pub fn dossier_envoyes(dossiers: &[Dossier]) -> Option<&Dossier> {
+    let utiles = || dossiers.iter().filter(|d| !d.non_selectionnable);
+    utiles().find(|d| d.envoyes).or_else(|| {
+        NOMS_ENVOYES
+            .iter()
+            .find_map(|n| utiles().find(|d| d.affiche.to_lowercase() == *n))
+            .or_else(|| {
+                utiles().find(|d| {
+                    let f = d
+                        .affiche
+                        .rsplit(['/', '.'])
+                        .next()
+                        .unwrap_or_default()
+                        .to_lowercase();
+                    f.contains("sent") || f.contains("envoy")
+                })
+            })
+    })
+}
+
+/// Décode un nom de dossier en UTF-7 modifié (RFC 3501 §5.1.3) : `Envoy&AOk-s` → `Envoyés`.
+/// Un nom mal formé est rendu tel quel.
+pub fn decoder_utf7(nom: &str) -> String {
+    use base64::Engine;
+    let mut sortie = String::new();
+    let mut reste = nom;
+    while let Some(debut) = reste.find('&') {
+        sortie.push_str(&reste[..debut]);
+        let apres = &reste[debut + 1..];
+        let Some(fin) = apres.find('-') else {
+            return nom.to_string();
+        };
+        let code = &apres[..fin];
+        if code.is_empty() {
+            sortie.push('&');
+        } else {
+            let b64 = code.replace(',', "/");
+            let Ok(octets) = base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64) else {
+                return nom.to_string();
+            };
+            if octets.len() % 2 != 0 {
+                return nom.to_string();
+            }
+            let unites: Vec<u16> = octets
+                .chunks(2)
+                .map(|c| u16::from_be_bytes([c[0], c[1]]))
+                .collect();
+            match String::from_utf16(&unites) {
+                Ok(t) => sortie.push_str(&t),
+                Err(_) => return nom.to_string(),
+            }
+        }
+        reste = &apres[fin + 1..];
+    }
+    sortie.push_str(reste);
+    sortie
+}
+
 /// Copie un message dans un dossier (APPEND), marqué comme lu : la réponse envoyée apparaît
 /// dans le dossier des envoyés de la boîte.
 pub async fn ajouter(session: &mut Session, dossier: &str, brut: &[u8]) -> Result<(), ErreurImap> {
@@ -174,4 +296,45 @@ pub async fn derniers_messages(
     .await
     .map_err(|_| ErreurImap::Autre("délai dépassé".into()))??;
     Ok(messages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn d(nom: &str, envoyes: bool) -> Dossier {
+        Dossier {
+            nom: nom.into(),
+            affiche: decoder_utf7(nom),
+            envoyes,
+            non_selectionnable: false,
+        }
+    }
+
+    #[test]
+    fn utf7_modifie() {
+        assert_eq!(decoder_utf7("Envoy&AOk-s"), "Envoyés");
+        assert_eq!(
+            decoder_utf7("&AMk-l&AOk-ments envoy&AOk-s"),
+            "Éléments envoyés"
+        );
+        assert_eq!(decoder_utf7("A&-B"), "A&B");
+        assert_eq!(decoder_utf7("INBOX"), "INBOX");
+        assert_eq!(decoder_utf7("cass&é"), "cass&é");
+    }
+
+    #[test]
+    fn envoyes_repere() {
+        let v = vec![
+            d("INBOX", false),
+            d("Archives", false),
+            d("Envoy&AOk-s", false),
+        ];
+        assert_eq!(dossier_envoyes(&v).unwrap().nom, "Envoy&AOk-s");
+        let v = vec![d("INBOX", false), d("Sent", false), d("Boite", true)];
+        assert_eq!(dossier_envoyes(&v).unwrap().nom, "Boite");
+        let v = vec![d("INBOX", false), d("[Gmail]/Messages envoy&AOk-s", false)];
+        assert!(dossier_envoyes(&v).is_some());
+        assert!(dossier_envoyes(&[d("INBOX", false), d("Drafts", false)]).is_none());
+    }
 }

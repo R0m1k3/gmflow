@@ -2,7 +2,7 @@
 //! puis dépôt automatique si la structure l'a activé.
 
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgExecutor, PgPool};
 
 use crate::controles::{self, Echec};
 use crate::file::{self, TacheEnvoi};
@@ -16,7 +16,10 @@ pub const STATUTS_FIGES: &[&str] = &["en_envoi", "depose"];
 /// Autre document qui fait de celui-ci un doublon : même fichier, ou même fournisseur, même
 /// numéro et même montant TTC. Un document déjà déposé (ou en cours d'envoi) l'emporte
 /// toujours ; sinon, le plus ancien.
-pub async fn doublon_de(pool: &PgPool, id: i64) -> sqlx::Result<Option<(i64, String)>> {
+pub async fn doublon_de<'e>(
+    db: impl PgExecutor<'e>,
+    id: i64,
+) -> sqlx::Result<Option<(i64, String)>> {
     let r = sqlx::query!(
         r#"select o.id, o.statut_depot as "statut!" from document d, document o
            where d.id = $1 and o.id <> d.id
@@ -30,7 +33,7 @@ pub async fn doublon_de(pool: &PgPool, id: i64) -> sqlx::Result<Option<(i64, Str
            limit 1"#,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(db)
     .await?;
     Ok(r.map(|r| (r.id, r.statut)))
 }
@@ -38,6 +41,12 @@ pub async fn doublon_de(pool: &PgPool, id: i64) -> sqlx::Result<Option<(i64, Str
 /// Recalcule le statut de dépôt d'un document et ses contrôles en échec. Rend le statut
 /// (rien pour un document qui n'est pas une facture lue).
 pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
+    let mut conn = pool.acquire().await?;
+    evaluer_dans(&mut conn, id).await
+}
+
+/// `evaluer` sur une connexion donnée (dans une transaction : validation en un appel).
+pub async fn evaluer_dans(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option<String>> {
     let Some(d) = sqlx::query!(
         r#"select d.etat, d.type, d.statut_depot, d.societe_id,
                   coalesce((d.confiance->>'societe')::float8, 0) as "conf_societe!",
@@ -55,7 +64,7 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
            where d.id = $1"#,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?
     else {
         return Ok(None);
@@ -75,7 +84,7 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
             "update document set statut_depot = null, controles = '[]' where id = $1",
             id
         )
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         return Ok(None);
     }
@@ -107,9 +116,9 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
             "update document set statut_depot = coalesce(statut_depot, 'a_verifier') where id = $1",
             id
         )
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-        doublon_de(pool, id).await?
+        doublon_de(&mut *conn, id).await?
     };
     let statut = if let Some((autre, statut)) = doublon {
         echecs.insert(
@@ -138,7 +147,7 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
         statut,
         json!(echecs)
     )
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     Ok(Some(statut.to_string()))
 }

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from parametre where cle like 'essai_boite:%'\n         and modifie_le < now() - make_interval(mins => $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ddc273215ee2da48678f7a4f8370f5d42011703dab8e24bfc949531a019ab9c0"
+}

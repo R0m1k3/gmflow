@@ -9,15 +9,15 @@ use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct Filtre {
     /// AAAA-MM ; par défaut, le mois en cours.
-    mois: Option<String>,
+    pub(crate) mois: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct LigneSuivi {
-    societe_id: Option<i64>,
+    pub(crate) societe_id: Option<i64>,
     societe: Option<String>,
     /// Factures et avoirs reçus (date du document, à défaut date du mail) ce mois-là.
     recues: i64,
@@ -32,8 +32,8 @@ pub struct LigneSuivi {
 
 #[derive(Serialize)]
 pub struct Suivi {
-    mois: String,
-    lignes: Vec<LigneSuivi>,
+    pub(crate) mois: String,
+    pub(crate) lignes: Vec<LigneSuivi>,
 }
 
 pub async fn suivi(

@@ -1,3 +1,4 @@
+pub mod a_traiter;
 pub mod admin_boites;
 pub mod admin_claude;
 pub mod admin_expedition;
@@ -5,12 +6,15 @@ pub mod admin_journal;
 pub mod admin_societes;
 pub mod admin_utilisateurs;
 pub mod auth;
+pub mod bilan;
 pub mod depots;
 pub mod documents;
 pub mod fichiers;
 pub mod fournisseurs;
 pub mod mails;
+pub mod mise_en_route;
 pub mod rapprochement;
+pub mod recherche;
 pub mod reponses;
 pub mod tableau;
 
@@ -107,7 +111,13 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         )
         .route("/documents/{id}/controler", post(documents::controler))
         .route("/documents/{id}/deposer", post(documents::deposer))
+        .route("/documents/{id}/valider", post(documents::valider))
+        .route("/documents/{id}/ecarter", post(documents::ecarter))
+        .route("/a-traiter", get(a_traiter::file))
+        .route("/recherche", get(recherche::chercher))
+        .route("/a-traiter/compteurs", get(a_traiter::compteurs))
         .route("/depots/suivi", get(depots::suivi))
+        .route("/bilan", get(bilan::bilan))
         .route(
             "/rapprochement",
             get(rapprochement::vue).post(rapprochement::lier),
@@ -124,6 +134,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         )
         .route("/fournisseurs", get(fournisseurs::lister))
         .route("/fournisseurs/{id}", get(fournisseurs::fiche))
+        .route("/fournisseurs/{id}/fil", get(fournisseurs::fil))
         .route("/admin/fournisseurs", post(fournisseurs::creer))
         .route("/admin/fournisseurs/{id}", put(fournisseurs::modifier))
         .route(
@@ -146,6 +157,13 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
             get(admin_boites::lister).post(admin_boites::creer),
         )
         .route("/admin/boites/{id}", put(admin_boites::modifier))
+        .route("/admin/boites/tester", post(mise_en_route::tester))
+        .route("/admin/boites/essais/{id}", get(mise_en_route::essai))
+        .route(
+            "/admin/boites/{id}/tester-smtp",
+            post(mise_en_route::tester_smtp),
+        )
+        .route("/admin/mise-en-route", get(mise_en_route::etat))
         .route("/admin/boites/{id}/tester", post(admin_boites::tester))
         .route("/admin/boites/{id}/activer", post(admin_boites::activer))
         .route("/admin/boites/{id}/pause", post(admin_boites::pause))
