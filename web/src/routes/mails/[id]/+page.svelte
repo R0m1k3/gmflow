@@ -22,6 +22,8 @@
   let texte = $state('');
   let boiteEnvoi = $state('');
   let occupe = $state(false);
+  let chargement = $state(true);
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   let arret: (() => void) | null = null;
 
   const EN_COURS = ['generation', 'envoi'];
@@ -54,7 +56,8 @@
       .then((b) => {
         if (b && EN_COURS.includes(b.statut)) suivre();
       })
-      .catch((e) => (erreur = (e as { code?: number }).code === 404 ? 'Mail introuvable.' : message(e)));
+      .catch((e) => (erreur = (e as { code?: number }).code === 404 ? 'Ce mail est introuvable : il a peut-être été supprimé.' : message(e)))
+      .finally(() => (chargement = false));
     return () => arret?.();
   });
 
@@ -76,7 +79,7 @@
     action(async () => {
       await api.put(`/api/mails/${m!.id}/categorie`, { categorie: c });
       await lire();
-    }, 'Catégorie enregistrée : le tri automatique ne la changera plus.');
+    }, 'Catégorie enregistrée : le tri automatique ne la changera plus');
 
   const statut = (s: string, ok: string) =>
     action(async () => {
@@ -99,6 +102,7 @@
       await api.post(`/api/mails/${m!.id}/brouillons`, { boite_id: Number(boiteEnvoi) || null });
       await lire();
       suivre();
+      info = 'Brouillon en préparation : il apparaît ici dans quelques instants.';
     });
 
   const enregistrer = () =>
@@ -115,6 +119,7 @@
       await api.post(`/api/brouillons/${b.id}/envoyer`);
       await lire();
       suivre();
+      info = 'Envoi en cours : la réponse part depuis ' + b.boite + '.';
     });
   }
 
@@ -123,162 +128,178 @@
     return action(async () => {
       await api.post(`/api/brouillons/${actif!.id}/abandonner`);
       await lire();
+      info = 'Brouillon abandonné.';
     });
   }
 </script>
 
-<p><a href="/mails">← Mails</a> · <a href="/a-repondre">À répondre</a></p>
-{#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
-{#if info}<div class="bandeau ok">{info}</div>{/if}
-{#if m}
-  <h1>{m.objet || '(sans objet)'}</h1>
-  <div class="carte entetes">
-    <div><span class="discret">De</span> {m.expediteur || '—'}</div>
-    <div><span class="discret">À</span> {m.destinataires.join(', ') || '—'}</div>
-    <div><span class="discret">Date</span> <span class="date">{quand(m.date_mail)}</span></div>
-    <div><span class="discret">Reçu dans</span> {m.boites.map((b) => `${b.libelle} (${b.dossier})`).join(', ')}</div>
-    <div class="discret mid">Message-ID : {m.message_id}</div>
+<p class="mail-retour"><a href="/mails">← Tous les mails</a> · <a href="/a-repondre">Mails à répondre</a></p>
+{#if erreur}
+  <div class="bandeau erreur" role="alert">
+    {erreur}
+    {#if !m}<div class="actions"><a class="bouton second petit" href="/mails">Retour aux mails</a></div>{/if}
   </div>
-
-  <div class="carte tri">
-    <div class="ligne">
+{/if}
+{#if info}<div class="bandeau ok" role="status">{info}</div>{/if}
+{#if !m && chargement && !erreur}<div class="charge" aria-busy="true"><span></span></div>{/if}
+{#if m}
+  <div class="entete">
+    <div>
+      <h1>{m.objet || '(sans objet)'}</h1>
+      <p class="sous">De {m.expediteur || 'Non renseigné'} · <span class="date">{quand(m.date_mail)}</span></p>
+    </div>
+    <div class="mail-etats">
       {#if m.categorie}
         <span class="etiquette {classeCategorie[m.categorie]}">{libelleCategorie[m.categorie]}</span>
-        <span class="discret">{m.categorie_par ? libelleCategoriePar[m.categorie_par] : ''}</span>
       {:else if m.tri_etat === 'erreur'}
-        <span class="etiquette ko">tri en erreur</span>
+        <span class="etiquette ko">Tri impossible</span>
       {:else if m.tri_etat}
-        <span class="etiquette att">à trier</span>
+        <span class="etiquette att">En attente de tri</span>
       {:else}
-        <span class="etiquette">non trié</span>
+        <span class="etiquette">Non trié</span>
       {/if}
       {#if m.priorite && m.categorie === 'question'}
-        <span class="etiquette {classePriorite[m.priorite]}">priorité {libellePriorite[m.priorite]}</span>
+        <span class="etiquette {classePriorite[m.priorite]}">Priorité {libellePriorite[m.priorite]}</span>
       {/if}
       {#if m.statut_reponse}
-        <span class="etiquette {m.statut_reponse === 'a_repondre' ? 'att' : 'ok'}">{libelleStatutReponse[m.statut_reponse]}</span>
-      {/if}
-      <span style="flex:1"></span>
-      <label class="en-ligne" for="cat">Catégorie</label>
-      <select
-        id="cat"
-        class="court"
-        value={m.categorie ?? ''}
-        disabled={occupe}
-        onchange={(e) => changerCategorie((e.currentTarget as HTMLSelectElement).value as Categorie)}
-      >
-        {#if !m.categorie}<option value="" disabled>choisir…</option>{/if}
-        {#each CATEGORIES as c (c)}<option value={c}>{libelleCategorie[c]}</option>{/each}
-      </select>
-    </div>
-    {#if m.resume}<p class="resume">{m.resume}</p>{/if}
-    {#if m.tri_message && m.categorie_par !== 'humain'}<p class="discret">{m.tri_message}</p>{/if}
-    <div class="actions">
-      {#if m.statut_reponse === 'a_repondre'}
-        <button class="second" disabled={occupe} onclick={() => statut('sans_suite', 'Classé sans suite.')}>Sans suite</button>
-        <button class="second" disabled={occupe} onclick={() => statut('repondu', 'Noté comme répondu ailleurs.')}>Répondu ailleurs</button>
-      {:else if m.statut_reponse}
-        <button class="second" disabled={occupe} onclick={() => statut('a_repondre', 'Remis dans la file à répondre.')}>Rouvrir</button>
-      {:else if m.categorie !== 'publicite'}
-        <button class="second" disabled={occupe} onclick={() => statut('a_repondre', 'Ajouté à la file à répondre.')}>Ajouter à « À répondre »</button>
-      {/if}
-      {#if admin && m.expediteur.includes('@')}
-        <span style="flex:1"></span>
-        <span class="discret">Toujours publicité :</span>
-        <button class="second" disabled={occupe} onclick={() => marquer('adresse')}>cet expéditeur</button>
-        <button class="second" disabled={occupe} onclick={() => marquer('domaine')}>ce domaine</button>
+        <span class="etiquette {m.statut_reponse === 'a_repondre' ? 'att' : 'ok'}">{cap(libelleStatutReponse[m.statut_reponse])}</span>
       {/if}
     </div>
   </div>
 
+  {#if m.resume}<div class="bandeau info"><strong>En résumé :</strong> {m.resume}</div>{/if}
+
   {#if m.categorie === 'question' || m.statut_reponse || m.brouillons.length}
-    <h2>Réponse</h2>
-    {#if actif}
-      <div class="carte brouillon">
-        <div class="ligne">
-          <span class="etiquette {EN_COURS.includes(actif.statut) ? 'att' : ''}">{libelleBrouillon[actif.statut]}</span>
-          <span class="discret">depuis {actif.boite}{actif.modele ? ` · ${actif.modele}` : ''} · {quand(actif.modifie_le)}</span>
-        </div>
-        {#if actif.erreur}<div class="bandeau attention">{actif.erreur}</div>{/if}
-        {#if actif.statut === 'generation'}
-          <p class="discret">Claude prépare un brouillon dans le ton de vos réponses précédentes…</p>
-        {:else}
-          <textarea rows="12" bind:value={texte} disabled={actif.statut === 'envoi' || occupe}></textarea>
-          {#if !actif.smtp}
-            <p class="discret">L'envoi n'est pas possible : le serveur SMTP de cette boîte n'est pas configuré (Administration, Boîtes surveillées).</p>
-          {/if}
-          {#if actif.statut !== 'envoi'}
-            <div class="actions">
-              <button onclick={envoyer} disabled={occupe || !actif.smtp || !texte.trim()}>Envoyer</button>
-              <button class="second" onclick={enregistrer} disabled={occupe || !modifie}>Enregistrer</button>
-              <button class="second" onclick={preparer} disabled={occupe}>Régénérer</button>
-              <span style="flex:1"></span>
-              <button class="danger" onclick={abandonner} disabled={occupe}>Abandonner</button>
+    <div class="section mail-premiere">
+      <div class="titre"><h2>Votre réponse</h2></div>
+      {#if actif}
+        <div class="carte pile">
+          <div class="mail-etats">
+            <span class="etiquette {EN_COURS.includes(actif.statut) ? 'att' : ''}">{cap(libelleBrouillon[actif.statut])}</span>
+            <span class="discret" title={actif.modele ?? ''}>Depuis {actif.boite} · {quand(actif.modifie_le)}</span>
+          </div>
+          {#if actif.erreur}<div class="bandeau attention">{actif.erreur}</div>{/if}
+          {#if actif.statut === 'generation'}
+            <div class="charge" aria-busy="true"><span></span></div>
+            <p class="discret">Claude prépare un brouillon dans le ton de vos réponses précédentes…</p>
+          {:else}
+            <div>
+              <label for="rep">Texte de la réponse</label>
+              <textarea id="rep" rows="12" bind:value={texte} disabled={actif.statut === 'envoi' || occupe}></textarea>
             </div>
-            <p class="discret">Rien ne part sans votre clic sur « Envoyer ». La réponse reste dans le fil du mail reçu.</p>
+            {#if !actif.smtp}
+              <div class="bandeau attention">L'envoi n'est pas possible : l'envoi des mails n'est pas réglé pour cette boîte mail (Administration, Boîtes mail).</div>
+            {/if}
+            {#if actif.statut !== 'envoi'}
+              <div class="actions">
+                <button onclick={envoyer} disabled={occupe || !actif.smtp || !texte.trim()}>Envoyer la réponse</button>
+                <button class="second" onclick={enregistrer} disabled={occupe || !modifie}>Enregistrer</button>
+                <button class="second" onclick={preparer} disabled={occupe}>Régénérer</button>
+                <button class="danger" onclick={abandonner} disabled={occupe}>Abandonner</button>
+              </div>
+              <p class="aide">Rien ne part sans votre clic sur « Envoyer la réponse ». Elle reste dans le fil du mail reçu.</p>
+            {/if}
           {/if}
-        {/if}
-      </div>
-    {:else}
-      <div class="carte actions">
-        {#if m.boites.length > 1}
-          <label class="en-ligne" for="be">Répondre depuis</label>
-          <select id="be" class="court" bind:value={boiteEnvoi}>
-            {#each m.boites as b (b.boite_id)}<option value={String(b.boite_id)}>{b.libelle}</option>{/each}
-          </select>
-        {/if}
-        <button onclick={preparer} disabled={occupe}>Préparer un brouillon</button>
-        <span class="discret">Claude propose un texte ; vous le relisez et l'envoyez vous-même.</span>
-      </div>
-    {/if}
-    {#each envoyes as b (b.id)}
-      <details class="carte envoye">
-        <summary>
-          <span class="etiquette ok">envoyé</span>
-          <span class="discret">{quand(b.envoye_le)}{b.envoye_par ? ` par ${b.envoye_par}` : ''} depuis {b.boite}</span>
-        </summary>
-        {#if b.erreur}<div class="bandeau attention">{b.erreur}</div>{/if}
-        <pre class="corps">{b.texte}</pre>
-      </details>
-    {/each}
+        </div>
+      {:else}
+        <div class="carte pile">
+          <p>Claude propose un texte ; vous le relisez, le modifiez si besoin, puis vous l'envoyez vous-même.</p>
+          {#if m.boites.length > 1}
+            <div>
+              <label for="be">Répondre depuis</label>
+              <select id="be" class="court" bind:value={boiteEnvoi}>
+                {#each m.boites as b (b.boite_id)}<option value={String(b.boite_id)}>{b.libelle}</option>{/each}
+              </select>
+            </div>
+          {/if}
+          <div class="actions"><button onclick={preparer} disabled={occupe}>Préparer un brouillon</button></div>
+        </div>
+      {/if}
+      {#each envoyes as b (b.id)}
+        <details class="carte mail-envoye">
+          <summary>
+            <span class="etiquette ok">Envoyée</span>
+            <span class="discret">{quand(b.envoye_le)}{b.envoye_par ? ` par ${b.envoye_par}` : ''} depuis {b.boite}</span>
+          </summary>
+          {#if b.erreur}<div class="bandeau attention">{b.erreur}</div>{/if}
+          <pre class="corps">{b.texte}</pre>
+        </details>
+      {/each}
+    </div>
   {/if}
+
+  <div class="section">
+    <div class="titre"><h2>Le message</h2></div>
+    <div class="carte"><pre class="corps mail-corps">{m.corps_texte || '(corps vide)'}</pre></div>
+  </div>
 
   {#if m.pieces.length}
-    <h2>Pièces jointes</h2>
-    <table>
-      <tbody>
+    <div class="section">
+      <div class="titre"><h2>Pièces jointes <span class="discret">{m.pieces.length}</span></h2></div>
+      <ul class="liste">
         {#each m.pieces as p (p.id)}
-          <tr>
-            <td><a href="/api/pieces/{p.id}" download>{p.nom}</a></td>
-            <td class="discret">{p.type_mime}</td>
-            <td class="nombre">{taille(p.taille)}</td>
-            <td>
-              {#if p.document_id && p.document_etat}
-                <a href="/documents/{p.document_id}">{p.document_type ? libelleType[p.document_type] : 'Document'}</a>
+          <li>
+            <div class="principal">
+              <a href="/api/pieces/{p.id}" download>{p.nom}</a>
+              <span class="discret">{p.type_mime} · {taille(p.taille)}</span>
+            </div>
+            {#if p.document_id && p.document_etat}
+              <div class="droite">
                 <span class="etiquette {classeEtat[p.document_etat]}">{libelleEtat[p.document_etat]}</span>
-              {/if}
-            </td>
-          </tr>
+                <a class="bouton second petit" href="/documents/{p.document_id}">Ouvrir {p.document_type ? libelleType[p.document_type].toLowerCase() : 'le document'}</a>
+              </div>
+            {/if}
+          </li>
         {/each}
-      </tbody>
-    </table>
+      </ul>
+    </div>
   {/if}
 
-  <h2>Message</h2>
-  <div class="carte"><pre class="corps">{m.corps_texte || '(corps vide)'}</pre></div>
-{/if}
+  <div class="section">
+    <div class="titre"><h2>Classement</h2></div>
+    <div class="carte pile">
+      {#if m.tri_message && m.categorie_par !== 'humain'}<p class="discret">{m.tri_message}</p>{/if}
+      <p class="discret">
+        {#if m.categorie_par}Classé {libelleCategoriePar[m.categorie_par]}.{/if}
+        Si le classement est faux, corrigez-le : le tri automatique s'en servira pour les mails suivants.
+      </p>
+      <div class="champs">
+        <div>
+          <label for="cat">Catégorie du mail</label>
+          <select id="cat" value={m.categorie ?? ''} disabled={occupe} onchange={(e) => changerCategorie((e.currentTarget as HTMLSelectElement).value as Categorie)}>
+            {#if !m.categorie}<option value="" disabled>Choisir…</option>{/if}
+            {#each CATEGORIES as c (c)}<option value={c}>{libelleCategorie[c]}</option>{/each}
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        {#if m.statut_reponse === 'a_repondre'}
+          <button class="second" disabled={occupe} onclick={() => statut('sans_suite', 'Classé sans suite : le mail ne demande plus de réponse.')}>Sans suite</button>
+          <button class="second" disabled={occupe} onclick={() => statut('repondu', 'Noté comme répondu ailleurs.')}>Répondu ailleurs</button>
+        {:else if m.statut_reponse}
+          <button class="second" disabled={occupe} onclick={() => statut('a_repondre', 'Remis dans les mails à répondre.')}>Rouvrir</button>
+        {:else if m.categorie !== 'publicite'}
+          <button class="second" disabled={occupe} onclick={() => statut('a_repondre', 'Ajouté aux mails à répondre.')}>Ajouter aux mails à répondre</button>
+        {/if}
+      </div>
+      {#if admin && m.expediteur.includes('@')}
+        <div class="actions">
+          <span class="discret">Toujours classer en publicité :</span>
+          <button class="second" disabled={occupe} onclick={() => marquer('adresse')}>Cet expéditeur</button>
+          <button class="second" disabled={occupe} onclick={() => marquer('domaine')}>Ce domaine</button>
+        </div>
+      {/if}
+    </div>
+  </div>
 
-<style>
-  .entetes { display: grid; gap: 0.3rem; }
-  .entetes span.discret { display: inline-block; min-width: 5.5rem; }
-  .mid { word-break: break-all; font-size: 0.8rem; }
-  .tri, .brouillon { margin-top: 1rem; display: grid; gap: 0.6rem; }
-  .ligne { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-  .resume { margin: 0; font-weight: 600; }
-  .en-ligne { margin: 0; }
-  select.court { width: auto; }
-  .brouillon .bandeau { margin: 0; }
-  textarea { resize: vertical; line-height: 1.45; }
-  .envoye { margin-top: 0.6rem; }
-  .envoye summary { cursor: pointer; display: flex; gap: 0.5rem; align-items: center; }
-</style>
+  <div class="section">
+    <div class="titre"><h2>Détails du mail</h2></div>
+    <dl class="kv">
+      <dt>De</dt><dd>{m.expediteur || 'Non renseigné'}</dd>
+      <dt>À</dt><dd>{m.destinataires.join(', ') || 'Non renseigné'}</dd>
+      <dt>Date</dt><dd class="date">{quand(m.date_mail)}</dd>
+      <dt>Reçu dans</dt><dd>{m.boites.map((b) => `${b.libelle} (${b.dossier})`).join(', ') || 'Non renseigné'}</dd>
+    </dl>
+    <details class="mail-tech"><summary class="discret">Détails techniques</summary><p class="discret mail-id">Message-ID : {m.message_id}</p></details>
+  </div>
+{/if}

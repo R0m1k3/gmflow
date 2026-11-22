@@ -12,11 +12,11 @@ export const libelleType: Record<TypeDocument, string> = {
 };
 
 export const libelleEtat: Record<EtatDocument, string> = {
-  a_lire: 'à lire',
-  en_cours: 'lecture en cours',
-  lu: 'lu',
-  ignore: 'ignoré',
-  erreur: 'en erreur'
+  a_lire: 'À lire par Claude',
+  en_cours: 'Lecture en cours',
+  lu: 'Lu',
+  ignore: 'Sans intérêt',
+  erreur: 'Non lu'
 };
 
 export const classeEtat: Record<EtatDocument, string> = {
@@ -35,6 +35,15 @@ export const libelleVoie: Record<Voie, string> = {
   scan: 'Scan (Claude)'
 };
 
+/** Phrase de contexte pour un état de lecture : ce qui s'est passé et ce qu'il faut faire. */
+export const aideEtat: Record<EtatDocument, string> = {
+  a_lire: 'Claude va lire ce document.',
+  en_cours: 'Claude lit ce document, la page se met à jour toute seule.',
+  lu: 'Claude a lu ce document : vérifiez les données.',
+  ignore: 'Ce document a été écarté : ce n’est pas une facture, un avoir ni un bon de livraison.',
+  erreur: 'Claude n’a pas pu lire ce document.'
+};
+
 export const libelleTache: Record<string, string> = {
   extraction_texte: 'Extraction (PDF texte, tableur)',
   ocr_scan: 'Lecture des scans',
@@ -48,12 +57,12 @@ export const libelleTache: Record<string, string> = {
 export const STATUTS_DEPOT: StatutDepot[] = ['a_verifier', 'pret', 'en_envoi', 'depose', 'erreur', 'doublon'];
 
 export const libelleStatutDepot: Record<StatutDepot, string> = {
-  a_verifier: 'à vérifier',
-  pret: 'prêt à déposer',
-  en_envoi: 'envoi en cours',
-  depose: 'déposé',
-  erreur: 'dépôt en erreur',
-  doublon: 'doublon'
+  a_verifier: 'À vérifier',
+  pret: 'Prête à déposer',
+  en_envoi: 'Dépôt en cours',
+  depose: 'Déposée',
+  erreur: 'Refusée par Dext ou Yooz',
+  doublon: 'Déjà déposée'
 };
 
 export const classeStatutDepot: Record<StatutDepot, string> = {

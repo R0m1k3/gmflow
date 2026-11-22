@@ -31,6 +31,7 @@
       jeton = '';
       await chargerEtat();
       suivreEtat();
+      infoAcces = 'Connexion enregistrée, test en cours.';
     } catch (err) {
       erreur = message(err);
     }
@@ -46,9 +47,14 @@
     }
   }
   async function supprimer() {
-    if (!confirm('Supprimer le jeton Claude ?')) return;
-    await api.del('/api/admin/claude/jeton');
-    await chargerEtat();
+    if (!confirm('Supprimer la connexion à Claude ? GMFlow ne pourra plus lire les documents ni trier les mails tant que vous ne vous reconnectez pas.')) return;
+    erreur = '';
+    try {
+      await api.del('/api/admin/claude/jeton');
+      await chargerEtat();
+    } catch (err) {
+      erreur = message(err);
+    }
   }
 
   // Clé API Anthropic : alternative au setup token (facturée à l'usage par Anthropic).
@@ -62,14 +68,14 @@
       await api.put('/api/admin/claude/cle-api', { cle });
       cle = '';
       await chargerEtat();
-      infoAcces = etat?.acces?.mode === 'cle_api' ? 'Clé enregistrée, test en cours.' : 'Clé enregistrée. Choisissez « Clé API » pour l\'utiliser.';
+      infoAcces = etat?.acces?.mode === 'cle_api' ? 'Clé enregistrée, test en cours.' : 'Clé enregistrée. Choisissez « Clé API » dans « Accès utilisé » pour l\'utiliser.';
       if (etat?.etat === 'en_test') suivreEtat();
     } catch (err) {
       erreur = message(err);
     }
   }
   async function supprimerCle() {
-    if (!confirm('Supprimer la clé API ? GMFlow reviendra au setup token.')) return;
+    if (!confirm('Supprimer la clé API ? GMFlow reviendra à la connexion par compte Claude.')) return;
     erreur = '';
     try {
       await api.del('/api/admin/claude/cle-api');
@@ -221,261 +227,390 @@
   }
 
   const libelles: Record<string, [string, string]> = {
-    valide: ['valide', 'ok'],
-    erreur: ['en erreur', 'ko'],
-    absent: ['aucun jeton', ''],
-    en_test: ['test en cours…', 'att']
+    valide: ['Connectée', 'ok'],
+    erreur: ['En erreur', 'ko'],
+    absent: ['Non connectée', 'ko'],
+    en_test: ['Test en cours', 'att']
   };
   const etapes: Record<string, string> = {
-    demarrage: 'Démarrage de Claude CLI…',
-    attente_code: 'Ouvrez le lien, connectez-vous, puis collez le code obtenu.',
-    code_recu: 'Code envoyé, en attente du jeton…',
-    terminee: 'Jeton enregistré. Test en cours.',
-    erreur: 'La séance a échoué.',
-    expiree: 'Aucun code reçu à temps : relancez la séance.'
+    demarrage: 'Préparation de la connexion…',
+    attente_code: 'Ouvrez la page Claude, connectez-vous, puis collez ici le code affiché.',
+    code_recu: 'Code envoyé, en attente de la réponse de Claude…',
+    terminee: 'Connexion enregistrée. Test en cours.',
+    erreur: 'La connexion a échoué.',
+    expiree: 'Aucun code reçu à temps : recommencez la connexion.'
   };
+  let enCours = $derived(!!seance && !finals.includes(seance.etat));
+  // Étape active du parcours : 1 lancer, 2 ouvrir la page Claude, 3 coller le code.
+  let etapeActive = $derived(!enCours ? 1 : seance?.etat === 'attente_code' || seance?.etat === 'code_recu' ? (codeEnvoye || seance?.etat === 'code_recu' ? 4 : 2) : 1);
 </script>
 
-<h1>Claude</h1>
+<div class="entete">
+  <div>
+    <h1>Connexion à Claude</h1>
+    <p class="sous">Claude est l'assistant qui lit les factures et bons de livraison et trie les mails. Cette page le relie à votre compte.</p>
+  </div>
+</div>
 {#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
 
+<!-- 1. État de la connexion -->
+<div class="section premiere">
+  <div class="titre"><h2>1. État de la connexion</h2></div>
+</div>
 {#if etat}
   {@const [texte, classe] = libelles[etat.etat] ?? [etat.etat, '']}
+  {#if etat.etat === 'absent'}
+    <div class="bandeau attention">Claude n'est pas connecté : aucun document n'est lu et aucun mail n'est trié. Suivez les étapes de la section 2.</div>
+  {:else if etat.etat === 'erreur'}
+    <div class="bandeau erreur">Claude refuse la connexion{etat.message ? ` : ${etat.message}` : ''}. Cliquez sur « Tester la connexion » ; si l'erreur revient, reconnectez-vous (section 2).</div>
+  {:else if etat.etat === 'en_test'}
+    <div class="bandeau info" aria-live="polite">Vérification de la connexion en cours, quelques secondes.</div>
+  {/if}
   <div class="carte">
-    <div class="actions">
-      <span>
-        {etat.acces?.mode === 'cle_api' ? 'Clé API' : 'Setup token'} :
-        <span class="etiquette {classe}">{etat.etat === 'absent' && etat.acces?.mode === 'cle_api' ? 'aucune clé' : texte}</span>
-      </span>
-      {#if etat.acces?.mode === 'cle_api'}
-        {#if etat.acces.cle_api_fin}<span class="discret">se termine par …{etat.acces.cle_api_fin}</span>{/if}
-      {:else if etat.fin}<span class="discret">se termine par …{etat.fin}</span>{/if}
-      <span class="discret">testé {quand(etat.teste_le)}</span>
-      <span class="discret">dernière utilisation {quand(etat.utilise_le)}</span>
-      <span style="flex:1"></span>
-      {#if etat.etat !== 'absent'}
-        <button class="second" onclick={tester}>Tester</button>
-      {/if}
-      {#if etat.acces?.jeton ?? etat.etat !== 'absent'}
-        <button class="danger" onclick={supprimer}>Supprimer le jeton</button>
-      {/if}
-    </div>
-    {#if etat.etat === 'erreur' && etat.message}<p class="discret">{etat.message}</p>{/if}
+    <dl class="kv">
+      <dt>Connexion</dt>
+      <dd>
+        <span class="etiquette {classe}">{etat.etat === 'absent' && etat.acces?.mode === 'cle_api' ? 'Aucune clé' : texte}</span>
+      </dd>
+      <dt>Type d'accès</dt>
+      <dd>
+        {etat.acces?.mode === 'cle_api' ? 'Clé API Anthropic (facturée à l\'usage)' : 'Compte Claude (abonnement)'}
+        {#if etat.acces?.mode === 'cle_api'}
+          {#if etat.acces.cle_api_fin}<span class="discret"> · clé se terminant par …{etat.acces.cle_api_fin}</span>{/if}
+        {:else if etat.fin}<span class="discret"> · se termine par …{etat.fin}</span>{/if}
+      </dd>
+      <dt>Dernier test</dt>
+      <dd>{quand(etat.teste_le)}</dd>
+      <dt>Dernière utilisation</dt>
+      <dd>{quand(etat.utilise_le)}</dd>
+    </dl>
+    {#if etat.etat !== 'absent' || (etat.acces?.jeton ?? false)}
+      <div class="actions rangee">
+        {#if etat.etat !== 'absent'}<button class="second" onclick={tester} disabled={etat.etat === 'en_test'}>Tester la connexion</button>{/if}
+        {#if etat.acces?.jeton ?? etat.etat !== 'absent'}<button class="danger" onclick={supprimer}>Supprimer la connexion</button>{/if}
+      </div>
+    {/if}
   </div>
+{:else if !erreur}
+  <div class="charge" aria-busy="true"><span></span></div>
 {/if}
 
-<h2>Générer un jeton depuis GMFlow</h2>
-<div class="carte">
-  <p class="discret">Lance <code>claude setup-token</code> sur le serveur. Il faut un abonnement Claude.</p>
-  {#if seance && !finals.includes(seance.etat)}
-    <p>{etapes[seance.etat]}</p>
-    {#if seance.url}
-      <p><a href={seance.url} target="_blank" rel="noopener noreferrer">Ouvrir la page de connexion Claude</a></p>
-      {#if seance.etat === 'attente_code' && !codeEnvoye}
-        <form class="actions" onsubmit={envoyerCode}>
-          <input bind:value={code} placeholder="Code de connexion" required autocomplete="off" style="max-width:360px" />
+<!-- 2. Se connecter -->
+<div class="section">
+  <div class="titre"><h2>2. Se connecter</h2></div>
+</div>
+<p class="gris">Il faut un abonnement Claude. GMFlow vous guide en trois étapes, sans rien installer. <span class="discret">(Technique : cela lance la commande <code>claude setup-token</code> sur le serveur.)</span></p>
+
+<ol class="etapes">
+  <li class:fait={etapeActive > 1} class:actuelle={etapeActive === 1}>
+    <div class="num">1</div>
+    <div class="contenu">
+      <strong>Lancer la connexion</strong>
+      {#if !enCours}
+        {#if seance}
+          {#if seance.message === 'annulée'}
+            <p class="discret">Connexion annulée.</p>
+          {:else}
+            <div class="bandeau {seance.etat === 'terminee' ? 'ok' : 'erreur'}">{etapes[seance.etat]}{seance.message ? ` ${seance.message}` : ''}{seance.etat === 'terminee' ? '' : ' Vous pouvez recommencer.'}</div>
+          {/if}
+        {/if}
+        <p class="aide">GMFlow prépare un lien de connexion personnel.</p>
+        <button onclick={lancer}>Lancer la connexion</button>
+      {:else if seance?.etat === 'demarrage'}
+        <p class="discret" aria-live="polite">{etapes.demarrage}</p>
+      {:else}
+        <p class="discret">Lien prêt.</p>
+      {/if}
+    </div>
+  </li>
+  <li class:fait={etapeActive > 2} class:actuelle={etapeActive === 2} class:attente={etapeActive < 2}>
+    <div class="num">2</div>
+    <div class="contenu">
+      <strong>Se connecter sur le site de Claude</strong>
+      {#if enCours && seance?.url}
+        <p class="aide">Le lien s'ouvre dans un nouvel onglet. Connectez-vous avec votre compte Claude, autorisez l'accès, puis copiez le code affiché.</p>
+        <a class="bouton {etapeActive === 2 ? '' : 'second'}" href={seance.url} target="_blank" rel="noopener noreferrer">Ouvrir la page de connexion Claude</a>
+      {:else}
+        <p class="aide">Disponible après l'étape 1.</p>
+      {/if}
+    </div>
+  </li>
+  <li class:fait={etapeActive > 3} class:actuelle={etapeActive === 3 || (etapeActive === 2 && enCours && !!seance?.url)} class:attente={etapeActive < 2}>
+    <div class="num">3</div>
+    <div class="contenu">
+      <strong>Coller le code ici</strong>
+      {#if enCours && seance?.etat === 'attente_code' && !codeEnvoye}
+        <form class="rangee-champ" onsubmit={envoyerCode}>
+          <div>
+            <label for="code">Code de connexion</label>
+            <input id="code" bind:value={code} required autocomplete="off" />
+          </div>
           <button>Envoyer le code</button>
         </form>
-      {/if}
-    {/if}
-    <p><button class="second" onclick={annuler}>Annuler la séance</button></p>
-  {:else}
-    {#if seance}
-      {#if seance.message === 'annulée'}
-        <p class="discret">Séance annulée.</p>
+        <p class="aide">Un code refusé se corrige ici : recollez-le en entier, sans espace avant ni après.</p>
+      {:else if enCours && (codeEnvoye || seance?.etat === 'code_recu')}
+        <p class="discret" aria-live="polite">{etapes.code_recu}</p>
       {:else}
-        <div class="bandeau {seance.etat === 'terminee' ? 'ok' : 'erreur'}">{etapes[seance.etat]}{seance.message ? ` ${seance.message}` : ''}</div>
+        <p class="aide">Disponible après l'étape 2.</p>
       {/if}
-    {/if}
-    <button onclick={lancer}>Lancer la séance</button>
-  {/if}
-</div>
-
-<h2>Ou coller un jeton</h2>
-<form class="carte actions" onsubmit={coller}>
-  <input type="password" bind:value={jeton} placeholder="sk-ant-oat01-…" required autocomplete="off" style="max-width:420px" />
-  <button>Enregistrer et tester</button>
-  <span class="discret">Généré ailleurs avec <code>claude setup-token</code>. Il n'est plus jamais affiché ensuite.</span>
-</form>
-
-<h2>Ou utiliser une clé API Anthropic</h2>
-<div class="carte">
-  {#if infoAcces}<div class="bandeau ok">{infoAcces}</div>{/if}
-  <p class="discret">
-    Alternative au setup token : une clé de la console Anthropic, facturée à l'usage. GMFlow utilise l'une ou l'autre, jamais les deux.
-  </p>
-  {#if etat?.acces}
-    <div class="actions">
-      <span>Accès utilisé :</span>
-      <label class="choix"><input type="radio" name="acces" checked={etat.acces.mode === 'jeton'} onchange={() => choisirAcces('jeton')} /> setup token</label>
-      <label class="choix">
-        <input type="radio" name="acces" checked={etat.acces.mode === 'cle_api'} disabled={!etat.acces.cle_api} onchange={() => choisirAcces('cle_api')} />
-        clé API{etat.acces.cle_api ? ` (…${etat.acces.cle_api_fin ?? ''})` : ' (aucune)'}
-      </label>
-      <span style="flex:1"></span>
-      {#if etat.acces.cle_api}<button class="danger" onclick={supprimerCle}>Supprimer la clé</button>{/if}
     </div>
-  {/if}
-  <form class="actions" style="margin-top:0.8rem" onsubmit={enregistrerCle}>
-    <input type="password" bind:value={cle} placeholder="sk-ant-api03-…" required autocomplete="off" style="max-width:420px" />
-    <button>{etat?.acces?.cle_api ? 'Remplacer la clé' : 'Enregistrer la clé'}</button>
-    <span class="discret">Elle n'est plus jamais affichée ensuite.</span>
-  </form>
-</div>
-
-<h2>Lecture des documents</h2>
-{#if vue && reglages}
-  <form class="carte" onsubmit={enregistrerReglages}>
-    {#if infoReglages}<div class="bandeau ok">{infoReglages}</div>{/if}
-    <table class="reglages">
-      <thead><tr><th>Tâche</th><th>Modèle</th><th>Effort</th></tr></thead>
-      <tbody>
-        {#each taches as t (t)}
-          <tr>
-            <td>{libelleTache[t]}</td>
-            <td>
-              <select bind:value={reglages[t].modele} aria-label="Modèle : {libelleTache[t]}">
-                {#each vue.modeles as m (m)}<option value={m}>{m}</option>{/each}
-              </select>
-            </td>
-            <td>
-              <select bind:value={reglages[t].effort} aria-label="Effort : {libelleTache[t]}">
-                {#each vue.efforts as ef (ef)}<option value={ef}>{ef}</option>{/each}
-              </select>
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-    <div class="champs">
-      <div>
-        <label for="quota">Appels de lecture par jour (au plus)</label>
-        <input id="quota" type="number" min="0" bind:value={reglages.quota_lecture_jour} />
-        <div class="discret">{vue.appels_lecture_du_jour} aujourd'hui. Au-delà, les documents attendent le lendemain.</div>
-      </div>
-      <div class="case">
-        <label><input type="checkbox" bind:checked={reglages.lecture_auto} /> Lecture automatique des nouvelles pièces jointes</label>
-        <div class="discret">Coupée, rien n'est lu, même sans Claude. « Relire » sur un document marche toujours.</div>
-      </div>
-    </div>
-    <button>Enregistrer</button>
-  </form>
+  </li>
+</ol>
+{#if enCours}
+  <div class="actions annuler"><button class="second" onclick={annuler}>Annuler la connexion</button></div>
 {/if}
 
-<h2>Tri des mails et réponses</h2>
-{#if vue && reglages}
-  <form class="carte" onsubmit={enregistrerReglages}>
-    <table class="reglages">
-      <thead><tr><th>Tâche</th><th>Modèle</th><th>Effort</th></tr></thead>
-      <tbody>
-        {#each tachesTri as t (t)}
-          <tr>
-            <td>{libelleTache[t]}</td>
-            <td>
-              <select bind:value={reglages[t].modele} aria-label="Modèle : {libelleTache[t]}">
-                {#each vue.modeles as m (m)}<option value={m}>{m}</option>{/each}
-              </select>
-            </td>
-            <td>
-              <select bind:value={reglages[t].effort} aria-label="Effort : {libelleTache[t]}">
-                {#each vue.efforts as ef (ef)}<option value={ef}>{ef}</option>{/each}
-              </select>
-            </td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-    <div class="champs">
+<details class="repli">
+  <summary>Autres façons de se connecter</summary>
+
+  <h3>Coller un jeton déjà généré</h3>
+  <form class="carte" onsubmit={coller}>
+    <p class="aide intro">Si vous avez déjà créé un jeton (setup-token) sur un autre ordinateur avec la commande <code>claude setup-token</code>. Il n'est plus jamais affiché ensuite.</p>
+    <div class="rangee-champ">
       <div>
-        <label for="qtri">Appels de tri par jour (au plus)</label>
-        <input id="qtri" type="number" min="0" bind:value={reglages.quota_tri_jour} />
-        <div class="discret">
-          {vue.appels_tri_du_jour} aujourd'hui. Les mails reconnus par les en-têtes (listes, no-reply, expéditeurs marqués) ne coûtent rien.
+        <label for="jeton">Jeton</label>
+        <input id="jeton" type="password" bind:value={jeton} placeholder="sk-ant-oat01-…" required autocomplete="off" />
+      </div>
+      <button>Enregistrer et tester</button>
+    </div>
+  </form>
+
+  <h3>Utiliser une clé API Anthropic</h3>
+  <div class="carte">
+    {#if infoAcces}<div class="bandeau ok">{infoAcces}</div>{/if}
+    <p class="aide intro">
+      Une clé créée sur la console Anthropic (console.anthropic.com), facturée à l'usage au lieu de l'abonnement. GMFlow utilise l'un ou l'autre accès, jamais les deux.
+    </p>
+    {#if etat?.acces}
+      <fieldset>
+        <legend>Accès utilisé</legend>
+        <label class="case"><input type="radio" name="acces" checked={etat.acces.mode === 'jeton'} onchange={() => choisirAcces('jeton')} /> Compte Claude (abonnement)</label>
+        <label class="case">
+          <input type="radio" name="acces" checked={etat.acces.mode === 'cle_api'} disabled={!etat.acces.cle_api} onchange={() => choisirAcces('cle_api')} />
+          Clé API{etat.acces.cle_api ? ` (…${etat.acces.cle_api_fin ?? ''})` : ' (aucune enregistrée)'}
+        </label>
+      </fieldset>
+    {/if}
+    <form onsubmit={enregistrerCle}>
+      <div class="rangee-champ">
+        <div>
+          <label for="cle">Clé API</label>
+          <input id="cle" type="password" bind:value={cle} placeholder="sk-ant-api03-…" required autocomplete="off" />
+        </div>
+        <button>{etat?.acces?.cle_api ? 'Remplacer la clé' : 'Enregistrer la clé'}</button>
+        {#if etat?.acces?.cle_api}<button type="button" class="danger" onclick={supprimerCle}>Supprimer la clé</button>{/if}
+      </div>
+      <p class="aide">Elle n'est plus jamais affichée ensuite.</p>
+    </form>
+  </div>
+</details>
+
+<!-- 3. Réglages avancés -->
+<div class="section">
+  <div class="titre"><h2>3. Réglages avancés</h2></div>
+</div>
+<p class="gris">Les réglages par défaut conviennent. À ouvrir seulement pour régler la précision, la vitesse ou la limite de lectures par jour.</p>
+
+<details class="repli">
+  <summary>Lecture des documents</summary>
+  <p class="aide intro">Comment Claude lit les factures, avoirs et bons de livraison joints aux mails.</p>
+  {#if vue && reglages}
+    <form class="carte" onsubmit={enregistrerReglages}>
+      {#if infoReglages}<div class="bandeau ok">{infoReglages}</div>{/if}
+      <table class="reglages">
+        <thead><tr><th>Tâche</th><th>Modèle</th><th>Effort de réflexion</th></tr></thead>
+        <tbody>
+          {#each taches as t (t)}
+            <tr>
+              <td>{libelleTache[t]}</td>
+              <td>
+                <select bind:value={reglages[t].modele} aria-label="Modèle : {libelleTache[t]}">
+                  {#each vue.modeles as m (m)}<option value={m}>{m}</option>{/each}
+                </select>
+              </td>
+              <td>
+                <select bind:value={reglages[t].effort} aria-label="Effort : {libelleTache[t]}">
+                  {#each vue.efforts as ef (ef)}<option value={ef}>{ef}</option>{/each}
+                </select>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+      <p class="aide">Modèle : un modèle plus puissant lit mieux mais plus lentement. Effort : le temps de réflexion de Claude ; plus il est élevé, plus la lecture est soignée.</p>
+      <div class="champs haut">
+        <div>
+          <label for="quota">Limite de lectures par jour</label>
+          <input id="quota" type="number" min="0" bind:value={reglages.quota_lecture_jour} />
+          <p class="aide"><span class="nombre">{vue.appels_lecture_du_jour}</span> lectures aujourd'hui. Au-delà, les documents attendent le lendemain.</p>
+        </div>
+        <div>
+          <label class="case"><input type="checkbox" bind:checked={reglages.lecture_auto} /> Lire automatiquement les nouvelles pièces jointes</label>
+          <p class="aide">Décoché, rien n'est lu tout seul. Le bouton « Relire » d'un document fonctionne toujours.</p>
         </div>
       </div>
-      <div>
-        <label for="dtri">Trier les mails reçus depuis (jours)</label>
-        <input id="dtri" type="number" min="1" max="365" bind:value={reglages.tri_depuis_jours} />
-        <div class="discret">Les mails plus anciens restent non triés.</div>
-      </div>
-      <div class="case">
-        <label><input type="checkbox" bind:checked={reglages.tri_auto} /> Tri automatique des nouveaux mails</label>
-        <div class="discret">Les brouillons ne sont jamais automatiques : ils se demandent mail par mail.</div>
-      </div>
-    </div>
-    <button>Enregistrer</button>
-  </form>
-{/if}
-
-<h3>Expéditeurs toujours classés en publicité</h3>
-<p class="discret">Ajoutés depuis la fiche d'un mail (« Toujours publicité »). Leurs mails sont classés sans appel à Claude et supprimés après 90 jours.</p>
-<table>
-  <thead><tr><th>Adresse ou domaine</th><th>Ajouté</th><th></th></tr></thead>
-  <tbody>
-    {#each marques as m (m.id)}
-      <tr>
-        <td>{m.domaine ? `tout le domaine ${m.domaine}` : m.adresse}</td>
-        <td class="discret">{quand(m.cree_le)}{m.cree_par ? ` par ${m.cree_par}` : ''}</td>
-        <td><button class="second" onclick={() => retirerMarque(m)}>Retirer</button></td>
-      </tr>
-    {:else}
-      <tr><td colspan="3" class="discret">Aucun expéditeur marqué.</td></tr>
-    {/each}
-  </tbody>
-</table>
-
-<h2>Appels à Claude</h2>
-{#if appels}
-  {#if appels.stats.length}
-    <table class="stats">
-      <thead><tr><th>Sur 30 jours</th><th>Modèle</th><th>Appels</th><th>Réussis</th><th>Durée moyenne</th></tr></thead>
-      <tbody>
-        {#each appels.stats as s (s.tache + s.modele)}
-          <tr>
-            <td>{libelleTache[s.tache] ?? s.tache}</td>
-            <td>{s.modele}</td>
-            <td class="nombre">{s.n}</td>
-            <td class="nombre">{s.reussis} ({Math.round((100 * s.reussis) / Math.max(1, s.n))} %)</td>
-            <td class="nombre">{duree(s.duree_moyenne_ms)}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
+      <div class="actions"><button>Enregistrer</button></div>
+    </form>
+  {:else}
+    <div class="charge" aria-busy="true"><span></span></div>
   {/if}
-  <table>
-    <thead><tr><th>Quand</th><th>Tâche</th><th>Modèle</th><th>Durée</th><th>Résultat</th></tr></thead>
-    <tbody>
-      {#each appels.elements as a, i (i)}
-        <tr>
-          <td class="date">{quand(a.quand)}</td>
-          <td>{libelleTache[a.tache] ?? a.tache}</td>
-          <td>{a.modele}{a.effort ? `, ${a.effort}` : ''}</td>
-          <td class="nombre">{duree(a.duree_ms)}</td>
-          <td>
-            <span class="etiquette {a.succes ? 'ok' : 'ko'}">{a.succes ? 'réussi' : 'échec'}</span>
-            {#if a.message}<span class="discret">{a.message}</span>{/if}
-          </td>
-        </tr>
-      {:else}
-        <tr><td colspan="5" class="discret">Aucun appel.</td></tr>
+</details>
+
+<details class="repli">
+  <summary>Tri des mails et réponses</summary>
+  <p class="aide intro">Comment Claude classe les mails reçus (question, information, publicité) et rédige les brouillons de réponse.</p>
+  {#if vue && reglages}
+    <form class="carte" onsubmit={enregistrerReglages}>
+      {#if infoReglages}<div class="bandeau ok">{infoReglages}</div>{/if}
+      <table class="reglages">
+        <thead><tr><th>Tâche</th><th>Modèle</th><th>Effort de réflexion</th></tr></thead>
+        <tbody>
+          {#each tachesTri as t (t)}
+            <tr>
+              <td>{libelleTache[t]}</td>
+              <td>
+                <select bind:value={reglages[t].modele} aria-label="Modèle : {libelleTache[t]}">
+                  {#each vue.modeles as m (m)}<option value={m}>{m}</option>{/each}
+                </select>
+              </td>
+              <td>
+                <select bind:value={reglages[t].effort} aria-label="Effort : {libelleTache[t]}">
+                  {#each vue.efforts as ef (ef)}<option value={ef}>{ef}</option>{/each}
+                </select>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+      <div class="champs haut">
+        <div>
+          <label for="qtri">Limite de tris par jour</label>
+          <input id="qtri" type="number" min="0" bind:value={reglages.quota_tri_jour} />
+          <p class="aide"><span class="nombre">{vue.appels_tri_du_jour}</span> tris aujourd'hui. Les mails reconnus d'avance (listes de diffusion, no-reply, expéditeurs marqués) ne comptent pas.</p>
+        </div>
+        <div>
+          <label for="dtri">Trier les mails reçus depuis (jours)</label>
+          <input id="dtri" type="number" min="1" max="365" bind:value={reglages.tri_depuis_jours} />
+          <p class="aide">Les mails plus anciens restent non triés.</p>
+        </div>
+        <div>
+          <label class="case"><input type="checkbox" bind:checked={reglages.tri_auto} /> Trier automatiquement les nouveaux mails</label>
+          <p class="aide">Les brouillons ne sont jamais automatiques : ils se demandent mail par mail.</p>
+        </div>
+      </div>
+      <div class="actions"><button>Enregistrer</button></div>
+    </form>
+  {:else}
+    <div class="charge" aria-busy="true"><span></span></div>
+  {/if}
+</details>
+
+<details class="repli">
+  <summary>Expéditeurs toujours classés en publicité{marques.length ? ` (${marques.length})` : ''}</summary>
+  <p class="aide intro">Ajoutés depuis la fiche d'un mail (« Toujours publicité »). Leurs mails sont classés sans appeler Claude et supprimés après 90 jours.</p>
+  {#if marques.length}
+    <ul class="liste">
+      {#each marques as m (m.id)}
+        <li>
+          <div class="principal">
+            <span>{m.domaine ? `Tout le domaine ${m.domaine}` : m.adresse}</span>
+            <span class="discret">Ajouté {quand(m.cree_le)}{m.cree_par ? ` par ${m.cree_par}` : ''}</span>
+          </div>
+          <div class="droite"><button class="second" onclick={() => retirerMarque(m)}>Retirer</button></div>
+        </li>
       {/each}
-    </tbody>
-  </table>
-  {#if pagesAppels > 1}
-    <div class="pagination">
-      <button class="second" disabled={pageAppels <= 1} onclick={() => allerAppels(pageAppels - 1)}>Précédent</button>
-      <span class="discret">Page {pageAppels} sur {pagesAppels}</span>
-      <button class="second" disabled={pageAppels >= pagesAppels} onclick={() => allerAppels(pageAppels + 1)}>Suivant</button>
-    </div>
+    </ul>
+  {:else}
+    <div class="vide"><strong>Aucun expéditeur marqué</strong><p>Utilisez « Toujours publicité » sur un mail pour en ajouter un.</p></div>
   {/if}
-{/if}
+</details>
+
+<details class="repli">
+  <summary>Historique des appels à Claude</summary>
+  <p class="aide intro">Chaque lecture, tri ou brouillon demandé à Claude, avec sa durée et son résultat. Utile pour comprendre une lecture ratée.</p>
+  {#if appels}
+    {#if appels.stats.length}
+      <table class="stats">
+        <thead><tr><th>Sur 30 jours</th><th>Modèle</th><th class="nombre">Appels</th><th class="nombre">Réussis</th><th class="nombre">Durée moyenne</th></tr></thead>
+        <tbody>
+          {#each appels.stats as s (s.tache + s.modele)}
+            <tr>
+              <td>{libelleTache[s.tache] ?? s.tache}</td>
+              <td>{s.modele}</td>
+              <td class="nombre">{s.n}</td>
+              <td class="nombre">{s.reussis} ({Math.round((100 * s.reussis) / Math.max(1, s.n))} %)</td>
+              <td class="nombre">{duree(s.duree_moyenne_ms)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {/if}
+    {#if appels.elements.length}
+      <table>
+        <thead><tr><th>Quand</th><th>Tâche</th><th>Modèle</th><th class="nombre">Durée</th><th>Résultat</th></tr></thead>
+        <tbody>
+          {#each appels.elements as a, i (i)}
+            <tr>
+              <td class="date">{quand(a.quand)}</td>
+              <td>{libelleTache[a.tache] ?? a.tache}</td>
+              <td>{a.modele}{a.effort ? `, ${a.effort}` : ''}</td>
+              <td class="nombre">{duree(a.duree_ms)}</td>
+              <td>
+                <span class="etiquette {a.succes ? 'ok' : 'ko'}">{a.succes ? 'Réussi' : 'Échec'}</span>
+                {#if a.message}<span class="discret"> {a.message}</span>{/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {:else}
+      <div class="vide"><strong>Aucun appel pour l'instant</strong><p>Les appels apparaissent dès que Claude lit un document ou trie un mail.</p></div>
+    {/if}
+    {#if pagesAppels > 1}
+      <div class="pagination">
+        <button class="second" disabled={pageAppels <= 1} onclick={() => allerAppels(pageAppels - 1)}>Précédent</button>
+        <span>Page {pageAppels} sur {pagesAppels}</span>
+        <button class="second" disabled={pageAppels >= pagesAppels} onclick={() => allerAppels(pageAppels + 1)}>Suivant</button>
+      </div>
+    {/if}
+  {:else}
+    <div class="charge" aria-busy="true"><span></span></div>
+  {/if}
+</details>
 
 <style>
-  .reglages { margin-bottom: 1rem; }
-  .reglages select { max-width: 12rem; }
-  .stats { margin-bottom: 0.8rem; }
-  .choix { display: flex; gap: 0.3rem; align-items: center; color: var(--encre); font-size: 1rem; margin: 0; }
-  .choix input { width: auto; }
-  h3 { font-size: 0.98rem; margin: 1.3rem 0 0.4rem; font-weight: 650; }
-  .case label { display: flex; gap: 0.4rem; align-items: center; color: var(--encre); font-size: 1rem; margin-top: 1.4rem; }
+  .premiere { margin-top: 0; }
+  .rangee { margin-top: var(--e4); }
+  .intro { margin: 0 0 var(--e3); max-width: 70ch; }
+  .haut { align-items: start; }
+  .reglages { margin-bottom: var(--e3); }
+  .reglages select { max-width: 14rem; }
+  .stats { margin-bottom: var(--e4); }
+
+  .etapes { list-style: none; margin: var(--e4) 0 var(--e3); padding: 0; display: grid; gap: var(--e3); }
+  .etapes > li { display: flex; gap: var(--e4); padding: var(--e4); background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); }
+  .etapes > li.actuelle { border-color: var(--accent); }
+  .etapes > li.attente { background: transparent; }
+  .etapes .num { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--trait-fort); display: grid; place-items: center; font-family: var(--serif); font-weight: 600; color: var(--gris); }
+  .etapes > li.actuelle .num { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .etapes > li.fait .num { background: var(--ok-clair); border-color: var(--ok-trait); color: var(--ok); }
+  .etapes .contenu { flex: 1; min-width: 0; }
+  .etapes .contenu > strong { display: block; margin-bottom: var(--e1); }
+  .etapes .contenu > :last-child { margin-bottom: 0; }
+  .rangee-champ { display: flex; gap: var(--e3); align-items: flex-end; flex-wrap: wrap; }
+  .rangee-champ > div { flex: 1; min-width: 220px; max-width: 420px; }
+  .annuler { margin-bottom: var(--e4); }
+
+  .repli { background: var(--surface); border: 1px solid var(--trait); border-radius: var(--rayon); margin-top: var(--e3); }
+  .repli > summary { cursor: pointer; display: flex; align-items: center; min-height: var(--cible); padding: var(--e1) var(--e4); font-weight: 500; list-style: none; }
+  .repli > summary::-webkit-details-marker { display: none; }
+  .repli > summary::after { content: 'Afficher'; margin-left: auto; font-size: var(--t-petit); font-weight: 400; color: var(--gris); }
+  .repli[open] > summary::after { content: 'Masquer'; }
+  .repli > summary:hover { background: var(--creux); }
+  .repli[open] > summary { border-bottom: 1px solid var(--trait); }
+  .repli > :not(summary) { margin-left: var(--e4); margin-right: var(--e4); }
+  .repli > :last-child { margin-bottom: var(--e4); }
+  .repli > .intro { margin-top: var(--e3); }
+  .repli > h3:first-of-type { margin-top: var(--e4); }
+  @media (max-width: 760px) { .rangee-champ > button { flex: 1 1 100%; } .etapes > li { padding: var(--e3); gap: var(--e3); } }
 </style>

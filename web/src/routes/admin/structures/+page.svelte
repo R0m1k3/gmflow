@@ -8,12 +8,18 @@
   let liste = $state<Societe[]>([]);
   let f = $state<Form | null>(null);
   let erreur = $state('');
+  let info = $state('');
+  let chargement = $state(true);
 
   async function charger() {
     liste = await api.get<Societe[]>('/api/admin/societes');
+    chargement = false;
   }
   $effect(() => {
-    charger().catch((e) => (erreur = message(e)));
+    charger().catch((e) => {
+      chargement = false;
+      erreur = message(e);
+    });
   });
 
   function editer(s: Societe) {
@@ -24,6 +30,7 @@
     e.preventDefault();
     if (!f) return;
     erreur = '';
+    info = '';
     const corps = {
       raison_sociale: f.raison_sociale,
       siret: f.siret,
@@ -37,6 +44,7 @@
     try {
       if (f.id) await api.put(`/api/admin/societes/${f.id}`, corps);
       else await api.post('/api/admin/societes', corps);
+      info = `Société « ${f.raison_sociale} » enregistrée.`;
       f = null;
       await charger();
     } catch (err) {
@@ -45,46 +53,101 @@
   }
 </script>
 
-<h1>Structures</h1>
-{#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
+<div class="entete">
+  <div>
+    <h1>Sociétés</h1>
+    <p class="sous">Les sociétés du groupe, chacune avec sa boîte mail et son adresse de dépôt Dext ou Yooz.</p>
+  </div>
+  {#if !f}<div class="actions"><button onclick={() => (f = vide())}>Ajouter une société</button></div>{/if}
+</div>
+{#if erreur}<div class="bandeau erreur">{erreur} <button class="discret" onclick={() => { erreur = ''; chargement = true; charger().catch((e) => (erreur = message(e))).finally(() => (chargement = false)); }}>Réessayer</button></div>{/if}
+{#if info}<div class="bandeau ok">{info}</div>{/if}
 
 {#if f}
-  <form class="carte" onsubmit={enregistrer}>
-    <h2>{f.id ? 'Modifier la structure' : 'Nouvelle structure'}</h2>
-    <div class="champs">
-      <div><label for="rs">Raison sociale</label><input id="rs" bind:value={f.raison_sociale} required /></div>
-      <div><label for="siret">SIRET</label><input id="siret" bind:value={f.siret} /></div>
-      <div><label for="tva">N° TVA</label><input id="tva" bind:value={f.tva} /></div>
-      <div>
-        <label for="outil">Outil de dépôt</label>
-        <select id="outil" bind:value={f.outil_depot}><option value="">Aucun</option><option value="dext">Dext</option><option value="yooz">Yooz</option></select>
+  <form class="pile" onsubmit={enregistrer}>
+    <h2 class="sans-marge">{f.id ? `Modifier « ${f.raison_sociale || 'société'} »` : 'Nouvelle société'}</h2>
+
+    <fieldset>
+      <legend>Identité</legend>
+      <div class="champs">
+        <div>
+          <label for="rs">Raison sociale</label>
+          <input id="rs" bind:value={f.raison_sociale} required />
+          <p class="aide">Le nom affiché partout dans GMFlow.</p>
+        </div>
+        <div>
+          <label for="siret">SIRET</label>
+          <input id="siret" bind:value={f.siret} inputmode="numeric" placeholder="14 chiffres" />
+          <p class="aide">Facultatif. Aide à reconnaître les factures adressées à cette société.</p>
+        </div>
+        <div>
+          <label for="tva">N° de TVA</label>
+          <input id="tva" bind:value={f.tva} placeholder="FR12345678901" />
+          <p class="aide">Facultatif. Même usage que le SIRET.</p>
+        </div>
       </div>
-      <div><label for="ad">Adresse de dépôt</label><input id="ad" type="email" bind:value={f.adresse_depot} /></div>
-    </div>
-    <p><label for="adr">Adresses (une par ligne)</label><textarea id="adr" rows="3" bind:value={f.adresses}></textarea></p>
-    <p>
-      <label><input type="checkbox" bind:checked={f.depot_auto} /> Dépôt automatique : les factures qui passent tous les contrôles partent seules</label>
-      <span class="discret">Sinon, chaque facture attend « Valider et déposer ».</span>
-    </p>
-    <p><label><input type="checkbox" bind:checked={f.archivee} /> Archivée</label></p>
+      <label for="adr">Adresses de la société</label>
+      <textarea id="adr" rows="3" bind:value={f.adresses}></textarea>
+      <p class="aide">Une adresse par ligne, telle qu'elle figure sur les factures reçues. Sert à vérifier que la facture est bien pour cette société.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Dépôt des factures</legend>
+      <div class="champs">
+        <div>
+          <label for="outil">Outil de dépôt</label>
+          <select id="outil" bind:value={f.outil_depot}><option value="">Aucun</option><option value="dext">Dext</option><option value="yooz">Yooz</option></select>
+          <p class="aide">Le logiciel de comptabilité qui reçoit les factures par mail.</p>
+        </div>
+        <div>
+          <label for="ad">Adresse de dépôt</label>
+          <input id="ad" type="email" bind:value={f.adresse_depot} placeholder="societe@inbox.dext.com" />
+          <p class="aide">L'adresse mail fournie par Dext ou Yooz pour cette société.</p>
+        </div>
+      </div>
+      <label class="case"><input type="checkbox" bind:checked={f.depot_auto} /> Déposer automatiquement les factures sans problème</label>
+      <p class="aide">Activé, les factures qui passent tous les contrôles partent seules. Sinon, chacune attend votre clic sur « Valider et déposer ».</p>
+    </fieldset>
+
+    {#if f.id}
+      <fieldset>
+        <legend>Archivage</legend>
+        <label class="case"><input type="checkbox" bind:checked={f.archivee} /> Société archivée</label>
+        <p class="aide">Une société archivée n'apparaît plus dans les choix (nouvelle boîte mail) mais garde son historique.</p>
+      </fieldset>
+    {/if}
+
     <div class="actions"><button>Enregistrer</button><button type="button" class="second" onclick={() => (f = null)}>Annuler</button></div>
   </form>
+{:else if chargement}
+  <div class="charge" aria-busy="true"><span></span></div>
+{:else if liste.length === 0}
+  <div class="vide">
+    <strong>Aucune société</strong>
+    <p>Commencez par créer la société dont vous voulez suivre les mails. Vous ajouterez ensuite sa boîte mail.</p>
+    <div class="actions"><button onclick={() => (f = vide())}>Créer la première société</button></div>
+  </div>
 {:else}
-  <p><button onclick={() => (f = vide())}>Nouvelle structure</button></p>
+  <ul class="liste">
+    {#each liste as s (s.id)}
+      <li>
+        <div class="principal">
+          <span>{s.raison_sociale}</span>
+          <span class="discret">
+            SIRET {s.siret ?? 'Non renseigné'} ·
+            {s.outil_depot ? `Dépôt ${s.outil_depot === 'dext' ? 'Dext' : s.outil_depot === 'yooz' ? 'Yooz' : s.outil_depot}${s.adresse_depot ? ` : ${s.adresse_depot}` : ''}` : 'Aucun outil de dépôt'}
+          </span>
+        </div>
+        <div class="droite">
+          {#if s.archivee}<span class="etiquette">Archivée</span>{/if}
+          {#if s.outil_depot}<span class="etiquette {s.depot_auto ? 'ok' : ''}">{s.depot_auto ? 'Dépôt automatique' : 'Dépôt à valider'}</span>{/if}
+          <button class="second" onclick={() => editer(s)}>Modifier</button>
+        </div>
+      </li>
+    {/each}
+  </ul>
 {/if}
 
-<table>
-  <thead><tr><th>Raison sociale</th><th>SIRET</th><th>Dépôt</th><th></th></tr></thead>
-  <tbody>
-    {#each liste as s (s.id)}
-      <tr>
-        <td>{s.raison_sociale} {#if s.archivee}<span class="etiquette">archivée</span>{/if}</td>
-        <td class="nombre">{s.siret ?? '—'}</td>
-        <td>{s.outil_depot ? `${s.outil_depot} · ${s.adresse_depot ?? ''}` : '—'}{#if s.depot_auto} <span class="etiquette ok">auto</span>{/if}</td>
-        <td><button class="second" onclick={() => editer(s)}>Modifier</button></td>
-      </tr>
-    {:else}
-      <tr><td colspan="4" class="discret">Aucune structure.</td></tr>
-    {/each}
-  </tbody>
-</table>
+<style>
+  .sans-marge { margin: 0; }
+</style>

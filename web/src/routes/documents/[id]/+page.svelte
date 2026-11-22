@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { api, message, sonder } from '#lib/api.ts';
-  import { libelleMethode, libelleUnite, SEUIL_ECART } from '#lib/documents.ts';
+  import { aideEtat, libelleMethode, libelleUnite, SEUIL_ECART } from '#lib/documents.ts';
   import { classeEtat, classeStatutDepot, libelleEtat, libelleOutil, libelleStatutDepot, libelleType, libelleVoie, TYPES } from '#lib/documents.ts';
   import { dateSimple, montant, quand } from '#lib/format.ts';
   import { session } from '#lib/session.svelte.ts';
@@ -81,7 +81,7 @@
     const ignore = !rap.ignore;
     actionRap(
       () => api.post(`/api/documents/${d!.id}/rapprochement-ignore`, { ignore }),
-      ignore ? 'Document sorti du rapprochement.' : 'Document remis dans le rapprochement.'
+      ignore ? 'Document sorti du rapprochement avec les bons de livraison.' : 'Document remis dans le rapprochement avec les bons de livraison.'
     );
   }
   const quantite = (v: number | null) => (v === null ? '—' : v.toLocaleString('fr-FR'));
@@ -127,7 +127,7 @@
         montant_ttc: nombre(choix.ttc)
       });
       await charger();
-      info = 'Vérification enregistrée, contrôles relancés.';
+      info = 'Document validé, contrôles relancés.';
     } catch (err) {
       erreur = message(err);
     }
@@ -167,7 +167,7 @@
   let corrections = $derived(d ? Object.entries(d.corrections ?? {}) : []);
   const libelleChamp: Record<string, string> = {
     type: 'type',
-    societe_id: 'structure',
+    societe_id: 'société',
     fournisseur_id: 'fournisseur',
     numero: 'numéro',
     date_document: 'date',
@@ -194,267 +194,336 @@
 
   function confiance(c: number | undefined) {
     if (c === undefined) return null;
-    return { texte: `${Math.round(c * 100)} %`, classe: c >= 0.9 ? 'ok' : c >= 0.6 ? 'att' : 'ko' };
+    const pct = `${Math.round(c * 100)} %`;
+    if (c >= 0.9) return { texte: 'Lecture sûre', classe: 'ok', pct };
+    if (c >= 0.6) return { texte: 'À contrôler', classe: 'att', pct };
+    return { texte: 'Peu fiable', classe: 'ko', pct };
   }
+  // Champs que Claude a lus avec moins de certitude : à regarder en premier.
+  let douteux = $derived.by(() => {
+    if (!d) return [] as string[];
+    const noms: [string, number | undefined][] = [
+      ['le type', d.confiance.type],
+      ['la société destinataire', d.confiance.societe],
+      ['le fournisseur', d.confiance.fournisseur],
+      ['le numéro', d.confiance.numero],
+      ['la date', d.confiance.date],
+      ['les montants', d.confiance.montants]
+    ];
+    return noms.filter(([, c]) => c !== undefined && c < 0.9).map(([n]) => n);
+  });
+  let estImage = $derived(!!d && d.type_mime.startsWith('image/'));
+  const aideDepot: Record<string, string> = {
+    a_verifier: 'Validez les données ci-dessus : le dépôt sera alors possible.',
+    pret: 'Tous les contrôles passent : le document peut être déposé.',
+    en_envoi: 'Le dépôt est en cours, cette page se met à jour toute seule.',
+    depose: 'Ce document a été envoyé : il ne peut plus être corrigé.',
+    erreur: 'Dext ou Yooz a refusé le document. Un administrateur peut le déposer à nouveau.',
+    doublon: 'Ce document semble déjà déposé. Seul un administrateur peut le déposer quand même.'
+  };
 </script>
 
-<p><a href="/documents">← Documents</a></p>
+{#snippet conf(c: number | undefined)}
+  {@const cf = confiance(c)}
+  {#if cf}<span class="etiquette {cf.classe}" title="Confiance de la lecture : {cf.pct}">{cf.texte}</span>{/if}
+{/snippet}
+
+<p><a href="/documents">← Tous les documents</a></p>
 {#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
-{#if info}<div class="bandeau ok">{info}</div>{/if}
+{#if info}<div class="bandeau ok" role="status">{info}</div>{/if}
+{#if !d && !erreur}<div class="charge" aria-label="Chargement du document"><span></span></div>{/if}
+{#if !d && erreur}<div class="actions"><a class="bouton second" href="/documents">Revenir à la liste des documents</a></div>{/if}
 
 {#if d}
-  <h1>{d.type ? libelleType[d.type] : 'Document'}{d.numero ? ` n° ${d.numero}` : ''}</h1>
-
-  <div class="carte entete">
+  <div class="entete">
+    <div>
+      <h1>{d.type ? libelleType[d.type] : 'Document'}{d.numero ? ` n° ${d.numero}` : ''}</h1>
+      <p class="sous">
+        {d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non renseigné'} · {dateSimple(d.date_document)} · {montant(d.montant_ttc)} TTC
+      </p>
+    </div>
     <div class="actions">
-      <span class="etiquette {classeEtat[d.etat]}">{libelleEtat[d.etat]}</span>
+      <span class="etiquette {classeEtat[d.etat]}">{d.etat === 'lu' && !d.verifie_le ? 'À vérifier' : d.etat === 'lu' ? 'Vérifié' : libelleEtat[d.etat]}</span>
       {#if d.statut_depot}<span class="etiquette {classeStatutDepot[d.statut_depot]}">{libelleStatutDepot[d.statut_depot]}</span>{/if}
-      {#if d.voie}<span class="discret">lu par : {libelleVoie[d.voie]}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}</span>{/if}
-      {#if d.lu_le}<span class="discret">le {quand(d.lu_le)}</span>{/if}
-      {#if d.copie_de}<span class="discret">repris du <a href="/documents/{d.copie_de}">document {d.copie_de}</a> (même fichier)</span>{/if}
-      <span style="flex:1"></span>
       <a class="bouton second" href="/api/pieces/{d.piece_id}" download>Télécharger le fichier</a>
       {#if session.moi?.role === 'admin' && d.etat !== 'en_cours'}
-        <button class="second" onclick={relire}>Relire</button>
+        <button class="discret" onclick={relire} title="Claude relit le fichier ; la lecture et la vérification actuelles sont remplacées">Relire avec Claude</button>
       {/if}
-    </div>
-    {#if d.message}<p class="discret">{d.message}</p>{/if}
-    <div class="discret">
-      Fichier <strong>{d.nom_fichier}</strong> ({d.type_mime}), joint au mail
-      <a href="/mails/{d.mail_id}">{d.mail_objet || '(sans objet)'}</a> de {d.mail_expediteur || '—'}
     </div>
   </div>
 
-  {#if d.etat === 'lu'}
-    <h2>Ce qui a été lu</h2>
-    <table class="champs-lus">
-      <tbody>
-        {#each [
-          ['Type', d.type ? libelleType[d.type] : '—', d.confiance.type],
-          ['Structure destinataire', d.societe ?? 'aucune reconnue', d.confiance.societe],
-          ['Fournisseur lu', [d.fournisseur_nom, d.fournisseur_siret && `SIRET ${d.fournisseur_siret}`, d.fournisseur_tva && `TVA ${d.fournisseur_tva}`].filter(Boolean).join(' · ') || '—', d.confiance.fournisseur],
-          ['Numéro', d.numero ?? '—', d.confiance.numero],
-          ['Date', dateSimple(d.date_document), d.confiance.date],
-          ['N° de commande', d.numero_commande ?? '—', undefined],
-          ['Montants', `HT ${montant(d.montant_ht)} · TVA ${montant(d.montant_tva)} · TTC ${montant(d.montant_ttc)}`, d.confiance.montants]
-        ] as [string, string, number | undefined][] as [libelle, valeur, c] (libelle)}
-          {@const conf = confiance(c)}
-          <tr>
-            <th>{libelle}</th>
-            <td>{valeur}</td>
-            <td class="conf">{#if conf}<span class="etiquette {conf.classe}" title="Confiance de la lecture">{conf.texte}</span>{/if}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-
-    {#if d.statut_depot}
-      <h2>Dépôt</h2>
-      <div class="carte depot">
-        <div class="actions">
-          <span class="etiquette {classeStatutDepot[d.statut_depot]}">{libelleStatutDepot[d.statut_depot]}</span>
-          <span class="discret">
-            {#if d.societe_adresse_depot}
-              vers {d.societe_outil_depot ? (libelleOutil[d.societe_outil_depot] ?? d.societe_outil_depot) : 'l’outil'} · {d.societe_adresse_depot}
-            {:else}
-              la structure n'a pas d'adresse de dépôt
-            {/if}
-          </span>
-          <span style="flex:1"></span>
-          {#if d.statut_depot === 'a_verifier' || d.statut_depot === 'pret'}
-            <button onclick={() => deposer()}>Valider et déposer</button>
-          {:else if d.statut_depot === 'erreur' && admin}
-            <button onclick={() => deposer()}>Redéposer</button>
-          {:else if d.statut_depot === 'doublon' && admin}
-            <button class="danger" onclick={() => deposer(true)}>Déposer quand même</button>
-          {/if}
-          {#if !fige}<button class="second" onclick={recontroler}>Relancer les contrôles</button>{/if}
-        </div>
-        {#if d.controles.length}
-          <ul class="controles">
-            {#each d.controles as c (c.code)}<li><strong>{c.code}</strong> : {c.message}</li>{/each}
-          </ul>
-        {:else if d.statut_depot === 'pret'}
-          <p class="discret">Tous les contrôles passent.</p>
-        {/if}
-        {#if d.valide_le}
-          <p class="discret">Validé le {quand(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}.</p>
-        {/if}
-        {#if d.fournisseur_id}
-          <p class="discret">
-            Fiche fournisseur : <a href="/fournisseurs?fiche={d.fournisseur_id}">{d.fournisseur}</a>
-            {#if d.fournisseur_statut === 'a_confirmer'}<span class="etiquette att">à confirmer</span>{/if}
-          </p>
-        {/if}
-        {#if d.envois.length}
-          <table>
-            <thead><tr><th>Envoi</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
-            <tbody>
-              {#each d.envois as e (e.id)}
-                <tr>
-                  <td>{quand(e.quand)}</td>
-                  <td>{e.adresse}</td>
-                  <td>
-                    <span class="etiquette {e.etat === 'envoye' ? 'ok' : e.etat === 'erreur' ? 'ko' : 'att'}">{e.etat === 'envoye' ? 'envoyé' : e.etat === 'erreur' ? 'erreur' : 'en cours'}</span>
-                    {#if e.message}<span class="discret">{e.message}</span>{/if}
-                  </td>
-                  <td>{e.auteur ?? 'automatique'}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </div>
-    {/if}
-
-    <h2>Vérification et corrections</h2>
-    <form class="carte" onsubmit={corriger}>
-      {#if d.verifie_le}
-        <p class="discret">
-          Vérifié le {quand(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}.
-          {#if !corrections.length && !d.type_corrige && !d.societe_corrigee}Lecture confirmée sans correction.{/if}
-        </p>
-      {:else}
-        <p class="discret">Confirmez ou corrigez ce qui a été lu. Les corrections servent d'exemples à Claude pour ce fournisseur.</p>
-      {/if}
-      {#if corrections.length}
-        <p class="discret">
-          Corrigé : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{libelleChamp[champ] ?? champ} ({valeur(c.avant)} → {valeur(c.apres)}){/each}
-        </p>
-      {/if}
-      {#if fige}<p class="discret">Document déposé ou en cours d'envoi : plus de correction possible.</p>{/if}
-      <fieldset disabled={fige}>
-        <div class="champs">
-          <div>
-            <label for="vt">Type</label>
-            <select id="vt" bind:value={choix.type} required>
-              {#each TYPES as t (t)}<option value={t}>{libelleType[t]}</option>{/each}
-            </select>
-          </div>
-          <div>
-            <label for="vs">Structure destinataire</label>
-            <select id="vs" bind:value={choix.societe}>
-              <option value="">Aucune</option>
-              {#each societes as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
-            </select>
-          </div>
-          <div>
-            <label for="vf">Fiche fournisseur</label>
-            <select id="vf" bind:value={choix.fournisseur}>
-              <option value="">Aucune</option>
-              {#each fichesProposees as f (f.id)}<option value={String(f.id)}>{f.nom}{f.statut === 'a_confirmer' ? ' (à confirmer)' : ''}</option>{/each}
-            </select>
-          </div>
-          <div>
-            <label for="rf">Chercher une fiche</label>
-            <input id="rf" type="search" placeholder="nom, SIRET, domaine" bind:value={rechercheFiche} oninput={() => chercherFiches().catch(() => {})} />
-          </div>
-          <div><label for="vn">Numéro</label><input id="vn" bind:value={choix.numero} /></div>
-          <div><label for="vd">Date</label><input id="vd" type="date" bind:value={choix.date} /></div>
-          <div><label for="vc">N° de commande</label><input id="vc" bind:value={choix.commande} /></div>
-          <div><label for="vh">Montant HT</label><input id="vh" inputmode="decimal" bind:value={choix.ht} /></div>
-          <div><label for="vtv">TVA</label><input id="vtv" inputmode="decimal" bind:value={choix.tva} /></div>
-          <div><label for="vtt">Montant TTC</label><input id="vtt" inputmode="decimal" bind:value={choix.ttc} /></div>
-        </div>
-        <button disabled={!choix.type}>{d.verifie_le ? 'Enregistrer à nouveau' : 'Valider la lecture'}</button>
-      </fieldset>
-    </form>
+  {#if d.etat === 'erreur'}
+    <div class="bandeau erreur">
+      <strong>{aideEtat.erreur}</strong>
+      {#if d.message}<span class="detail">{d.message}</span>{/if}
+      Téléchargez le fichier pour le traiter à la main{session.moi?.role === 'admin' ? ', ou demandez à Claude de le relire' : ', ou demandez à un administrateur de le faire relire'}.
+    </div>
+  {:else if d.etat === 'a_lire' || d.etat === 'en_cours'}
+    <div class="bandeau info" role="status">{aideEtat[d.etat]}</div>
+  {:else if d.etat === 'ignore'}
+    <div class="bandeau info">{aideEtat.ignore}{#if d.message} <span class="detail">{d.message}</span>{/if}</div>
+  {:else if d.message}
+    <div class="bandeau attention">{d.message}</div>
   {/if}
+
+  <div class="fiche-doc">
+    <div class="apercu">
+      {#if estImage}
+        <img src="/api/pieces/{d.piece_id}" alt="Document {d.nom_fichier}" />
+      {:else if d.texte}
+        <div class="corps-apercu">
+          <p class="discret">Aperçu du fichier indisponible ici : voici le texte qu’il contient.</p>
+          <pre class="corps">{d.texte}</pre>
+        </div>
+      {:else}
+        <div class="corps-apercu">
+          <p><strong>Pas d’aperçu ici</strong></p>
+          <p class="discret">Téléchargez le fichier pour l’ouvrir et le comparer avec les données lues.</p>
+        </div>
+      {/if}
+      <div class="pied-apercu discret">
+        <span>{d.nom_fichier} ({d.type_mime})</span>
+        <span>Joint au mail <a href="/mails/{d.mail_id}">{d.mail_objet || '(sans objet)'}</a> de {d.mail_expediteur || '—'}</span>
+        {#if d.voie}<span>Lu par : {libelleVoie[d.voie]}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}{d.lu_le ? `, le ${quand(d.lu_le)}` : ''}</span>{/if}
+        {#if d.copie_de}<span>Même fichier que le <a href="/documents/{d.copie_de}">document {d.copie_de}</a>, dont la lecture est reprise</span>{/if}
+      </div>
+    </div>
+
+    <div class="pile">
+      {#if d.etat === 'lu'}
+        <form class="carte" onsubmit={corriger}>
+          <h2 class="h-fiche">Données lues par Claude</h2>
+          {#if d.verifie_le}
+            <p class="discret">
+              Vérifié le {quand(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}.
+              {#if !corrections.length && !d.type_corrige && !d.societe_corrigee}Lecture confirmée sans correction.{/if}
+            </p>
+          {:else}
+            <p>Comparez avec le document, corrigez si besoin, puis cliquez sur Valider. Vos corrections servent d’exemples à Claude pour ce fournisseur.</p>
+          {/if}
+          {#if douteux.length && !d.verifie_le}
+            <div class="bandeau attention">Claude est moins sûr de : {douteux.join(', ')}. Regardez ces champs en premier.</div>
+          {/if}
+          {#if corrections.length}
+            <p class="discret">
+              Corrigé : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{libelleChamp[champ] ?? champ} ({valeur(c.avant)} → {valeur(c.apres)}){/each}
+            </p>
+          {/if}
+          {#if fige}<div class="bandeau info">Document déposé ou en cours de dépôt : plus de correction possible.</div>{/if}
+          <fieldset disabled={fige}>
+            <legend>Le document</legend>
+            <div class="champs">
+              <div>
+                <div class="lib"><label for="vt">Type</label>{@render conf(d.confiance.type)}</div>
+                <select id="vt" bind:value={choix.type} required>
+                  {#each TYPES as t (t)}<option value={t}>{libelleType[t]}</option>{/each}
+                </select>
+              </div>
+              <div>
+                <div class="lib"><label for="vs">Société destinataire</label>{@render conf(d.confiance.societe)}</div>
+                <select id="vs" bind:value={choix.societe}>
+                  <option value="">Aucune</option>
+                  {#each societes as so (so.id)}<option value={String(so.id)}>{so.raison_sociale}</option>{/each}
+                </select>
+              </div>
+              <div>
+                <div class="lib"><label for="vn">Numéro</label>{@render conf(d.confiance.numero)}</div>
+                <input id="vn" bind:value={choix.numero} />
+              </div>
+              <div>
+                <div class="lib"><label for="vd">Date</label>{@render conf(d.confiance.date)}</div>
+                <input id="vd" type="date" bind:value={choix.date} />
+              </div>
+              <div><div class="lib"><label for="vc">N° de commande</label></div><input id="vc" bind:value={choix.commande} /></div>
+            </div>
+          </fieldset>
+          <fieldset disabled={fige}>
+            <legend>Le fournisseur</legend>
+            <p class="discret">
+              Lu sur le document : {[d.fournisseur_nom, d.fournisseur_siret && `SIRET ${d.fournisseur_siret}`, d.fournisseur_tva && `TVA ${d.fournisseur_tva}`].filter(Boolean).join(' · ') || 'Non renseigné'}
+              {#if d.fournisseur_id}
+                · fiche : <a href="/fournisseurs?fiche={d.fournisseur_id}">{d.fournisseur}</a>
+                {#if d.fournisseur_statut === 'a_confirmer'}<span class="etiquette att">À confirmer</span>{/if}
+              {/if}
+            </p>
+            <div class="champs">
+              <div>
+                <div class="lib"><label for="vf">Fiche fournisseur</label>{@render conf(d.confiance.fournisseur)}</div>
+                <select id="vf" bind:value={choix.fournisseur}>
+                  <option value="">Aucune</option>
+                  {#each fichesProposees as f (f.id)}<option value={String(f.id)}>{f.nom}{f.statut === 'a_confirmer' ? ' (à confirmer)' : ''}</option>{/each}
+                </select>
+              </div>
+              <div>
+                <div class="lib"><label for="rf">Chercher une fiche</label></div>
+                <input id="rf" type="search" placeholder="Nom, SIRET, domaine" bind:value={rechercheFiche} oninput={() => chercherFiches().catch(() => {})} />
+              </div>
+            </div>
+          </fieldset>
+          <fieldset disabled={fige}>
+            <legend>Les montants {#if confiance(d.confiance.montants)}{@const cf = confiance(d.confiance.montants)!}<span class="etiquette {cf.classe}" title="Confiance de la lecture : {cf.pct}">{cf.texte}</span>{/if}</legend>
+            <div class="champs">
+              <div><div class="lib"><label for="vh">Montant HT</label></div><input id="vh" inputmode="decimal" bind:value={choix.ht} /></div>
+              <div><div class="lib"><label for="vtv">TVA</label></div><input id="vtv" inputmode="decimal" bind:value={choix.tva} /></div>
+              <div><div class="lib"><label for="vtt">Montant TTC</label></div><input id="vtt" inputmode="decimal" bind:value={choix.ttc} /></div>
+            </div>
+          </fieldset>
+          <div class="actions">
+            <button class:second={!!d.verifie_le} disabled={!choix.type || fige}>{d.verifie_le ? 'Enregistrer à nouveau' : 'Valider'}</button>
+            {#if !d.verifie_le}<span class="discret">Valider confirme que les données correspondent au document.</span>{/if}
+          </div>
+        </form>
+
+        {#if d.statut_depot}
+          <section class="carte" aria-labelledby="h-depot">
+            <h2 class="h-fiche" id="h-depot">Dépôt chez Dext ou Yooz</h2>
+            <p>{aideDepot[d.statut_depot]}</p>
+            <p class="discret">
+              {#if d.societe_adresse_depot}
+                Destination : {d.societe_outil_depot ? (libelleOutil[d.societe_outil_depot] ?? d.societe_outil_depot) : 'l’outil de la société'} ({d.societe_adresse_depot})
+              {:else}
+                La société n’a pas d’adresse de dépôt : ajoutez-la dans l’administration avant de déposer.
+              {/if}
+            </p>
+            {#if d.controles.length}
+              <h3>Contrôles avant dépôt</h3>
+              <ul class="controles">
+                {#each d.controles as c (c.code)}<li>{c.message}</li>{/each}
+              </ul>
+            {:else if d.statut_depot === 'pret'}
+              <p class="vert">Tous les contrôles passent.</p>
+            {/if}
+            <div class="actions">
+              {#if d.statut_depot === 'a_verifier' || d.statut_depot === 'pret'}
+                <button class:second={!d.verifie_le} onclick={() => deposer()}>Valider et déposer</button>
+              {:else if d.statut_depot === 'erreur' && admin}
+                <button onclick={() => deposer()}>Redéposer</button>
+              {:else if d.statut_depot === 'doublon' && admin}
+                <button class="danger" onclick={() => deposer(true)}>Déposer quand même</button>
+              {/if}
+              {#if !fige}<button class="second" onclick={recontroler} title="Refait les contrôles avec les données actuelles">Relancer les contrôles</button>{/if}
+            </div>
+            {#if d.valide_le}
+              <p class="discret">Validé le {quand(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}.</p>
+            {/if}
+            {#if d.envois.length}
+              <h3>Envois déjà faits</h3>
+              <table>
+                <thead><tr><th>Quand</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
+                <tbody>
+                  {#each d.envois as e (e.id)}
+                    <tr>
+                      <td>{quand(e.quand)}</td>
+                      <td>{e.adresse}</td>
+                      <td>
+                        <span class="etiquette {e.etat === 'envoye' ? 'ok' : e.etat === 'erreur' ? 'ko' : 'att'}">{e.etat === 'envoye' ? 'Envoyé' : e.etat === 'erreur' ? 'En erreur' : 'En cours'}</span>
+                        {#if e.message}<span class="discret">{e.message}</span>{/if}
+                      </td>
+                      <td>{e.auteur ?? 'Automatique'}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          </section>
+        {/if}
+      {/if}
+    </div>
+  </div>
 
   {#if d.etat === 'lu' && rap}
     {#if d.type === 'facture' || d.type === 'bl'}
-      <h2>Rapprochement</h2>
-      <div class="carte rap">
-        {#if d.type === 'facture' && rap.numeros_bl.length}
-          <div class="discret">BL cités par la facture : {rap.numeros_bl.join(', ')}</div>
-        {/if}
-        {#if rap.ignore}
-          <div class="discret">Pas de correspondance attendue : ce document n'est pas rapproché automatiquement.</div>
-        {/if}
-        {#each rap.liens as l (l.id)}
-          <div class="lien">
-            <div class="actions">
-              <span>{l.autre.type === 'bl' ? 'BL' : 'Facture'} <a href="/documents/{l.autre.id}">{l.autre.numero ?? l.autre.nom_fichier}</a></span>
-              <span class="discret">{dateSimple(l.autre.date_document)} · {montant(l.autre.montant_ht)} HT · {libelleMethode[l.methode]}{l.auteur ? ` (${l.auteur})` : ''}</span>
-              <span style="flex:1"></span>
-              <button class="second" onclick={() => delier(l.id)}>Défaire</button>
-            </div>
-          </div>
-        {:else}
-          <div class="discret">Aucun {d.type === 'facture' ? 'BL rapproché' : 'facture rapprochée'}.</div>
-        {/each}
-        {#if rap.liens.length}
-          {@const l0 = rap.liens[0]}
-          <div>
-            Écart de montant HT (facture moins BL) :
-            {#if l0.ecart_montant === null}<span class="discret">non calculable (montant manquant)</span>
-            {:else}<span class="etiquette {Math.abs(l0.ecart_montant) > SEUIL_ECART ? 'ko' : 'ok'}">{montant(l0.ecart_montant)}</span>{/if}
-          </div>
-          {#if l0.ecarts.length}
-            <table>
-              <thead><tr><th>Article</th><th class="nombre">Livré (BL)</th><th class="nombre">Facturé</th></tr></thead>
-              <tbody>
-                {#each l0.ecarts as e, i (i)}
-                  <tr><td>{e.reference ?? ''} {e.designation ?? ''}</td><td class="nombre">{quantite(e.qte_bl)}</td><td class="nombre">{quantite(e.qte_facture)}</td></tr>
-                {/each}
-              </tbody>
-            </table>
+      <div class="section">
+        <div class="titre"><h2>{d.type === 'facture' ? 'Facture reliée à son bon de livraison' : 'Bon de livraison relié à sa facture'}</h2></div>
+        <div class="carte pile">
+          {#if d.type === 'facture' && rap.numeros_bl.length}
+            <p class="discret">Bons de livraison cités par la facture : {rap.numeros_bl.join(', ')}</p>
           {/if}
-        {/if}
-        {#if rap.candidats.length}
-          <form class="actions" onsubmit={(e) => { e.preventDefault(); lier(); }}>
-            <select bind:value={candidat} style="max-width:28rem" aria-label="Document à relier">
-              <option value="">Relier à {d.type === 'facture' ? 'un BL' : 'une facture'} du même fournisseur…</option>
-              {#each rap.candidats as c (c.id)}
-                <option value={String(c.id)}>{c.numero ?? c.nom_fichier} · {dateSimple(c.date_document)} · {montant(c.montant_ht)}</option>
-              {/each}
-            </select>
-            <button class="second" disabled={!candidat}>Relier</button>
-          </form>
-        {/if}
-        <div><button class="second" onclick={basculerIgnore}>{rap.ignore ? 'Remettre dans le rapprochement' : 'Pas de correspondance attendue'}</button></div>
+          {#if rap.ignore}
+            <p class="discret">Pas de correspondance attendue : ce document n’est pas relié automatiquement.</p>
+          {/if}
+          {#each rap.liens as l (l.id)}
+            <div class="actions">
+              <span>{l.autre.type === 'bl' ? 'Bon de livraison' : 'Facture'} <a href="/documents/{l.autre.id}">{l.autre.numero ?? l.autre.nom_fichier}</a></span>
+              <span class="discret">{dateSimple(l.autre.date_document)} · {montant(l.autre.montant_ht)} HT · {libelleMethode[l.methode]}{l.auteur ? ` (${l.auteur})` : ''}</span>
+              <span class="espace"></span>
+              <button class="second petit" onclick={() => delier(l.id)}>Défaire le lien</button>
+            </div>
+          {:else}
+            <p class="discret">{d.type === 'facture' ? 'Aucun bon de livraison relié.' : 'Aucune facture reliée.'}</p>
+          {/each}
+          {#if rap.liens.length}
+            {@const l0 = rap.liens[0]}
+            <div>
+              Écart de montant HT (facture moins bon de livraison) :
+              {#if l0.ecart_montant === null}<span class="discret">non calculable (montant manquant)</span>
+              {:else}<span class="etiquette {Math.abs(l0.ecart_montant) > SEUIL_ECART ? 'ko' : 'ok'}">{montant(l0.ecart_montant)}</span>{/if}
+            </div>
+            {#if l0.ecarts.length}
+              <table>
+                <thead><tr><th>Article</th><th class="nombre">Livré (bon de livraison)</th><th class="nombre">Facturé</th></tr></thead>
+                <tbody>
+                  {#each l0.ecarts as e, i (i)}
+                    <tr><td>{e.reference ?? ''} {e.designation ?? ''}</td><td class="nombre">{quantite(e.qte_bl)}</td><td class="nombre">{quantite(e.qte_facture)}</td></tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+          {/if}
+          {#if rap.candidats.length}
+            <form class="actions" onsubmit={(e) => { e.preventDefault(); lier(); }}>
+              <select bind:value={candidat} class="choix-lien" aria-label="Document à relier">
+                <option value="">Relier à {d.type === 'facture' ? 'un bon de livraison' : 'une facture'} du même fournisseur…</option>
+                {#each rap.candidats as c (c.id)}
+                  <option value={String(c.id)}>{c.numero ?? c.nom_fichier} · {dateSimple(c.date_document)} · {montant(c.montant_ht)}</option>
+                {/each}
+              </select>
+              <button class="second" disabled={!candidat}>Relier</button>
+            </form>
+          {/if}
+          <div><button class="discret" onclick={basculerIgnore}>{rap.ignore ? 'Remettre dans le rapprochement' : 'Aucune correspondance attendue'}</button></div>
+        </div>
       </div>
     {/if}
     {#if rap.lignes.length}
-      <h2>Lignes ({rap.lignes.length})</h2>
-      <table>
-        <thead><tr><th>Référence</th><th>Désignation</th><th class="nombre">Quantité</th><th class="nombre">Prix unit. HT</th><th class="nombre">Montant HT</th></tr></thead>
-        <tbody>
-          {#each rap.lignes as l (l.rang)}
-            <tr>
-              <td>{l.reference ?? '—'}</td>
-              <td>{l.designation ?? '—'}</td>
-              <td class="nombre">{quantite(l.quantite)}{l.unite ? ` ${libelleUnite(l.unite)}` : ''}</td>
-              <td class="nombre">{l.prix_unitaire_ht === null ? '—' : montant(l.prix_unitaire_ht)}</td>
-              <td class="nombre">{montant(l.montant_ht)}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+      <div class="section">
+        <div class="titre"><h2>Lignes du document</h2><span class="discret">{rap.lignes.length} {rap.lignes.length > 1 ? 'lignes' : 'ligne'}</span></div>
+        <table>
+          <thead><tr><th>Référence</th><th>Désignation</th><th class="nombre">Quantité</th><th class="nombre">Prix unitaire HT</th><th class="nombre">Montant HT</th></tr></thead>
+          <tbody>
+            {#each rap.lignes as l (l.rang)}
+              <tr>
+                <td>{l.reference ?? '—'}</td>
+                <td>{l.designation ?? '—'}</td>
+                <td class="nombre">{quantite(l.quantite)}{l.unite ? ` ${libelleUnite(l.unite)}` : ''}</td>
+                <td class="nombre">{l.prix_unitaire_ht === null ? '—' : montant(l.prix_unitaire_ht)}</td>
+                <td class="nombre">{montant(l.montant_ht)}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     {:else if d.type === 'bl' && !rap.lignes_lues}
-      <p class="discret">BL lu sans ses lignes (avant le module de rapprochement) : un administrateur peut le relire.</p>
+      <p class="discret">Bon de livraison lu sans ses lignes (avant le suivi des livraisons) : un administrateur peut le faire relire.</p>
     {/if}
   {/if}
 
-  {#if d.texte}
-    <details>
-      <summary>Texte du document</summary>
+  {#if d.texte && estImage}
+    <details class="repli">
+      <summary>Texte lu dans le document</summary>
       <div class="carte"><pre class="corps">{d.texte}</pre></div>
     </details>
   {/if}
 {/if}
 
 <style>
-  .entete { display: grid; gap: 0.5rem; }
-  .champs-lus th { width: 13rem; background: var(--surface); color: var(--gris); }
-  .champs-lus .conf { width: 5rem; text-align: right; }
-  a.bouton { display: inline-block; text-decoration: none; padding: 0.42rem 0.9rem; border-radius: var(--rayon); border: 1px solid var(--accent); }
-  a.bouton.second { background: #fff; color: var(--accent); }
-  details { margin-top: 1.5rem; }
-  .depot { display: grid; gap: 0.5rem; }
-  .rap { display: grid; gap: 0.6rem; }
-  .controles { margin: 0; padding-left: 1.1rem; }
-  fieldset { border: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; }
-  fieldset > button { justify-self: start; }
-  summary { cursor: pointer; font-weight: 650; margin-bottom: 0.6rem; }
+  .h-fiche { margin: 0 0 var(--e3); }
+  .lib { display: flex; align-items: center; justify-content: space-between; gap: var(--e2); min-height: 22px; margin-bottom: var(--e1); }
+  .lib label { margin: 0; }
+  fieldset:disabled { opacity: 0.85; }
+  .controles { margin: 0 0 var(--e4); padding-left: var(--e5); }
+  .espace { flex: 1; }
+  .choix-lien { max-width: 28rem; width: auto; flex: 1 1 14rem; }
+  .detail { display: block; font-weight: 400; margin-top: var(--e1); }
+  .actions > .espace { flex: 1 1 0; }
 </style>

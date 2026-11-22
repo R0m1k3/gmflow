@@ -8,9 +8,14 @@
   let societes = $state<Societe[]>([]);
   let nouvelle = $state<{ societe_id: string; libelle: string; serveur: string; port: number; identifiant: string; mot_de_passe: string; reprise_mois: number } | null>(null);
   let erreur = $state('');
+  let chargement = $state(true);
 
   async function charger() {
-    [boites, societes] = await Promise.all([api.get<Boite[]>('/api/admin/boites'), api.get<Societe[]>('/api/admin/societes')]);
+    try {
+      [boites, societes] = await Promise.all([api.get<Boite[]>('/api/admin/boites'), api.get<Societe[]>('/api/admin/societes')]);
+    } finally {
+      chargement = false;
+    }
   }
   $effect(() => {
     charger().catch((e) => (erreur = message(e)));
@@ -29,57 +34,126 @@
     }
   }
 
-  function etat(b: Boite): [string, string] {
-    if (b.pause_auto) return ['pause automatique', 'ko'];
-    if (!b.active) return ['inactive', ''];
-    if (b.erreur_depuis) return ['en erreur', 'att'];
-    return ['active', 'ok'];
+  function etat(b: Boite): [string, string, string] {
+    if (b.pause_auto) return ['En pause (refus de connexion)', 'ko', 'Vérifiez le mot de passe puis réactivez la boîte.'];
+    if (!b.active) return ['Inactive', '', 'Testez la connexion puis activez la boîte.'];
+    if (b.erreur_depuis) return ['En erreur', 'att', 'La relève a échoué : ouvrez la fiche pour voir pourquoi.'];
+    return ['Connectée', 'ok', ''];
   }
 </script>
-
-<h1>Boîtes surveillées</h1>
+<div class="entete">
+  <div>
+    <h1>Boîtes mail</h1>
+    <p class="sous">Les boîtes que GMFlow relève toutes les 5 minutes pour y trouver factures, bons de livraison et questions.</p>
+  </div>
+  {#if !nouvelle && societes.length > 0}
+    <div class="actions"><button onclick={() => (nouvelle = { societe_id: '', libelle: '', serveur: '', port: 993, identifiant: '', mot_de_passe: '', reprise_mois: 3 })}>Ajouter une boîte mail</button></div>
+  {/if}
+</div>
 {#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
 
 {#if nouvelle}
-  <form class="carte" onsubmit={creer}>
-    <h2>Nouvelle boîte</h2>
-    <p class="discret">IMAPS (port 993). Utilisez un mot de passe d'application quand l'hébergeur en propose.</p>
-    <div class="champs">
-      <div>
-        <label for="s">Structure</label>
-        <select id="s" bind:value={nouvelle.societe_id} required>
-          <option value="" disabled>Choisir…</option>
-          {#each societes.filter((s) => !s.archivee) as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
-        </select>
-      </div>
-      <div><label for="l">Libellé</label><input id="l" bind:value={nouvelle.libelle} required placeholder="Compta Frouard" /></div>
-      <div><label for="srv">Serveur IMAP</label><input id="srv" bind:value={nouvelle.serveur} required placeholder="imap.exemple.fr" /></div>
-      <div><label for="p">Port</label><input id="p" type="number" bind:value={nouvelle.port} /></div>
-      <div><label for="i">Identifiant</label><input id="i" bind:value={nouvelle.identifiant} required autocomplete="off" /></div>
-      <div><label for="m">Mot de passe</label><input id="m" type="password" bind:value={nouvelle.mot_de_passe} required autocomplete="new-password" /></div>
-      <div><label for="r">Reprise de l'historique (mois)</label><input id="r" type="number" min="0" max="24" bind:value={nouvelle.reprise_mois} /></div>
+  <form class="pile" onsubmit={creer}>
+    <h2 class="sans-marge">Nouvelle boîte mail</h2>
+    <div class="bandeau info sans-marge">
+      GMFlow se connecte à la boîte comme un logiciel de messagerie (IMAPS, port 993). Pour Gmail et Infomaniak, créez un
+      <strong>mot de passe d'application</strong> dans les paramètres de sécurité du compte : c'est plus sûr que le mot de passe habituel.
+      Rien n'est supprimé ni déplacé dans la boîte.
     </div>
+
+    <fieldset>
+      <legend>Quelle boîte</legend>
+      <div class="champs">
+        <div>
+          <label for="s">Société</label>
+          <select id="s" bind:value={nouvelle.societe_id} required>
+            <option value="" disabled>Choisir…</option>
+            {#each societes.filter((s) => !s.archivee) as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
+          </select>
+          <p class="aide">La société à laquelle appartiennent les mails de cette boîte.</p>
+        </div>
+        <div>
+          <label for="l">Nom de la boîte</label>
+          <input id="l" bind:value={nouvelle.libelle} required placeholder="Compta Frouard" />
+          <p class="aide">Un nom pour la reconnaître dans GMFlow.</p>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Connexion</legend>
+      <div class="champs">
+        <div>
+          <label for="srv">Serveur de réception (IMAP)</label>
+          <input id="srv" bind:value={nouvelle.serveur} required placeholder="imap.gmail.com" />
+          <p class="aide">Gmail : imap.gmail.com. Infomaniak : mail.infomaniak.com.</p>
+        </div>
+        <div>
+          <label for="p">Port</label>
+          <input id="p" type="number" bind:value={nouvelle.port} />
+          <p class="aide">993 dans presque tous les cas (connexion sécurisée).</p>
+        </div>
+        <div>
+          <label for="i">Identifiant</label>
+          <input id="i" bind:value={nouvelle.identifiant} required autocomplete="off" placeholder="compta@exemple.fr" />
+          <p class="aide">Presque toujours l'adresse mail complète.</p>
+        </div>
+        <div>
+          <label for="m">Mot de passe d'application</label>
+          <input id="m" type="password" bind:value={nouvelle.mot_de_passe} required autocomplete="new-password" />
+          <p class="aide">Il est chiffré et n'est plus jamais affiché ensuite.</p>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Historique</legend>
+      <div class="champs">
+        <div>
+          <label for="r">Reprise de l'historique (mois)</label>
+          <input id="r" type="number" min="0" max="24" bind:value={nouvelle.reprise_mois} />
+          <p class="aide">Combien de mois de mails déjà reçus GMFlow doit lire au démarrage. 3 mois convient pour commencer, 0 pour ne suivre que les nouveaux mails.</p>
+        </div>
+      </div>
+    </fieldset>
+
     <div class="actions"><button>Créer puis tester</button><button type="button" class="second" onclick={() => (nouvelle = null)}>Annuler</button></div>
   </form>
+{:else if chargement}
+  <div class="charge" aria-busy="true"><span></span></div>
+{:else if societes.length === 0}
+  <div class="vide">
+    <strong>Aucune société pour l'instant</strong>
+    <p>Une boîte mail appartient toujours à une société : créez-en une d'abord.</p>
+    <div class="actions"><a class="bouton" href="/admin/structures">Créer une société</a></div>
+  </div>
+{:else if boites.length === 0}
+  <div class="vide">
+    <strong>Aucune boîte mail</strong>
+    <p>Ajoutez la première boîte pour que GMFlow commence à lire les factures reçues.</p>
+    <div class="actions"><button onclick={() => (nouvelle = { societe_id: '', libelle: '', serveur: '', port: 993, identifiant: '', mot_de_passe: '', reprise_mois: 3 })}>Ajouter une boîte mail</button></div>
+  </div>
 {:else}
-  <p><button disabled={societes.length === 0} onclick={() => (nouvelle = { societe_id: '', libelle: '', serveur: '', port: 993, identifiant: '', mot_de_passe: '', reprise_mois: 3 })}>Nouvelle boîte</button>
-    {#if societes.length === 0}<span class="discret">Créez d'abord une <a href="/admin/structures">structure</a>.</span>{/if}</p>
+  <ul class="liste">
+    {#each boites as b (b.id)}
+      {@const [texte, classe, suite] = etat(b)}
+      <li>
+        <div class="principal">
+          <a href="/admin/boites/{b.id}">{b.libelle}</a>
+          <span class="discret">{nomSociete(b.societe_id)} · {b.identifiant}</span>
+          <span class="discret">
+            Dernière relève {quand(b.derniere_releve)} · Dossiers : {b.dossiers.join(', ')}{suite ? ` · ${suite}` : ''}
+          </span>
+        </div>
+        <div class="droite">
+          <span class="etiquette {classe}">{texte}</span>
+          <a class="bouton second" href="/admin/boites/{b.id}">Ouvrir</a>
+        </div>
+      </li>
+    {/each}
+  </ul>
 {/if}
 
-<table>
-  <thead><tr><th>Boîte</th><th>Structure</th><th>État</th><th>Dernière relève</th><th>Dossiers</th></tr></thead>
-  <tbody>
-    {#each boites as b (b.id)}
-      {@const [texte, classe] = etat(b)}
-      <tr class="cliquable" onclick={() => goto(`/admin/boites/${b.id}`)}>
-        <td><a href="/admin/boites/{b.id}">{b.libelle}</a><div class="discret">{b.identifiant}</div></td>
-        <td>{nomSociete(b.societe_id)}</td>
-        <td><span class="etiquette {classe}">{texte}</span></td>
-        <td class="date">{quand(b.derniere_releve)}</td>
-        <td class="discret">{b.dossiers.join(', ')}</td>
-      </tr>
-    {:else}
-      <tr><td colspan="5" class="discret">Aucune boîte.</td></tr>
-    {/each}
-  </tbody>
-</table>
+<style>
+  .sans-marge { margin: 0; }
+</style>

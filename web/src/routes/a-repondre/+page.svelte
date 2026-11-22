@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, message } from '#lib/api.ts';
   import { dateSimple, quand } from '#lib/format.ts';
@@ -34,6 +33,8 @@
       history.replaceState(history.state, '', `/a-repondre${s ? '?' + s : ''}`);
     } catch (e) {
       erreur = message(e);
+    } finally {
+      chargement = false;
     }
   }
   $effect(() => {
@@ -50,16 +51,26 @@
   }
 
   let enCours = $state<number | null>(null);
+  let choix = $state<number | null>(null);
+  let info = $state('');
+  let chargement = $state(true);
 
   /** Classement à la main depuis la file : il sert d'exemple au tri des mails suivants. */
   async function classer(ev: Event, m: LigneARepondre, categorie: 'question' | 'information' | 'publicite') {
     ev.stopPropagation();
     enCours = m.id;
     erreur = '';
+    info = '';
     try {
       await api.put(`/api/mails/${m.id}/categorie`, { categorie });
-      if (categorie === 'question') m.categorie_par = 'humain';
-      else await charger();
+      choix = null;
+      if (categorie === 'question') {
+        m.categorie_par = 'humain';
+        info = 'Question confirmée : elle reste dans la liste.';
+      } else {
+        await charger();
+        info = `Mail classé en « ${libelleCategorie[categorie]} » : il ne demande plus de réponse.`;
+      }
       api.get<SemaineTri[]>('/api/tri/semaines').then((v) => (semaines = v));
     } catch (e) {
       erreur = message(e);
@@ -67,6 +78,14 @@
       enCours = null;
     }
   }
+
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const prioritesChoix = [
+    { v: '', l: 'Toutes' },
+    { v: 'haute', l: 'Haute' },
+    { v: 'normale', l: 'Normale' },
+    { v: 'basse', l: 'Basse' }
+  ];
 
   function justesse(s: SemaineTri) {
     return Math.round((100 * (s.revus - s.corriges)) / s.revus);
@@ -77,64 +96,84 @@
   }
 </script>
 
-<h1>À répondre</h1>
-<div class="carte filtres actions">
+<div class="entete">
   <div>
-    <label for="s">Structure</label>
-    <select id="s" bind:value={filtres.societe} onchange={filtrer}>
-      <option value="">Toutes</option>
-      {#each societes as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
-    </select>
-  </div>
-  <div>
-    <label for="p">Priorité</label>
-    <select id="p" bind:value={filtres.priorite} onchange={filtrer}>
-      <option value="">Toutes</option>
-      <option value="haute">Haute</option>
-      <option value="normale">Normale</option>
-      <option value="basse">Basse</option>
-    </select>
+    <h1>À répondre</h1>
+    <p class="sous">Les mails qui posent une question. Ouvrez-en un pour préparer la réponse, ou dites que ce n'est pas une question.</p>
   </div>
 </div>
 
-{#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
+<div class="champs filtres">
+  <div>
+    <label for="s">Société</label>
+    <select id="s" bind:value={filtres.societe} onchange={filtrer}>
+      <option value="">Toutes les sociétés</option>
+      {#each societes as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
+    </select>
+  </div>
+</div>
+<div class="onglets" role="group" aria-label="Priorité">
+  {#each prioritesChoix as o (o.v)}
+    <button class:actif={filtres.priorite === o.v} aria-pressed={filtres.priorite === o.v} onclick={() => { filtres.priorite = o.v; filtrer(); }}>
+      {o.v ? 'Priorité ' + o.l.toLowerCase() : 'Toutes les priorités'}
+    </button>
+  {/each}
+</div>
+
+{#if info}<div class="bandeau ok" role="status">{info}</div>{/if}
+{#if erreur}
+  <div class="bandeau erreur" role="alert">
+    {erreur}
+    <div class="actions"><button class="second petit" onclick={charger}>Réessayer</button></div>
+  </div>
+{/if}
+
 {#if resultat}
   <p class="discret">
-    {resultat.total} question{resultat.total > 1 ? 's' : ''} en attente, priorité haute d'abord puis les plus anciennes.
-    Chaque classement à la main sert d'exemple au tri des mails suivants ; après trois mails d'un même
-    expéditeur classés pareil, ses mails suivants le sont directement.
+    {resultat.total === 0 ? 'Aucun mail' : resultat.total + ' mail' + (resultat.total > 1 ? 's attendent' : ' attend')} une réponse, priorité haute d'abord puis les plus anciens.
   </p>
-  <table>
-    <thead><tr><th>Priorité</th><th>Date</th><th>Expéditeur</th><th>Question</th><th>Boîte</th><th>Classer</th></tr></thead>
-    <tbody>
+  {#if resultat.elements.length}
+    <ul class="liste">
       {#each resultat.elements as m (m.id)}
-        <tr class="cliquable" onclick={() => goto(`/mails/${m.id}`)}>
-          <td>
-            {#if m.priorite}<span class="etiquette {classePriorite[m.priorite]}">{libellePriorite[m.priorite]}</span>{/if}
-          </td>
-          <td class="date">{quand(m.date_mail)}</td>
-          <td>{m.expediteur || '—'}</td>
-          <td>
+        <li class="mail-ligne">
+          <div class="principal">
             <a href="/mails/{m.id}">{m.resume || m.objet || '(sans objet)'}</a>
-            {#if m.resume && m.objet}<div class="discret">{m.objet}</div>{/if}
-            {#if m.brouillon}<div><span class="etiquette att">{libelleBrouillon[m.brouillon]}</span></div>{/if}
-          </td>
-          <td class="discret">{m.boites.join(', ')}{m.structures.length > 1 ? ` (${m.structures.join(', ')})` : ''}</td>
-          <td class="classer">
-            {#if m.categorie_par === 'humain'}
-              <span class="discret">Question confirmée</span>
-            {:else}
-              <button class="second" disabled={enCours === m.id} onclick={(ev) => classer(ev, m, 'question')}>Vraie question</button>
+            {#if m.resume && m.objet}<span class="discret">Objet : {m.objet}</span>{/if}
+            <span class="discret">{m.expediteur || 'Non renseigné'} · <span class="date">{quand(m.date_mail)}</span> · {m.boites.join(', ')}{m.structures.length > 1 ? ` (${m.structures.join(', ')})` : ''}</span>
+            <span class="mail-etats">
+              {#if m.priorite}<span class="etiquette {classePriorite[m.priorite]}">Priorité {libellePriorite[m.priorite]}</span>{/if}
+              {#if m.brouillon}<span class="etiquette att">{cap(libelleBrouillon[m.brouillon])}</span>{/if}
+              {#if m.categorie_par === 'humain'}<span class="etiquette ok">Question confirmée</span>{/if}
+            </span>
+          </div>
+          <div class="droite">
+            <a class="bouton" href="/mails/{m.id}">Répondre</a>
+            {#if choix === m.id}
               <button class="second" disabled={enCours === m.id} onclick={(ev) => classer(ev, m, 'information')}>Information</button>
               <button class="second" disabled={enCours === m.id} onclick={(ev) => classer(ev, m, 'publicite')}>Publicité</button>
+              <button class="discret" onclick={() => (choix = null)}>Annuler</button>
+            {:else}
+              {#if m.categorie_par !== 'humain'}
+                <button class="second" disabled={enCours === m.id} onclick={(ev) => classer(ev, m, 'question')}>Vraie question</button>
+              {/if}
+              <button class="second" disabled={enCours === m.id} onclick={() => (choix = m.id)}>Ce n'est pas une question</button>
             {/if}
-          </td>
-        </tr>
-      {:else}
-        <tr><td colspan="6" class="discret">Aucune question en attente.</td></tr>
+          </div>
+        </li>
       {/each}
-    </tbody>
-  </table>
+    </ul>
+  {:else}
+    <div class="vide">
+      <strong>Rien à répondre</strong>
+      <p>Aucun mail n'attend de réponse{filtres.societe || filtres.priorite ? ' avec ces filtres' : ''}. Les nouvelles questions apparaîtront ici après la prochaine relève des boîtes mail.</p>
+      <div class="actions">
+        {#if filtres.societe || filtres.priorite}
+          <button class="second" onclick={() => { filtres.societe = ''; filtres.priorite = ''; filtrer(); }}>Retirer les filtres</button>
+        {/if}
+        <a class="bouton second" href="/mails">Voir tous les mails</a>
+      </div>
+    </div>
+  {/if}
   {#if pages > 1}
     <div class="pagination">
       <button class="second" disabled={filtres.page <= 1} onclick={() => allerPage(filtres.page - 1)}>Précédent</button>
@@ -142,15 +181,21 @@
       <button class="second" disabled={filtres.page >= pages} onclick={() => allerPage(filtres.page + 1)}>Suivant</button>
     </div>
   {/if}
+{:else if chargement && !erreur}
+  <div class="charge" aria-busy="true"><span></span></div>
 {/if}
 
 {#if semaines.length}
-  <h2>Tri des mails par semaine</h2>
-  <p class="discret">Pour vérifier qu'aucune question ne s'est glissée ailleurs : chaque nombre ouvre les mails de la catégorie.</p>
-  <div class="grille">
+  <div class="section">
+    <div class="titre"><h2>Vérifier le tri des mails</h2></div>
+    <p class="discret">
+      Claude range chaque mail reçu. Chaque classement que vous faites ici lui sert d'exemple : après trois mails
+      d'un même expéditeur classés pareil, ses mails suivants le sont directement. Chaque nombre ouvre les mails
+      concernés, pour vérifier qu'aucune question ne s'est glissée ailleurs.
+    </p>
     {#each semaines as s, i (s.debut)}
-      <div class="carte">
-        <div class="discret">{i === 0 ? 'Cette semaine' : 'Semaine dernière'} · du {dateSimple(s.debut)} au {dateSimple(s.fin)}</div>
+      <details class="carte mail-semaine" open={i === 0}>
+        <summary>{i === 0 ? 'Cette semaine' : 'Semaine dernière'} <span class="discret">du {dateSimple(s.debut)} au {dateSimple(s.fin)}</span></summary>
         <table class="bilan">
           <tbody>
             {#each s.par_categorie as c (c.cle)}
@@ -163,24 +208,11 @@
             {/each}
           </tbody>
         </table>
-        <div class="discret">
-          {s.a_repondre} à répondre, {s.repondu} répondu{s.repondu > 1 ? 's' : ''}, {s.sans_suite} sans suite
-        </div>
+        <p class="discret">{s.a_repondre} à répondre, {s.repondu} répondu{s.repondu > 1 ? 's' : ''}, {s.sans_suite} sans suite</p>
         {#if s.revus}
-          <div class="discret">
-            Tri automatique juste à {justesse(s)} % : {s.corriges} corrigé{s.corriges > 1 ? 's' : ''} sur {s.revus} revu{s.revus > 1 ? 's' : ''} à la main
-          </div>
+          <p class="discret">Tri automatique juste à {justesse(s)} % : {s.corriges} corrigé{s.corriges > 1 ? 's' : ''} sur {s.revus} revu{s.revus > 1 ? 's' : ''} à la main</p>
         {/if}
-      </div>
+      </details>
     {/each}
   </div>
 {/if}
-
-<style>
-  .filtres { margin-bottom: 1rem; align-items: end; }
-  .filtres > div { min-width: 200px; }
-  .bilan { margin: 0.5rem 0; border: none; }
-  .bilan td { padding: 0.25rem 0.4rem; }
-  .classer { white-space: nowrap; }
-  .classer button { padding: 0.2rem 0.5rem; font-size: 0.85rem; }
-</style>
