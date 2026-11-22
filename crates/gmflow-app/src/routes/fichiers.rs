@@ -23,16 +23,10 @@ fn type_sur(t: &str) -> String {
     }
 }
 
-/// Types affichés dans la page (aperçu de la fiche document) avec `?inline=1`. Jamais de HTML
-/// ni de SVG (scripts possibles) : ceux-là restent en téléchargement.
-const TYPES_APERCU: &[&str] = &[
-    "application/pdf",
-    "image/png",
-    "image/jpeg",
-    "image/gif",
-    "image/webp",
-];
-
+/// Aperçu (`?inline=1`) : seulement si le contenu est un PDF ou une image
+/// (`gmflow_core::eml::type_reel`), jamais d'après le type déclaré ; tout le reste (HTML, SVG...)
+/// reste en téléchargement.
+///
 /// CSP de la réponse d'aperçu : rien d'autre que le document lui-même, affichable seulement
 /// dans une page de GMFlow. Le PDF n'est pas en `sandbox` : les lecteurs PDF de Chrome et de
 /// Firefox refusent de s'ouvrir dans un document isolé.
@@ -114,9 +108,14 @@ pub async fn piece(
             "SHA-256 de la pièce {id} différent de l'original"
         )));
     }
-    let type_mime = type_sur(&p.type_mime.to_ascii_lowercase());
-    let apercu = matches!(o.inline.as_deref(), Some("1" | "true" | "oui"))
-        && TYPES_APERCU.contains(&type_mime.as_str());
+    let mut type_mime = type_sur(&p.type_mime.to_ascii_lowercase());
+    let apercu = match gmflow_core::eml::type_reel(&octets) {
+        Some(t) if matches!(o.inline.as_deref(), Some("1" | "true" | "oui")) => {
+            type_mime = t.to_string();
+            true
+        }
+        _ => false,
+    };
     let (disp, csp) = if apercu {
         let csp = if type_mime == "application/pdf" {
             CSP_PDF
