@@ -1,460 +1,82 @@
 <script lang="ts">
+  // Fiche document plein écran (maquette B, écran 2). Même fiche que le volet de À traiter ;
+  // la file « À valider » sert à la position, à « Ensuite », et à J/K. Après une validation,
+  // la fiche suivante s'ouvre ; après la dernière, retour à À traiter (« Tout est validé »).
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, message, sonder } from '#lib/api.ts';
-  import { libelleMethode, libelleUnite, SEUIL_ECART } from '#lib/documents.ts';
-  import { classeEtat, classeStatutDepot, libelleEtat, libelleOutil, libelleStatutDepot, libelleType, libelleVoie, TYPES } from '#lib/documents.ts';
-  import { dateSimple, montant, quand } from '#lib/format.ts';
-  import { session } from '#lib/session.svelte.ts';
-  import type { DetailRapprochement } from '#lib/types.ts';
-  import type { FicheDocument, LigneFournisseur, Page, SocieteVisible, TypeDocument } from '#lib/types.ts';
+  import { untrack } from 'svelte';
+  import { aTraiter } from '#lib/api.ts';
+  import { raccourcis } from '#lib/clavier.ts';
+  import { societe } from '#lib/societe.svelte.ts';
+  import type { FileATraiter } from '#lib/types.ts';
+  import DocFiche, { type PositionFiche, type ResultatFiche } from '#lib/ui/DocFiche.svelte';
+  import { nomCourtDocument } from '#lib/ui/DocOutils.ts';
 
-  let d = $state<FicheDocument | null>(null);
-  let societes = $state<SocieteVisible[]>([]);
-  let erreur = $state('');
-  let info = $state('');
-  type Choix = {
-    type: TypeDocument | '';
-    societe: string;
-    fournisseur: string;
-    numero: string;
-    date: string;
-    commande: string;
-    ht: string;
-    tva: string;
-    ttc: string;
-  };
-  let choix = $state<Choix>({ type: '', societe: '', fournisseur: '', numero: '', date: '', commande: '', ht: '', tva: '', ttc: '' });
-  let fiches = $state<LigneFournisseur[]>([]);
-  let rechercheFiche = $state('');
-  let arret: (() => void) | null = null;
-  let rap = $state<DetailRapprochement | null>(null);
-  let candidat = $state('');
+  let id = $derived(Number(page.params.id));
+  let file = $state<FileATraiter | null>(null);
+  let annonce = $state('');
+  let annoncePour = 0;
 
-  const texte = (v: string | number | null) => (v === null ? '' : String(v));
-  const enCours = (v: FicheDocument) =>
-    v.etat === 'a_lire' || v.etat === 'en_cours' || v.statut_depot === 'en_envoi';
-
-  async function charger() {
-    const v = await api.get<FicheDocument>(`/api/documents/${page.params.id}`);
-    d = v;
-    choix = {
-      type: v.type ?? '',
-      societe: v.societe_id === null ? '' : String(v.societe_id),
-      fournisseur: v.fournisseur_id === null ? '' : String(v.fournisseur_id),
-      numero: v.numero ?? '',
-      date: v.date_document ?? '',
-      commande: v.numero_commande ?? '',
-      ht: texte(v.montant_ht),
-      tva: texte(v.montant_tva),
-      ttc: texte(v.montant_ttc)
-    };
-    if (v.etat === 'lu') {
-      rap = await api.get<DetailRapprochement>(`/api/documents/${v.id}/rapprochement`);
-    }
-    return enCours(v);
-  }
-
-  async function actionRap(f: () => Promise<unknown>, ok: string) {
-    erreur = '';
-    info = '';
-    try {
-      await f();
-      await charger();
-      info = ok;
-    } catch (err) {
-      erreur = message(err);
-    }
-  }
-  function lier() {
-    if (!d || !candidat) return;
-    const autre = Number(candidat);
-    const [facture_id, bl_id] = d.type === 'facture' ? [d.id, autre] : [autre, d.id];
-    candidat = '';
-    actionRap(() => api.post('/api/rapprochement', { facture_id, bl_id }), 'Documents reliés.');
-  }
-  function delier(id: number) {
-    if (!confirm('Défaire ce lien ? Un lien trouvé automatiquement ne sera pas recréé.')) return;
-    actionRap(() => api.del(`/api/rapprochement/${id}`), 'Lien défait.');
-  }
-  function basculerIgnore() {
-    if (!d || !rap) return;
-    const ignore = !rap.ignore;
-    actionRap(
-      () => api.post(`/api/documents/${d!.id}/rapprochement-ignore`, { ignore }),
-      ignore ? 'Document sorti du rapprochement.' : 'Document remis dans le rapprochement.'
-    );
-  }
-  const quantite = (v: number | null) => (v === null ? '—' : v.toLocaleString('fr-FR'));
-  async function chercherFiches() {
-    const q = rechercheFiche.trim();
-    fiches = (await api.get<Page<LigneFournisseur>>(`/api/fournisseurs${q ? `?q=${encodeURIComponent(q)}` : ''}`)).elements;
-  }
   $effect(() => {
-    charger()
-      .then((attendre) => {
-        if (attendre) arret = sonder(charger);
-      })
-      .catch((e) => (erreur = (e as { code?: number }).code === 404 ? 'Document introuvable.' : message(e)));
-    api.get<SocieteVisible[]>('/api/societes').then((v) => (societes = v));
-    chercherFiches().catch(() => {});
-    return () => arret?.();
+    void societe.id;
+    untrack(() => {
+      aTraiter
+        .file(societe.id)
+        .then((f) => (file = f))
+        .catch(() => (file = null));
+    });
+  });
+  $effect(() => {
+    if (id !== annoncePour) annonce = '';
   });
 
-  // La fiche actuelle reste dans la liste même si la recherche ne la rend pas.
-  let fichesProposees = $derived.by(() => {
-    if (!d?.fournisseur_id || fiches.some((f) => f.id === d?.fournisseur_id)) return fiches;
-    return [{ id: d.fournisseur_id, nom: d.fournisseur ?? `Fiche ${d.fournisseur_id}` } as LigneFournisseur, ...fiches];
-  });
+  let liste = $derived(file?.a_valider ?? []);
+  let i = $derived(liste.findIndex((l) => l.id === id));
+  let position = $derived<PositionFiche | null>(i >= 0 && file ? { section: 'À valider', n: i + 1, total: file.compteurs.a_valider } : null);
+  /** Le suivant dans la file : après celui-ci, sinon le premier (comme le serveur). */
+  let suivantListe = $derived(i >= 0 ? (liste[i + 1] ?? (i > 0 ? liste[0] : undefined)) : liste[0]);
+  let precedentListe = $derived(i > 0 ? liste[i - 1] : undefined);
 
-  const nombre = (v: string) => (v.trim() === '' ? null : Number(v.replace(',', '.')));
-  const ou = (v: string) => (v.trim() === '' ? null : v.trim());
-
-  async function corriger(e: SubmitEvent) {
-    e.preventDefault();
-    if (!d || !choix.type) return;
-    erreur = '';
-    info = '';
-    try {
-      await api.put(`/api/documents/${d.id}`, {
-        type: choix.type,
-        societe_id: choix.societe === '' ? null : Number(choix.societe),
-        fournisseur_id: choix.fournisseur === '' ? null : Number(choix.fournisseur),
-        numero: ou(choix.numero),
-        date_document: ou(choix.date),
-        numero_commande: ou(choix.commande),
-        montant_ht: nombre(choix.ht),
-        montant_tva: nombre(choix.tva),
-        montant_ttc: nombre(choix.ttc)
-      });
-      await charger();
-      info = 'Vérification enregistrée, contrôles relancés.';
-    } catch (err) {
-      erreur = message(err);
-    }
+  function aller(cible: number | undefined) {
+    if (cible) void goto(`/documents/${cible}`, { replace: true });
   }
 
-  async function deposer(forcer = false) {
-    if (!d) return;
-    if (forcer && !confirm('Déposer malgré le blocage ? Le document partira tel quel.')) return;
-    erreur = '';
-    info = '';
-    try {
-      await api.post(`/api/documents/${d.id}/deposer`, { forcer });
-      await charger();
-      info = 'Dépôt lancé.';
-      arret?.();
-      arret = sonder(charger);
-    } catch (err) {
-      erreur = message(err);
+  $effect(() =>
+    raccourcis({
+      j: () => (suivantListe ? aller(suivantListe.id) : false),
+      k: () => (precedentListe ? aller(precedentListe.id) : false)
+    })
+  );
+
+  async function apres(r: ResultatFiche) {
+    if (r.suivant) {
+      annonce = r.info;
+      annoncePour = r.suivant;
+      // La file a changé : relue pour la position et « Ensuite ».
+      aTraiter.file(societe.id).then((f) => (file = f)).catch(() => {});
+      await goto(`/documents/${r.suivant}`, { replace: true });
+    } else {
+      await goto('/?fait=valide');
     }
-  }
-
-  async function recontroler() {
-    if (!d) return;
-    erreur = '';
-    info = '';
-    try {
-      await api.post(`/api/documents/${d.id}/controler`);
-      await charger();
-      info = 'Contrôles relancés.';
-    } catch (err) {
-      erreur = message(err);
-    }
-  }
-
-  let admin = $derived(session.moi?.role === 'admin');
-  let fige = $derived(d?.statut_depot === 'en_envoi' || d?.statut_depot === 'depose');
-  let corrections = $derived(d ? Object.entries(d.corrections ?? {}) : []);
-  const libelleChamp: Record<string, string> = {
-    type: 'type',
-    societe_id: 'structure',
-    fournisseur_id: 'fournisseur',
-    numero: 'numéro',
-    date_document: 'date',
-    numero_commande: 'n° de commande',
-    montant_ht: 'HT',
-    montant_tva: 'TVA',
-    montant_ttc: 'TTC'
-  };
-  const valeur = (v: unknown) => (v === null || v === undefined || v === '' ? 'vide' : String(v));
-
-  async function relire() {
-    if (!d || !confirm('Relire ce document ? La lecture et la vérification actuelles seront remplacées.')) return;
-    erreur = '';
-    info = '';
-    try {
-      await api.post(`/api/admin/documents/${d.id}/relire`);
-      await charger();
-      arret?.();
-      arret = sonder(charger);
-    } catch (err) {
-      erreur = message(err);
-    }
-  }
-
-  function confiance(c: number | undefined) {
-    if (c === undefined) return null;
-    return { texte: `${Math.round(c * 100)} %`, classe: c >= 0.9 ? 'ok' : c >= 0.6 ? 'att' : 'ko' };
   }
 </script>
 
-<p><a href="/documents">← Documents</a></p>
-{#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
-{#if info}<div class="bandeau ok">{info}</div>{/if}
+<svelte:head><title>Fiche document · GMFlow</title></svelte:head>
 
-{#if d}
-  <h1>{d.type ? libelleType[d.type] : 'Document'}{d.numero ? ` n° ${d.numero}` : ''}</h1>
-
-  <div class="carte entete">
-    <div class="actions">
-      <span class="etiquette {classeEtat[d.etat]}">{libelleEtat[d.etat]}</span>
-      {#if d.statut_depot}<span class="etiquette {classeStatutDepot[d.statut_depot]}">{libelleStatutDepot[d.statut_depot]}</span>{/if}
-      {#if d.voie}<span class="discret">lu par : {libelleVoie[d.voie]}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}</span>{/if}
-      {#if d.lu_le}<span class="discret">le {quand(d.lu_le)}</span>{/if}
-      {#if d.copie_de}<span class="discret">repris du <a href="/documents/{d.copie_de}">document {d.copie_de}</a> (même fichier)</span>{/if}
-      <span style="flex:1"></span>
-      <a class="bouton second" href="/api/pieces/{d.piece_id}" download>Télécharger le fichier</a>
-      {#if session.moi?.role === 'admin' && d.etat !== 'en_cours'}
-        <button class="second" onclick={relire}>Relire</button>
-      {/if}
-    </div>
-    {#if d.message}<p class="discret">{d.message}</p>{/if}
-    <div class="discret">
-      Fichier <strong>{d.nom_fichier}</strong> ({d.type_mime}), joint au mail
-      <a href="/mails/{d.mail_id}">{d.mail_objet || '(sans objet)'}</a> de {d.mail_expediteur || '—'}
-    </div>
-  </div>
-
-  {#if d.etat === 'lu'}
-    <h2>Ce qui a été lu</h2>
-    <table class="champs-lus">
-      <tbody>
-        {#each [
-          ['Type', d.type ? libelleType[d.type] : '—', d.confiance.type],
-          ['Structure destinataire', d.societe ?? 'aucune reconnue', d.confiance.societe],
-          ['Fournisseur lu', [d.fournisseur_nom, d.fournisseur_siret && `SIRET ${d.fournisseur_siret}`, d.fournisseur_tva && `TVA ${d.fournisseur_tva}`].filter(Boolean).join(' · ') || '—', d.confiance.fournisseur],
-          ['Numéro', d.numero ?? '—', d.confiance.numero],
-          ['Date', dateSimple(d.date_document), d.confiance.date],
-          ['N° de commande', d.numero_commande ?? '—', undefined],
-          ['Montants', `HT ${montant(d.montant_ht)} · TVA ${montant(d.montant_tva)} · TTC ${montant(d.montant_ttc)}`, d.confiance.montants]
-        ] as [string, string, number | undefined][] as [libelle, valeur, c] (libelle)}
-          {@const conf = confiance(c)}
-          <tr>
-            <th>{libelle}</th>
-            <td>{valeur}</td>
-            <td class="conf">{#if conf}<span class="etiquette {conf.classe}" title="Confiance de la lecture">{conf.texte}</span>{/if}</td>
-          </tr>
-        {/each}
-      </tbody>
-    </table>
-
-    {#if d.statut_depot}
-      <h2>Dépôt</h2>
-      <div class="carte depot">
-        <div class="actions">
-          <span class="etiquette {classeStatutDepot[d.statut_depot]}">{libelleStatutDepot[d.statut_depot]}</span>
-          <span class="discret">
-            {#if d.societe_adresse_depot}
-              vers {d.societe_outil_depot ? (libelleOutil[d.societe_outil_depot] ?? d.societe_outil_depot) : 'l’outil'} · {d.societe_adresse_depot}
-            {:else}
-              la structure n'a pas d'adresse de dépôt
-            {/if}
-          </span>
-          <span style="flex:1"></span>
-          {#if d.statut_depot === 'a_verifier' || d.statut_depot === 'pret'}
-            <button onclick={() => deposer()}>Valider et déposer</button>
-          {:else if d.statut_depot === 'erreur' && admin}
-            <button onclick={() => deposer()}>Redéposer</button>
-          {:else if d.statut_depot === 'doublon' && admin}
-            <button class="danger" onclick={() => deposer(true)}>Déposer quand même</button>
-          {/if}
-          {#if !fige}<button class="second" onclick={recontroler}>Relancer les contrôles</button>{/if}
-        </div>
-        {#if d.controles.length}
-          <ul class="controles">
-            {#each d.controles as c (c.code)}<li><strong>{c.code}</strong> : {c.message}</li>{/each}
-          </ul>
-        {:else if d.statut_depot === 'pret'}
-          <p class="discret">Tous les contrôles passent.</p>
-        {/if}
-        {#if d.valide_le}
-          <p class="discret">Validé le {quand(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}.</p>
-        {/if}
-        {#if d.fournisseur_id}
-          <p class="discret">
-            Fiche fournisseur : <a href="/fournisseurs?fiche={d.fournisseur_id}">{d.fournisseur}</a>
-            {#if d.fournisseur_statut === 'a_confirmer'}<span class="etiquette att">à confirmer</span>{/if}
-          </p>
-        {/if}
-        {#if d.envois.length}
-          <table>
-            <thead><tr><th>Envoi</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
-            <tbody>
-              {#each d.envois as e (e.id)}
-                <tr>
-                  <td>{quand(e.quand)}</td>
-                  <td>{e.adresse}</td>
-                  <td>
-                    <span class="etiquette {e.etat === 'envoye' ? 'ok' : e.etat === 'erreur' ? 'ko' : 'att'}">{e.etat === 'envoye' ? 'envoyé' : e.etat === 'erreur' ? 'erreur' : 'en cours'}</span>
-                    {#if e.message}<span class="discret">{e.message}</span>{/if}
-                  </td>
-                  <td>{e.auteur ?? 'automatique'}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </div>
-    {/if}
-
-    <h2>Vérification et corrections</h2>
-    <form class="carte" onsubmit={corriger}>
-      {#if d.verifie_le}
-        <p class="discret">
-          Vérifié le {quand(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}.
-          {#if !corrections.length && !d.type_corrige && !d.societe_corrigee}Lecture confirmée sans correction.{/if}
-        </p>
-      {:else}
-        <p class="discret">Confirmez ou corrigez ce qui a été lu. Les corrections servent d'exemples à Claude pour ce fournisseur.</p>
-      {/if}
-      {#if corrections.length}
-        <p class="discret">
-          Corrigé : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{libelleChamp[champ] ?? champ} ({valeur(c.avant)} → {valeur(c.apres)}){/each}
-        </p>
-      {/if}
-      {#if fige}<p class="discret">Document déposé ou en cours d'envoi : plus de correction possible.</p>{/if}
-      <fieldset disabled={fige}>
-        <div class="champs">
-          <div>
-            <label for="vt">Type</label>
-            <select id="vt" bind:value={choix.type} required>
-              {#each TYPES as t (t)}<option value={t}>{libelleType[t]}</option>{/each}
-            </select>
-          </div>
-          <div>
-            <label for="vs">Structure destinataire</label>
-            <select id="vs" bind:value={choix.societe}>
-              <option value="">Aucune</option>
-              {#each societes as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
-            </select>
-          </div>
-          <div>
-            <label for="vf">Fiche fournisseur</label>
-            <select id="vf" bind:value={choix.fournisseur}>
-              <option value="">Aucune</option>
-              {#each fichesProposees as f (f.id)}<option value={String(f.id)}>{f.nom}{f.statut === 'a_confirmer' ? ' (à confirmer)' : ''}</option>{/each}
-            </select>
-          </div>
-          <div>
-            <label for="rf">Chercher une fiche</label>
-            <input id="rf" type="search" placeholder="nom, SIRET, domaine" bind:value={rechercheFiche} oninput={() => chercherFiches().catch(() => {})} />
-          </div>
-          <div><label for="vn">Numéro</label><input id="vn" bind:value={choix.numero} /></div>
-          <div><label for="vd">Date</label><input id="vd" type="date" bind:value={choix.date} /></div>
-          <div><label for="vc">N° de commande</label><input id="vc" bind:value={choix.commande} /></div>
-          <div><label for="vh">Montant HT</label><input id="vh" inputmode="decimal" bind:value={choix.ht} /></div>
-          <div><label for="vtv">TVA</label><input id="vtv" inputmode="decimal" bind:value={choix.tva} /></div>
-          <div><label for="vtt">Montant TTC</label><input id="vtt" inputmode="decimal" bind:value={choix.ttc} /></div>
-        </div>
-        <button disabled={!choix.type}>{d.verifie_le ? 'Enregistrer à nouveau' : 'Valider la lecture'}</button>
-      </fieldset>
-    </form>
+<div class="pleine fixe">
+  {#if Number.isInteger(id) && id > 0}
+    <DocFiche
+      {id}
+      pleinEcran
+      retour="/"
+      {position}
+      ensuite={suivantListe && suivantListe.id !== id ? nomCourtDocument(suivantListe) : undefined}
+      recuLe={i >= 0 ? liste[i].recu_le : null}
+      {annonce}
+      onfait={apres}
+      onchange={() => void aTraiter.file(societe.id).then((f) => (file = f)).catch(() => {})}
+      onprecedent={precedentListe ? () => aller(precedentListe?.id) : undefined}
+      onsuivant={suivantListe && suivantListe.id !== id ? () => aller(suivantListe?.id) : undefined}
+    />
   {/if}
-
-  {#if d.etat === 'lu' && rap}
-    {#if d.type === 'facture' || d.type === 'bl'}
-      <h2>Rapprochement</h2>
-      <div class="carte rap">
-        {#if d.type === 'facture' && rap.numeros_bl.length}
-          <div class="discret">BL cités par la facture : {rap.numeros_bl.join(', ')}</div>
-        {/if}
-        {#if rap.ignore}
-          <div class="discret">Pas de correspondance attendue : ce document n'est pas rapproché automatiquement.</div>
-        {/if}
-        {#each rap.liens as l (l.id)}
-          <div class="lien">
-            <div class="actions">
-              <span>{l.autre.type === 'bl' ? 'BL' : 'Facture'} <a href="/documents/{l.autre.id}">{l.autre.numero ?? l.autre.nom_fichier}</a></span>
-              <span class="discret">{dateSimple(l.autre.date_document)} · {montant(l.autre.montant_ht)} HT · {libelleMethode[l.methode]}{l.auteur ? ` (${l.auteur})` : ''}</span>
-              <span style="flex:1"></span>
-              <button class="second" onclick={() => delier(l.id)}>Défaire</button>
-            </div>
-          </div>
-        {:else}
-          <div class="discret">Aucun {d.type === 'facture' ? 'BL rapproché' : 'facture rapprochée'}.</div>
-        {/each}
-        {#if rap.liens.length}
-          {@const l0 = rap.liens[0]}
-          <div>
-            Écart de montant HT (facture moins BL) :
-            {#if l0.ecart_montant === null}<span class="discret">non calculable (montant manquant)</span>
-            {:else}<span class="etiquette {Math.abs(l0.ecart_montant) > SEUIL_ECART ? 'ko' : 'ok'}">{montant(l0.ecart_montant)}</span>{/if}
-          </div>
-          {#if l0.ecarts.length}
-            <table>
-              <thead><tr><th>Article</th><th class="nombre">Livré (BL)</th><th class="nombre">Facturé</th></tr></thead>
-              <tbody>
-                {#each l0.ecarts as e, i (i)}
-                  <tr><td>{e.reference ?? ''} {e.designation ?? ''}</td><td class="nombre">{quantite(e.qte_bl)}</td><td class="nombre">{quantite(e.qte_facture)}</td></tr>
-                {/each}
-              </tbody>
-            </table>
-          {/if}
-        {/if}
-        {#if rap.candidats.length}
-          <form class="actions" onsubmit={(e) => { e.preventDefault(); lier(); }}>
-            <select bind:value={candidat} style="max-width:28rem" aria-label="Document à relier">
-              <option value="">Relier à {d.type === 'facture' ? 'un BL' : 'une facture'} du même fournisseur…</option>
-              {#each rap.candidats as c (c.id)}
-                <option value={String(c.id)}>{c.numero ?? c.nom_fichier} · {dateSimple(c.date_document)} · {montant(c.montant_ht)}</option>
-              {/each}
-            </select>
-            <button class="second" disabled={!candidat}>Relier</button>
-          </form>
-        {/if}
-        <div><button class="second" onclick={basculerIgnore}>{rap.ignore ? 'Remettre dans le rapprochement' : 'Pas de correspondance attendue'}</button></div>
-      </div>
-    {/if}
-    {#if rap.lignes.length}
-      <h2>Lignes ({rap.lignes.length})</h2>
-      <table>
-        <thead><tr><th>Référence</th><th>Désignation</th><th class="nombre">Quantité</th><th class="nombre">Prix unit. HT</th><th class="nombre">Montant HT</th></tr></thead>
-        <tbody>
-          {#each rap.lignes as l (l.rang)}
-            <tr>
-              <td>{l.reference ?? '—'}</td>
-              <td>{l.designation ?? '—'}</td>
-              <td class="nombre">{quantite(l.quantite)}{l.unite ? ` ${libelleUnite(l.unite)}` : ''}</td>
-              <td class="nombre">{l.prix_unitaire_ht === null ? '—' : montant(l.prix_unitaire_ht)}</td>
-              <td class="nombre">{montant(l.montant_ht)}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    {:else if d.type === 'bl' && !rap.lignes_lues}
-      <p class="discret">BL lu sans ses lignes (avant le module de rapprochement) : un administrateur peut le relire.</p>
-    {/if}
-  {/if}
-
-  {#if d.texte}
-    <details>
-      <summary>Texte du document</summary>
-      <div class="carte"><pre class="corps">{d.texte}</pre></div>
-    </details>
-  {/if}
-{/if}
-
-<style>
-  .entete { display: grid; gap: 0.5rem; }
-  .champs-lus th { width: 13rem; background: var(--surface); color: var(--gris); }
-  .champs-lus .conf { width: 5rem; text-align: right; }
-  a.bouton { display: inline-block; text-decoration: none; padding: 0.42rem 0.9rem; border-radius: var(--rayon); border: 1px solid var(--accent); }
-  a.bouton.second { background: #fff; color: var(--accent); }
-  details { margin-top: 1.5rem; }
-  .depot { display: grid; gap: 0.5rem; }
-  .rap { display: grid; gap: 0.6rem; }
-  .controles { margin: 0; padding-left: 1.1rem; }
-  fieldset { border: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; }
-  fieldset > button { justify-self: start; }
-  summary { cursor: pointer; font-weight: 650; margin-bottom: 0.6rem; }
-</style>
+</div>
