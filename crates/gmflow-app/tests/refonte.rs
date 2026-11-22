@@ -171,6 +171,12 @@ async fn apercu_des_pieces() {
             ("p.html", "text/html", b"<script>alert(1)</script>"),
             ("i.svg", "image/svg+xml", b"<svg onload='alert(1)'/>"),
             ("photo.png", "image/png", b"\x89PNG\r\n\x1a\n"),
+            ("facture", "application/octet-stream", b"%PDF-1.7 octet"),
+            (
+                "faux.pdf",
+                "application/pdf",
+                b"<html><script>alert(1)</script>",
+            ),
         ],
         false,
     );
@@ -224,8 +230,20 @@ async fn apercu_des_pieces() {
     assert!(entete(&r, "content-disposition").starts_with("inline;"));
     assert!(entete(&r, "content-security-policy").contains("sandbox"));
 
-    // HTML et SVG : jamais affichés dans la page.
-    for nom in ["p.html", "i.svg"] {
+    // PDF envoyé en octet-stream, sans extension : reconnu à son contenu.
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/pieces/{}?inline=1", id("facture")),
+            None,
+            admin,
+        )
+        .await;
+    assert!(entete(&r, "content-disposition").starts_with("inline;"));
+    assert_eq!(entete(&r, "content-type"), "application/pdf");
+
+    // HTML et SVG (même déclarés PDF) : jamais affichés dans la page.
+    for nom in ["p.html", "i.svg", "faux.pdf"] {
         let r = app
             .requete(
                 "GET",

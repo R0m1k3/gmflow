@@ -51,6 +51,26 @@ fn type_mime(part: &MessagePart<'_>) -> String {
     }
 }
 
+/// Type réel d'une pièce d'après ses premiers octets (PDF et images affichables), quel que
+/// soit le type déclaré : beaucoup de messageries envoient leurs PDF en
+/// `application/octet-stream` ou `application/x-pdf`. Jamais de HTML ni de SVG.
+pub fn type_reel(octets: &[u8]) -> Option<&'static str> {
+    let debut = &octets[..octets.len().min(1024)];
+    if debut.windows(5).any(|w| w == b"%PDF-") {
+        Some("application/pdf")
+    } else if octets.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg")
+    } else if octets.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if octets.starts_with(b"GIF8") {
+        Some("image/gif")
+    } else if octets.len() > 12 && &octets[0..4] == b"RIFF" && &octets[8..12] == b"WEBP" {
+        Some("image/webp")
+    } else {
+        None
+    }
+}
+
 fn nom_par_defaut(rang: i32, mime: &str) -> String {
     let ext = mime.split('/').nth(1).unwrap_or("bin");
     format!("piece-{}.{}", rang + 1, ext)
@@ -93,7 +113,9 @@ pub fn decouper(brut: &[u8]) -> Result<MailDecoupe, ErreurEml> {
         let contenu = part.decoded();
         let empreinte = sha256(&contenu);
         empreintes.push(hex::encode(&empreinte));
-        let mime = type_mime(&part);
+        let mime = type_reel(&contenu)
+            .map(str::to_string)
+            .unwrap_or_else(|| type_mime(&part));
         let nom = part
             .attachment_name()
             .map(|n| n.trim().to_string())
