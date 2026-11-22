@@ -1,443 +1,333 @@
 <script lang="ts">
-  // À traiter (maquette B, écran 1) : la file à gauche (Bloqué, À valider, À répondre), l'élément
-  // ouvert à droite (?doc=ID : fiche document ; ?mail=ID : aperçu du mail). J/K, Entrée, Échap.
-  // Téléphone : la liste, puis l'élément en page (Volets).
-  import { goto } from '$app/navigation';
-  import { page } from '$app/state';
+  // Accueil : le tableau de bord. En haut, les chiffres du jour (mails reçus, à répondre,
+  // factures et BL à valider) ; au centre, les derniers mails ; à droite, ce qui attend une
+  // réponse, les dernières factures et les derniers BL. Chaque ligne ouvre l'onglet concerné.
   import { untrack } from 'svelte';
-  import { aTraiter, ecarterDocument, ErreurApi, message, sonder, validerDocument } from '#lib/api.ts';
-  import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
-  import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
-  import { libelleBrouillon, libellePriorite, libelleType, nomCourtSociete } from '#lib/libelles.ts';
+  import { api, message, requete, sonder } from '#lib/api.ts';
+  import { compteurs } from '#lib/compteurs.svelte.ts';
+  import { libelleCategorie, libellePriorite, libelleStatutReponse, libelleType, nomCourtSociete, tonStatutReponse } from '#lib/libelles.ts';
+  import { parJour } from '#lib/liste.svelte.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { Bloque, FileATraiter } from '#lib/types.ts';
+  import type { LigneARepondre, LigneDocument, LigneMail, Page } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
-  import DocFiche, { type PositionFiche, type ResultatFiche } from '#lib/ui/DocFiche.svelte';
-  import { age, drapeau, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
+  import Etiquette from '#lib/ui/Etiquette.svelte';
   import Icone from '#lib/ui/Icone.svelte';
-  import Kbd from '#lib/ui/Kbd.svelte';
-  import MailFiche from '#lib/ui/MailFiche.svelte';
+  import { dateMail, nomExpediteur } from '#lib/ui/MailFiche.svelte';
   import Montant from '#lib/ui/Montant.svelte';
   import Vide from '#lib/ui/Vide.svelte';
-  import Volets from '#lib/ui/Volets.svelte';
 
-  let admin = $derived(session.moi?.role === 'admin');
+  const NB_MAILS = 30;
+  const NB_COTE = 6;
 
-  // ---------- File ----------
-  let file = $state<FileATraiter | null>(null);
-  let erreurFile = $state('');
-  let majA = $state<Date | null>(null);
-  let erreur = $state('');
-  let annonce = $state('');
-  let tour = 0;
-
-  async function chargerFile() {
-    const moi = ++tour;
-    const f = await aTraiter.file(societe.id);
-    if (moi !== tour) return;
-    file = f;
-    majA = new Date();
-    erreurFile = '';
+  interface Tableau {
+    mails_du_jour: { societe_id: number; raison_sociale: string; n: number }[];
+  }
+  interface Donnees {
+    mailsDuJour: number;
+    mails: LigneMail[];
+    aRepondre: Page<LigneARepondre>;
+    factures: LigneDocument[];
+    facturesAValider: number;
+    bl: LigneDocument[];
+    blAValider: number;
   }
 
-  // Au changement de société, puis toutes les minutes (page visible).
+  let d = $state<Donnees | null>(null);
+  let erreur = $state('');
+  let tour = 0;
+
+  async function charger() {
+    const moi = ++tour;
+    const s = societe.id;
+    const doc = (p: Record<string, string>) => api.get<Page<LigneDocument>>(`/api/documents${requete({ societe: s, ...p })}`);
+    const [t, mails, rep, fac, facV, bl, blV] = await Promise.all([
+      api.get<Tableau>(`/api/tableau-de-bord${requete({ societe: s })}`),
+      api.get<Page<LigneMail>>(`/api/mails${requete({ societe: s, categorie: 'hors_publicite' })}`),
+      api.get<Page<LigneARepondre>>(`/api/a-repondre${requete({ societe: s })}`),
+      doc({ type: 'facture' }),
+      doc({ type: 'facture', verifie: 'non' }),
+      doc({ type: 'bl' }),
+      doc({ type: 'bl', verifie: 'non' })
+    ]);
+    if (moi !== tour) return;
+    d = {
+      mailsDuJour: t.mails_du_jour.reduce((n, l) => n + l.n, 0),
+      mails: mails.elements.slice(0, NB_MAILS),
+      aRepondre: rep,
+      factures: fac.elements.slice(0, NB_COTE),
+      facturesAValider: facV.total,
+      bl: bl.elements.slice(0, NB_COTE),
+      blAValider: blV.total
+    };
+    erreur = '';
+  }
+
   $effect(() => {
     void societe.id;
     untrack(() => {
-      file = null;
-      chargerFile().catch((e) => (erreurFile = message(e)));
+      d = null;
+      charger().catch((e) => (erreur = message(e)));
     });
-    const arret = sonder(async () => {
-      if (document.visibilityState === 'visible') await chargerFile();
+    return sonder(async () => {
+      if (document.visibilityState === 'visible') await charger().catch((e) => (erreur = message(e)));
     }, 60_000);
-    return arret;
   });
 
-  // Téléphone : la section Bloqué tient en une bande, ouverte au toucher (ou par /#bloque).
-  let bloqueOuvert = $state(false);
+  let groupes = $derived(d ? parJour(d.mails, (m) => m.date_mail) : []);
+  let admin = $derived(session.moi?.role === 'admin');
 
-  // Arrivée par une ancre (/#bloque depuis la pastille d'état, /#a-repondre depuis l'ancienne page) :
-  // la section n'existe qu'une fois la file chargée.
-  let ancreVue = '';
-  $effect(() => {
-    if (!file) return;
-    const ancre = page.url.hash.slice(1);
-    if (!ancre || ancre === ancreVue) return;
-    ancreVue = ancre;
-    if (ancre === 'bloque') bloqueOuvert = true;
-    requestAnimationFrame(() => document.getElementById(ancre)?.scrollIntoView({ block: 'start' }));
-  });
+  const aujourdhui = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
+  const jour = aujourdhui.charAt(0).toUpperCase() + aujourdhui.slice(1);
 
-  // ---------- Élément ouvert (URL) ----------
-  let docId = $derived(Number(page.url.searchParams.get('doc')) || null);
-  let mailId = $derived(docId ? null : Number(page.url.searchParams.get('mail')) || null);
-  let toutValide = $derived(page.url.searchParams.get('fait') === 'valide');
-
-  type Element = { cle: string; href: string; section: 'bloque' | 'a_valider' | 'a_repondre' };
-  /** Lignes qu'on ouvre (J/K), dans l'ordre affiché. */
-  let elements = $derived.by((): Element[] => {
-    if (!file) return [];
-    return [
-      ...file.bloque
-        .filter((b) => b.document_id !== null)
-        .map((b) => ({ cle: `d${b.document_id}`, href: `/?doc=${b.document_id}`, section: 'bloque' as const })),
-      ...file.a_valider.map((l) => ({ cle: `d${l.id}`, href: `/?doc=${l.id}`, section: 'a_valider' as const })),
-      ...file.a_repondre.map((m) => ({ cle: `m${m.id}`, href: `/?mail=${m.id}`, section: 'a_repondre' as const }))
-    ];
-  });
-  let cleCourante = $derived(docId ? `d${docId}` : mailId ? `m${mailId}` : '');
-  let indice = $derived(elements.findIndex((e) => e.cle === cleCourante));
-  let courant = $derived(indice >= 0 ? elements[indice] : null);
-
-  // La phrase laissée par une action reste affichée sur l'élément ouvert juste après, pas au-delà.
-  let annoncePour = '';
-  function annoncer(texte: string, href: string) {
-    annonce = texte;
-    const u = new URL(href, location.origin);
-    const d = Number(u.searchParams.get('doc')) || null;
-    const m = Number(u.searchParams.get('mail')) || null;
-    annoncePour = d ? `d${d}` : m ? `m${m}` : '';
-  }
-  $effect(() => {
-    if (cleCourante !== annoncePour) annonce = '';
-  });
-
-  let listeEl = $state<HTMLElement>();
-  function deplacerDe(sens: 1 | -1) {
-    const i = deplacer(indice, sens, elements.length);
-    if (i < 0) return;
-    const cle = elements[i].cle;
-    void goto(elements[i].href, { replace: true, reset: false }).then(() => montrer(listeEl, `[data-cle="${cle}"]`));
-  }
-  function fermer() {
-    void goto('/', { reset: false });
-  }
-  function commencer() {
-    const s = file?.suivant ?? file?.a_valider[0]?.id;
-    if (s) void goto(`/?doc=${s}`, { reset: false });
-    else if (file?.a_repondre[0]) void goto(`/?mail=${file.a_repondre[0].id}`, { reset: false });
-    else if (elements[0]) void goto(elements[0].href, { reset: false });
-  }
-
-  $effect(() => {
-    const ouvert = !!(docId || mailId);
-    const carte: Record<string, () => void> = {
-      j: () => deplacerDe(1),
-      k: () => deplacerDe(-1)
-    };
-    if (ouvert) carte.Escape = fermer;
-    // Entrée sur un document ouvert : la fiche valide ; sur un mail, Ctrl+Entrée envoie la réponse.
-    if (!ouvert) carte.Enter = commencer;
-    // Échap ne ferme pas le volet pendant qu'on tape une réponse ou corrige un champ.
-    return raccourcis(carte, { dansLesChamps: [] });
-  });
-
-  // Position et « Ensuite » de l'élément ouvert.
-  const SECTIONS = { bloque: 'Bloqué', a_valider: 'À valider', a_repondre: 'À répondre' } as const;
-  let position = $derived.by((): PositionFiche | null => {
-    if (!file || !courant) return null;
-    const de = elements.filter((e) => e.section === courant!.section);
-    const total =
-      courant.section === 'a_valider' ? file.compteurs.a_valider : courant.section === 'a_repondre' ? file.compteurs.a_repondre : de.length;
-    return { section: SECTIONS[courant.section], n: de.indexOf(courant) + 1, total };
-  });
-  let ensuite = $derived.by(() => {
-    // « Ensuite » de la fiche document ; la fiche mail donne sa propre position dans À répondre.
-    if (!file || !courant || courant.section === 'a_repondre') return undefined;
-    if (courant.section === 'a_valider') {
-      const i = file.a_valider.findIndex((l) => l.id === docId);
-      const l = file.a_valider[i + 1] ?? (i > 0 ? file.a_valider[0] : undefined);
-      return l ? nomCourtDocument(l) : undefined;
-    }
-    const docs = file.bloque.filter((b) => b.document_id !== null);
-    const i = docs.findIndex((b) => b.document_id === docId);
-    const b = docs[i + 1];
-    return b ? (b.fournisseur || b.numero ? nomCourtDocument(b) : (b.libelle ?? 'Document')) : undefined;
-  });
-
-  /** Après une validation ou un écart : le suivant de la même section, sinon la file. */
-  async function apres(r: ResultatFiche) {
-    const section = courant?.section ?? 'a_valider';
-    const avant = elements.filter((e) => e.section === section).findIndex((e) => e.cle === `d${r.id}`);
-    await chargerFile().catch((e) => (erreurFile = message(e)));
-    let cible = '/';
-    if (section === 'a_valider') {
-      // Après le dernier, le volet vide dit « Tout est validé ».
-      if (r.suivant) cible = `/?doc=${r.suivant}`;
-    } else {
-      const reste = elements.filter((e) => e.section === section);
-      const e = reste[Math.max(0, avant)] ?? reste[reste.length - 1];
-      if (e) cible = e.href;
-      else if (file?.suivant) cible = `/?doc=${file.suivant}`;
-    }
-    annoncer(r.info, cible);
-    await goto(cible, { replace: true, reset: false });
-  }
-
-  // ---------- Bloqué : déblocage en un clic ----------
-  let occupe = $state('');
-  const cleBloque = (b: Bloque) => `${b.genre}-${b.document_id ?? b.boite_id ?? ''}`;
-
-  async function debloquer(b: Bloque) {
-    if (occupe || b.document_id === null) return;
-    occupe = cleBloque(b);
-    erreur = '';
-    try {
-      if (b.genre === 'envoi_erreur') {
-        await validerDocument(b.document_id, {}, societe.id);
-        annoncer(`Envoi relancé : ${nomCourtDocument(b)}`, '/');
-      } else {
-        await ecarterDocument(b.document_id, societe.id);
-        annoncer(`Écarté : ${b.genre === 'illisible' ? (b.libelle ?? 'document illisible') : nomCourtDocument(b)}`, '/');
-      }
-      void rafraichirCompteurs();
-      await chargerFile();
-      if (docId) await goto('/', { replace: true, reset: false });
-    } catch (e) {
-      erreur = e instanceof ErreurApi && e.code === 409 ? e.message : message(e);
-    } finally {
-      occupe = '';
-    }
-  }
-
-  function depuis(iso: string | null): string {
-    if (!iso) return '';
-    const q = quandCourt(iso);
-    return /^\d\d:\d\d$/.test(q) || q === 'hier' ? `depuis ${q}` : `depuis le ${q}`;
-  }
-
-  function texteBloque(b: Bloque): { a: string; b: string } {
-    const msg = b.message ?? '';
-    switch (b.genre) {
-      case 'envoi_erreur':
-        return { a: `Envoi à Dext / Yooz échoué : ${nomCourtDocument(b)}`, b: msg };
-      case 'doublon':
-        return { a: `Doublon : ${nomCourtDocument(b)}`, b: msg };
-      case 'illisible':
-        return { a: `Document illisible : ${b.libelle ?? 'pièce jointe'}`, b: msg };
-      case 'boite':
-        return {
-          a: `Boîte ${b.libelle ?? ''} ${b.motif === 'pause_auto' ? 'arrêtée' : 'en échec'}`,
-          b: [msg, depuis(b.depuis)].filter(Boolean).join(' ')
-        };
-      case 'claude':
-        return {
-          a: b.motif === 'absent' ? 'Claude n’est pas connecté' : 'Connexion à Claude en échec',
-          b: msg || 'Les documents ne sont plus lus ni les mails triés'
-        };
-    }
-  }
-
-  // ---------- Mail ouvert : la fiche complète dans le volet ----------
-  /** Après un envoi ou un classement : la file est relue, puis le mail suivant (ou la file). */
-  async function apresMail(suivant: number | null) {
-    await chargerFile().catch((e) => (erreurFile = message(e)));
-    await goto(suivant ? `/?mail=${suivant}` : file?.suivant ? `/?doc=${file.suivant}` : '/', { replace: true, reset: false });
-  }
-
-  /** « Demande le RIB » après « Sodistra : » devient « demande le RIB » (sauf sigle). */
-  const minuscule = (t: string) => (/^\p{Lu}\p{Ll}/u.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t);
-
-  const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
-  let horsLimite = $derived(file ? file.compteurs.a_valider - file.a_valider.length : 0);
-  let ouvert = $derived(!!(docId || mailId));
+  const fournisseur = (x: LigneDocument) => x.fournisseur ?? x.fournisseur_nom ?? 'Fournisseur non reconnu';
 </script>
 
-<svelte:head><title>À traiter · GMFlow</title></svelte:head>
+<svelte:head><title>Accueil · GMFlow</title></svelte:head>
 
-<Volets {ouvert} libelleListe="File À traiter">
-  {#snippet liste()}
-    <div class="liste-h">
-      <h1>À traiter</h1>
-      {#if file}<span class="num">{file.compteurs.total}</span>{/if}
-      <span class="sp"></span>
-      {#if majA}<span class="muted petit">Mis à jour à {heure.format(majA)}</span>{/if}
+<div class="page accueil">
+  <div class="page-h">
+    <h1>{jour}</h1>
+    {#if societe.courante}<span class="muted">{societe.courante.raison_sociale}</span>{/if}
+  </div>
+
+  {#if admin && compteurs.problemes}
+    <Bandeau ton="erreur" titre="{compteurs.problemes} problème{compteurs.problemes > 1 ? 's' : ''} à régler.">
+      Une boîte, Claude ou un envoi est bloqué.
+      {#snippet action()}<a class="btn sm" href="/a-traiter#bloque">Voir</a>{/snippet}
+    </Bandeau>
+  {/if}
+
+  {#if erreur}
+    <Bandeau ton="erreur" titre="Tableau de bord non chargé.">
+      {erreur}
+      {#snippet action()}<button type="button" class="btn sm" onclick={() => charger().catch((e) => (erreur = message(e)))}>Réessayer</button>{/snippet}
+    </Bandeau>
+  {/if}
+
+  {#if !d}
+    {#if !erreur}<Chargement texte="Chargement du tableau de bord" />{/if}
+  {:else}
+    <div class="chiffres">
+      <a class="chiffre" href="/mails">
+        <span class="n num">{d.mailsDuJour}</span>
+        <span class="l"><Icone nom="mail" />Mails reçus aujourd’hui</span>
+      </a>
+      <a class="chiffre" class:alerte={d.aRepondre.total > 0} href="/a-repondre">
+        <span class="n num">{d.aRepondre.total}</span>
+        <span class="l"><Icone nom="envoyer" />À répondre</span>
+      </a>
+      <a class="chiffre" class:alerte={d.facturesAValider > 0} href="/factures?filtre=a-valider">
+        <span class="n num">{d.facturesAValider}</span>
+        <span class="l"><Icone nom="fichier" />Factures à valider</span>
+      </a>
+      <a class="chiffre" class:alerte={d.blAValider > 0} href="/bl?filtre=a-valider">
+        <span class="n num">{d.blAValider}</span>
+        <span class="l"><Icone nom="camion" />BL à valider</span>
+      </a>
     </div>
-    <div class="liste-s" bind:this={listeEl}>
-      {#if toutValide && !annonce}<div class="doc-annonce"><Bandeau ton="ok" role="status">Tout est validé</Bandeau></div>{/if}
-      {#if annonce && !ouvert}<div class="doc-annonce"><Bandeau ton="ok" role="status">{annonce}</Bandeau></div>{/if}
-      {#if erreur}<div class="doc-annonce"><Bandeau ton="erreur">{erreur}</Bandeau></div>{/if}
-      {#if erreurFile && !file}
-        <div class="doc-annonce">
-          <Bandeau ton="erreur">
-            {erreurFile}
-            {#snippet action()}<button type="button" class="btn sm" onclick={() => chargerFile().catch((e) => (erreurFile = message(e)))}>Réessayer</button>{/snippet}
-          </Bandeau>
+
+    <div class="grille">
+      <section class="bloc mails">
+        <div class="bloc-h">
+          <h2>Derniers mails</h2>
+          <span class="muted petit large-seul">publicités à part</span>
+          <span class="sp"></span>
+          <a class="btn sm fantome" href="/mails">Tous les mails <Icone nom="droite" /></a>
         </div>
-      {:else if !file}
-        <Chargement texte="Chargement de la file" />
-      {:else if file.compteurs.total === 0}
-        <Vide icone="coche" titre="Tout est à jour" texte="Aucun document à valider ni mail à répondre." compact />
-      {:else}
-        {#if file.bloque.length}
-          {#if !bloqueOuvert}
-            <button type="button" class="bande-bloque tel-seul" onclick={() => (bloqueOuvert = true)}>
-              <span class="point"></span>
-              {file.compteurs.bloque} problème{file.compteurs.bloque > 1 ? 's' : ''} à débloquer
-              <span class="sp"></span><Icone nom="droite" />
-            </button>
-          {/if}
-          <section class="sec" class:replie-tel={!bloqueOuvert} id="bloque">
-            <div class="sec-h erreur"><span class="point"></span><h2>Bloqué</h2><span class="num">{file.compteurs.bloque}</span></div>
-            {#each file.bloque as b (cleBloque(b))}
-              {@const t = texteBloque(b)}
-              {@const cle = b.document_id !== null ? `d${b.document_id}` : ''}
-              <div class="ligne bloc doc-bloc" class:cur={cle !== '' && cle === cleCourante} data-cle={cle || undefined}>
-                <div class="a">
-                  {#if b.document_id !== null}<a class="doc-lien" href="/?doc={b.document_id}">{t.a}</a>{:else}{t.a}{/if}
-                </div>
-                {#if t.b}<div class="b">{t.b}</div>{/if}
+        {#if !d.mails.length}
+          <Vide compact icone="mail" titre="Aucun mail reçu" texte="Les mails des boîtes relevées arrivent ici." />
+        {:else}
+          {#each groupes as g (g.titre)}
+            <div class="jour-h">{g.titre}</div>
+            {#each g.elements as m (m.id)}
+              <a class="ligne" href="/mails?mail={m.id}">
+                <div class="a">{nomExpediteur(m.expediteur) || '(expéditeur inconnu)'}</div>
                 <div class="r">
-                  {#if b.genre === 'boite' && b.boite_id !== null}
-                    <a class="btn sm" href="/reglages/boites/{b.boite_id}">Corriger</a>
-                  {:else if b.genre === 'claude'}
-                    <a class="btn sm" href="/reglages#claude">Se reconnecter</a>
-                  {:else if b.genre === 'envoi_erreur'}
-                    {#if admin}
-                      <button type="button" class="btn sm" class:en-cours={occupe === cleBloque(b)} disabled={!!occupe} onclick={() => debloquer(b)}>Renvoyer</button>
-                    {:else}
-                      <a class="btn sm" href="/?doc={b.document_id}">Voir</a>
-                    {/if}
-                  {:else}
-                    <button type="button" class="btn sm" class:en-cours={occupe === cleBloque(b)} disabled={!!occupe} onclick={() => debloquer(b)}>
-                      {b.genre === 'doublon' ? 'Écarter le doublon' : 'Écarter'}
-                    </button>
+                  {#if m.statut_reponse === 'a_repondre'}
+                    <Etiquette ton={tonStatutReponse(m.statut_reponse)}>{libelleStatutReponse(m.statut_reponse)}</Etiquette>
+                  {:else if m.categorie}
+                    <span class="muted petit">{libelleCategorie(m.categorie)}</span>
                   {/if}
                 </div>
-              </div>
+                <div class="b">
+                  {#if m.nb_pieces}<span class="pj"><Icone nom="trombone" /></span>{/if}{m.objet || '(sans objet)'}
+                </div>
+                <div class="r2"><span class="num">{dateMail(m.date_mail, false)}</span></div>
+              </a>
             {/each}
-          </section>
+          {/each}
         {/if}
+      </section>
 
-        <section class="sec">
-          <div class="sec-h">
-            <h2>À valider</h2><span class="num">{file.compteurs.a_valider}</span>
-            {#if file.a_valider.length}
-              <button type="button" class="btn sm" onclick={commencer}>Commencer{#if !ouvert}<Kbd t="Enter" />{/if}</button>
-            {/if}
+      <div class="cote">
+        <section class="bloc">
+          <div class="bloc-h">
+            <h2>À répondre</h2>
+            <span class="num muted">{d.aRepondre.total}</span>
+            <span class="sp"></span>
+            <a class="btn sm fantome" href="/a-repondre">Tout voir <Icone nom="droite" /></a>
           </div>
-          {#each file.a_valider as l (l.id)}
-            {@const f = drapeau(l)}
-            <a class="ligne" class:cur={docId === l.id} aria-current={docId === l.id ? 'true' : undefined} href="/?doc={l.id}" data-cle="d{l.id}">
-              <div class="a">{l.fournisseur ?? 'Fournisseur non reconnu'}</div>
-              <div class="r">{#if l.montant_ttc !== null}<Montant valeur={l.montant_ttc} avoir={l.type === 'avoir'} />{/if}</div>
-              <div class="b">
-                {libelleType(l.type)}{#if l.numero}<span class="large-seul">{' '}<span class="num">{l.numero}</span></span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}
-              </div>
-              <div class="r2">{age(l.recu_le)}</div>
-            </a>
-          {:else}
-            <p class="muted petit doc-rien">Rien à valider</p>
-          {/each}
-          {#if horsLimite > 0}<p class="plus">{horsLimite} autres, à voir après ceux-ci</p>{/if}
-        </section>
-
-        <section class="sec" id="a-repondre">
-          <div class="sec-h"><h2>À répondre</h2><span class="num">{file.compteurs.a_repondre}</span></div>
-          {#each file.a_repondre as m (m.id)}
-            <a class="ligne" class:cur={mailId === m.id} aria-current={mailId === m.id ? 'true' : undefined} href="/?mail={m.id}" data-cle="m{m.id}">
-              <div class="a">{m.resume ? `${m.fournisseur ?? nomExpediteur(m.expediteur)} : ${minuscule(m.resume)}` : m.objet || '(sans objet)'}</div>
+          {#each d.aRepondre.elements.slice(0, NB_COTE) as m (m.id)}
+            <a class="ligne" href="/a-repondre?mail={m.id}">
+              <div class="a">{nomExpediteur(m.expediteur) || '(expéditeur inconnu)'}</div>
               <div class="r">{#if libellePriorite(m.priorite)}<span class="flag e">{libellePriorite(m.priorite)}</span>{/if}</div>
-              <div class="b">
-                {m.resume ? m.objet || '(sans objet)' : (m.fournisseur ?? nomExpediteur(m.expediteur))}{#if m.brouillon}<span class="flag">&nbsp; {libelleBrouillon(m.brouillon)}</span>{/if}
-              </div>
-              <div class="r2">{quandCourt(m.date_mail)}</div>
+              <div class="b">{m.resume || m.objet || '(sans objet)'}</div>
+              <div class="r2"><span class="num">{dateMail(m.date_mail, false)}</span></div>
             </a>
           {:else}
-            <p class="muted petit doc-rien">Aucune question en attente</p>
+            <p class="rien">Aucune question en attente</p>
           {/each}
         </section>
-      {/if}
-    </div>
-    <div class="liste-f">
-      <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
-      {#if mailId}<span><Kbd t={['Ctrl', 'Enter']} /> envoyer</span>{:else}<span><Kbd t="Enter" /> {docId ? 'valider' : file && !file.a_valider.length && file.a_repondre.length ? 'répondre' : 'commencer'}</span>{/if}
-      <span><Kbd t="/" /> chercher</span>
-    </div>
-  {/snippet}
 
-  {#snippet detail()}
-    {#if docId}
-      <DocFiche
-        id={docId}
-        {position}
-        {ensuite}
-        {annonce}
-        onfait={apres}
-        onchange={() => void chargerFile().catch(() => {})}
-        onprecedent={elements.length ? () => deplacerDe(-1) : undefined}
-        onsuivant={elements.length ? () => deplacerDe(1) : undefined}
-      />
-    {:else if mailId}
-      <MailFiche id={mailId} volet ouvrir={apresMail} />
-    {/if}
-  {/snippet}
+        <section class="bloc">
+          <div class="bloc-h">
+            <h2>Dernières factures</h2>
+            <span class="sp"></span>
+            <a class="btn sm fantome" href="/factures">Toutes <Icone nom="droite" /></a>
+          </div>
+          {#each d.factures as x (x.id)}
+            <a class="ligne" href="/factures?doc={x.id}">
+              <div class="a">{fournisseur(x)}</div>
+              <div class="r">{#if x.montant_ttc !== null}<Montant valeur={x.montant_ttc} />{/if}</div>
+              <div class="b">{libelleType(x.type)}{#if x.numero}{' '}<span class="num">{x.numero}</span>{/if}{x.societe ? `, ${nomCourtSociete(x.societe)}` : ''}</div>
+              <div class="r2">{#if !x.verifie}<span class="flag w">À valider</span>{:else}<span class="num">{dateMail(x.date_mail, false)}</span>{/if}</div>
+            </a>
+          {:else}
+            <p class="rien">Aucune facture reçue</p>
+          {/each}
+        </section>
 
-  {#snippet vide()}
-    {#if file && file.compteurs.total === 0}
-      <Vide icone="coche" titre="Tout est à jour" texte="Aucun document à valider ni mail à répondre." />
-    {:else if file && file.a_valider.length}
-      <Vide icone="fichier" titre="{file.compteurs.a_valider} document{file.compteurs.a_valider > 1 ? 's' : ''} à valider" texte="Les plus anciens et ceux qui ont une alerte d’abord.">
-        <button type="button" class="btn principal" onclick={commencer}>Commencer <Kbd t="Enter" /></button>
-      </Vide>
-    {:else if file && file.a_repondre.length}
-      {@const n = file.compteurs.a_repondre}
-      <Vide icone="coche" titre="Tout est validé" texte="{n} mail{n > 1 ? 's attendent' : ' attend'} une réponse.">
-        <button type="button" class="btn principal" onclick={commencer}>Répondre <Kbd t="Enter" /></button>
-      </Vide>
-    {:else if file}
-      {@const n = file.compteurs.bloque}
-      <Vide icone="coche" titre="Tout est validé" texte="Reste {n} problème{n > 1 ? 's' : ''} à débloquer, dans la file." />
-    {/if}
-  {/snippet}
-</Volets>
+        <section class="bloc">
+          <div class="bloc-h">
+            <h2>Derniers BL</h2>
+            <span class="sp"></span>
+            <a class="btn sm fantome" href="/bl">Tous <Icone nom="droite" /></a>
+          </div>
+          {#each d.bl as x (x.id)}
+            <a class="ligne" href="/bl?doc={x.id}">
+              <div class="a">{fournisseur(x)}</div>
+              <div class="r">{#if x.montant_ttc !== null}<Montant valeur={x.montant_ttc} />{/if}</div>
+              <div class="b">BL{#if x.numero}{' '}<span class="num">{x.numero}</span>{/if}{x.societe ? `, ${nomCourtSociete(x.societe)}` : ''}</div>
+              <div class="r2">{#if !x.verifie}<span class="flag w">À valider</span>{:else}<span class="num">{dateMail(x.date_mail, false)}</span>{/if}</div>
+            </a>
+          {:else}
+            <p class="rien">Aucun BL reçu</p>
+          {/each}
+        </section>
+      </div>
+    </div>
+  {/if}
+</div>
 
 <style>
-  .doc-annonce {
-    padding: var(--e3) var(--e4) 0;
+  .accueil {
+    max-width: 1400px;
   }
-  .doc-rien {
-    margin: 0;
-    padding: var(--e1) var(--e4) var(--e2);
+  .chiffres {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border: 1px solid var(--line);
+    border-radius: var(--r3);
+    margin-bottom: var(--e6);
+    background: var(--white);
   }
-  /* ligne de Bloqué : le titre ouvre la fiche, le bouton débloque */
-  .doc-bloc {
-    position: relative;
-  }
-  .doc-lien {
-    color: inherit;
+  .chiffre {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e1);
+    padding: var(--e4) var(--e5);
+    color: var(--text);
     text-decoration: none;
+    transition: background-color var(--vite) var(--ease);
   }
-  .doc-lien::after {
-    content: '';
-    position: absolute;
-    inset: 0;
+  .chiffre + .chiffre {
+    border-left: 1px solid var(--line);
   }
-  .doc-bloc .r {
-    position: relative;
-    z-index: 1;
+  .chiffre:hover {
+    background: var(--pane);
   }
-  /* Téléphone : Bloqué replié en une bande */
-  .bande-bloque {
+  .chiffre .n {
+    font-size: 28px;
+    line-height: 36px;
+    font-weight: 600;
+    color: var(--black);
+  }
+  .chiffre.alerte .n {
+    color: var(--warn);
+  }
+  .chiffre .l {
     display: flex;
     align-items: center;
     gap: var(--e2);
-    width: 100%;
+    color: var(--text2);
+  }
+  .grille {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: var(--e6);
+    align-items: start;
+  }
+  .cote {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e6);
+  }
+  .bloc {
+    border: 1px solid var(--line);
+    border-radius: var(--r3);
+    background: var(--white);
+    overflow: hidden;
+  }
+  .bloc-h {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    height: 44px;
+    padding: 0 var(--e2) 0 var(--e4);
+    border-bottom: 1px solid var(--line);
+  }
+  .bloc .ligne + .ligne {
+    border-top: 1px solid var(--line-soft, var(--line));
+  }
+  .rien {
+    margin: 0;
     padding: var(--e3) var(--e4);
-    border: 0;
-    background: var(--err-bg);
-    color: var(--err);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 500;
-    text-align: left;
-    cursor: pointer;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .pj {
+    display: inline-flex;
+    vertical-align: -3px;
+    margin-right: 4px;
+    color: var(--muted);
+  }
+  .pj :global(svg) {
+    width: 14px;
+    height: 14px;
+  }
+  .jour-h {
+    position: static;
+  }
+
+  @media (max-width: 1000px) {
+    .grille {
+      grid-template-columns: 1fr;
+    }
   }
   @media (max-width: 760px) {
-    .replie-tel {
-      display: none;
+    .chiffres {
+      grid-template-columns: repeat(2, 1fr);
+    }
+    .chiffre:nth-child(3) {
+      border-left: 0;
+    }
+    .chiffre:nth-child(n + 3) {
+      border-top: 1px solid var(--line);
+    }
+    .chiffre .n {
+      font-size: 24px;
     }
   }
 </style>

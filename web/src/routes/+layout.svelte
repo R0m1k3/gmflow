@@ -9,7 +9,7 @@
   import { societe } from '#lib/societe.svelte.ts';
   import { libelleRole } from '#lib/libelles.ts';
   import type { Moi } from '#lib/types.ts';
-  import Icone from '#lib/ui/Icone.svelte';
+  import Icone, { type NomIcone } from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
 
   let { children } = $props();
@@ -126,15 +126,22 @@
   }
 
   // ---------- Menu ----------
-  const liens = [
-    { href: '/', texte: 'À traiter', court: 'À traiter', icone: 'boite' },
-    { href: '/fournisseurs', texte: 'Fournisseurs', court: 'Fournisseurs', icone: 'camion' },
-    { href: '/bilan', texte: 'Bilan du mois', court: 'Bilan', icone: 'graphique' }
-  ] as const;
+  // Un onglet par chose à voir : l'accueil (derniers mails), les mails, les factures, les BL,
+  // ce qui attend une réponse ou une validation. `tel` : présent dans les onglets du bas sur téléphone.
+  type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number };
+  const liens: Lien[] = [
+    { href: '/', texte: 'Accueil', court: 'Accueil', icone: 'boite', tel: true },
+    { href: '/mails', texte: 'Mails', court: 'Mails', icone: 'mail', tel: true },
+    { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true },
+    { href: '/bl', texte: 'BL', court: 'BL', icone: 'camion', tel: true },
+    { href: '/a-repondre', texte: 'À répondre', court: 'Répondre', icone: 'envoyer', tel: true, compteur: () => compteurs.aRepondre },
+    { href: '/a-traiter', texte: 'À valider', court: 'Valider', icone: 'coche', tel: false, compteur: () => compteurs.aValider },
+    { href: '/fournisseurs', texte: 'Fournisseurs', court: 'Fournisseurs', icone: 'batiment', tel: false },
+    { href: '/bilan', texte: 'Bilan du mois', court: 'Bilan', icone: 'graphique', tel: false }
+  ];
   function actif(href: string) {
     const p = page.url.pathname;
-    // La fiche d'un document ou d'un mail s'ouvre depuis À traiter : l'entrée reste allumée.
-    if (href === '/') return p === '/' || p.startsWith('/documents/') || p.startsWith('/mails/');
+    if (href === '/') return p === '/';
     return p === href || p.startsWith(`${href}/`);
   }
   let reglagesActif = $derived(page.url.pathname.startsWith('/reglages') || page.url.pathname.startsWith('/admin'));
@@ -149,16 +156,8 @@
   <main class="seul">{@render children()}</main>
 {:else if session.moi}
   <header class="barre">
-    <a class="logo" href="/" aria-label="GMFlow, À traiter"><span class="marque" aria-hidden="true"></span>GMFlow</a>
-
-    <nav class="menu" aria-label="Menu principal">
-      {#each liens as l (l.href)}
-        <a href={l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
-          {l.texte}
-          {#if l.href === '/' && compteurs.aTraiter > 0}<span class="compteur">{compteurs.aTraiter}</span>{/if}
-        </a>
-      {/each}
-    </nav>
+   <div class="haut">
+    <a class="logo" href="/" aria-label="GMFlow, accueil"><span class="marque" aria-hidden="true"></span>GMFlow</a>
 
     <span class="sp"></span>
 
@@ -190,7 +189,7 @@
     {/if}
 
     {#if etat}
-      <a class="etat" class:ok={etat.ok} href={etat.ok ? '/' : '/#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'}>
+      <a class="etat" class:ok={etat.ok} href={etat.ok ? '/' : '/a-traiter#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'}>
         <span class="point"></span>{etat.texte}
       </a>
     {/if}
@@ -225,22 +224,37 @@
             <div class="muted petit">{libelleRole(session.moi.role)}</div>
           </div>
           {#if etat}
-            <a class="item" class:rouge={!etat.ok} role="menuitem" href={etat.ok ? '/' : '/#bloque'}><span class="point"></span>{etat.texte}</a>
+            <a class="item" class:rouge={!etat.ok} role="menuitem" href={etat.ok ? '/' : '/a-traiter#bloque'}><span class="point"></span>{etat.texte}</a>
           {/if}
+          {#each liens.filter((l) => !l.tel) as l (l.href)}
+            {@const n = l.compteur?.() ?? 0}
+            <a class="item" role="menuitem" href={l.href}><Icone nom={l.icone} />{l.texte}{#if n > 0}&nbsp;<span class="compteur">{n}</span>{/if}</a>
+          {/each}
           {#if admin}<a class="item" role="menuitem" href="/reglages"><Icone nom="reglages" />Réglages</a>{/if}
           <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
         </div>
       {/if}
     </div>
+   </div>
+    <nav class="menu" aria-label="Menu principal">
+      {#each liens as l (l.href)}
+        {@const n = l.compteur?.() ?? 0}
+        <a href={l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+          {l.texte}
+          {#if n > 0}<span class="compteur">{n}</span>{/if}
+        </a>
+      {/each}
+    </nav>
   </header>
 
   <main class="contenu">{@render children()}</main>
 
   <nav class="onglets" aria-label="Menu principal">
-    {#each liens as l (l.href)}
+    {#each liens.filter((l) => l.tel) as l (l.href)}
+      {@const n = l.compteur?.() ?? 0}
       <a href={l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
         <Icone nom={l.icone} />
-        <span>{l.court}{#if l.href === '/' && compteurs.aTraiter > 0}&nbsp;<span class="compteur">{compteurs.aTraiter}</span>{/if}</span>
+        <span>{l.court}{#if n > 0}&nbsp;<span class="compteur">{n}</span>{/if}</span>
       </a>
     {/each}
   </nav>
@@ -252,12 +266,15 @@
     top: 0;
     z-index: 20;
     height: var(--haut-barre);
+    border-bottom: 1px solid var(--line);
+    background: var(--white);
+  }
+  .haut {
+    height: 48px;
     display: flex;
     align-items: center;
     gap: var(--e2);
     padding: 0 var(--e4);
-    border-bottom: 1px solid var(--line);
-    background: var(--white);
   }
   .logo {
     display: flex;
@@ -272,16 +289,21 @@
   }
   .menu {
     display: flex;
-    gap: 2px;
+    gap: var(--e1);
+    height: 40px;
+    padding: 0 var(--e4);
+    overflow-x: auto;
+    scrollbar-width: none;
   }
   .menu a {
     display: flex;
     align-items: center;
     gap: var(--e2);
-    height: 32px;
-    padding: 0 10px;
-    border-radius: var(--r2);
+    height: 40px;
+    padding: 0 var(--e3);
+    border-bottom: 2px solid transparent;
     color: var(--text2);
+    font-size: 14px;
     text-decoration: none;
     font-weight: 500;
     white-space: nowrap;
@@ -290,12 +312,13 @@
       color var(--vite) var(--ease);
   }
   .menu a:hover {
-    background: var(--pane);
     color: var(--text);
+    border-bottom-color: var(--line);
   }
   .menu a.cur {
-    background: var(--pane);
     color: var(--black);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
   }
 
   .recherche {
@@ -513,7 +536,7 @@
 
   /* Téléphone : barre compacte, menu, onglets en bas */
   @media (max-width: 760px) {
-    .barre {
+    .haut {
       padding: 0 var(--e3) 0 var(--e4);
     }
     .logo {
@@ -549,7 +572,7 @@
       bottom: 0;
       z-index: 15;
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(5, 1fr);
       height: calc(56px + env(safe-area-inset-bottom));
       padding-bottom: env(safe-area-inset-bottom);
       border-top: 1px solid var(--line);

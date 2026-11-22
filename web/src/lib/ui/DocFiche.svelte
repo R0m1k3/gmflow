@@ -81,7 +81,8 @@
   let {
     id,
     pleinEcran = false,
-    retour = '/',
+    retour = '/a-traiter',
+    retourLibelle = 'À traiter',
     position = null,
     ensuite,
     annonce = '',
@@ -94,6 +95,8 @@
     pleinEcran?: boolean;
     /** Lien « À traiter » (et Échap en plein écran). */
     retour?: string;
+    /** Nom de la page de retour : « Factures », « BL »… */
+    retourLibelle?: string;
     position?: PositionFiche | null;
     /** « Sodistra, facture 2026/11/0457 » : ce qui s'ouvrira après. */
     ensuite?: string;
@@ -471,10 +474,10 @@
     if (d.etat === 'ignore') {
       return admin
         ? { principal: { libelle: 'Relire avec Claude', onclick: () => (dlgRelire = true) }, secondaires: [] }
-        : { principal: { libelle: 'Retour à À traiter', href: retour }, secondaires: [] };
+        : { principal: { libelle: `Retour à ${retourLibelle}`, href: retour }, secondaires: [] };
     }
     if (d.statut_depot === 'en_envoi') return { principal: { libelle: libelleStatutEnvoi('en_envoi'), enCours: true }, secondaires: [] };
-    if (d.statut_depot === 'depose' || envoiDemande(d) || d.envoi_relance) return { principal: { libelle: 'Retour à À traiter', href: retour }, secondaires: [] };
+    if (d.statut_depot === 'depose' || envoiDemande(d) || d.envoi_relance) return { principal: { libelle: `Retour à ${retourLibelle}`, href: retour }, secondaires: [] };
     if (refus?.code === 'doublon' || (d.statut_depot === 'doublon' && !d.verifie_le)) {
       const sec: Action[] = admin
         ? [{ libelle: 'Envoyer quand même', danger: true, onclick: () => (dlgForcer = true), enCours: occupe === 'forcer', desactive: occ }]
@@ -585,10 +588,10 @@
 
 <div class="volet-h">
   {#if pleinEcran}
-    <a class="retour" href={retour}><Icone nom="gauche" />À traiter <Kbd t="Escape" /></a>
+    <a class="retour" href={retour}><Icone nom="gauche" />{retourLibelle} <Kbd t="Escape" /></a>
     <span class="vsep"></span>
   {:else}
-    <a class="retour tel-seul" href={retour}><Icone nom="gauche" />À traiter</a>
+    <a class="retour tel-seul" href={retour}><Icone nom="gauche" />{retourLibelle}</a>
   {/if}
   {#if position}
     <span class="pos">{position.section} <span class="num">{position.n}</span> sur <span class="num">{position.total}</span></span>

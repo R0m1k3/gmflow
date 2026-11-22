@@ -79,3 +79,7 @@ Ligne de liste : `.a` titre, `.b` sous-ligne, `.r` à droite (montant), `.r2` â
 - **`#lib/compteurs.svelte.ts`** : `compteurs.aTraiter`, `compteurs.problemes` (barre du haut) ; appeler `rafraichirCompteurs()` après une validation, un envoi ou une réponse.
 
 Les ajouts propres à une page vont dans son `<style>` ; un style servant à deux pages ou plus va dans `app.css`.
+
+## Navigation (2026-11-22, onglets)
+
+Barre du haut sur deux lignes : logo, recherche, société, état, puis une rangée d'onglets : **Accueil** (`/`, tableau de bord : chiffres du jour, derniers mails, à répondre, dernières factures et derniers BL), **Mails** (`/mails?filtre=&mail=ID`), **Factures** (`/factures?filtre=&doc=ID`, avoirs compris), **BL** (`/bl`), **À répondre** (`/a-repondre?mail=ID`), **À valider** (`/a-traiter`, l'ancienne file À traiter : bloqué, à valider, à répondre), Fournisseurs, Bilan. Chaque onglet de liste : `<Volets>`, liste groupée par jour (`parJour` de `#lib/liste.svelte.ts`), filtres en `.puces`, fiche à droite. Listes paginées : classe `Liste<T>` (`lire(garder)`, `plus()`). Factures et BL partagent `#lib/ui/ListeDocuments.svelte`. Téléphone : Accueil, Mails, Factures, BL, À répondre en bas ; À valider, Fournisseurs, Bilan dans le menu.
