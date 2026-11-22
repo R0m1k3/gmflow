@@ -22,6 +22,8 @@ pub struct BrouillonVue {
     id: i64,
     boite_id: i64,
     boite: String,
+    /// Adresse de la boîte d'envoi (identifiant IMAP), pour « Envoyer depuis compta@… ».
+    boite_adresse: String,
     texte: String,
     statut: String,
     modele: Option<String>,
@@ -46,7 +48,7 @@ pub async fn brouillons_du_mail(
 ) -> Resultat<Vec<BrouillonVue>> {
     Ok(sqlx::query_as!(
         BrouillonVue,
-        r#"select br.id, br.boite_id, b.libelle as boite, br.texte, br.statut, br.modele, br.effort,
+        r#"select br.id, br.boite_id, b.libelle as boite, b.identifiant as boite_adresse, br.texte, br.statut, br.modele, br.effort,
                   br.erreur, br.cree_le, br.modifie_le, br.envoye_le, u.identifiant as "envoye_par?",
                   (b.smtp_serveur is not null) as "smtp!"
            from brouillon_reponse br

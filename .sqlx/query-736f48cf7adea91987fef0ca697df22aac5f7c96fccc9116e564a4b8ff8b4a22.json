@@ -1,0 +1,180 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select br.id, br.boite_id, b.libelle as boite, b.identifiant as boite_adresse, br.texte, br.statut, br.modele, br.effort,\n                  br.erreur, br.cree_le, br.modifie_le, br.envoye_le, u.identifiant as \"envoye_par?\",\n                  (b.smtp_serveur is not null) as \"smtp!\"\n           from brouillon_reponse br\n           join boite_mail b on b.id = br.boite_id\n           left join utilisateur u on u.id = br.envoye_par\n           where br.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)\n           order by br.cree_le desc",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "boite_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "boite_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "boite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "boite_adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "texte",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "texte"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "statut",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "statut"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "modele",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "modele"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "effort",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "effort"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "erreur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "erreur"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "cree_le"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "modifie_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "modifie_le"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "envoye_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "brouillon_reponse",
+            "name": "envoye_le"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "envoye_par?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "smtp!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "736f48cf7adea91987fef0ca697df22aac5f7c96fccc9116e564a4b8ff8b4a22"
+}

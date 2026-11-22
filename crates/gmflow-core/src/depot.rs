@@ -2,7 +2,7 @@
 //! puis dépôt automatique si la structure l'a activé.
 
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgExecutor, PgPool};
 
 use crate::controles::{self, Echec};
 use crate::file::{self, TacheEnvoi};
@@ -16,7 +16,10 @@ pub const STATUTS_FIGES: &[&str] = &["en_envoi", "depose"];
 /// Autre document qui fait de celui-ci un doublon : même fichier, ou même fournisseur, même
 /// numéro et même montant TTC. Un document déjà déposé (ou en cours d'envoi) l'emporte
 /// toujours ; sinon, le plus ancien.
-pub async fn doublon_de(pool: &PgPool, id: i64) -> sqlx::Result<Option<(i64, String)>> {
+pub async fn doublon_de<'e>(
+    db: impl PgExecutor<'e>,
+    id: i64,
+) -> sqlx::Result<Option<(i64, String)>> {
     let r = sqlx::query!(
         r#"select o.id, o.statut_depot as "statut!" from document d, document o
            where d.id = $1 and o.id <> d.id
@@ -30,7 +33,7 @@ pub async fn doublon_de(pool: &PgPool, id: i64) -> sqlx::Result<Option<(i64, Str
            limit 1"#,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(db)
     .await?;
     Ok(r.map(|r| (r.id, r.statut)))
 }
@@ -38,6 +41,44 @@ pub async fn doublon_de(pool: &PgPool, id: i64) -> sqlx::Result<Option<(i64, Str
 /// Recalcule le statut de dépôt d'un document et ses contrôles en échec. Rend le statut
 /// (rien pour un document qui n'est pas une facture lue).
 pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
+    let mut conn = pool.acquire().await?;
+    evaluer_dans(&mut conn, id).await
+}
+
+/// `evaluer` sur une connexion donnée (dans une transaction : validation en un appel).
+///
+/// Le doublon est toujours le plus récent des deux : quand un document est évalué après un
+/// autre plus récent qui lui est identique (lectures en parallèle à la première relève), ce
+/// dernier est réévalué pour devenir le doublon.
+pub async fn evaluer_dans(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option<String>> {
+    let statut = evaluer_seul(conn, id).await?;
+    if statut.as_deref().is_some_and(|s| s != "doublon") {
+        for plus_recent in identiques_plus_recents(&mut *conn, id).await? {
+            evaluer_seul(conn, plus_recent).await?;
+        }
+    }
+    Ok(statut)
+}
+
+/// Documents plus récents, identiques à celui-ci (critères de `doublon_de`), pas encore marqués
+/// doublons ni envoyés.
+async fn identiques_plus_recents<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar!(
+        r#"select o.id from document d, document o
+           where d.id = $1 and o.id > d.id
+             and o.statut_depot is not null and o.statut_depot not in ('doublon', 'en_envoi', 'depose')
+             and (o.sha256 = d.sha256
+                  or (d.fournisseur_id is not null and o.fournisseur_id = d.fournisseur_id
+                      and d.numero is not null and lower(trim(o.numero)) = lower(trim(d.numero))
+                      and d.montant_ttc is not null and o.montant_ttc = d.montant_ttc))
+           order by o.id"#,
+        id
+    )
+    .fetch_all(db)
+    .await
+}
+
+async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option<String>> {
     let Some(d) = sqlx::query!(
         r#"select d.etat, d.type, d.statut_depot, d.societe_id,
                   coalesce((d.confiance->>'societe')::float8, 0) as "conf_societe!",
@@ -55,7 +96,7 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
            where d.id = $1"#,
         id
     )
-    .fetch_optional(pool)
+    .fetch_optional(&mut *conn)
     .await?
     else {
         return Ok(None);
@@ -75,7 +116,7 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
             "update document set statut_depot = null, controles = '[]' where id = $1",
             id
         )
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
         return Ok(None);
     }
@@ -107,9 +148,9 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
             "update document set statut_depot = coalesce(statut_depot, 'a_verifier') where id = $1",
             id
         )
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-        doublon_de(pool, id).await?
+        doublon_de(&mut *conn, id).await?
     };
     let statut = if let Some((autre, statut)) = doublon {
         echecs.insert(
@@ -117,13 +158,15 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
             Echec {
                 code: "doublon".into(),
                 message: format!(
-                    "même facture que le document {autre} ({})",
+                    "Même facture que le document {autre} ({})",
                     if STATUTS_FIGES.contains(&statut.as_str()) {
-                        "déjà déposé"
+                        "déjà envoyée à Dext/Yooz"
                     } else {
-                        "reçu avant"
+                        "reçue avant"
                     }
                 ),
+                champs: Vec::new(),
+                proposition: None,
             },
         );
         "doublon"
@@ -138,7 +181,7 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
         statut,
         json!(echecs)
     )
-    .execute(pool)
+    .execute(&mut *conn)
     .await?;
     Ok(Some(statut.to_string()))
 }
@@ -190,5 +233,32 @@ pub async fn reevaluer(
     for id in &ids {
         evaluer_et_deposer(pool, *id).await?;
     }
+    Ok(ids.len())
+}
+
+/// Version des phrases des contrôles enregistrées dans `document.controles` (2 : vocabulaire
+/// de l'interface, montants à la française, champs visés et correction proposée).
+pub const VERSION_CONTROLES: i64 = 2;
+const CLE_VERSION_CONTROLES: &str = "controles_version";
+
+/// Au démarrage de l'app : si les phrases des contrôles ont changé, les factures pas encore
+/// parties sont réévaluées une fois (sans dépôt automatique). Rend le nombre de documents revus.
+pub async fn mettre_a_jour_controles(pool: &PgPool) -> anyhow::Result<usize> {
+    let version = crate::parametre::lire(pool, CLE_VERSION_CONTROLES)
+        .await?
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1);
+    if version >= VERSION_CONTROLES {
+        return Ok(0);
+    }
+    let ids = sqlx::query_scalar!(
+        "select id from document where statut_depot in ('a_verifier', 'pret', 'doublon') order by id"
+    )
+    .fetch_all(pool)
+    .await?;
+    for id in &ids {
+        evaluer(pool, *id).await?;
+    }
+    crate::parametre::ecrire(pool, CLE_VERSION_CONTROLES, &json!(VERSION_CONTROLES)).await?;
     Ok(ids.len())
 }

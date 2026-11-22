@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select identifiant, mot_de_passe_chiffre, smtp_serveur, smtp_port, smtp_securite\n         from boite_mail where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "identifiant",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "mot_de_passe_chiffre",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "mot_de_passe_chiffre"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "smtp_serveur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_serveur"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "smtp_port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_port"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "smtp_securite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_securite"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e00883ccb829ef45773617b2924561de3b767c4740bc7279ce080af38c236606"
+}

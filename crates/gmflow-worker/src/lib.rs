@@ -55,6 +55,7 @@ async fn tache_boite(tache: TacheBoite, ctx: Data<Contexte>) -> Result<(), BoxDy
             releve::relever(&ctx, boite_id).await?;
         }
         TacheBoite::TestBoite { boite_id } => test_boite::tester(&ctx, boite_id).await?,
+        TacheBoite::Essai { essai_id } => test_boite::essayer(&ctx, essai_id).await?,
     }
     Ok(())
 }

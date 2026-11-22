@@ -641,10 +641,12 @@ async fn lire_par_claude(
             }
         }
     }
+    // Le détail technique va au journal ; la file À traiter montre une phrase lisible.
+    tracing::warn!(document = id, erreur = %derniere_erreur, "lecture abandonnée après deux essais");
     Ok(Lecture::Echec(Lu {
         etat: "erreur",
         voie: Some(voie.code()),
-        message: Some(derniere_erreur),
+        message: Some("Claude n’a pas réussi à le lire, même au second essai.".into()),
         confiance: json!({}),
         ..Default::default()
     }))

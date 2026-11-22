@@ -18,6 +18,10 @@ pub use etat::{DureesSession, Etat};
 pub async fn lancer(config: Config) -> Result<()> {
     let pool = gmflow_core::db::connecter(&config.database_url).await?;
     gmflow_core::db::initialiser(&pool).await?;
+    let revus = gmflow_core::depot::mettre_a_jour_controles(&pool).await?;
+    if revus > 0 {
+        tracing::info!(revus, "phrases des contrôles mises à jour");
+    }
 
     let store = PostgresStore::new(pool.clone());
     tokio::spawn({

@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct b.id as boite_id, b.libelle, b.identifiant as adresse, b.societe_id,\n                  s.raison_sociale as societe\n           from mail_boite mb join boite_mail b on b.id = mb.boite_id\n           join societe s on s.id = b.societe_id\n           where mb.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)\n           order by b.libelle, b.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "boite_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "societe",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "111e4c9dd4c6c508a76dd17e0ae501959fdb82f7b1da4ff04fa7d269703f65b7"
+}

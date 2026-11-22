@@ -1,0 +1,57 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select libelle, active, pause_auto, (dernier_test->>'ok')::bool as test_ok\n           from boite_mail order by libelle",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "active",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "active"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "pause_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "pause_auto"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "test_ok",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "6b7576ca791611cbd98a404d8b583d5d5a440883d68cac29364835d9e82a15bd"
+}

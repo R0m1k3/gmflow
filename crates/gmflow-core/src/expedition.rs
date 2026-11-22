@@ -180,3 +180,11 @@ pub async fn envoyer_message(
     transport(e, mdp)?.send(message).await?;
     Ok(())
 }
+
+/// Connexion SMTP et authentification, sans rien envoyer (test d'une boîte avant ses réponses).
+pub async fn tester_connexion(e: &Expedition, mdp: Option<&str>) -> anyhow::Result<()> {
+    if !transport(e, mdp)?.test_connection().await? {
+        anyhow::bail!("le serveur SMTP ne répond plus après la connexion");
+    }
+    Ok(())
+}

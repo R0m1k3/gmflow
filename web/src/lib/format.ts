@@ -3,14 +3,9 @@ const dateHeure = new Intl.DateTimeFormat('fr-FR', {
   dateStyle: 'short',
   timeStyle: 'short'
 });
-const date = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', dateStyle: 'medium' });
 
 export function quand(iso: string | null | undefined): string {
   return iso ? dateHeure.format(new Date(iso)) : '—';
-}
-
-export function jour(iso: string | null | undefined): string {
-  return iso ? date.format(new Date(iso)) : '—';
 }
 
 export function taille(octets: number): string {
@@ -30,9 +25,4 @@ const jourSeul = new Intl.DateTimeFormat('fr-FR', { timeZone: 'UTC', dateStyle: 
 /** Date sans heure (AAAA-MM-JJ). */
 export function dateSimple(j: string | null | undefined): string {
   return j ? jourSeul.format(new Date(`${j}T00:00:00Z`)) : '—';
-}
-
-const euros = new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' });
-export function montant(v: number | null | undefined): string {
-  return v === null || v === undefined ? '—' : euros.format(v);
 }

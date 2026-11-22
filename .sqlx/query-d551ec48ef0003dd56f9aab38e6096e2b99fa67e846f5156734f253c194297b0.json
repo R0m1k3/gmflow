@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from boite_mail\n               where ($1::bigint is null or societe_id = $1)\n                 and (pause_auto or (active and erreur_depuis < now() - interval '30 minutes'))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d551ec48ef0003dd56f9aab38e6096e2b99fa67e846f5156734f253c194297b0"
+}

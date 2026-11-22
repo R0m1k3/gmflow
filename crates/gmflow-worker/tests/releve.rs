@@ -245,6 +245,15 @@ async fn test_de_boite() {
             .iter()
             .any(|d| d == "INBOX")
     );
+    assert!(
+        t["dossiers_detail"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["nom"] == "INBOX" && d["affiche"].is_string()),
+        "{t}"
+    );
+    assert!(t.get("envoyes").is_some());
     let t: serde_json::Value =
         sqlx::query_scalar("select dernier_test from boite_mail where id = $1")
             .bind(mauvaise)
@@ -252,6 +261,13 @@ async fn test_de_boite() {
             .await
             .unwrap();
     assert_eq!(t["ok"], false);
+    assert!(
+        t["message"]
+            .as_str()
+            .unwrap()
+            .contains("Mot de passe refusé"),
+        "{t}"
+    );
     // Un test raté ne compte pas comme refus de relève.
     assert_eq!(
         banc.compter(&format!(

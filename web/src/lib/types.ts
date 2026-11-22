@@ -18,12 +18,6 @@ export interface SocieteVisible {
   raison_sociale: string;
 }
 
-export interface BoiteVisible {
-  id: number;
-  libelle: string;
-  societe_id: number;
-}
-
 export interface LigneMail {
   id: number;
   expediteur: string;
@@ -44,6 +38,8 @@ export interface Brouillon {
   id: number;
   boite_id: number;
   boite: string;
+  /** Adresse de la boîte d'envoi : « Envoyer depuis compta@… ». */
+  boite_adresse: string;
   texte: string;
   statut: StatutBrouillon;
   modele: string | null;
@@ -54,19 +50,6 @@ export interface Brouillon {
   envoye_le: string | null;
   envoye_par: string | null;
   smtp: boolean;
-}
-
-export interface LigneARepondre {
-  id: number;
-  expediteur: string;
-  objet: string;
-  date_mail: string | null;
-  resume: string | null;
-  priorite: Priorite | null;
-  categorie_par: string | null;
-  structures: string[];
-  boites: string[];
-  brouillon: StatutBrouillon | null;
 }
 
 export interface SemaineTri {
@@ -96,6 +79,9 @@ export interface FicheMail {
   objet: string;
   date_mail: string | null;
   corps_texte: string;
+  /** Fiche fournisseur reconnue par le domaine de l'expéditeur. */
+  fournisseur_id: number | null;
+  fournisseur: string | null;
   pieces: {
     id: number;
     nom: string;
@@ -105,8 +91,32 @@ export interface FicheMail {
     document_etat: EtatDocument | null;
     document_type: TypeDocument | null;
     document_voie: Voie | null;
+    /** Résumé du document lu (null sans document). */
+    document_statut_depot: StatutDepot | null;
+    document_verifie: boolean | null;
+    document_numero: string | null;
+    document_montant_ttc: number | null;
+    document_fournisseur_id: number | null;
+    /** Fiche fournisseur, à défaut nom lu. */
+    document_fournisseur: string | null;
+    document_societe_id: number | null;
+    document_societe: string | null;
+    document_outil: 'dext' | 'yooz' | null;
+    /** Dernier envoi réussi à Dext/Yooz. */
+    document_envoye_le: string | null;
   }[];
-  boites: { boite_id: number; libelle: string; dossier: string }[];
+  /** Boîtes qui ont reçu le mail (visibles), une ligne par dossier. */
+  boites: {
+    boite_id: number;
+    libelle: string;
+    dossier: string;
+    /** Adresse de la boîte (identifiant IMAP). */
+    adresse: string;
+    societe_id: number;
+    societe: string;
+    /** Serveur SMTP configuré : la boîte peut envoyer les réponses. */
+    smtp: boolean;
+  }[];
   categorie: Categorie | null;
   categorie_par: 'regle' | 'claude' | 'humain' | null;
   resume: string | null;
@@ -115,18 +125,6 @@ export interface FicheMail {
   tri_etat: 'a_trier' | 'en_cours' | 'trie' | 'erreur' | null;
   tri_message: string | null;
   brouillons: Brouillon[];
-}
-
-export interface Tableau {
-  mails_du_jour: { societe_id: number; raison_sociale: string; n: number }[];
-  boites_alerte: { id: number; libelle: string; motif: 'erreur' | 'pause_auto'; depuis: string | null; message: string | null }[];
-  claude?: { etat: string; teste_le?: string | null };
-  stockage?: { octets: number; libre_pourcent: number | null };
-  documents: { a_lire: number; erreur: number; a_verifier: number; lus_aujourdhui: number };
-  depots: { a_verifier: number; prets: number; bloques: number; deposes_mois: number };
-  lecture?: { auto: boolean; quota: number; appels_du_jour: number };
-  a_repondre: number;
-  tri?: { auto: boolean; quota: number; appels_du_jour: number; en_attente: number; en_erreur: number };
 }
 
 export interface Societe {
@@ -144,8 +142,18 @@ export interface Societe {
 export interface TestBoite {
   quand?: string;
   ok: boolean;
+  /** Phrase en clair (« Mot de passe refusé : … », « Connexion réussie : 7 dossiers trouvés. »). */
   message?: string;
+  /** Erreur brute du serveur. */
+  detail?: string | null;
+  /** Noms IMAP, à enregistrer tels quels. */
   dossiers?: string[];
+  /** Noms décodés et attributs (tests faits depuis la refonte ; absent avant). */
+  dossiers_detail?: DossierImap[];
+  /** Dossier des envoyés repéré (nom IMAP), null si rien de sûr. */
+  envoyes?: string | null;
+  /** Création depuis un essai de l'assistant. */
+  essai_id?: string;
 }
 
 export interface Boite {
@@ -215,33 +223,26 @@ export type TypeDocument = 'facture' | 'avoir' | 'bl' | 'relance' | 'devis' | 'a
 export type EtatDocument = 'a_lire' | 'en_cours' | 'lu' | 'ignore' | 'erreur';
 export type Voie = 'facturx' | 'xml' | 'pdf_texte' | 'tableur' | 'scan';
 
-export interface LigneDocument {
-  id: number;
-  mail_id: number;
-  nom_fichier: string;
-  etat: EtatDocument;
-  voie: Voie | null;
-  type: TypeDocument | null;
-  societe: string | null;
-  fournisseur_nom: string | null;
-  numero: string | null;
-  date_document: string | null;
-  montant_ttc: number | null;
-  message: string | null;
-  verifie: boolean;
-  date_mail: string | null;
-  fournisseur_id: number | null;
-  fournisseur: string | null;
-  statut_depot: StatutDepot | null;
-  controles: Controle[];
-}
-
 export type StatutDepot = 'a_verifier' | 'pret' | 'en_envoi' | 'depose' | 'erreur' | 'doublon';
 
 export interface Controle {
   code: string;
+  /** Phrase dans le vocabulaire de l'écran (société, Dext/Yooz, « 1 250,40 € »), sans point final. */
   message: string;
+  /** Champs visés (noms de l'API), absents sur les contrôles enregistrés avant la refonte. */
+  champs?: ChampControle[];
+  /** Correction proposée en un clic (montants). */
+  proposition?: { champ: ChampControle; valeur: number };
 }
+
+export type ChampControle =
+  | 'numero'
+  | 'date_document'
+  | 'montant_ht'
+  | 'montant_tva'
+  | 'montant_ttc'
+  | 'societe_id'
+  | 'fournisseur_id';
 
 export interface Confiance {
   type?: number;
@@ -295,7 +296,13 @@ export interface FicheDocument {
   corrections: Record<string, { avant: unknown; apres: unknown }>;
   societe_adresse_depot: string | null;
   societe_outil_depot: string | null;
+  /** Réception du mail d'origine (date du mail, à défaut de la relève). */
+  recu_le: string;
+  /** Envoi en échec relancé il y a moins de 30 min, pas encore repris : ne pas renvoyer. */
+  envoi_relance: boolean;
   envois: Envoi[];
+  /** Boîtes de réception du mail d'origine (visibles). */
+  boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
 }
 
 export interface Envoi {
@@ -321,6 +328,11 @@ export interface LigneFournisseur {
   societe_defaut: string | null;
   nb_documents: number;
   a_verifier: number;
+  /** Ligne d'état (refonte) : documents lus visibles, de la société choisie (`?societe=`). */
+  factures_mois: number;
+  a_valider: number;
+  bl_sans_facture: number;
+  dernier_document: string | null;
 }
 
 export interface Fournisseur {
@@ -331,6 +343,8 @@ export interface Fournisseur {
   domaines: string[];
   statut: StatutFournisseur;
   societe_defaut_id: number | null;
+  /** Nom de la société par défaut. */
+  societe_defaut: string | null;
   format_bl: string | null;
   notes: string | null;
   fusionne_dans: number | null;
@@ -449,26 +463,6 @@ export interface Rapproche {
   ecarts: EcartLigne[];
 }
 
-export interface ResumeFournisseur {
-  fournisseur_id: number | null;
-  fournisseur: string | null;
-  bls: number;
-  factures: number;
-  bl_sans_facture: number;
-  factures_sans_bl: number;
-  factures_avec_ecart: number;
-}
-
-export interface VueRapprochement {
-  resume: ResumeFournisseur[];
-  bl_sans_facture: DocRap[];
-  factures_sans_bl: DocRap[];
-  avec_ecart: Rapproche[];
-  sans_ecart: Rapproche[];
-  tronque: boolean;
-  bl_sans_lignes: number;
-}
-
 export interface LigneArticle {
   rang: number;
   reference: string | null;
@@ -487,3 +481,311 @@ export interface DetailRapprochement {
   liens: { id: number; methode: MethodeRapprochement; ecart_montant: number | null; ecarts: EcartLigne[]; auteur: string | null; autre: DocRap }[];
   candidats: DocRap[];
 }
+
+// ---------------------------------------------------------------------------------------------
+// Refonte de l'interface : contrat dans docs/api-refonte.md.
+
+export type CodeRefus =
+  | 'etat'
+  | 'deja_envoye'
+  | 'expedition'
+  | 'erreur_envoi'
+  | 'doublon'
+  | 'sans_adresse'
+  | 'smtp_absent'
+  | 'essai';
+
+export interface CompteursATraiter {
+  bloque: number;
+  a_valider: number;
+  a_repondre: number;
+  total: number;
+}
+
+export type GenreBloque = 'envoi_erreur' | 'doublon' | 'illisible' | 'boite' | 'claude';
+
+export interface Bloque {
+  genre: GenreBloque;
+  document_id: number | null;
+  boite_id: number | null;
+  /** Libellé de la boîte, ou nom du fichier du document. */
+  libelle: string | null;
+  /** Boîte : `pause_auto` ou `erreur` ; Claude : `absent` ou `erreur`. */
+  motif: string | null;
+  message: string | null;
+  depuis: string | null;
+  type: TypeDocument | null;
+  fournisseur: string | null;
+  numero: string | null;
+  societe_id: number | null;
+  societe: string | null;
+}
+
+export interface DocumentAValider {
+  id: number;
+  mail_id: number;
+  type: 'facture' | 'avoir' | 'bl';
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  fournisseur_a_confirmer: boolean;
+  numero: string | null;
+  societe_id: number | null;
+  societe: string | null;
+  date_document: string | null;
+  recu_le: string;
+  montant_ttc: number | null;
+  /** Première alerte en une phrase, ou null. */
+  alerte: string | null;
+  /** Code stable de cette alerte (`doublon`, `montants`, `societe`, `depot`, `fournisseur`...). */
+  alerte_code: string | null;
+  nb_alertes: number;
+  statut_depot: StatutDepot | null;
+  /** Déjà vérifié (facture vérifiée mais pas encore envoyée). */
+  verifie: boolean;
+}
+
+export interface MailARepondre {
+  id: number;
+  expediteur: string;
+  objet: string;
+  date_mail: string | null;
+  resume: string | null;
+  priorite: Priorite | null;
+  societes: string[];
+  /** Fiche fournisseur reconnue par le domaine de l'expéditeur. */
+  fournisseur: string | null;
+  brouillon: StatutBrouillon | null;
+}
+
+export interface FileATraiter {
+  compteurs: CompteursATraiter;
+  bloque: Bloque[];
+  a_valider: DocumentAValider[];
+  a_repondre: MailARepondre[];
+  /** Premier document à valider (« Commencer »). */
+  suivant: number | null;
+}
+
+/** Corps de `PUT /api/documents/{id}` et des corrections de `valider`. */
+export interface CorrectionDocument {
+  type: TypeDocument;
+  societe_id: number | null;
+  fournisseur_id: number | null;
+  numero: string | null;
+  date_document: string | null;
+  numero_commande: string | null;
+  montant_ht: number | null;
+  montant_tva: number | null;
+  montant_ttc: number | null;
+}
+
+export interface DemandeValidation {
+  corrections?: CorrectionDocument | null;
+  /** Administrateur seulement : envoyer un doublon quand même. */
+  forcer?: boolean;
+}
+
+export interface ResultatValidation {
+  id: number;
+  statut_depot: StatutDepot | null;
+  /** Envoi à Dext/Yooz demandé. */
+  envoi: boolean;
+  /** Document suivant de la file, ou null : « Tout est validé ». */
+  suivant: number | null;
+}
+
+export interface EtatFournisseur {
+  factures_mois: number;
+  a_valider: number;
+  bl_sans_facture: number;
+}
+
+export type ElementFil =
+  | {
+      genre: 'document';
+      id: number;
+      mail_id: number;
+      type: 'facture' | 'avoir' | 'bl';
+      numero: string | null;
+      /** Date du document, à défaut du mail (AAAA-MM-JJ) : sert au classement. */
+      date: string;
+      date_document: string | null;
+      montant_ht: number | null;
+      montant_ttc: number | null;
+      statut_depot: StatutDepot | null;
+      verifie: boolean;
+      societe_id: number | null;
+      societe: string | null;
+      /** Outil de collecte de la société (« Envoyée à Dext »). */
+      outil: 'dext' | 'yooz' | null;
+      rapproche: boolean;
+      nb_alertes: number;
+    }
+  | {
+      genre: 'mail';
+      id: number;
+      date: string;
+      date_mail: string | null;
+      expediteur: string;
+      objet: string;
+      categorie: Categorie | null;
+      statut_reponse: StatutReponse | null;
+      resume: string | null;
+      /** Documents de ce fournisseur portés par le mail (aussi dans le fil). */
+      document_ids: number[];
+    };
+
+export interface FilFournisseur {
+  fournisseur: Fournisseur;
+  etat: EtatFournisseur;
+  mois: { mois: string; elements: ElementFil[] }[];
+  a_rapprocher: {
+    bl_sans_facture: DocRap[];
+    factures_sans_bl: DocRap[];
+    avec_ecart: Rapproche[];
+    tronque: boolean;
+  };
+}
+
+export interface InterpretationRecherche {
+  mots: string[];
+  montant: number | null;
+  nombres: number[];
+  date: { jour: number; mois: number; annee: number | null } | null;
+}
+
+export interface DocumentTrouve {
+  id: number;
+  mail_id: number;
+  type: TypeDocument | null;
+  etat: EtatDocument;
+  statut_depot: StatutDepot | null;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  numero: string | null;
+  date_document: string | null;
+  montant_ht: number | null;
+  montant_ttc: number | null;
+  societe_id: number | null;
+  societe: string | null;
+  /** Outil de la société (null si pas encore rangé ou pas réglé). */
+  outil: 'dext' | 'yooz' | null;
+  nom_fichier: string;
+  recu_le: string;
+  verifie: boolean;
+}
+
+export interface MailTrouve {
+  id: number;
+  expediteur: string;
+  objet: string;
+  date_mail: string | null;
+  categorie: Categorie | null;
+  statut_reponse: StatutReponse | null;
+  resume: string | null;
+  nb_pieces: number;
+}
+
+export interface ResultatsRecherche {
+  interpretation: InterpretationRecherche;
+  documents: { total: number; elements: DocumentTrouve[] };
+  mails: { total: number; elements: MailTrouve[] };
+}
+
+export type CleEtape = 'societes' | 'boites' | 'claude' | 'envoi' | 'utilisateurs';
+
+export interface EtapeMiseEnRoute {
+  cle: CleEtape;
+  fait: boolean;
+  resume: string;
+  manques: string[];
+}
+
+export interface MiseEnRoute {
+  etapes: EtapeMiseEnRoute[];
+  terminee: boolean;
+}
+
+/** Corps de `POST /api/admin/boites/tester`. */
+export interface DemandeEssaiBoite {
+  boite_id?: number;
+  serveur?: string;
+  port?: number;
+  identifiant?: string;
+  mot_de_passe?: string;
+  /** false : SMTP seulement. */
+  imap?: boolean;
+  smtp_serveur?: string;
+  smtp_port?: number;
+  smtp_securite?: 'tls' | 'starttls';
+}
+
+export interface DossierImap {
+  /** Nom IMAP (à enregistrer tel quel). */
+  nom: string;
+  /** Nom lisible. */
+  affiche: string;
+  envoyes: boolean;
+  non_selectionnable: boolean;
+}
+
+export interface EssaiBoite {
+  etat: 'en_cours' | 'termine';
+  cree_le: string;
+  boite_id: number | null;
+  identifiant: string;
+  imap: { serveur: string; port: number } | null;
+  smtp: { serveur: string; port: number; securite: string } | null;
+  resultat_imap: {
+    ok: boolean;
+    message: string;
+    detail: string | null;
+    dossiers: DossierImap[];
+    reception: string | null;
+    envoyes: string | null;
+  } | null;
+  resultat_smtp: { ok: boolean; message: string; detail: string | null } | null;
+  termine_le: string | null;
+}
+
+export interface BlEnAttente {
+  societe_id: number | null;
+  societe: string | null;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  bl: number;
+}
+
+export interface BilanMois {
+  mois: string;
+  societes: LigneSuivi[];
+  bl_en_attente: BlEnAttente[];
+  /** BL lus avant le rapprochement, sans leurs lignes (tout l'historique, mêmes filtres). */
+  bl_sans_lignes: number;
+  qualite: { lecture: Bilan; tri: SemaineTri[] };
+}
+
+/** Corps de `POST /api/admin/boites` (création) ; `PUT /api/admin/boites/{id}` ignore les deux derniers champs. */
+export interface EntreeBoite {
+  societe_id: number;
+  libelle: string;
+  serveur: string;
+  port?: number;
+  identifiant: string;
+  mot_de_passe?: string;
+  dossiers?: string[];
+  reprise_mois?: number;
+  smtp_serveur?: string | null;
+  smtp_port?: number | null;
+  smtp_securite?: 'tls' | 'starttls' | null;
+  dossier_envoyes?: string | null;
+  /** Essai réussi de ces paramètres (moins d'une heure) : repris comme test de la boîte. */
+  essai_id?: string;
+  /** Démarrer la surveillance tout de suite (exige `essai_id`). */
+  activer?: boolean;
+}
+
+/** Corps de `PATCH /api/admin/fournisseurs/{id}` : seuls les champs présents changent. */
+export type ChangementsFournisseur = Partial<
+  Pick<Fournisseur, 'nom' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'>
+>;

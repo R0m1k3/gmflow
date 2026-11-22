@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select coalesce(jsonb_array_length(d.controles) > 0\n                            or (d.type = 'bl' and d.fournisseur_id is null), false) as \"alerte!\",\n                  coalesce(m.date_mail, m.recu_le) as \"quand!\"\n           from document d join mail m on m.id = d.mail_id where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "alerte!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "quand!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "ab57991b98f38728cf9bde34b87ca82c0e86bf57ef871c424251c5a33d71d5f9"
+}

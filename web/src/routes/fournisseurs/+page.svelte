@@ -1,230 +1,292 @@
 <script lang="ts">
+  // Fournisseurs : liste de la société choisie à gauche (ligne d'état, recherche, onglets),
+  // fiche ouverte à droite par `?fiche=ID` (même adresse que l'ancienne page). Plein écran : /fournisseurs/[id].
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, message } from '#lib/api.ts';
-  import { quand } from '#lib/format.ts';
+  import { fournisseurs, message } from '#lib/api.ts';
+  import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
+  import { nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
-  import type { Fournisseur, LigneFournisseur, Page, SocieteVisible, StatutFournisseur } from '#lib/types.ts';
+  import { societe } from '#lib/societe.svelte.ts';
+  import type { LigneFournisseur } from '#lib/types.ts';
+  import Bandeau from '#lib/ui/Bandeau.svelte';
+  import Chargement from '#lib/ui/Chargement.svelte';
+  import FournEtat, { texteEtat } from '#lib/ui/FournEtat.svelte';
+  import FournFiche from '#lib/ui/FournFiche.svelte';
+  import FournNouveau from '#lib/ui/FournNouveau.svelte';
+  import Icone from '#lib/ui/Icone.svelte';
+  import Kbd from '#lib/ui/Kbd.svelte';
+  import Vide from '#lib/ui/Vide.svelte';
+  import Volets from '#lib/ui/Volets.svelte';
 
-  type Form = {
-    id: number | null;
-    nom: string;
-    siret: string;
-    tva: string;
-    domaines: string;
-    statut: StatutFournisseur;
-    societe_defaut_id: string;
-    format_bl: string;
-    notes: string;
-    cree_le: string | null;
-  };
-  const vide = (): Form => ({ id: null, nom: '', siret: '', tva: '', domaines: '', statut: 'valide', societe_defaut_id: '', format_bl: '', notes: '', cree_le: null });
+  type Onglet = 'tous' | 'nouveaux';
+  const PAR_PAGE = 50;
 
-  let resultat = $state<Page<LigneFournisseur> | null>(null);
-  let societes = $state<SocieteVisible[]>([]);
-  let filtres = $state({ q: '', statut: '', page: 1 });
-  let f = $state<Form | null>(null);
-  let cible = $state('');
-  let erreur = $state('');
-  let info = $state('');
   let admin = $derived(session.moi?.role === 'admin');
-  let pages = $derived(resultat ? Math.max(1, Math.ceil(resultat.total / 50)) : 1);
+  // Responsable : uniquement sa société (le serveur rendrait sinon tout le référentiel).
+  let societeChoisie = $derived(admin ? societe.id : (session.moi?.societe_id ?? null));
 
-  async function charger() {
-    const q = new URLSearchParams();
-    if (filtres.q.trim()) q.set('q', filtres.q.trim());
-    if (filtres.statut) q.set('statut', filtres.statut);
-    if (filtres.page > 1) q.set('page', String(filtres.page));
-    resultat = await api.get<Page<LigneFournisseur>>(`/api/fournisseurs${q.size ? `?${q}` : ''}`);
-  }
-  async function ouvrir(id: number) {
-    erreur = '';
-    info = '';
-    const v = await api.get<Fournisseur>(`/api/fournisseurs/${id}`);
-    f = {
-      id: v.id,
-      nom: v.nom,
-      siret: v.siret ?? '',
-      tva: v.tva ?? '',
-      domaines: v.domaines.join('\n'),
-      statut: v.statut,
-      societe_defaut_id: v.societe_defaut_id === null ? '' : String(v.societe_defaut_id),
-      format_bl: v.format_bl ?? '',
-      notes: v.notes ?? '',
-      cree_le: v.cree_le
-    };
-    cible = '';
-  }
+  let q = $state('');
+  let qActif = $state('');
+  let onglet = $state<Onglet>('tous');
+  let lignes = $state<LigneFournisseur[]>([]);
+  let total = $state(0);
+  let totaux = $state<Record<Onglet, number>>({ tous: 0, nouveaux: 0 });
+  let numeroPage = $state(1);
+  let charge = $state(false);
+  let enCours = $state(false);
+  let erreur = $state('');
+  let conteneur = $state<HTMLElement>();
+
+  let fiche = $derived(page.url.searchParams.get('fiche'));
+  let nouveau = $derived(admin && fiche === 'nouveau');
+  let idOuvert = $derived(fiche && /^\d+$/.test(fiche) ? Number(fiche) : null);
+  let indice = $derived(idOuvert === null ? -1 : lignes.findIndex((l) => l.id === idOuvert));
+
+  // Recherche instantanée : on attend que la frappe se calme.
   $effect(() => {
-    charger().catch((e) => (erreur = message(e)));
-    api.get<SocieteVisible[]>('/api/societes').then((v) => (societes = v));
-    const fiche = page.url.searchParams.get('fiche');
-    if (fiche) ouvrir(Number(fiche)).catch((e) => (erreur = message(e)));
+    const v = q.trim();
+    const t = setTimeout(() => (qActif = v), 200);
+    return () => clearTimeout(t);
   });
 
-  function chercher(e: SubmitEvent) {
-    e.preventDefault();
-    filtres.page = 1;
-    charger().catch((err) => (erreur = message(err)));
+  let jeton = 0;
+  async function charger(suite = false) {
+    const moi = ++jeton;
+    enCours = true;
+    const p = suite ? numeroPage + 1 : 1;
+    const base = { societe: societeChoisie, q: qActif || undefined };
+    try {
+      const [courante, autre] = await Promise.all([
+        fournisseurs({ ...base, statut: onglet === 'nouveaux' ? 'a_confirmer' : undefined, page: p }),
+        suite ? null : fournisseurs({ ...base, statut: onglet === 'nouveaux' ? undefined : 'a_confirmer' })
+      ]);
+      if (moi !== jeton) return;
+      lignes = suite ? [...lignes, ...courante.elements.filter((l) => !lignes.some((x) => x.id === l.id))] : courante.elements;
+      total = courante.total;
+      numeroPage = p;
+      if (autre) {
+        totaux = onglet === 'tous' ? { tous: courante.total, nouveaux: autre.total } : { tous: autre.total, nouveaux: courante.total };
+      }
+      erreur = '';
+    } catch (e) {
+      if (moi === jeton) erreur = message(e);
+    } finally {
+      if (moi === jeton) {
+        enCours = false;
+        charge = true;
+      }
+    }
   }
 
-  function corps(x: Form, statut = x.statut) {
-    return {
-      nom: x.nom,
-      siret: x.siret,
-      tva: x.tva,
-      domaines: x.domaines.split(/[\n,;]/).map((d) => d.trim()).filter(Boolean),
-      statut,
-      societe_defaut_id: x.societe_defaut_id === '' ? null : Number(x.societe_defaut_id),
-      format_bl: x.format_bl,
-      notes: x.notes
-    };
+  $effect(() => {
+    void qActif;
+    void onglet;
+    void societeChoisie;
+    if (!session.moi) return;
+    void charger();
+  });
+
+  function ouvrir(id: number | 'nouveau' | null, remplacer = true) {
+    const u = id === null ? '/fournisseurs' : `/fournisseurs?fiche=${id}`;
+    return goto(u, { replace: remplacer, reset: false });
   }
-  async function enregistrer(e: SubmitEvent, statut?: StatutFournisseur) {
-    e.preventDefault();
-    if (!f) return;
-    erreur = '';
-    info = '';
-    try {
-      const v = f.id
-        ? await api.put<Fournisseur>(`/api/admin/fournisseurs/${f.id}`, corps(f, statut))
-        : await api.post<Fournisseur>('/api/admin/fournisseurs', corps(f, statut));
-      await ouvrir(v.id);
-      info = 'Fiche enregistrée ; les factures de ce fournisseur ont repassé les contrôles.';
-      await charger();
-    } catch (err) {
-      erreur = message(err);
-    }
+
+  function bouger(sens: 1 | -1) {
+    const i = deplacer(indice, sens, lignes.length);
+    if (i < 0) return;
+    void ouvrir(lignes[i].id).then(() => montrer(conteneur, `[data-id="${lignes[i]?.id}"]`));
   }
-  async function valider() {
-    if (!f) return;
-    await enregistrer(new SubmitEvent('submit'), 'valide');
+
+  $effect(() =>
+    raccourcis({
+      j: () => bouger(1),
+      k: () => bouger(-1),
+      ArrowDown: () => bouger(1),
+      ArrowUp: () => bouger(-1),
+      Enter: () => {
+        if (idOuvert === null) return false;
+        void goto(`/fournisseurs/${idOuvert}`);
+      },
+      Escape: () => {
+        if (fiche === null) return false;
+        void ouvrir(null);
+      }
+    })
+  );
+
+  const court = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+  const courtAnnee = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC' });
+  function dateCourte(j: string | null): string {
+    if (!j) return '';
+    const d = new Date(`${j}T12:00:00Z`);
+    return (d.getUTCFullYear() === new Date().getFullYear() ? court : courtAnnee).format(d);
   }
-  async function fusionner() {
-    if (!f?.id || !cible) return;
-    const nomCible = resultat?.elements.find((l) => l.id === Number(cible))?.nom ?? cible;
-    if (!confirm(`Fusionner « ${f.nom} » dans « ${nomCible} » ? Ses documents, identifiants et domaines passent sur cette fiche.`)) return;
-    erreur = '';
-    try {
-      const r = await api.post<{ documents: number }>(`/api/admin/fournisseurs/${f.id}/fusionner`, { cible_id: Number(cible) });
-      await ouvrir(Number(cible));
-      info = `Fiches fusionnées : ${r.documents} document${r.documents > 1 ? 's' : ''} déplacé${r.documents > 1 ? 's' : ''}.`;
-      await charger();
-    } catch (err) {
-      erreur = message(err);
-    }
-  }
+
+  let titreVide = $derived(
+    qActif
+      ? `Aucun fournisseur pour « ${qActif} »`
+      : onglet === 'nouveaux'
+        ? 'Aucun nouveau fournisseur à confirmer'
+        : societeChoisie !== null
+          ? 'Aucun fournisseur pour cette société'
+          : 'Aucun fournisseur'
+  );
 </script>
 
-<h1>Fournisseurs</h1>
-<p class="discret">
-  Le référentiel se remplit au fil des factures : chaque nouveau fournisseur arrive « à confirmer ». Une facture ne part
-  seule vers Dext ou Yooz qu'une fois sa fiche validée.
-</p>
-{#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
-{#if info}<div class="bandeau ok">{info}</div>{/if}
+<svelte:head><title>Fournisseurs · GMFlow</title></svelte:head>
 
-{#if f}
-  <form class="carte fiche" onsubmit={(e) => enregistrer(e)}>
-    <div class="actions">
-      <h2>{f.id ? f.nom : 'Nouvelle fiche'}</h2>
-      {#if f.id}<span class="etiquette {f.statut === 'valide' ? 'ok' : 'att'}">{f.statut === 'valide' ? 'validée' : 'à confirmer'}</span>{/if}
-      {#if f.cree_le}<span class="discret">créée le {quand(f.cree_le)}</span>{/if}
-      <span style="flex:1"></span>
-      {#if f.id}<a href="/documents?fournisseur={f.id}">Ses documents</a>{/if}
-    </div>
-    <fieldset disabled={!admin}>
-      <div class="champs">
-        <div><label for="fn">Nom</label><input id="fn" bind:value={f.nom} required /></div>
-        <div><label for="fs">SIRET</label><input id="fs" bind:value={f.siret} /></div>
-        <div><label for="ft">N° TVA intracommunautaire</label><input id="ft" bind:value={f.tva} /></div>
-        <div>
-          <label for="fst">Statut</label>
-          <select id="fst" bind:value={f.statut}><option value="a_confirmer">À confirmer</option><option value="valide">Validée</option></select>
-        </div>
-        <div>
-          <label for="fsd">Structure par défaut</label>
-          <select id="fsd" bind:value={f.societe_defaut_id}>
-            <option value="">Aucune</option>
-            {#each societes as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
-          </select>
-        </div>
-        <div><label for="fb">Format des BL</label><input id="fb" bind:value={f.format_bl} placeholder="ex. Excel, colonnes réf. / qté" /></div>
-      </div>
-      <p>
-        <label for="fd">Domaines mail (un par ligne)</label>
-        <textarea id="fd" rows="2" bind:value={f.domaines} placeholder="durand.fr"></textarea>
-        <span class="discret">Appris tout seul quand une facture est reconnue par son SIRET ou son n° de TVA.</span>
-      </p>
-      <p><label for="fno">Notes</label><textarea id="fno" rows="2" bind:value={f.notes}></textarea></p>
+<Volets ouvert={idOuvert !== null || nouveau} libelleListe="Fournisseurs">
+  {#snippet liste()}
+    <div class="liste-h">
+      <h1>Fournisseurs</h1>
+      {#if charge}<span class="num">{totaux.tous}</span>{/if}
+      {#if admin && societe.courante}<span class="muted petit">{nomCourtSociete(societe.courante.raison_sociale)}</span>{/if}
+      <span class="sp"></span>
       {#if admin}
-        <div class="actions">
-          <button>Enregistrer</button>
-          {#if f.id && f.statut === 'a_confirmer'}<button type="button" onclick={valider}>Valider la fiche</button>{/if}
-          <button type="button" class="second" onclick={() => (f = null)}>Fermer</button>
-        </div>
+        <a class="btn sm fantome" href="/fournisseurs?fiche=nouveau" aria-current={nouveau ? 'true' : undefined}><Icone nom="plus" />Nouveau</a>
       {/if}
-    </fieldset>
-    {#if !admin}<div class="actions"><button type="button" class="second" onclick={() => (f = null)}>Fermer</button></div>{/if}
-    {#if admin && f.id && resultat}
-      <div class="actions fusion">
-        <label for="fc">Doublon d'une autre fiche ? Fusionner dans</label>
-        <select id="fc" bind:value={cible}>
-          <option value="">choisir la fiche à garder</option>
-          {#each resultat.elements.filter((l) => l.id !== f?.id) as l (l.id)}<option value={String(l.id)}>{l.nom}</option>{/each}
-        </select>
-        <button type="button" class="second" disabled={!cible} onclick={fusionner}>Fusionner</button>
+    </div>
+    <div class="outils">
+      <label class="recherche">
+        <span class="sr">Chercher un fournisseur</span>
+        <Icone nom="chercher" />
+        <input type="search" placeholder="Nom, SIRET, TVA ou domaine" bind:value={q} autocomplete="off" />
+      </label>
+      <div class="onglets" role="tablist" aria-label="Fournisseurs">
+        <button type="button" role="tab" aria-selected={onglet === 'tous'} onclick={() => (onglet = 'tous')}>
+          Tous {#if charge}<span class="num muted">{totaux.tous}</span>{/if}
+        </button>
+        <button type="button" role="tab" aria-selected={onglet === 'nouveaux'} onclick={() => (onglet = 'nouveaux')}>
+          Nouveaux (à confirmer) {#if totaux.nouveaux}<span class="compteur">{totaux.nouveaux}</span>{/if}
+        </button>
       </div>
-    {/if}
-  </form>
-{:else if admin}
-  <p><button onclick={() => { f = vide(); info = ''; }}>Nouvelle fiche</button></p>
-{/if}
-
-<form class="carte filtres" onsubmit={chercher}>
-  <div class="champs">
-    <div><label for="q">Nom, SIRET, TVA ou domaine</label><input id="q" type="search" bind:value={filtres.q} /></div>
-    <div>
-      <label for="st">Statut</label>
-      <select id="st" bind:value={filtres.statut}><option value="">Tous</option><option value="a_confirmer">À confirmer</option><option value="valide">Validées</option></select>
     </div>
-  </div>
-  <button>Filtrer</button>
-</form>
-
-{#if resultat}
-  <table>
-    <thead><tr><th>Nom</th><th>SIRET</th><th>TVA</th><th>Domaines</th><th>Structure par défaut</th><th>Documents</th><th></th></tr></thead>
-    <tbody>
-      {#each resultat.elements as l (l.id)}
-        <tr class="cliquable" onclick={() => ouvrir(l.id).catch((e) => (erreur = message(e)))}>
-          <td>{l.nom} {#if l.statut === 'a_confirmer'}<span class="etiquette att">à confirmer</span>{/if}</td>
-          <td class="nombre">{l.siret ?? '—'}</td>
-          <td>{l.tva ?? '—'}</td>
-          <td>{l.domaines.join(', ') || '—'}</td>
-          <td>{l.societe_defaut ?? '—'}</td>
-          <td class="nombre">{l.nb_documents}{#if l.a_verifier}<br /><span class="discret">{l.a_verifier} à vérifier</span>{/if}</td>
-          <td><button class="second">Ouvrir</button></td>
-        </tr>
+    <div class="liste-s" bind:this={conteneur} aria-busy={enCours}>
+      {#if erreur}
+        <div class="marge">
+          <Bandeau ton="erreur">
+            {erreur}
+            {#snippet action()}<button type="button" class="btn sm" onclick={() => charger()}>Réessayer</button>{/snippet}
+          </Bandeau>
+        </div>
+      {:else if !charge}
+        <Chargement />
+      {/if}
+      {#each lignes as l (l.id)}
+        <a
+          class="ligne"
+          href="/fournisseurs?fiche={l.id}"
+          data-id={l.id}
+          data-sveltekit-reset="false"
+          aria-current={l.id === idOuvert ? 'true' : undefined}
+          title={texteEtat(l)}
+        >
+          <div class="a">{l.nom}</div>
+          <div class="r">{#if l.statut === 'a_confirmer'}<span class="flag w">Nouveau</span>{/if}</div>
+          <div class="b"><FournEtat etat={l} /></div>
+          <div class="r2 num">{dateCourte(l.dernier_document)}</div>
+        </a>
       {:else}
-        <tr><td colspan="7" class="discret">Aucune fiche.</td></tr>
+        {#if charge && !erreur}<Vide compact titre={titreVide} />{/if}
       {/each}
-    </tbody>
-  </table>
-  {#if pages > 1}
-    <div class="pagination">
-      <button class="second" disabled={filtres.page <= 1} onclick={() => { filtres.page--; charger(); }}>Précédent</button>
-      <span class="discret">Page {filtres.page} sur {pages}</span>
-      <button class="second" disabled={filtres.page >= pages} onclick={() => { filtres.page++; charger(); }}>Suivant</button>
+      {#if lignes.length < total}
+        <button type="button" class="plus" disabled={enCours} onclick={() => charger(true)}>
+          Voir <span class="num">{Math.min(PAR_PAGE, total - lignes.length)}</span> de plus (<span class="num">{total - lignes.length}</span> restants)
+        </button>
+      {/if}
     </div>
-  {/if}
-{/if}
+    <div class="liste-f">
+      <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
+      <span><Kbd t="Enter" /> plein écran</span>
+    </div>
+  {/snippet}
+
+  {#snippet detail()}
+    <div class="volet-h">
+      <a class="retour tel-seul" href="/fournisseurs"><Icone nom="gauche" />Fournisseurs</a>
+      {#if indice >= 0}
+        <span class="pos large-seul"><span class="num">{indice + 1}</span> sur <span class="num">{total}</span></span>
+      {/if}
+      <span class="sp"></span>
+      {#if idOuvert !== null}
+        <a class="btn sm fantome large-seul" href="/fournisseurs/{idOuvert}"><Icone nom="agrandir" />Plein écran</a>
+      {/if}
+      <button type="button" class="btn sm fantome large-seul" onclick={() => ouvrir(null)} aria-label="Fermer">
+        <Icone nom="fermer" /><Kbd t="Escape" />
+      </button>
+    </div>
+    <div class="volet-b">
+      <div class="contenu-fiche">
+        {#if nouveau}
+          <FournNouveau
+            oncree={(id) => {
+              void ouvrir(id);
+              void charger();
+            }}
+            onannule={() => ouvrir(null)}
+          />
+        {:else if idOuvert !== null}
+          {#key idOuvert}
+            <FournFiche id={idOuvert} onmodifie={() => charger()} onfusion={(cible) => ouvrir(cible)} />
+          {/key}
+        {/if}
+      </div>
+    </div>
+  {/snippet}
+
+  {#snippet vide()}
+    <Vide icone="camion" titre="Choisissez un fournisseur" texte="Ses factures, BL et mails mois par mois, et ce qui reste à rapprocher." />
+  {/snippet}
+</Volets>
 
 <style>
-  .fiche, .filtres { margin-bottom: 1rem; display: grid; gap: 0.6rem; }
-  .fiche h2 { margin: 0; }
-  fieldset { border: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; }
-  .fusion { border-top: 1px solid var(--trait); padding-top: 0.7rem; flex-wrap: nowrap; }
-  .fusion label { margin: 0; white-space: nowrap; }
-  .fusion select { width: auto; flex: 1; }
-  .filtres > button { justify-self: start; }
+  .outils {
+    flex: none;
+    display: grid;
+    gap: var(--e2);
+    padding: var(--e3) var(--e4) 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .recherche {
+    position: relative;
+    display: block;
+  }
+  .recherche :global(svg.i) {
+    position: absolute;
+    left: 10px;
+    top: 8px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .recherche input {
+    height: 32px;
+    padding-left: 34px;
+  }
+  .onglets {
+    display: flex;
+    gap: var(--e4);
+  }
+  .onglets button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--text2);
+    font-weight: 500;
+  }
+  .onglets button:hover {
+    color: var(--text);
+  }
+  .onglets button[aria-selected='true'] {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+  }
+  .marge {
+    padding: var(--e3) var(--e4);
+  }
 </style>

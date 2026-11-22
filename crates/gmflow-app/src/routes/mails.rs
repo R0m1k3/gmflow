@@ -205,6 +205,21 @@ pub struct PieceVue {
     document_etat: Option<String>,
     document_type: Option<String>,
     document_voie: Option<String>,
+    /// Résumé du document lu (pour la liste des pièces, sans ouvrir chaque fiche).
+    document_statut_depot: Option<String>,
+    document_verifie: Option<bool>,
+    document_numero: Option<String>,
+    document_montant_ttc: Option<f64>,
+    document_fournisseur_id: Option<i64>,
+    /// Fiche fournisseur, à défaut nom lu.
+    document_fournisseur: Option<String>,
+    document_societe_id: Option<i64>,
+    document_societe: Option<String>,
+    /// Outil de la société du document : `dext` ou `yooz`.
+    document_outil: Option<String>,
+    /// Dernier envoi réussi à Dext/Yooz.
+    #[serde(with = "time::serde::rfc3339::option")]
+    document_envoye_le: Option<time::OffsetDateTime>,
 }
 
 #[derive(Serialize)]
@@ -212,6 +227,12 @@ pub struct BoiteDuMail {
     boite_id: i64,
     libelle: String,
     dossier: String,
+    /// Adresse de la boîte (identifiant IMAP) : « Envoyer depuis compta@… ».
+    adresse: String,
+    societe_id: i64,
+    societe: String,
+    /// Serveur SMTP configuré : la boîte peut envoyer des réponses.
+    smtp: bool,
 }
 
 #[derive(Serialize)]
@@ -224,6 +245,9 @@ pub struct FicheMail {
     #[serde(with = "time::serde::rfc3339::option")]
     date_mail: Option<time::OffsetDateTime>,
     corps_texte: String,
+    /// Fiche fournisseur reconnue par le domaine de l'expéditeur (nom affiché, encadré du fil).
+    fournisseur_id: Option<i64>,
+    fournisseur: Option<String>,
     pieces: Vec<PieceVue>,
     boites: Vec<BoiteDuMail>,
     categorie: Option<String>,
@@ -264,11 +288,33 @@ pub async fn fiche(
     )
     .fetch_one(&etat.pool)
     .await?;
+    let fournisseur = sqlx::query!(
+        "select f.id, f.nom from fournisseur f
+         where f.fusionne_dans is null and lower(split_part($1, '@', 2)) = any(f.domaines)
+         order by f.id limit 1",
+        m.expediteur
+    )
+    .fetch_optional(&etat.pool)
+    .await?;
     let pieces = sqlx::query_as!(
         PieceVue,
         r#"select p.id, p.nom, p.type_mime, p.taille, d.id as "document_id?",
-                  d.etat as "document_etat?", d.type as "document_type?", d.voie as "document_voie?"
-           from piece_jointe p left join document d on d.piece_jointe_id = p.id
+                  d.etat as "document_etat?", d.type as "document_type?", d.voie as "document_voie?",
+                  d.statut_depot as "document_statut_depot?",
+                  (d.verifie_le is not null) as "document_verifie?",
+                  d.numero as "document_numero?",
+                  d.montant_ttc::float8 as "document_montant_ttc?",
+                  d.fournisseur_id as "document_fournisseur_id?",
+                  coalesce(fo.nom, d.fournisseur_nom) as "document_fournisseur?",
+                  d.societe_id as "document_societe_id?",
+                  s.raison_sociale as "document_societe?",
+                  s.outil_depot as "document_outil?",
+                  (select max(e.quand) from envoi_depot e
+                   where e.document_id = d.id and e.etat = 'envoye') as "document_envoye_le?"
+           from piece_jointe p
+           left join document d on d.piece_jointe_id = p.id
+           left join fournisseur fo on fo.id = d.fournisseur_id
+           left join societe s on s.id = d.societe_id
            where p.mail_id = $1 order by p.rang"#,
         id
     )
@@ -276,10 +322,13 @@ pub async fn fiche(
     .await?;
     let boites = sqlx::query_as!(
         BoiteDuMail,
-        "select distinct b.id as boite_id, b.libelle, mb.dossier
-         from mail_boite mb join boite_mail b on b.id = mb.boite_id
-         where mb.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)
-         order by b.libelle, mb.dossier",
+        r#"select distinct b.id as boite_id, b.libelle, mb.dossier, b.identifiant as adresse,
+                  b.societe_id, s.raison_sociale as societe,
+                  (b.smtp_serveur is not null) as "smtp!"
+           from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           join societe s on s.id = b.societe_id
+           where mb.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)
+           order by b.libelle, mb.dossier"#,
         id,
         acces.societe_filtre()
     )
@@ -293,6 +342,8 @@ pub async fn fiche(
         objet: m.objet,
         date_mail: m.date_mail,
         corps_texte: m.corps_texte,
+        fournisseur_id: fournisseur.as_ref().map(|f| f.id),
+        fournisseur: fournisseur.map(|f| f.nom),
         pieces,
         boites,
         categorie: m.categorie,

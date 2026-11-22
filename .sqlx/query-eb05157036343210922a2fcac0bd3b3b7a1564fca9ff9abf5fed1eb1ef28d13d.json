@@ -1,0 +1,111 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select m.id, m.expediteur, m.objet, m.date_mail, m.resume, m.priorite,\n               array(select distinct s.raison_sociale from mail_boite mb\n                     join boite_mail b on b.id = mb.boite_id join societe s on s.id = b.societe_id\n                     where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)\n                     order by s.raison_sociale) as \"societes!\",\n               (select f.nom from fournisseur f\n                where f.fusionne_dans is null\n                  and lower(split_part(m.expediteur, '@', 2)) = any(f.domaines)\n                order by f.id limit 1) as fournisseur,\n               (select br.statut from brouillon_reponse br\n                where br.mail_id = m.id and br.statut in ('generation', 'propose', 'modifie', 'envoi')\n                limit 1) as brouillon\n           from mail m\n           where m.statut_reponse = 'a_repondre'\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id\n                           and ($1::bigint is null or b.societe_id = $1)\n                           and ($2::bigint is null or b.societe_id = $2))\n           order by case coalesce(m.priorite, 'normale') when 'haute' then 0 when 'normale' then 1 else 2 end,\n                    coalesce(m.date_mail, m.recu_le), m.id\n           limit $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_mail",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "date_mail"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "resume",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "resume"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "priorite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "priorite"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "societes!",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "fournisseur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "brouillon",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "eb05157036343210922a2fcac0bd3b3b7a1564fca9ff9abf5fed1eb1ef28d13d"
+}

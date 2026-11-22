@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select s.id, s.raison_sociale, s.adresse_depot, s.outil_depot,\n                  (select count(*) from boite_mail b where b.societe_id = s.id and b.active) as \"boites_actives!\",\n                  (select count(*) from utilisateur u\n                    where u.societe_id = s.id and u.actif and u.role = 'responsable') as \"responsables!\"\n           from societe s where not s.archivee order by s.raison_sociale",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "raison_sociale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "adresse_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "adresse_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "outil_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "outil_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "boites_actives!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "responsables!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "a9c86ddae12e22fb91f91227cf1b7cb757dff218e7791791534b9b49cdba1bd3"
+}

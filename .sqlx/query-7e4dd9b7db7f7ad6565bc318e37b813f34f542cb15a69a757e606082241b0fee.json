@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select serveur, port, identifiant, mot_de_passe_chiffre, smtp_serveur, smtp_port,\n                        smtp_securite\n                 from boite_mail where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "serveur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "serveur"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "port"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "identifiant",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "mot_de_passe_chiffre",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "mot_de_passe_chiffre"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "smtp_serveur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_serveur"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "smtp_port",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_port"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "smtp_securite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "smtp_securite"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "7e4dd9b7db7f7ad6565bc318e37b813f34f542cb15a69a757e606082241b0fee"
+}

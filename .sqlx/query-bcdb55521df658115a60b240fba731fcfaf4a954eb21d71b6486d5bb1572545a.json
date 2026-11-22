@@ -1,0 +1,130 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select 'boite' as \"genre!\", null::bigint as document_id, b.id as \"boite_id?\",\n                      b.libelle as \"libelle?\",\n                      case when b.pause_auto then 'pause_auto' else 'erreur' end as motif,\n                      b.derniere_erreur as message, b.erreur_depuis as depuis,\n                      null::text as type, null::text as fournisseur, null::text as numero,\n                      b.societe_id as \"societe_id?\", s.raison_sociale as \"societe?\"\n               from boite_mail b join societe s on s.id = b.societe_id\n               where ($1::bigint is null or b.societe_id = $1)\n                 and (b.pause_auto or (b.active and b.erreur_depuis < now() - interval '30 minutes'))\n               order by b.libelle",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "genre!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "boite_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "libelle?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "motif",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "derniere_erreur"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "depuis",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "erreur_depuis"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "fournisseur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "societe_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false,
+      false,
+      null,
+      true,
+      true,
+      null,
+      null,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "bcdb55521df658115a60b240fba731fcfaf4a954eb21d71b6486d5bb1572545a"
+}

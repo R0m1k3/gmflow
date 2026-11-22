@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select type from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "5b698be99c576d3afa180a16df9b82776ff41c9d9ed785a0577f5809bb18e283"
+}

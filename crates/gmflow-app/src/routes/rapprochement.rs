@@ -26,12 +26,12 @@ const DOCUMENTS_MAX: i64 = 5000;
 /// Éléments rendus au plus par liste.
 const LISTE_MAX: usize = 300;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct Filtres {
-    societe: Option<i64>,
-    fournisseur: Option<i64>,
-    du: Option<String>,
-    au: Option<String>,
+    pub(crate) societe: Option<i64>,
+    pub(crate) fournisseur: Option<i64>,
+    pub(crate) du: Option<String>,
+    pub(crate) au: Option<String>,
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow)]
@@ -78,15 +78,15 @@ pub struct ResumeFournisseur {
 
 #[derive(Serialize)]
 pub struct Vue {
-    resume: Vec<ResumeFournisseur>,
-    bl_sans_facture: Vec<DocRap>,
-    factures_sans_bl: Vec<DocRap>,
-    avec_ecart: Vec<Rapproche>,
-    sans_ecart: Vec<Rapproche>,
+    pub(crate) resume: Vec<ResumeFournisseur>,
+    pub(crate) bl_sans_facture: Vec<DocRap>,
+    pub(crate) factures_sans_bl: Vec<DocRap>,
+    pub(crate) avec_ecart: Vec<Rapproche>,
+    pub(crate) sans_ecart: Vec<Rapproche>,
     /// Plus de `DOCUMENTS_MAX` documents : seuls les plus récents sont examinés.
-    tronque: bool,
+    pub(crate) tronque: bool,
     /// BL lus avant le lot 4, sans lignes (à relire pour comparer les quantités).
-    bl_sans_lignes: i64,
+    pub(crate) bl_sans_lignes: i64,
 }
 
 struct Lien {
@@ -124,7 +124,10 @@ pub async fn vue(
              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
-             and ($2::bigint is null or d.societe_id = $2)
+             and ($2::bigint is null or d.societe_id = $2
+                  or (d.societe_id is null
+                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                  where mb.mail_id = m.id and b.societe_id = $2)))
              and ($3::bigint is null or d.fournisseur_id = $3)
              and ($4::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $4)
              and ($5::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $5)
@@ -227,8 +230,15 @@ pub async fn vue(
     let bl_sans_lignes = sqlx::query_scalar!(
         r#"select count(*) as "n!" from document d
            where d.type = 'bl' and d.etat = 'lu' and not d.lignes_lues
-             and ($1::bigint is null or d.societe_id = $1)"#,
-        acces.societe_filtre()
+             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
+             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
+             and ($2::bigint is null or d.societe_id = $2
+                  or (d.societe_id is null
+                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))"#,
+        acces.societe_filtre(),
+        f.societe
     )
     .fetch_one(&etat.pool)
     .await?;

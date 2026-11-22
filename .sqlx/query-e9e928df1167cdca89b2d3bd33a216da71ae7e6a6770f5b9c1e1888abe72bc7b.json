@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select o.id from document d, document o\n           where d.id = $1 and o.id > d.id\n             and o.statut_depot is not null and o.statut_depot not in ('doublon', 'en_envoi', 'depose')\n             and (o.sha256 = d.sha256\n                  or (d.fournisseur_id is not null and o.fournisseur_id = d.fournisseur_id\n                      and d.numero is not null and lower(trim(o.numero)) = lower(trim(d.numero))\n                      and d.montant_ttc is not null and o.montant_ttc = d.montant_ttc))\n           order by o.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e9e928df1167cdca89b2d3bd33a216da71ae7e6a6770f5b9c1e1888abe72bc7b"
+}
