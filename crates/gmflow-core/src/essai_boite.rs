@@ -65,6 +65,28 @@ pub struct Essai {
     pub resultat_imap: Option<ResultatImap>,
     pub resultat_smtp: Option<ResultatSmtp>,
     pub termine_le: Option<String>,
+    /// Empreinte du mot de passe essayé (`empreinte`), pour qu'une création de boîte reprenne
+    /// un essai réussi sans le refaire. Jamais rendue par l'API.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mdp_empreinte: Option<String>,
+}
+
+/// Empreinte d'un mot de passe pour un essai : SHA-256 de l'id de l'essai suivi du mot de
+/// passe, en hexadécimal (salée par l'id : une empreinte ne sert que pour son essai).
+pub fn empreinte(id: Uuid, mot_de_passe: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(id.as_bytes());
+    h.update(mot_de_passe.as_bytes());
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Âge en minutes d'un essai (`cree_le`, RFC 3339) ; `None` si la date est illisible.
+pub fn age_minutes(e: &Essai) -> Option<i64> {
+    let cree =
+        time::OffsetDateTime::parse(&e.cree_le, &time::format_description::well_known::Rfc3339)
+            .ok()?;
+    Some((time::OffsetDateTime::now_utc() - cree).whole_minutes())
 }
 
 /// Erreur IMAP dite en clair, et le détail brut.

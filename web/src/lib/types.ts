@@ -44,6 +44,8 @@ export interface Brouillon {
   id: number;
   boite_id: number;
   boite: string;
+  /** Adresse de la boîte d'envoi : « Envoyer depuis compta@… ». */
+  boite_adresse: string;
   texte: string;
   statut: StatutBrouillon;
   modele: string | null;
@@ -105,8 +107,32 @@ export interface FicheMail {
     document_etat: EtatDocument | null;
     document_type: TypeDocument | null;
     document_voie: Voie | null;
+    /** Résumé du document lu (null sans document). */
+    document_statut_depot: StatutDepot | null;
+    document_verifie: boolean | null;
+    document_numero: string | null;
+    document_montant_ttc: number | null;
+    document_fournisseur_id: number | null;
+    /** Fiche fournisseur, à défaut nom lu. */
+    document_fournisseur: string | null;
+    document_societe_id: number | null;
+    document_societe: string | null;
+    document_outil: 'dext' | 'yooz' | null;
+    /** Dernier envoi réussi à Dext/Yooz. */
+    document_envoye_le: string | null;
   }[];
-  boites: { boite_id: number; libelle: string; dossier: string }[];
+  /** Boîtes qui ont reçu le mail (visibles), une ligne par dossier. */
+  boites: {
+    boite_id: number;
+    libelle: string;
+    dossier: string;
+    /** Adresse de la boîte (identifiant IMAP). */
+    adresse: string;
+    societe_id: number;
+    societe: string;
+    /** Serveur SMTP configuré : la boîte peut envoyer les réponses. */
+    smtp: boolean;
+  }[];
   categorie: Categorie | null;
   categorie_par: 'regle' | 'claude' | 'humain' | null;
   resume: string | null;
@@ -144,8 +170,18 @@ export interface Societe {
 export interface TestBoite {
   quand?: string;
   ok: boolean;
+  /** Phrase en clair (« Mot de passe refusé : … », « Connexion réussie : 7 dossiers trouvés. »). */
   message?: string;
+  /** Erreur brute du serveur. */
+  detail?: string | null;
+  /** Noms IMAP, à enregistrer tels quels. */
   dossiers?: string[];
+  /** Noms décodés et attributs (tests faits depuis la refonte ; absent avant). */
+  dossiers_detail?: DossierImap[];
+  /** Dossier des envoyés repéré (nom IMAP), null si rien de sûr. */
+  envoyes?: string | null;
+  /** Création depuis un essai de l'assistant. */
+  essai_id?: string;
 }
 
 export interface Boite {
@@ -240,8 +276,22 @@ export type StatutDepot = 'a_verifier' | 'pret' | 'en_envoi' | 'depose' | 'erreu
 
 export interface Controle {
   code: string;
+  /** Phrase dans le vocabulaire de l'écran (société, Dext/Yooz, « 1 250,40 € »), sans point final. */
   message: string;
+  /** Champs visés (noms de l'API), absents sur les contrôles enregistrés avant la refonte. */
+  champs?: ChampControle[];
+  /** Correction proposée en un clic (montants). */
+  proposition?: { champ: ChampControle; valeur: number };
 }
+
+export type ChampControle =
+  | 'numero'
+  | 'date_document'
+  | 'montant_ht'
+  | 'montant_tva'
+  | 'montant_ttc'
+  | 'societe_id'
+  | 'fournisseur_id';
 
 export interface Confiance {
   type?: number;
@@ -295,7 +345,13 @@ export interface FicheDocument {
   corrections: Record<string, { avant: unknown; apres: unknown }>;
   societe_adresse_depot: string | null;
   societe_outil_depot: string | null;
+  /** Réception du mail d'origine (date du mail, à défaut de la relève). */
+  recu_le: string;
+  /** Envoi en échec relancé il y a moins de 30 min, pas encore repris : ne pas renvoyer. */
+  envoi_relance: boolean;
   envois: Envoi[];
+  /** Boîtes de réception du mail d'origine (visibles). */
+  boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
 }
 
 export interface Envoi {
@@ -336,6 +392,8 @@ export interface Fournisseur {
   domaines: string[];
   statut: StatutFournisseur;
   societe_defaut_id: number | null;
+  /** Nom de la société par défaut. */
+  societe_defaut: string | null;
   format_bl: string | null;
   notes: string | null;
   fusionne_dans: number | null;
@@ -509,7 +567,8 @@ export type CodeRefus =
   | 'erreur_envoi'
   | 'doublon'
   | 'sans_adresse'
-  | 'smtp_absent';
+  | 'smtp_absent'
+  | 'essai';
 
 export interface CompteursATraiter {
   bloque: number;
@@ -552,6 +611,8 @@ export interface DocumentAValider {
   montant_ttc: number | null;
   /** Première alerte en une phrase, ou null. */
   alerte: string | null;
+  /** Code stable de cette alerte (`doublon`, `montants`, `societe`, `depot`, `fournisseur`...). */
+  alerte_code: string | null;
   nb_alertes: number;
   statut_depot: StatutDepot | null;
   /** Déjà vérifié (facture vérifiée mais pas encore envoyée). */
@@ -678,6 +739,8 @@ export interface DocumentTrouve {
   montant_ttc: number | null;
   societe_id: number | null;
   societe: string | null;
+  /** Outil de la société (null si pas encore rangé ou pas réglé). */
+  outil: 'dext' | 'yooz' | null;
   nom_fichier: string;
   recu_le: string;
   verifie: boolean;
@@ -768,5 +831,32 @@ export interface BilanMois {
   mois: string;
   societes: LigneSuivi[];
   bl_en_attente: BlEnAttente[];
+  /** BL lus avant le rapprochement, sans leurs lignes (tout l'historique, mêmes filtres). */
+  bl_sans_lignes: number;
   qualite: { lecture: Bilan; tri: SemaineTri[] };
 }
+
+/** Corps de `POST /api/admin/boites` (création) ; `PUT /api/admin/boites/{id}` ignore les deux derniers champs. */
+export interface EntreeBoite {
+  societe_id: number;
+  libelle: string;
+  serveur: string;
+  port?: number;
+  identifiant: string;
+  mot_de_passe?: string;
+  dossiers?: string[];
+  reprise_mois?: number;
+  smtp_serveur?: string | null;
+  smtp_port?: number | null;
+  smtp_securite?: 'tls' | 'starttls' | null;
+  dossier_envoyes?: string | null;
+  /** Essai réussi de ces paramètres (moins d'une heure) : repris comme test de la boîte. */
+  essai_id?: string;
+  /** Démarrer la surveillance tout de suite (exige `essai_id`). */
+  activer?: boolean;
+}
+
+/** Corps de `PATCH /api/admin/fournisseurs/{id}` : seuls les champs présents changent. */
+export type ChangementsFournisseur = Partial<
+  Pick<Fournisseur, 'nom' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'>
+>;

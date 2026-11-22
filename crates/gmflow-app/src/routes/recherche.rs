@@ -197,7 +197,8 @@ fn motifs(mots: &[String]) -> Vec<String> {
 #[derive(Deserialize)]
 pub struct Filtres {
     q: Option<String>,
-    /// `facture`, `avoir`, `bl` (documents de ce type seulement) ou `mail` (mails seulement).
+    /// `facture`, `avoir`, `bl` (documents de ce type seulement), `document` (tous les
+    /// documents, pas de mails) ou `mail` (mails seulement).
     r#type: Option<String>,
     du: Option<String>,
     au: Option<String>,
@@ -220,6 +221,8 @@ pub struct DocTrouve {
     montant_ttc: Option<f64>,
     societe_id: Option<i64>,
     societe: Option<String>,
+    /// Outil de la société : `dext` ou `yooz` (nul si pas encore rangé ou pas réglé).
+    outil: Option<String>,
     nom_fichier: String,
     #[serde(with = "time::serde::rfc3339")]
     recu_le: time::OffsetDateTime,
@@ -262,7 +265,7 @@ pub async fn chercher(
     let (du, au) = (date(&f.du)?, date(&f.au)?);
     let type_choisi = f.r#type.as_deref().map(str::trim).filter(|t| !t.is_empty());
     if let Some(t) = type_choisi
-        && !["facture", "avoir", "bl", "mail"].contains(&t)
+        && !["facture", "avoir", "bl", "document", "mail"].contains(&t)
     {
         return Err(ErreurApi::Donnees(format!("type inconnu : {t}")));
     }
@@ -275,7 +278,9 @@ pub async fn chercher(
         None => (None, None, None),
     };
     let perimetre = acces.societe_filtre();
-    let type_doc = type_choisi.filter(|t| *t != "mail");
+    // `document` : tous les documents, pas de mails ; un type précis : ce type seulement.
+    let documents_seuls = type_choisi.is_some_and(|t| t != "mail");
+    let type_doc = type_choisi.filter(|t| *t != "mail" && *t != "document");
 
     let documents = if type_choisi == Some("mail") {
         Groupe {
@@ -287,7 +292,8 @@ pub async fn chercher(
             r#"select d.id, d.mail_id, d.type, d.etat, d.statut_depot, d.fournisseur_id,
                       coalesce(fo.nom, d.fournisseur_nom) as fournisseur, d.numero, d.date_document,
                       d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,
-                      d.societe_id, s.raison_sociale as "societe?", p.nom as nom_fichier,
+                      d.societe_id, s.raison_sociale as "societe?", s.outil_depot as "outil?",
+                      p.nom as nom_fichier,
                       coalesce(m.date_mail, m.recu_le) as "recu_le!",
                       d.verifie_le is not null as "verifie!",
                       count(*) over () as "total!"
@@ -299,6 +305,7 @@ pub async fn chercher(
                where d.etat <> 'ignore'
                  and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
+                 and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
                  and ($2::bigint is null or d.societe_id = $2
                       or (d.societe_id is null
                           and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
@@ -363,6 +370,7 @@ pub async fn chercher(
                     montant_ttc: l.montant_ttc,
                     societe_id: l.societe_id,
                     societe: l.societe,
+                    outil: l.outil,
                     nom_fichier: l.nom_fichier,
                     recu_le: l.recu_le,
                     verifie: l.verifie,
@@ -371,7 +379,7 @@ pub async fn chercher(
         }
     };
 
-    let mails = if type_doc.is_some() {
+    let mails = if documents_seuls {
         Groupe {
             total: 0,
             elements: Vec::new(),

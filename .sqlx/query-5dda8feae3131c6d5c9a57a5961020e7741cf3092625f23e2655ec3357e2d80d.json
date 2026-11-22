@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.mail_id, d.type as \"type!\", d.fournisseur_id,\n                  coalesce(fo.nom, d.fournisseur_nom) as fournisseur,\n                  coalesce(fo.statut = 'a_confirmer', false) as \"fournisseur_a_confirmer!\",\n                  d.numero, d.societe_id, s.raison_sociale as \"societe?\", d.date_document,\n                  coalesce(m.date_mail, m.recu_le) as \"recu_le!\",\n                  d.montant_ttc::float8 as montant_ttc,\n                  case when jsonb_array_length(d.controles) > 0 then d.controles->0->>'message'\n                       when d.type = 'bl' and d.fournisseur_id is null then 'fournisseur non identifié'\n                  end as alerte,\n                  (jsonb_array_length(d.controles)\n                   + case when d.type = 'bl' and d.fournisseur_id is null then 1 else 0 end)::bigint as \"nb_alertes!\",\n                  d.statut_depot, d.verifie_le is not null as \"verifie!\"\n           from document d\n           join mail m on m.id = d.mail_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and ((d.verifie_le is null\n                   and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))\n                  or (d.verifie_le is not null and d.valide_le is null\n                      and d.statut_depot in ('a_verifier', 'pret')))\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))\n           order by (jsonb_array_length(d.controles) > 0\n                     or (d.type = 'bl' and d.fournisseur_id is null)) desc,\n                    coalesce(m.date_mail, m.recu_le), d.id\n           limit $3",
+  "query": "select d.id, d.mail_id, d.type as \"type!\", d.fournisseur_id,\n                  coalesce(fo.nom, d.fournisseur_nom) as fournisseur,\n                  coalesce(fo.statut = 'a_confirmer', false) as \"fournisseur_a_confirmer!\",\n                  d.numero, d.societe_id, s.raison_sociale as \"societe?\", d.date_document,\n                  coalesce(m.date_mail, m.recu_le) as \"recu_le!\",\n                  d.montant_ttc::float8 as montant_ttc,\n                  case when jsonb_array_length(d.controles) > 0 then d.controles->0->>'message'\n                       when d.type = 'bl' and d.fournisseur_id is null then 'Fournisseur non identifié'\n                  end as alerte,\n                  case when jsonb_array_length(d.controles) > 0 then d.controles->0->>'code'\n                       when d.type = 'bl' and d.fournisseur_id is null then 'fournisseur'\n                  end as alerte_code,\n                  (jsonb_array_length(d.controles)\n                   + case when d.type = 'bl' and d.fournisseur_id is null then 1 else 0 end)::bigint as \"nb_alertes!\",\n                  d.statut_depot, d.verifie_le is not null as \"verifie!\"\n           from document d\n           join mail m on m.id = d.mail_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and ((d.verifie_le is null\n                   and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))\n                  or (d.verifie_le is not null and d.valide_le is null\n                      and d.statut_depot in ('a_verifier', 'pret')))\n             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))\n           order by (jsonb_array_length(d.controles) > 0\n                     or (d.type = 'bl' and d.fournisseur_id is null)) desc,\n                    coalesce(m.date_mail, m.recu_le), d.id\n           limit $3",
   "describe": {
     "columns": [
       {
@@ -123,12 +123,18 @@
       },
       {
         "ordinal": 13,
+        "name": "alerte_code",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
         "name": "nb_alertes!",
         "type_info": "Int8",
         "origin": "Expression"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "statut_depot",
         "type_info": "Text",
         "origin": {
@@ -139,7 +145,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "verifie!",
         "type_info": "Bool",
         "origin": "Expression"
@@ -167,9 +173,10 @@
       null,
       null,
       null,
+      null,
       true,
       null
     ]
   },
-  "hash": "6923d5f2d6d0509c9b32a7903ab38028a6825b8ab51bd9eed582df15dd7db403"
+  "hash": "5dda8feae3131c6d5c9a57a5961020e7741cf3092625f23e2655ec3357e2d80d"
 }

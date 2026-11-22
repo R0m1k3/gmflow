@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set statut_depot = 'a_verifier',\n                controles = controles || '[{\"code\": \"depot\", \"message\": \"Société ou adresse Dext/Yooz manquante\", \"champs\": [\"societe_id\"]}]'::jsonb\n             where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f1600da160c68849ad2e7cd30cc1761a51d6751b97e245356ac20af86cd5301"
+}

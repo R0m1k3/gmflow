@@ -119,7 +119,7 @@ pub async fn deposer(
         return Ok(());
     }
     if let Some((autre, _)) = doublon {
-        let echec = json!([{ "code": "doublon", "message": format!("même facture que le document {autre}") }]);
+        let echec = json!([{ "code": "doublon", "message": format!("Même facture que le document {autre}") }]);
         sqlx::query!(
             "update document set statut_depot = 'doublon', controles = $2 || controles where id = $1",
             document_id,
@@ -136,7 +136,7 @@ pub async fn deposer(
     ) else {
         sqlx::query!(
             "update document set statut_depot = 'a_verifier',
-                controles = controles || '[{\"code\": \"depot\", \"message\": \"structure ou adresse de dépôt manquante\"}]'::jsonb
+                controles = controles || '[{\"code\": \"depot\", \"message\": \"Société ou adresse Dext/Yooz manquante\", \"champs\": [\"societe_id\"]}]'::jsonb
              where id = $1",
             document_id
         )

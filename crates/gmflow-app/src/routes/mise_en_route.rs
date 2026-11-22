@@ -41,6 +41,22 @@ fn pluriel(n: i64, un: &str, plusieurs: &str) -> String {
     }
 }
 
+/// « SAS Frouard Distribution » devient « Frouard Distribution » (forme juridique retirée),
+/// comme `nomCourtSociete` du front.
+pub(crate) fn nom_court(raison: &str) -> String {
+    let r = raison.trim();
+    for forme in ["SASU", "SAS", "SARL", "EURL", "SA", "SNC", "SCI"] {
+        if let Some(reste) = r.get(forme.len()..)
+            && r[..forme.len()].eq_ignore_ascii_case(forme)
+            && reste.starts_with(char::is_whitespace)
+            && !reste.trim().is_empty()
+        {
+            return reste.trim().to_string();
+        }
+    }
+    r.to_string()
+}
+
 pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<MiseEnRoute>> {
     let societes = sqlx::query!(
         r#"select s.id, s.raison_sociale, s.adresse_depot, s.outil_depot,
@@ -66,7 +82,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
                 pluriel(n, "société", "sociétés"),
                 societes
                     .iter()
-                    .map(|s| s.raison_sociale.as_str())
+                    .map(|s| nom_court(&s.raison_sociale))
                     .collect::<Vec<_>>()
                     .join(", ")
             )
@@ -86,17 +102,21 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
     .fetch_all(&etat.pool)
     .await?;
     let actives = boites.iter().filter(|b| b.active).count() as i64;
+    let total = boites.len() as i64;
     let mut manques = Vec::new();
+    if n == 0 {
+        manques.push("Ajouter d'abord une société".into());
+    }
     for s in societes.iter().filter(|s| s.boites_actives == 0) {
         manques.push(format!(
             "{} : aucune boîte mail surveillée",
-            s.raison_sociale
+            nom_court(&s.raison_sociale)
         ));
     }
     for b in &boites {
         if b.pause_auto {
             manques.push(format!(
-                "{} : en pause après des refus du mot de passe",
+                "{} : arrêtée après des refus du mot de passe",
                 b.libelle
             ));
         } else if !b.active && b.test_ok != Some(true) {
@@ -106,17 +126,24 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
             ));
         }
     }
-    if boites.is_empty() && societes.is_empty() {
-        manques.push("Ajouter une boîte mail".into());
-    }
     etapes.push(Etape {
         cle: "boites",
         fait: actives > 0 && manques.is_empty(),
-        resume: format!(
-            "{} sur {}",
-            pluriel(actives, "boîte surveillée", "boîtes surveillées"),
-            boites.len()
-        ),
+        resume: if total == 0 {
+            "Aucune boîte mail".into()
+        } else if actives == 0 {
+            format!(
+                "{}, aucune surveillée",
+                pluriel(total, "boîte mail", "boîtes mail")
+            )
+        } else if actives == total {
+            pluriel(total, "boîte mail surveillée", "boîtes mail surveillées")
+        } else {
+            format!(
+                "{} sur {total}",
+                pluriel(actives, "boîte mail surveillée", "boîtes mail surveillées")
+            )
+        },
         manques,
     });
 
@@ -183,7 +210,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
         {
             manques.push(format!(
                 "{} : adresse Dext/Yooz manquante",
-                s.raison_sociale
+                nom_court(&s.raison_sociale)
             ));
         }
     }
@@ -199,14 +226,24 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
         cle: "envoi",
         fait: exp.is_some() && n > 0 && manques.is_empty(),
         resume: match &exp {
-            Some(x) => format!(
-                "Envoi depuis {} ; {} sur {n}",
+            Some(x) if n == 0 => format!("Envoi depuis {}", x.adresse),
+            Some(x) if avec_adresse == n => format!(
+                "Envoi depuis {} ; adresse Dext/Yooz réglée pour {}",
                 x.adresse,
-                pluriel(
-                    avec_adresse,
-                    "société avec son adresse Dext/Yooz",
-                    "sociétés avec leur adresse Dext/Yooz"
-                )
+                if n == 1 {
+                    "la société".to_string()
+                } else {
+                    format!("les {n} sociétés")
+                }
+            ),
+            Some(x) if avec_adresse == 0 => format!(
+                "Envoi depuis {} ; aucune société n'a son adresse Dext/Yooz",
+                x.adresse
+            ),
+            Some(x) => format!(
+                "Envoi depuis {} ; adresse Dext/Yooz réglée pour {avec_adresse} société{} sur {n}",
+                x.adresse,
+                if avec_adresse > 1 { "s" } else { "" }
             ),
             None => "Adresse d'envoi pas configurée".into(),
         },
@@ -224,7 +261,12 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
     let manques: Vec<String> = societes
         .iter()
         .filter(|s| s.responsables == 0)
-        .map(|s| format!("{} : aucun compte de responsable", s.raison_sociale))
+        .map(|s| {
+            format!(
+                "{} : aucun compte de responsable",
+                nom_court(&s.raison_sociale)
+            )
+        })
         .collect();
     etapes.push(Etape {
         cle: "utilisateurs",
@@ -232,7 +274,11 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
         resume: format!(
             "{}, {}",
             pluriel(comptes.admins, "administrateur", "administrateurs"),
-            pluriel(comptes.responsables, "responsable", "responsables")
+            if comptes.responsables == 0 {
+                "aucun responsable".to_string()
+            } else {
+                pluriel(comptes.responsables, "responsable", "responsables")
+            }
         ),
         manques,
     });
@@ -289,10 +335,12 @@ pub struct EssaiCree {
 async fn lancer(
     etat: &Etat,
     admin_id: i64,
-    essai: Essai,
+    mut essai: Essai,
     mdp_chiffre: Vec<u8>,
+    mdp_clair: Option<&str>,
 ) -> Resultat<Json<EssaiCree>> {
     let id = Uuid::new_v4();
+    essai.mdp_empreinte = mdp_clair.map(|m| essai_boite::empreinte(id, m));
     let cle = essai_boite::cle(id);
     let mut tx = etat.pool.begin().await?;
     sqlx::query!(
@@ -381,7 +429,8 @@ pub async fn tester(
     let Some(identifiant) = identifiant else {
         return Err(ErreurApi::Donnees("identifiant obligatoire".into()));
     };
-    let mdp_chiffre = match d.mot_de_passe.filter(|m| !m.is_empty()) {
+    let mdp_clair = d.mot_de_passe.filter(|m| !m.is_empty());
+    let mdp_chiffre = match &mdp_clair {
         Some(m) => etat.chiffreur.chiffrer(m.as_bytes()),
         None => match &boite {
             Some(b) => b.mot_de_passe_chiffre.clone(),
@@ -424,10 +473,18 @@ pub async fn tester(
         resultat_imap: None,
         resultat_smtp: None,
         termine_le: None,
+        mdp_empreinte: None,
     };
     Ok((
         StatusCode::ACCEPTED,
-        lancer(&etat, a.utilisateur_id, essai, mdp_chiffre).await?,
+        lancer(
+            &etat,
+            a.utilisateur_id,
+            essai,
+            mdp_chiffre,
+            mdp_clair.as_deref(),
+        )
+        .await?,
     ))
 }
 
@@ -462,10 +519,11 @@ pub async fn tester_smtp(
         resultat_imap: None,
         resultat_smtp: None,
         termine_le: None,
+        mdp_empreinte: None,
     };
     Ok((
         StatusCode::ACCEPTED,
-        lancer(&etat, a.utilisateur_id, essai, b.mot_de_passe_chiffre).await?,
+        lancer(&etat, a.utilisateur_id, essai, b.mot_de_passe_chiffre, None).await?,
     ))
 }
 
@@ -476,10 +534,14 @@ pub async fn essai(
     State(etat): State<Etat>,
     Path(id): Path<Uuid>,
 ) -> Resultat<Json<Essai>> {
+    let mut e = lire_essai(&etat, id).await?;
+    e.mdp_empreinte = None;
+    Ok(Json(e))
+}
+
+pub(crate) async fn lire_essai(etat: &Etat, id: Uuid) -> Resultat<Essai> {
     let v = parametre::lire(&etat.pool, &essai_boite::cle(id))
         .await?
         .ok_or(ErreurApi::Absent)?;
-    Ok(Json(
-        serde_json::from_value(v).map_err(|e| ErreurApi::Interne(e.into()))?,
-    ))
+    serde_json::from_value(v).map_err(|e| ErreurApi::Interne(e.into()))
 }

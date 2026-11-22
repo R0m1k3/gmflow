@@ -1,13 +1,13 @@
 # API de la refonte de l'interface (direction B)
 
-Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md` §5). Rien n'a été retiré : les anciennes routes marchent comme avant. Les types TypeScript sont dans `web/src/lib/types.ts` (section « Refonte »), et les fonctions d'appel dans `web/src/lib/api.ts` (`aTraiter`, `validerDocument`, `ecarterDocument`, `urlApercu`, `fournisseurs`, `filFournisseur`, `rechercher`, `bilanMois`, `miseEnRoute`, `essayerBoite`, `essayerSmtp`, `lireEssai`, `attendreEssai`).
+Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md` §5). Rien n'a été retiré : les anciennes routes marchent comme avant. Les types TypeScript sont dans `web/src/lib/types.ts` (section « Refonte »), et les fonctions d'appel dans `web/src/lib/api.ts` (`aTraiter`, `validerDocument`, `ecarterDocument`, `urlApercu`, `fournisseurs`, `filFournisseur`, `rechercher`, `bilanMois`, `miseEnRoute`, `essayerBoite`, `essayerSmtp`, `lireEssai`, `attendreEssai`, `modifierFournisseur`, `lireBoite`, `creerBoite`).
 
 ## Règles communes
 
 - Session obligatoire (cookie `gmflow`), sinon `401 {"erreur": "non connecté"}`. Toute mutation exige l'en-tête `X-GMFlow: 1` (`api.ts` le pose), sinon `403`.
 - Erreurs : `{"erreur": "phrase"}` avec `400` (entrée invalide), `403` (droit manquant), `404` (absent ou hors périmètre), `409` (refus métier). Certains `409` ajoutent un `code` stable : `{"erreur": "...", "code": "doublon"}`. Dans le front, `ErreurApi.raison` porte ce code.
 - Dates : `AAAA-MM-JJ` ; instants : RFC 3339 (UTC). Montants : nombres en euros (2 décimales).
-- **Périmètre d'un responsable** (rôle non admin) : il voit les documents et mails reçus par une boîte de sa société. Pour les documents, s'y ajoute : rangés dans sa société ou pas encore rangés (`societe_id` nul). Un document de sa boîte rangé dans une autre société ne lui apparaît pas dans À traiter, et `valider` lui répond `403`.
+- **Périmètre d'un responsable** (rôle non admin) : il voit les documents et mails reçus par une boîte de sa société. Pour les documents, s'y ajoute : rangés dans sa société ou pas encore rangés (`societe_id` nul). Un document de sa boîte rangé dans une autre société ne lui apparaît pas dans À traiter, la recherche, le fil fournisseur ni le bilan, et `valider` ou `ecarter` lui répondent `403`. Les fiches existantes (`GET /api/documents/{id}`, pièces) suivent toujours la règle du mail : visibles si le mail est visible. Fournisseurs : voir §4.
 - **`?societe=ID`** (filtre « société choisie ») : un document compte pour la société où il est rangé ; s'il n'est pas encore rangé, il compte pour la société d'une boîte qui l'a reçu. Un mail compte pour la société de ses boîtes. Pour un responsable, ce filtre s'ajoute à son périmètre : une autre société ne rend rien (pas d'erreur), comme les endpoints existants.
 
 ## 1. Aperçu d'une pièce
@@ -42,8 +42,8 @@ Au plus 200 éléments par section ; les compteurs restent exacts. `suivant` : p
 **Bloqué**, dans cet ordre :
 1. (admins) Claude déconnecté : `claude_etat` absent ou en erreur. `genre: "claude"`, `motif: "absent" | "erreur"`, `message` (erreur du dernier test), `depuis` (dernier test).
 2. (admins) Boîtes en panne : en pause automatique, ou active et en échec depuis plus de 30 min (même règle que l'alerte par mail). `genre: "boite"`, `boite_id`, `libelle`, `motif: "pause_auto" | "erreur"`, `message` (dernière erreur), `depuis`, `societe_id`, `societe`. Filtrées par `?societe=`.
-3. Envois en échec : `statut_depot = erreur`. `genre: "envoi_erreur"`, `document_id`, `message` (message du dernier envoi), `depuis` (dernier envoi).
-4. Doublons pas encore écartés : `statut_depot = doublon` et pas vérifiés. `genre: "doublon"`, `message` (« même facture que le document 123 (déjà déposé) »), `depuis` (lu le).
+3. Envois en échec : `statut_depot = erreur`, sauf ceux relancés (validés après le dernier envoi) il y a moins de 30 min : le worker va les reprendre, ils ne doivent pas être renvoyés une seconde fois (la fiche document porte `envoi_relance: true`). Passé 30 min sans reprise, ils reviennent dans Bloqué. `genre: "envoi_erreur"`, `document_id`, `message` (message du dernier envoi), `depuis` (dernier envoi).
+4. Doublons pas encore écartés : `statut_depot = doublon` et pas vérifiés. `genre: "doublon"`, `message` (« Même facture que le document 123 (déjà envoyée à Dext/Yooz) »), `depuis` (lu le).
 5. Documents illisibles : `etat = erreur`. `genre: "illisible"`, `message` (erreur de lecture).
 
 Champs de `Bloque` : `genre`, `document_id`, `boite_id`, `libelle` (boîte, ou nom du fichier), `motif`, `message`, `depuis`, `type`, `fournisseur`, `numero`, `societe_id`, `societe` (`null` quand sans objet). Les documents sont triés envoi en échec, puis doublon, puis illisible, puis du plus ancien au plus récent.
@@ -60,12 +60,12 @@ Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisse
   "fournisseur_id": 7, "fournisseur": "Grossiste Durand", "fournisseur_a_confirmer": false,
   "numero": "F-2026-118", "societe_id": 1, "societe": "Frouard",
   "date_document": "2026-11-18", "recu_le": "2026-11-18T09:12:00Z", "montant_ttc": 1250.4,
-  "alerte": "HT + TVA = 1250.00 € pour un TTC de 1250.40 €", "nb_alertes": 1,
+  "alerte": "HT + TVA donnent 1 250,00 €, le TTC lu est 1 250,40 €", "alerte_code": "montants", "nb_alertes": 1,
   "statut_depot": "a_verifier", "verifie": false
 }
 ```
 
-`fournisseur` : nom de la fiche fournisseur, à défaut nom lu sur le document. `alerte` : première alerte en une phrase (`null` sinon) ; la liste complète est dans `controles` de la fiche document.
+`fournisseur` : nom de la fiche fournisseur, à défaut nom lu sur le document. `alerte` : première alerte en une phrase (`null` sinon) ; la liste complète est dans `controles` de la fiche document. `alerte_code` : code stable de cette alerte (codes des contrôles, §3 bis ; `fournisseur` pour un BL sans fournisseur identifié) : c'est lui que le front lit, jamais la phrase.
 
 **À répondre** : mails `statut_reponse = a_repondre`, priorité `haute`, `normale`, `basse`, puis les plus anciens.
 
@@ -131,7 +131,7 @@ Erreurs :
 | 409 | `deja_envoye` | déjà envoyé ou en cours d'envoi |
 | 409 | `expedition` | adresse d'envoi vers Dext/Yooz pas configurée (Réglages) |
 | 409 | `erreur_envoi` | envoi précédent en échec : seul un admin renvoie |
-| 409 | `doublon` | doublon d'une facture déjà reçue ; le message cite l'autre document |
+| 409 | `doublon` | doublon d'une facture déjà reçue ; le message est celui du contrôle (« Même facture que le document 123 (reçue avant) ») |
 | 409 | `sans_adresse` | la société n'a pas d'adresse Dext/Yooz |
 
 Parcours « Doublon » : sur `409 doublon`, le bouton devient « Écarter le doublon » (`ecarter`, ci-dessous) ; un admin voit aussi « Envoyer quand même » (`forcer: true`).
@@ -139,17 +139,50 @@ Parcours « Doublon » : sur `409 doublon`, le bouton devient « Écarter le dou
 ### `POST /api/documents/{id}/ecarter?societe=` (ajout)
 
 Pas demandé au §5 mais nécessaire au parcours A.5 : sans lui, un doublon resterait dans Bloqué pour toujours.
-- Doublon : marqué vérifié (jamais envoyé, statut `doublon` gardé) ; il quitte Bloqué. Journal `doublon_ecarte`.
-- Document illisible (`etat = erreur`) : passe en `ignore` (« Écarté »). Journal `illisible_ecarte`. Un admin peut toujours le relire (`POST /api/admin/documents/{id}/relire`).
-- Sinon `409 {"code": "etat"}`. Mêmes droits que `valider` (`403`/`404`).
+- Doublon (lu) : marqué vérifié (jamais envoyé, statut `doublon` gardé) ; il quitte Bloqué. Journal `doublon_ecarte`.
+- Tout autre document lu (facture, avoir, BL, autre type) : passe en `ignore` (« Écarté », pas une facture : jamais envoyé, contrôles effacés) et quitte la file. Journal `document_ecarte`. C'est le bouton « Écarter » de la fiche (plus besoin de le valider en type `autre`).
+- Document illisible (`etat = erreur`) : passe en `ignore`. Journal `illisible_ecarte`. Un admin peut toujours le relire (`POST /api/admin/documents/{id}/relire`).
+- Le rapprochement du document est recalculé (un BL écarté n'attend plus de facture).
+- Refus : `409 {"code": "deja_envoye"}` (en envoi ou envoyé), `409 {"code": "erreur_envoi"}` (envoi en échec, sauf admin : il est peut-être arrivé chez Dext/Yooz), `409 {"code": "etat"}` (en attente, en lecture, déjà écarté). Mêmes droits que `valider` (`403`/`404`).
 
 Réponse : même forme que `valider` (`envoi: false`).
+
+## 3 bis. Fiche document (`GET /api/documents/{id}`, route existante, enrichie)
+
+Ajouts :
+
+```json
+{ "recu_le": "2026-11-18T09:12:00Z", "envoi_relance": false,
+  "boites": [ { "boite_id": 1, "libelle": "Compta Frouard", "adresse": "compta@frouard.fr",
+                "societe_id": 1, "societe": "Frouard" } ] }
+```
+
+- `recu_le` : réception du mail d'origine (date du mail, à défaut date de relève). `boites` : boîtes de réception du mail (celles du périmètre), par libellé.
+- `envoi_relance` : envoi en échec relancé il y a moins de 30 min (voir Bloqué) : afficher « Envoi relancé », pas de bouton Renvoyer.
+
+**Contrôles** (`controles`, aussi dans `GET /api/documents`) : `{"code", "message", "champs"?, "proposition"?}`.
+- `message` : phrase dans le vocabulaire de `docs/architecture.md` §4, majuscule, sans point final, montants à la française (« 1 250,40 € », espaces insécables), dates JJ/MM/AAAA. À afficher tel quel.
+- `champs` : champs visés, noms de l'API (`numero`, `date_document`, `montant_ht`, `montant_tva`, `montant_ttc`, `societe_id`, `fournisseur_id`) : à surligner.
+- `proposition` : `{"champ": "montant_ttc", "valeur": 1250.0}` : correction en un clic (HT + TVA = TTC ; HT ou TVA manquant déduit du TTC).
+
+| `code` | Exemples de `message` |
+|---|---|
+| `doublon` | Même facture que le document 123 (déjà envoyée à Dext/Yooz) · (reçue avant) |
+| `incomplet` | Champ manquant : numéro · Champs manquants : numéro, date |
+| `montants` | HT + TVA donnent 1 200,00 €, le TTC lu est 1 250,40 € · Montant HT manquant · Montant de TVA manquant · Montants HT et TVA manquants |
+| `identifiants` | Ni SIRET ni n° de TVA du fournisseur · SIRET du fournisseur « … » invalide · N° de TVA du fournisseur « … » invalide |
+| `societe` | Société destinataire non reconnue · Société à vérifier : reconnue avec une confiance de 85 % |
+| `depot` | La société n'a pas d'adresse d'envoi vers Dext ou Yooz |
+| `fournisseur` | Nouveau fournisseur (à confirmer) · Fournisseur non identifié |
+| `date` | Date du 21/11/2027 dans le futur · Date du 01/01/2025 : plus de 12 mois |
+
+Les contrôles enregistrés avant ce changement sont recalculés une fois au démarrage de l'app (factures pas encore parties : `a_verifier`, `pret`, `doublon` ; paramètre `controles_version`). Ceux des envois en échec gardent leur ancienne phrase jusqu'au renvoi : `champs` y est absent.
 
 ## 4. Fournisseurs
 
 ### `GET /api/fournisseurs?societe=&q=&statut=&page=` (route existante, enrichie)
 
-Sans `societe` : comme avant, tous les fournisseurs (un responsable en a besoin pour corriger un document), 50 par page. Avec `societe` : seulement ceux qui ont au moins un document lu dans cette société (et le périmètre).
+Sans `societe` : tous les fournisseurs pour un admin, 50 par page. **Un responsable ne voit que les fournisseurs de sa société** : au moins un document dans son périmètre, ou sa société par défaut (`societe_defaut_id`) ; avec ou sans `q`. Les autres lui répondent `404` (`GET /api/fournisseurs/{id}`, `fil`). Pour corriger le fournisseur d'un document, il choisit parmi ceux-là (un fournisseur nouveau pour sa société est rattaché par la lecture, ou par un admin). Avec `societe` : seulement ceux qui ont au moins un document lu dans cette société (et le périmètre). `nb_documents` et `a_verifier` (anciens champs) comptent aussi dans le périmètre.
 
 Chaque ligne garde ses champs et gagne la ligne d'état, calculée sur les documents lus visibles (et de la société choisie) :
 
@@ -164,7 +197,7 @@ Chaque ligne garde ses champs et gagne la ligne d'état, calculée sur les docum
 
 Choix : un endpoint `fil` dédié plutôt que `GET /api/mails?fournisseur=` : la fiche a besoin des documents, des mails et de l'encadré À rapprocher en un appel, et le lien mail-fournisseur ne se résume pas à un filtre de la liste des mails.
 
-`mois` : nombre de mois rendus, mois en cours compris (de 1 à 24, 6 par défaut ; `400` sinon). `404` si le fournisseur n'existe pas.
+`mois` : nombre de mois rendus, mois en cours compris (de 1 à 24, 6 par défaut ; `400` sinon). `404` si le fournisseur n'existe pas ou n'est pas visible. `fournisseur` porte aussi `societe_defaut` (nom de la société par défaut, comme `GET /api/fournisseurs/{id}` et les réponses de création et modification).
 
 ```json
 {
@@ -189,13 +222,18 @@ Choix : un endpoint `fil` dédié plutôt que `GET /api/mails?fournisseur=` : la
 - Documents : factures, avoirs et BL lus du fournisseur, dans le périmètre (et la société choisie).
 - Mails : ceux qui portent un document du fournisseur, ou envoyés depuis un des domaines de sa fiche ; publicités exclues. `document_ids` : documents du fournisseur portés par ce mail (ils sont aussi dans le fil : le front peut masquer le mail).
 - Mois du plus récent au plus ancien, éléments du plus récent au plus ancien (`date` : date du document, à défaut du mail, heure de Paris) ; un mois vide n'apparaît pas. 1000 documents et 1000 mails au plus.
-- `a_rapprocher` : la vue `GET /api/rapprochement?fournisseur={id}&societe=` (types `DocRap`, `Rapproche` existants), sur tout l'historique, réduite aux trois listes utiles (300 éléments au plus chacune).
+- `a_rapprocher` : la vue `GET /api/rapprochement?fournisseur={id}&societe=` (types `DocRap`, `Rapproche` existants), sur tout l'historique, réduite aux trois listes utiles (300 éléments au plus chacune). `GET /api/rapprochement?societe=` suit maintenant la règle commune (documents pas encore rangés des boîtes de la société compris).
+- `document_ids` d'un mail : seulement les documents du fil (périmètre compris).
+
+### `PATCH /api/admin/fournisseurs/{id}` (admins)
+
+Modification partielle : seuls les champs présents changent (`null` efface un champ facultatif) ; mêmes contrôles, même journal et même nouveau calcul des contrôles que `PUT`. Pour « Confirmer la fiche » : `{"statut": "valide"}` ; « Toujours ranger dans X » : `{"societe_defaut_id": 1}`. Réponse : la fiche (`Fournisseur`, avec `societe_defaut`). `400` (statut, SIRET, TVA, domaine invalides, société inconnue), `404` (absent ou fusionné).
 
 ## 5. Recherche unique
 
 ### `GET /api/recherche?q=&type=&du=&au=&societe=`
 
-- `type` : `facture`, `avoir`, `bl` (documents de ce type, pas de mails) ou `mail` (mails seulement) ; autre valeur : `400`.
+- `type` : `facture`, `avoir`, `bl` (documents de ce type, pas de mails), `document` (tous les documents, pas de mails) ou `mail` (mails seulement) ; autre valeur : `400`.
 - `du`, `au` : période (date du document, à défaut du mail ; date du mail pour les mails).
 - `q` est découpé :
   - **montant** : `1 250,40`, `1 250,40 €`, `1250.4`, `1.250,40`, `1,250.40`, `60 €`, `12 000`. Cherché dans le TTC, le HT ou la TVA des documents ; un mail sort s'il porte un document de ce montant ;
@@ -211,7 +249,7 @@ Choix : un endpoint `fil` dédié plutôt que `GET /api/mails?fournisseur=` : la
   "documents": { "total": 1, "elements": [ { "id": 812, "mail_id": 4410, "type": "facture",
       "etat": "lu", "statut_depot": "pret", "fournisseur_id": 7, "fournisseur": "Grossiste Durand",
       "numero": "F-118", "date_document": "2026-11-18", "montant_ht": 1042.0, "montant_ttc": 1250.4,
-      "societe_id": 1, "societe": "Frouard", "nom_fichier": "F-118.pdf",
+      "societe_id": 1, "societe": "Frouard", "outil": "dext", "nom_fichier": "F-118.pdf",
       "recu_le": "2026-11-18T09:12:00Z", "verifie": true } ] },
   "mails": { "total": 1, "elements": [ { "id": 4410, "expediteur": "...", "objet": "...",
       "date_mail": "...", "categorie": "document_seul", "statut_reponse": null, "resume": null,
@@ -219,7 +257,7 @@ Choix : un endpoint `fil` dédié plutôt que `GET /api/mails?fournisseur=` : la
 }
 ```
 
-Pas de filtre « état » (envoyée, à valider...) pour l'instant : à ajouter si l'écran en a besoin.
+`outil` : outil de la société du document (`dext`, `yooz`, `null` si pas encore rangé ou pas réglé). Pas de filtre « état » (envoyée, à valider...) pour l'instant : à ajouter si l'écran en a besoin.
 
 ## 6. Mise en route et essais de boîte (admins, `403` sinon)
 
@@ -228,13 +266,15 @@ Pas de filtre « état » (envoyée, à valider...) pour l'instant : à ajouter 
 ```json
 { "terminee": false, "etapes": [
   { "cle": "societes", "fait": true, "resume": "2 sociétés : Frouard, Houdemont", "manques": [] },
-  { "cle": "boites", "fait": false, "resume": "1 boîte surveillée sur 2",
+  { "cle": "boites", "fait": false, "resume": "1 boîte mail surveillée sur 2",
     "manques": ["Houdemont : aucune boîte mail surveillée"] },
   { "cle": "claude", "fait": false, "resume": "Pas connecté", "manques": ["Se connecter avec le compte Claude"] },
   { "cle": "envoi", "fait": false, "resume": "Adresse d'envoi pas configurée", "manques": ["..."] },
   { "cle": "utilisateurs", "fait": false, "resume": "1 administrateur, 1 responsable",
     "manques": ["Houdemont : aucun compte de responsable"] } ] }
 ```
+
+Textes courts : noms de société sans forme juridique (« SAS Frouard » donne « Frouard »), pas de « 0 sur 0 » (« Aucune boîte mail », « 2 boîtes mail, aucune surveillée », « 2 boîtes mail surveillées », « 1 administrateur, aucun responsable »).
 
 Une étape est faite quand `manques` est vide (sociétés non archivées) :
 1. `societes` : au moins une société ;
@@ -257,6 +297,31 @@ Essai IMAP (et SMTP si un serveur SMTP est donné) avec des paramètres **pas en
 - `400` : identifiant, mot de passe (sans `boite_id`) ou serveur IMAP manquant, port ou sécurité invalides, rien à essayer. `404` : `boite_id` inconnu.
 
 Réponse `202 {"id": "6f1c…"}`. Les serveurs d'après le domaine (Gmail, Infomaniak) sont à préremplir côté front.
+
+### `GET /api/admin/boites/{id}`
+
+La boîte (`Boite`, comme une ligne de `GET /api/admin/boites`) ; `404` si elle n'existe pas.
+
+### `POST /api/admin/boites` (route existante, enrichie) : création depuis un essai
+
+Deux champs facultatifs en plus du corps habituel :
+- `essai_id` : essai réussi de **ces** paramètres (`POST /api/admin/boites/tester` sans `boite_id`, terminé, connexion IMAP réussie, moins d'une heure, même serveur, port, identifiant et mot de passe : le mot de passe est comparé à une empreinte salée gardée avec l'essai, jamais rendue). Son résultat devient le `dernier_test` de la boîte : pas de second essai.
+- `activer: true` : la boîte est surveillée tout de suite (exige `essai_id`, sinon `400`). Journal `activation`.
+
+Refus : `409 {"code": "essai"}` (essai introuvable ou expiré, pas terminé, raté, ou fait avec d'autres paramètres : « … : relancez l'essai de connexion »). Sans ces champs : comme avant (boîte en pause, sans test).
+
+### `dernier_test` d'une boîte (`POST /api/admin/boites/{id}/tester`, existant)
+
+Le test d'une boîte enregistrée rend maintenant la même chose que l'essai :
+
+```json
+{ "quand": "...", "ok": true, "message": "Connexion réussie : 7 dossiers trouvés.",
+  "dossiers": ["INBOX", "Envoy&AOk-s"],
+  "dossiers_detail": [ { "nom": "Envoy&AOk-s", "affiche": "Envoyés", "envoyes": true, "non_selectionnable": false } ],
+  "envoyes": "Envoy&AOk-s" }
+```
+
+`dossiers` : noms IMAP (inchangé) ; `dossiers_detail` : noms décodés et attributs ; `envoyes` : dossier des envoyés repéré (ou `null`). En échec : `message` en clair (« Mot de passe refusé : … »), `detail` (erreur brute). Les tests faits avant ce changement n'ont que `dossiers`.
 
 ### `POST /api/admin/boites/{id}/tester-smtp`
 
@@ -302,6 +367,14 @@ Essai SMTP (envoi des réponses) d'une boîte enregistrée : connexion et authen
 }
 ```
 
-- `societes` : lignes de `GET /api/depots/suivi?mois=` (reçues, déposées, prêtes, à vérifier, en erreur, doublons, montant déposé), filtrées par `?societe=` ; une ligne `societe_id: null` regroupe les factures pas encore rangées. « À valider » = `pretes + a_verifier`.
-- `bl_en_attente` : par société et fournisseur, BL datés du mois sans facture rapprochée (ni écartés).
+- `societes` : mêmes colonnes que `GET /api/depots/suivi?mois=` (reçues, déposées, prêtes, à vérifier, en erreur, doublons, montant déposé), avec la règle commune : un responsable ne compte que son périmètre ; avec `?societe=` (ou pour un responsable), les factures pas encore rangées reçues par les boîtes de la société comptent dans sa ligne. Sans filtre, chez un admin, une ligne `societe_id: null` regroupe les factures pas encore rangées. « À valider » = `pretes + a_verifier`. Un responsable qui demande une autre société : listes vides.
+- `bl_en_attente` : par société et fournisseur, BL datés du mois sans facture rapprochée (ni écartés), même règle.
+- `bl_sans_lignes` : BL lus avant le rapprochement, sans leurs lignes (tout l'historique, même règle) : le front n'a plus à appeler `/api/rapprochement` pour ce nombre.
 - `qualite` (partie repliée) : `GET /api/documents/bilan` et `GET /api/tri/semaines` tels quels (périmètre appliqué, mais pas `?societe=` ni `mois`).
+
+## 8. Fiche mail et réponses (routes existantes, enrichies)
+
+`GET /api/mails/{id}` :
+- `boites[]` : `{ "boite_id", "libelle", "dossier", "adresse": "compta@frouard.fr", "societe_id", "societe", "smtp": true }` (une ligne par dossier ; `adresse` pour « Envoyer depuis compta@… », `smtp` : la boîte peut envoyer).
+- `pieces[]` : en plus de `document_id`, `document_etat`, `document_type`, `document_voie` : `document_statut_depot`, `document_verifie`, `document_numero`, `document_montant_ttc`, `document_fournisseur_id`, `document_fournisseur` (fiche, à défaut nom lu), `document_societe_id`, `document_societe`, `document_outil` (`dext`/`yooz`), `document_envoye_le` (dernier envoi réussi) : la liste des pièces se lit sans ouvrir chaque fiche document.
+- `brouillons[]` (et toute réponse proposée) : `boite_adresse` (adresse de la boîte d'envoi).

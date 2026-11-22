@@ -397,7 +397,15 @@ async fn file_a_traiter_et_compteurs() {
     );
     assert_eq!(r.json["suivant"], f.fnull);
     let premier = &r.json["a_valider"][0];
-    assert_eq!(premier["alerte"], "structure destinataire non reconnue");
+    assert_eq!(premier["alerte"], "Société destinataire non reconnue");
+    assert_eq!(premier["alerte_code"], "societe");
+    let bl = r.json["a_valider"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == f.bl1)
+        .unwrap();
+    assert_eq!(bl["alerte_code"], Value::Null);
     assert_eq!(premier["fournisseur"], "Grossiste Durand");
     assert_eq!(premier["montant_ttc"], 36.0);
     let genres: Vec<&str> = r.json["bloque"]
@@ -502,6 +510,47 @@ async fn file_a_traiter_et_compteurs() {
     .await
     .unwrap();
     sqlx::query("update boite_mail set pause_auto = false")
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let c = app
+        .requete("GET", "/api/a-traiter/compteurs", None, Some(&m.c_admin))
+        .await;
+    assert_eq!(c.json["bloque"], 3);
+
+    // Envoi en échec relancé (validé après l'échec) : il quitte Bloqué en attendant le worker,
+    // et la fiche le dit ; au bout de 30 min sans reprise, il y revient.
+    sqlx::query("update document set valide_le = now() where id = $1")
+        .bind(f.envoi_err)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let r = app
+        .requete("GET", "/api/a-traiter", None, Some(&m.c_admin))
+        .await;
+    assert!(
+        !r.json["bloque"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["document_id"] == f.envoi_err)
+    );
+    assert_eq!(r.json["compteurs"]["bloque"], 2);
+    let c = app
+        .requete("GET", "/api/a-traiter/compteurs", None, Some(&m.c_admin))
+        .await;
+    assert_eq!(c.json, r.json["compteurs"]);
+    let fiche = app
+        .requete(
+            "GET",
+            &format!("/api/documents/{}", f.envoi_err),
+            None,
+            Some(&m.c_admin),
+        )
+        .await;
+    assert_eq!(fiche.json["envoi_relance"], true);
+    sqlx::query("update document set valide_le = now() - interval '31 minutes' where id = $1")
+        .bind(f.envoi_err)
         .execute(app.pool())
         .await
         .unwrap();
@@ -636,6 +685,10 @@ async fn valider_en_un_appel() {
     assert_eq!(r.code, StatusCode::CONFLICT, "{}", r.json);
     assert_eq!(r.json["code"], "doublon");
     assert_eq!(
+        r.json["erreur"],
+        format!("Même facture que le document {} (reçue avant)", f.f1)
+    );
+    assert_eq!(
         texte(
             app,
             &format!("select numero_commande from document where id = {}", f.dbl)
@@ -677,6 +730,17 @@ async fn valider_en_un_appel() {
     assert_eq!(r.json["code"], "erreur_envoi");
     let r = valider(&m, f.envoi_err, json!({}), &m.c_admin).await;
     assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    // Relancé : il quitte Bloqué (pas de second renvoi en attendant le worker).
+    let file = app
+        .requete("GET", "/api/a-traiter", None, Some(&m.c_admin))
+        .await;
+    assert!(
+        !file.json["bloque"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|b| b["document_id"] == f.envoi_err)
+    );
     // Entrée invalide.
     let r = valider(
         &m,
@@ -721,13 +785,48 @@ async fn ecarter_doublon_et_illisible() {
     assert_eq!(r.code, StatusCode::OK, "{}", r.json);
     assert_eq!(r.json["statut_depot"], "doublon");
     assert_eq!(r.json["suivant"], f.fnull);
+    // Tout document lu s'écarte (pas une facture) : il passe en « Écarté » et quitte la file.
+    let r = app.requete("POST", &ecarter(f.f1), None, resp).await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["statut_depot"], Value::Null);
+    assert_eq!(r.json["envoi"], false);
+    assert_eq!(
+        texte(
+            app,
+            &format!("select etat from document where id = {}", f.f1)
+        )
+        .await,
+        Some("ignore".into())
+    );
+    let r = app.requete("POST", &ecarter(f.bl1), None, resp).await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    // Déjà écarté (plus lu) : refusé ; autre société : invisible ou interdit.
     let r = app.requete("POST", &ecarter(f.f1), None, resp).await;
     assert_eq!(r.code, StatusCode::CONFLICT);
     assert_eq!(r.json["code"], "etat");
+    let r = app.requete("POST", &ecarter(f.fb), None, resp).await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+    let r = app.requete("POST", &ecarter(f.fother), None, resp).await;
+    assert_eq!(r.code, StatusCode::FORBIDDEN);
+    // Envoi en échec : un administrateur seulement ; déjà envoyé : jamais.
+    let r = app.requete("POST", &ecarter(f.envoi_err), None, resp).await;
+    assert_eq!(r.json["code"], "erreur_envoi");
+    sqlx::query("update document set statut_depot = 'depose' where id = $1")
+        .bind(f.f2)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let r = app.requete("POST", &ecarter(f.f2), None, resp).await;
+    assert_eq!(r.json["code"], "deja_envoye");
     let c = app
         .requete("GET", "/api/a-traiter/compteurs", None, resp)
         .await;
     assert_eq!(c.json["bloque"], 1, "reste l'envoi en échec");
+    assert_eq!(
+        app.compter("select count(*) from journal where action = 'document_ecarte'")
+            .await,
+        2
+    );
     assert_eq!(
         app.compter(
             "select count(*) from journal where action in ('doublon_ecarte', 'illisible_ecarte')"
@@ -799,10 +898,104 @@ async fn fournisseurs_par_societe_et_fil() {
         .clone();
     assert_eq!(martin["bl_sans_facture"], 1);
 
-    // Responsable : liste complète (pour corriger un document), compteurs de sa société.
-    let r = app
-        .requete("GET", "/api/fournisseurs", None, Some(&m.c_resp_a))
+    // Responsable : seulement les fournisseurs de sa société (un document dans son périmètre,
+    // ou sa société par défaut), même sans `?societe=` ; compteurs de son périmètre.
+    let resp = Some(m.c_resp_a.as_str());
+    let r = app.requete("GET", "/api/fournisseurs", None, resp).await;
+    assert_eq!(r.json["total"], 1, "{}", r.json);
+    assert_eq!(ids(&r.json["elements"]), vec![m.durand]);
+    let durand = &r.json["elements"][0];
+    let dans_perimetre = app
+        .compter(&format!(
+            "select count(*) from document d where d.fournisseur_id = {}
+               and (d.societe_id is null or d.societe_id = {})
+               and exists (select 1 from mail_boite mb where mb.mail_id = d.mail_id and mb.boite_id = {})",
+            m.durand, m.sa, m.boite_a
+        ))
         .await;
+    assert_eq!(durand["nb_documents"], dans_perimetre);
+    let r = app
+        .requete("GET", "/api/fournisseurs?q=martin", None, resp)
+        .await;
+    assert_eq!(r.json["total"], 0, "la recherche ne sort pas du périmètre");
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/fournisseurs/{}", m.martin),
+            None,
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/fournisseurs/{}/fil", m.martin),
+            None,
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+
+    // Modification partielle (admin) : « Toujours ranger dans Frouard », puis « Confirmer ».
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "societe_defaut_id": m.sa })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::FORBIDDEN);
+    sqlx::query("update fournisseur set statut = 'a_confirmer', notes = 'à garder' where id = $1")
+        .bind(m.martin)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "societe_defaut_id": m.sa })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["societe_defaut"], "Frouard");
+    assert_eq!(r.json["statut"], "a_confirmer");
+    assert_eq!(r.json["notes"], "à garder");
+    assert_eq!(r.json["siret"], "55210055400013");
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "statut": "valide", "notes": null })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.json["statut"], "valide");
+    assert_eq!(r.json["notes"], Value::Null);
+    assert_eq!(r.json["societe_defaut_id"], m.sa);
+    let r = app
+        .requete(
+            "PATCH",
+            "/api/admin/fournisseurs/999999",
+            Some(json!({ "statut": "valide" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "statut": "autre" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    // Société par défaut = la sienne : le responsable voit la fiche (sans les documents de B).
+    let r = app.requete("GET", "/api/fournisseurs", None, resp).await;
     assert_eq!(r.json["total"], 2);
     let martin = r.json["elements"]
         .as_array()
@@ -812,6 +1005,7 @@ async fn fournisseurs_par_societe_et_fil() {
         .unwrap()
         .clone();
     assert_eq!(martin["bl_sans_facture"], 0);
+    assert_eq!(martin["nb_documents"], 0);
     let r = app
         .requete(
             "GET",
@@ -833,6 +1027,7 @@ async fn fournisseurs_par_societe_et_fil() {
         .await;
     assert_eq!(r.code, StatusCode::OK, "{}", r.json);
     assert_eq!(r.json["fournisseur"]["nom"], "Grossiste Durand");
+    assert_eq!(r.json["fournisseur"]["societe_defaut"], Value::Null);
     let elements: Vec<Value> = r.json["mois"]
         .as_array()
         .unwrap()
@@ -880,6 +1075,23 @@ async fn fournisseurs_par_societe_et_fil() {
     let tout = r.json["mois"].to_string();
     assert!(!tout.contains(&format!("\"id\":{},", f.fb)));
     assert!(!tout.contains(&format!("\"id\":{},", f.mail_b)));
+    let elements: Vec<Value> = r.json["mois"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|m| m["elements"].as_array().unwrap().clone())
+        .collect();
+    assert!(
+        !elements
+            .iter()
+            .any(|e| (e["genre"] == "document" && e["id"] == f.fother)
+                || (e["genre"] == "mail"
+                    && e["document_ids"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&json!(f.fother)))),
+        "rangé dans l'autre société"
+    );
     let r = app
         .requete(
             "GET",
@@ -1023,15 +1235,38 @@ async fn recherche_unique() {
         .requete("GET", "/api/recherche?type=devis", None, Some(admin))
         .await;
     assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    // `document` : tous les documents, pas de mails ; l'outil de la société est donné.
+    let r = app
+        .requete("GET", "/api/recherche?type=document", None, Some(admin))
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["documents"]["total"], 3);
+    assert_eq!(r.json["mails"]["total"], 0);
+    assert_eq!(r.json["documents"]["elements"][0]["outil"], "dext");
     // Requête vide : les derniers reçus.
     let r = app
         .requete("GET", "/api/recherche", None, Some(admin))
         .await;
     assert_eq!(r.json["mails"]["total"], 3);
     assert_eq!(r.json["documents"]["total"], 3);
-    // Responsable : rien de l'autre société.
+    // Responsable : rien de l'autre société, même reçu par sa boîte.
     let r = chercher("1 250,40", &m.c_resp_a).await;
     assert_eq!(ids(&r.json["documents"]["elements"]), vec![cible]);
+    let range_ailleurs = doc(
+        &m,
+        m.boite_a,
+        Some(m.sb),
+        "facture",
+        Some("FO-9"),
+        1250.40,
+        1,
+        d,
+    )
+    .await;
+    let r = chercher("1 250,40", &m.c_resp_a).await;
+    assert_eq!(ids(&r.json["documents"]["elements"]), vec![cible]);
+    let r = chercher("1 250,40", admin).await;
+    assert!(ids(&r.json["documents"]["elements"]).contains(&range_ailleurs));
     let r = app
         .requete(
             "GET",
@@ -1084,6 +1319,14 @@ async fn mise_en_route_et_essais() {
     assert_eq!(r.json["terminee"], false);
     let manques = r.json["etapes"][4]["manques"].to_string();
     assert!(manques.contains("Houdemont") && !manques.contains("Frouard"));
+    assert_eq!(
+        r.json["etapes"][1]["resume"],
+        "2 boîtes mail, aucune surveillée"
+    );
+    assert_eq!(
+        r.json["etapes"][4]["resume"],
+        "1 administrateur, 1 responsable"
+    );
 
     sqlx::query("update boite_mail set active = true")
         .execute(app.pool())
@@ -1103,6 +1346,7 @@ async fn mise_en_route_et_essais() {
         .requete("GET", "/api/admin/mise-en-route", None, admin)
         .await;
     assert_eq!(r.json["terminee"], true, "{}", r.json);
+    assert_eq!(r.json["etapes"][1]["resume"], "2 boîtes mail surveillées");
 
     // Essai de paramètres pas encore enregistrés : demande gardée pour le worker.
     let r = app
@@ -1227,6 +1471,157 @@ async fn mise_en_route_et_essais() {
     m.app.fermer().await;
 }
 
+/// Création d'une boîte qui reprend un essai réussi (assistant : pas de second essai), et
+/// fiche d'une boîte.
+#[tokio::test]
+async fn boite_creee_depuis_un_essai() {
+    let m = monde().await;
+    let app = &m.app;
+    let admin = Some(m.c_admin.as_str());
+    let parametres = json!({
+        "serveur": "imap.test", "identifiant": "compta@frouard.test", "mot_de_passe": "secret-de-test"
+    });
+    let r = app
+        .requete("POST", "/api/admin/boites/tester", Some(parametres), admin)
+        .await;
+    assert_eq!(r.code, StatusCode::ACCEPTED, "{}", r.json);
+    let essai = r.json["id"].as_str().unwrap().to_string();
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/admin/boites/essais/{essai}"),
+            None,
+            admin,
+        )
+        .await;
+    assert!(r.json.get("mdp_empreinte").is_none(), "{}", r.json);
+    let creer = |essai: Option<&str>, mdp: &str, activer: bool| {
+        json!({
+            "societe_id": m.sa, "libelle": "Compta 2", "serveur": "imap.test",
+            "identifiant": "compta@frouard.test", "mot_de_passe": mdp,
+            "dossiers": ["INBOX"], "essai_id": essai, "activer": activer
+        })
+    };
+    // Essai pas terminé : refusé.
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/boites",
+            Some(creer(Some(&essai), "secret-de-test", true)),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::CONFLICT, "{}", r.json);
+    assert_eq!(r.json["code"], "essai");
+    // Le worker a terminé l'essai (simulé ici) : connexion réussie, dossiers trouvés.
+    sqlx::query(
+        "update parametre set valeur = valeur || jsonb_build_object(
+             'etat', 'termine', 'termine_le', '2026-11-22T10:00:00Z',
+             'resultat_imap', jsonb_build_object(
+                 'ok', true, 'message', 'Connexion réussie : 2 dossiers trouvés.', 'detail', null,
+                 'dossiers', jsonb_build_array(
+                     jsonb_build_object('nom', 'INBOX', 'affiche', 'Boîte de réception', 'envoyes', false, 'non_selectionnable', false),
+                     jsonb_build_object('nom', 'Envoy&AOk-s', 'affiche', 'Envoyés', 'envoyes', true, 'non_selectionnable', false)),
+                 'reception', 'INBOX', 'envoyes', 'Envoy&AOk-s'))
+         where cle = $1",
+    )
+    .bind(format!("essai_boite:{essai}"))
+    .execute(app.pool())
+    .await
+    .unwrap();
+    // Autre mot de passe, ou activer sans essai : refusé.
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/boites",
+            Some(creer(Some(&essai), "autre-secret", true)),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::CONFLICT, "{}", r.json);
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/boites",
+            Some(creer(None, "secret-de-test", true)),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST, "{}", r.json);
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/boites",
+            Some(creer(Some(&essai), "secret-de-test", true)),
+            Some(&m.c_resp_a),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::FORBIDDEN);
+    // Même paramètres : la boîte est créée, testée et surveillée en un appel.
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/boites",
+            Some(creer(Some(&essai), "secret-de-test", true)),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let id = r.json["id"].as_i64().unwrap();
+    assert_eq!(r.json["active"], true);
+    assert_eq!(r.json["dernier_test"]["ok"], true);
+    assert_eq!(
+        r.json["dernier_test"]["dossiers"],
+        json!(["INBOX", "Envoy&AOk-s"])
+    );
+    assert_eq!(r.json["dernier_test"]["envoyes"], "Envoy&AOk-s");
+    assert_eq!(
+        r.json["dernier_test"]["dossiers_detail"][1]["affiche"],
+        "Envoyés"
+    );
+    assert_eq!(
+        app.compter(&format!(
+            "select count(*) from journal where action = 'activation' and objet_id = '{id}'"
+        ))
+        .await,
+        1
+    );
+    // Sans essai : créée en pause, comme avant.
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/boites",
+            Some(creer(None, "secret-de-test", false)),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["active"], false);
+    assert_eq!(r.json["dernier_test"], Value::Null);
+
+    // Fiche d'une boîte.
+    let r = app
+        .requete("GET", &format!("/api/admin/boites/{id}"), None, admin)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["identifiant"], "compta@frouard.test");
+    assert!(r.json.get("mot_de_passe_chiffre").is_none());
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/admin/boites/{id}"),
+            None,
+            Some(&m.c_resp_a),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::FORBIDDEN);
+    let r = app
+        .requete("GET", "/api/admin/boites/999999", None, admin)
+        .await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+    m.app.fermer().await;
+}
+
 #[tokio::test]
 async fn bilan_du_mois() {
     let m = monde().await;
@@ -1284,15 +1679,205 @@ async fn bilan_du_mois() {
         .await;
     assert_eq!(r.json["societes"].as_array().unwrap().len(), 1);
     assert_eq!(r.json["bl_en_attente"][0]["fournisseur"], "Martin Frais");
+    assert_eq!(r.json["bl_sans_lignes"], 1);
     let r = app
         .requete("GET", "/api/bilan", None, Some(&m.c_resp_a))
         .await;
     assert_eq!(r.json["societes"].as_array().unwrap().len(), 1);
     assert_eq!(r.json["societes"][0]["societe_id"], m.sa);
     assert_eq!(r.json["bl_en_attente"].as_array().unwrap().len(), 1);
+    assert_eq!(r.json["bl_sans_lignes"], 1);
+
+    // Reçus par la boîte de Frouard : l'un rangé chez Houdemont (invisible pour le responsable
+    // de Frouard), l'autre pas encore rangé (compté pour Frouard, même avec `?societe=`).
+    doc(
+        &m,
+        m.boite_a,
+        Some(m.sb),
+        "facture",
+        Some("F-O"),
+        48.0,
+        0,
+        d,
+    )
+    .await;
+    doc(&m, m.boite_a, None, "facture", Some("F-N"), 36.0, 0, d).await;
+    doc(&m, m.boite_a, None, "bl", Some("BL-N"), 12.0, 0, d).await;
+    let recues = |r: &commun::Reponse, societe: Value| -> i64 {
+        r.json["societes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["societe_id"] == societe)
+            .map(|l| l["recues"].as_i64().unwrap())
+            .unwrap_or(-1)
+    };
+    let r = app
+        .requete("GET", "/api/bilan", None, Some(&m.c_resp_a))
+        .await;
+    assert_eq!(
+        r.json["societes"].as_array().unwrap().len(),
+        1,
+        "{}",
+        r.json
+    );
+    assert_eq!(recues(&r, json!(m.sa)), 2, "F-1 et le non rangé");
+    assert_eq!(r.json["bl_sans_lignes"], 2);
+    let bl: i64 = r.json["bl_en_attente"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["bl"].as_i64().unwrap())
+        .sum();
+    assert_eq!(bl, 2, "BL-1 et le BL pas encore rangé");
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/bilan?societe={}", m.sa),
+            None,
+            Some(&m.c_admin),
+        )
+        .await;
+    assert_eq!(
+        r.json["societes"].as_array().unwrap().len(),
+        1,
+        "{}",
+        r.json
+    );
+    assert_eq!(recues(&r, json!(m.sa)), 2);
+    assert_eq!(r.json["bl_sans_lignes"], 2);
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/bilan?societe={}", m.sb),
+            None,
+            Some(&m.c_admin),
+        )
+        .await;
+    assert_eq!(recues(&r, json!(m.sb)), 2, "F-B et F-O");
+    let r = app
+        .requete("GET", "/api/bilan", None, Some(&m.c_admin))
+        .await;
+    assert_eq!(recues(&r, Value::Null), 1, "ligne des non rangés");
+    // Un responsable qui demande une autre société : rien.
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/bilan?societe={}", m.sb),
+            None,
+            Some(&m.c_resp_a),
+        )
+        .await;
+    assert_eq!(r.json["societes"], json!([]));
+    assert_eq!(r.json["bl_en_attente"], json!([]));
+    assert_eq!(r.json["bl_sans_lignes"], 0);
     let r = app
         .requete("GET", "/api/bilan?mois=2026-13", None, Some(&m.c_admin))
         .await;
     assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    m.app.fermer().await;
+}
+
+/// Fiche document (réception, boîte, alertes dans le vocabulaire de l'écran) et fiche mail
+/// (boîtes avec adresse et société, résumé des documents des pièces).
+#[tokio::test]
+async fn fiches_document_et_mail() {
+    let m = monde().await;
+    let app = &m.app;
+    sqlx::query("update boite_mail set identifiant = 'compta@frouard.test', smtp_serveur = 'smtp.test' where id = $1")
+        .bind(m.boite_a)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let id = doc(
+        &m,
+        m.boite_a,
+        Some(m.sa),
+        "facture",
+        Some("F-9"),
+        1250.4,
+        1,
+        Some(m.durand),
+    )
+    .await;
+    // HT + TVA ne font plus le TTC.
+    sqlx::query("update document set montant_tva = 200 where id = $1")
+        .bind(id)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    gmflow_core::depot::evaluer(app.pool(), id).await.unwrap();
+    let resp = Some(m.c_resp_a.as_str());
+    let r = app
+        .requete("GET", &format!("/api/documents/{id}"), None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert!(r.json["recu_le"].is_string());
+    assert_eq!(r.json["envoi_relance"], false);
+    assert_eq!(r.json["boites"][0]["adresse"], "compta@frouard.test");
+    assert_eq!(r.json["boites"][0]["societe"], "Frouard");
+    let c = &r.json["controles"][0];
+    assert_eq!(c["code"], "montants", "{}", r.json["controles"]);
+    assert_eq!(
+        c["message"],
+        "HT + TVA donnent 1\u{a0}242,00\u{a0}€, le TTC lu est 1\u{a0}250,40\u{a0}€"
+    );
+    assert_eq!(c["champs"], json!(["montant_ttc"]));
+    assert_eq!(
+        c["proposition"],
+        json!({ "champ": "montant_ttc", "valeur": 1242.0 })
+    );
+
+    let mail_id = r.json["mail_id"].as_i64().unwrap();
+    let r = app
+        .requete("GET", &format!("/api/mails/{mail_id}"), None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let b = &r.json["boites"][0];
+    assert_eq!(b["adresse"], "compta@frouard.test");
+    assert_eq!(b["societe_id"], m.sa);
+    assert_eq!(b["societe"], "Frouard");
+    assert_eq!(b["smtp"], true);
+    let p = &r.json["pieces"][0];
+    assert_eq!(p["document_id"], id);
+    assert_eq!(p["document_statut_depot"], "a_verifier");
+    assert_eq!(p["document_numero"], "F-9");
+    assert_eq!(p["document_montant_ttc"], 1250.4);
+    assert_eq!(p["document_fournisseur"], "Grossiste Durand");
+    assert_eq!(p["document_fournisseur_id"], m.durand);
+    assert_eq!(p["document_outil"], "dext");
+    assert_eq!(p["document_verifie"], false);
+    assert_eq!(p["document_envoye_le"], Value::Null);
+
+    // Les phrases d'avant (« structure… ») sont réécrites une fois au démarrage.
+    sqlx::query(
+        "update document set controles = '[{\"code\": \"societe\", \"message\": \"structure destinataire non reconnue\"}]'
+         where id = $1",
+    )
+    .bind(id)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    assert!(
+        gmflow_core::depot::mettre_a_jour_controles(app.pool())
+            .await
+            .unwrap()
+            >= 1
+    );
+    assert_eq!(
+        texte(
+            app,
+            &format!("select controles->0->>'code' from document where id = {id}")
+        )
+        .await,
+        Some("montants".into())
+    );
+    assert_eq!(
+        gmflow_core::depot::mettre_a_jour_controles(app.pool())
+            .await
+            .unwrap(),
+        0,
+        "une seule fois"
+    );
     m.app.fermer().await;
 }

@@ -124,7 +124,10 @@ pub async fn vue(
              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
-             and ($2::bigint is null or d.societe_id = $2)
+             and ($2::bigint is null or d.societe_id = $2
+                  or (d.societe_id is null
+                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                  where mb.mail_id = m.id and b.societe_id = $2)))
              and ($3::bigint is null or d.fournisseur_id = $3)
              and ($4::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $4)
              and ($5::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $5)
@@ -227,8 +230,15 @@ pub async fn vue(
     let bl_sans_lignes = sqlx::query_scalar!(
         r#"select count(*) as "n!" from document d
            where d.type = 'bl' and d.etat = 'lu' and not d.lignes_lues
-             and ($1::bigint is null or d.societe_id = $1)"#,
-        acces.societe_filtre()
+             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
+             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
+             and ($2::bigint is null or d.societe_id = $2
+                  or (d.societe_id is null
+                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))"#,
+        acces.societe_filtre(),
+        f.societe
     )
     .fetch_one(&etat.pool)
     .await?;

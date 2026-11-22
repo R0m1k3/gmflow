@@ -136,7 +136,10 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/fournisseurs/{id}", get(fournisseurs::fiche))
         .route("/fournisseurs/{id}/fil", get(fournisseurs::fil))
         .route("/admin/fournisseurs", post(fournisseurs::creer))
-        .route("/admin/fournisseurs/{id}", put(fournisseurs::modifier))
+        .route(
+            "/admin/fournisseurs/{id}",
+            put(fournisseurs::modifier).patch(fournisseurs::modifier_partiel),
+        )
         .route(
             "/admin/fournisseurs/{id}/fusionner",
             post(fournisseurs::fusionner),
@@ -156,7 +159,10 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
             "/admin/boites",
             get(admin_boites::lister).post(admin_boites::creer),
         )
-        .route("/admin/boites/{id}", put(admin_boites::modifier))
+        .route(
+            "/admin/boites/{id}",
+            get(admin_boites::fiche).put(admin_boites::modifier),
+        )
         .route("/admin/boites/tester", post(mise_en_route::tester))
         .route("/admin/boites/essais/{id}", get(mise_en_route::essai))
         .route(

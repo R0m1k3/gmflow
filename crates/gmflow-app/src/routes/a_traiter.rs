@@ -1,4 +1,4 @@
-//! File « À traiter » de l'accueil : *Bloqué* (envois en échec, doublons, documents
+//! File « À traiter » de l'accueil : *Bloqué* (envois en échec pas encore relancés, doublons, documents
 //! illisibles ; pour un administrateur, boîtes en panne et Claude déconnecté), *À valider*
 //! (factures, avoirs et BL lus pas encore validés, alertes d'abord puis les plus anciens) et
 //! *À répondre* (vraies questions, par priorité). Un responsable ne voit que sa société : les
@@ -75,6 +75,8 @@ pub struct AValider {
     montant_ttc: Option<f64>,
     /// Première alerte en une phrase (contrôle en échec, fournisseur inconnu d'un BL).
     alerte: Option<String>,
+    /// Code stable de cette alerte (`doublon`, `montants`, `societe`, `fournisseur`...).
+    alerte_code: Option<String>,
     nb_alertes: i64,
     statut_depot: Option<String>,
     /// Déjà vérifié (facture vérifiée mais pas encore envoyée).
@@ -141,7 +143,10 @@ async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<C
     let s = acces.societe_filtre();
     let docs = sqlx::query!(
         r#"select
-             count(*) filter (where d.statut_depot = 'erreur'
+             count(*) filter (where (d.statut_depot = 'erreur'
+                                   and not coalesce(d.valide_le > (select max(e.quand) from envoi_depot e
+                                                                   where e.document_id = d.id)
+                                                    and d.valide_le > now() - interval '30 minutes', false))
                                  or (d.statut_depot = 'doublon' and d.verifie_le is null)
                                  or d.etat = 'erreur') as "bloque!",
              count(*) filter (where d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
@@ -238,7 +243,10 @@ pub async fn file(
            join piece_jointe p on p.id = d.piece_jointe_id
            left join fournisseur fo on fo.id = d.fournisseur_id
            left join societe s on s.id = d.societe_id
-           where (d.statut_depot = 'erreur'
+           where ((d.statut_depot = 'erreur'
+                                   and not coalesce(d.valide_le > (select max(e.quand) from envoi_depot e
+                                                                   where e.document_id = d.id)
+                                                    and d.valide_le > now() - interval '30 minutes', false))
                   or (d.statut_depot = 'doublon' and d.verifie_le is null)
                   or d.etat = 'erreur')
              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
@@ -290,8 +298,11 @@ pub async fn file(
                   coalesce(m.date_mail, m.recu_le) as "recu_le!",
                   d.montant_ttc::float8 as montant_ttc,
                   case when jsonb_array_length(d.controles) > 0 then d.controles->0->>'message'
-                       when d.type = 'bl' and d.fournisseur_id is null then 'fournisseur non identifié'
+                       when d.type = 'bl' and d.fournisseur_id is null then 'Fournisseur non identifié'
                   end as alerte,
+                  case when jsonb_array_length(d.controles) > 0 then d.controles->0->>'code'
+                       when d.type = 'bl' and d.fournisseur_id is null then 'fournisseur'
+                  end as alerte_code,
                   (jsonb_array_length(d.controles)
                    + case when d.type = 'bl' and d.fournisseur_id is null then 1 else 0 end)::bigint as "nb_alertes!",
                   d.statut_depot, d.verifie_le is not null as "verifie!"

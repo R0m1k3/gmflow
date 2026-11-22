@@ -1,4 +1,5 @@
-//! Test de connexion d'une boîte : LOGIN puis LIST ; le résultat va dans `dernier_test`.
+//! Test de connexion d'une boîte : LOGIN puis LIST ; le résultat va dans `dernier_test`
+//! (message en clair, dossiers décodés, dossier des envoyés repéré).
 
 use gmflow_core::imap;
 use serde_json::json;
@@ -18,24 +19,42 @@ pub async fn tester(ctx: &Contexte, boite_id: i64) -> anyhow::Result<()> {
         let mdp = ctx
             .chiffreur
             .dechiffrer_texte(&b.mot_de_passe_chiffre)
-            .map_err(|e| e.to_string())?;
-        let port = u16::try_from(b.port).map_err(|_| "port invalide".to_string())?;
+            .map_err(|e| (format!("Essai impossible : {e}."), e.to_string()))?;
+        let port = u16::try_from(b.port).map_err(|_| {
+            (
+                "Port IMAP invalide.".to_string(),
+                "port invalide".to_string(),
+            )
+        })?;
         let mut s = imap::connecter(&b.serveur, port, &b.identifiant, &mdp, ctx.transport)
             .await
-            .map_err(|e| e.to_string())?;
-        let dossiers = imap::dossiers(&mut s).await.map_err(|e| e.to_string())?;
+            .map_err(|e| gmflow_core::essai_boite::message_imap(&e))?;
+        let dossiers = imap::dossiers_detail(&mut s)
+            .await
+            .map_err(|e| gmflow_core::essai_boite::message_imap(&e))?;
         let _ = s.logout().await;
-        Ok::<_, String>(dossiers)
+        Ok::<_, (String, String)>(dossiers)
     }
     .await;
 
     let quand =
         time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?;
+    // `dossiers` : noms IMAP (à enregistrer tels quels) ; `dossiers_detail` : noms décodés et
+    // attributs ; `envoyes` : dossier des envoyés repéré.
     let test = match &resultat {
         Ok(d) => {
-            json!({ "quand": quand, "ok": true, "message": format!("{} dossiers", d.len()), "dossiers": d })
+            let noms: Vec<&str> = d.iter().map(|x| x.nom.as_str()).collect();
+            json!({
+                "quand": quand, "ok": true,
+                "message": format!("Connexion réussie : {} dossiers trouvés.", d.len()),
+                "dossiers": noms, "dossiers_detail": d,
+                "envoyes": imap::dossier_envoyes(d).map(|x| x.nom.clone()),
+            })
         }
-        Err(m) => json!({ "quand": quand, "ok": false, "message": m, "dossiers": [] }),
+        Err((message, detail)) => json!({
+            "quand": quand, "ok": false, "message": message, "detail": detail,
+            "dossiers": [], "dossiers_detail": [], "envoyes": null,
+        }),
     };
     sqlx::query!(
         "update boite_mail set dernier_test = $2 where id = $1",

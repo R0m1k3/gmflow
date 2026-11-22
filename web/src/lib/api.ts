@@ -1,13 +1,17 @@
 import { goto } from '$app/navigation';
 import type {
   BilanMois,
+  Boite,
+  ChangementsFournisseur,
   CodeRefus,
   CompteursATraiter,
   DemandeEssaiBoite,
   DemandeValidation,
+  EntreeBoite,
   EssaiBoite,
   FileATraiter,
   FilFournisseur,
+  Fournisseur,
   LigneFournisseur,
   MiseEnRoute,
   Page,
@@ -64,6 +68,7 @@ export const api = {
   get: <T>(chemin: string) => appel<T>('GET', chemin),
   post: <T>(chemin: string, corps?: unknown) => appel<T>('POST', chemin, corps),
   put: <T>(chemin: string, corps?: unknown) => appel<T>('PUT', chemin, corps),
+  patch: <T>(chemin: string, corps?: unknown) => appel<T>('PATCH', chemin, corps),
   del: <T>(chemin: string) => appel<T>('DELETE', chemin)
 };
 
@@ -118,7 +123,7 @@ export const aTraiter = {
 export const validerDocument = (id: number, demande: DemandeValidation = {}, societe?: number | null) =>
   api.post<ResultatValidation>(`/api/documents/${id}/valider${requete({ societe })}`, demande);
 
-/** « Écarter » un doublon ou un document illisible. */
+/** « Écarter » : un doublon (gardé comme doublon), ou tout document lu ou illisible (« Écarté »). */
 export const ecarterDocument = (id: number, societe?: number | null) =>
   api.post<ResultatValidation>(`/api/documents/${id}/ecarter${requete({ societe })}`);
 
@@ -130,7 +135,8 @@ export const filFournisseur = (id: number, p: { societe?: number | null; mois?: 
 
 export const rechercher = (p: {
   q?: string;
-  type?: 'facture' | 'avoir' | 'bl' | 'mail' | '';
+  /** `document` : tous les documents, sans les mails. */
+  type?: 'facture' | 'avoir' | 'bl' | 'document' | 'mail' | '';
   du?: string;
   au?: string;
   societe?: number | null;
@@ -138,6 +144,15 @@ export const rechercher = (p: {
 
 export const bilanMois = (p: { mois?: string; societe?: number | null } = {}) =>
   api.get<BilanMois>(`/api/bilan${requete(p)}`);
+
+/** Modification partielle d'une fiche fournisseur (admin) : « Confirmer », « Toujours ranger dans X ». */
+export const modifierFournisseur = (id: number, changements: ChangementsFournisseur) =>
+  api.patch<Fournisseur>(`/api/admin/fournisseurs/${id}`, changements);
+
+export const lireBoite = (id: number) => api.get<Boite>(`/api/admin/boites/${id}`);
+
+/** Création d'une boîte ; avec `essai_id` (essai réussi) et `activer`, elle est surveillée tout de suite. */
+export const creerBoite = (entree: EntreeBoite) => api.post<Boite>('/api/admin/boites', entree);
 
 export const miseEnRoute = () => api.get<MiseEnRoute>('/api/admin/mise-en-route');
 

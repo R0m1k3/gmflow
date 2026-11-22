@@ -31,6 +31,7 @@ async fn demander(
         resultat_imap: None,
         resultat_smtp: None,
         termine_le: None,
+        mdp_empreinte: None,
     };
     parametre::ecrire(banc.pool(), &cle, &serde_json::to_value(&essai).unwrap())
         .await

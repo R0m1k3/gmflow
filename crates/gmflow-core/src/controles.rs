@@ -10,17 +10,63 @@ pub const CONFIANCE_SOCIETE_MIN: f64 = 0.9;
 /// Âge maximal d'une facture, en jours (12 mois).
 pub const AGE_MAX_JOURS: i64 = 366;
 
+/// Contrôle en échec. `message` : phrase pour l'écran, dans le vocabulaire de l'interface
+/// (société, envoi à Dext/Yooz, montants « 1 250,40 € »), sans point final.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Echec {
     pub code: String,
     pub message: String,
+    /// Champs du document visés (noms de l'API : `montant_ttc`, `societe_id`...), pour les
+    /// surligner.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub champs: Vec<String>,
+    /// Correction proposée en un clic (montants : HT + TVA = TTC).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposition: Option<Proposition>,
 }
 
-fn echec(code: &str, message: impl Into<String>) -> Echec {
+/// Valeur proposée pour un champ.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Proposition {
+    pub champ: String,
+    pub valeur: f64,
+}
+
+fn echec(code: &str, message: impl Into<String>, champs: &[&str]) -> Echec {
     Echec {
         code: code.into(),
         message: message.into(),
+        champs: champs.iter().map(|c| c.to_string()).collect(),
+        proposition: None,
     }
+}
+
+fn arrondi(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+/// Montant à la française : « 1 250,40 € » (espaces insécables).
+pub fn montant_fr(v: f64) -> String {
+    let neg = v < 0.0;
+    let centimes = (v.abs() * 100.0).round() as u64;
+    let entier = (centimes / 100).to_string();
+    let mut groupes = String::new();
+    for (i, c) in entier.chars().enumerate() {
+        if i > 0 && (entier.len() - i).is_multiple_of(3) {
+            groupes.push('\u{a0}');
+        }
+        groupes.push(c);
+    }
+    format!(
+        "{}{groupes},{:02}\u{a0}€",
+        if neg { "-" } else { "" },
+        centimes % 100
+    )
+}
+
+/// Date à la française : « 18/11/2026 ».
+pub fn date_fr(d: time::Date) -> String {
+    format!("{:02}/{:02}/{}", d.day(), u8::from(d.month()), d.year())
 }
 
 pub fn chiffres(s: &str) -> String {
@@ -129,78 +175,154 @@ pub struct Facture<'a> {
 /// Contrôles en échec (vide : la facture peut partir). `aujourdhui` : date du jour (Paris).
 pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
     let mut e = Vec::new();
-    let manquants: Vec<&str> = [
-        ("numéro", f.numero.is_some_and(|n| !n.trim().is_empty())),
-        ("date", f.date.is_some()),
-        ("montant TTC", f.ttc.is_some()),
+    let manquants: Vec<(&str, &str)> = [
+        (
+            "numéro",
+            "numero",
+            f.numero.is_some_and(|n| !n.trim().is_empty()),
+        ),
+        ("date", "date_document", f.date.is_some()),
+        ("montant TTC", "montant_ttc", f.ttc.is_some()),
     ]
     .into_iter()
-    .filter(|(_, ok)| !ok)
-    .map(|(n, _)| n)
+    .filter(|(_, _, ok)| !ok)
+    .map(|(n, c, _)| (n, c))
     .collect();
     if !manquants.is_empty() {
+        let noms: Vec<&str> = manquants.iter().map(|(n, _)| *n).collect();
+        let champs: Vec<&str> = manquants.iter().map(|(_, c)| *c).collect();
         e.push(echec(
             "incomplet",
-            format!("champ manquant : {}", manquants.join(", ")),
+            format!(
+                "{} : {}",
+                if noms.len() > 1 {
+                    "Champs manquants"
+                } else {
+                    "Champ manquant"
+                },
+                noms.join(", ")
+            ),
+            &champs,
         ));
     }
     match (f.ht, f.tva, f.ttc) {
         (Some(ht), Some(tva), Some(ttc)) => {
             let ecart = (ht + tva - ttc).abs();
             if ecart > TOLERANCE_MONTANTS + 1e-9 {
-                e.push(echec(
+                let mut x = echec(
                     "montants",
-                    format!("HT + TVA = {:.2} € pour un TTC de {ttc:.2} €", ht + tva),
-                ));
+                    format!(
+                        "HT + TVA donnent {}, le TTC lu est {}",
+                        montant_fr(ht + tva),
+                        montant_fr(ttc)
+                    ),
+                    &["montant_ttc"],
+                );
+                x.proposition = Some(Proposition {
+                    champ: "montant_ttc".into(),
+                    valeur: arrondi(ht + tva),
+                });
+                e.push(x);
             }
         }
-        (_, _, Some(_)) => e.push(echec("montants", "HT ou TVA manquant")),
+        (None, Some(tva), Some(ttc)) => {
+            let mut x = echec("montants", "Montant HT manquant", &["montant_ht"]);
+            x.proposition = Some(Proposition {
+                champ: "montant_ht".into(),
+                valeur: arrondi(ttc - tva),
+            });
+            e.push(x);
+        }
+        (Some(ht), None, Some(ttc)) => {
+            let mut x = echec("montants", "Montant de TVA manquant", &["montant_tva"]);
+            x.proposition = Some(Proposition {
+                champ: "montant_tva".into(),
+                valeur: arrondi(ttc - ht),
+            });
+            e.push(x);
+        }
+        (None, None, Some(_)) => e.push(echec(
+            "montants",
+            "Montants HT et TVA manquants",
+            &["montant_ht", "montant_tva"],
+        )),
         _ => {}
     }
     match (f.fournisseur_siret, f.fournisseur_tva) {
         (None, None) => e.push(echec(
             "identifiants",
-            "ni SIRET ni n° de TVA du fournisseur",
+            "Ni SIRET ni n° de TVA du fournisseur",
+            &["fournisseur_id"],
         )),
         (s, t) => {
             if let Some(s) = s
                 && !siret_valide(s)
             {
-                e.push(echec("identifiants", format!("SIRET « {s} » invalide")));
+                e.push(echec(
+                    "identifiants",
+                    format!("SIRET du fournisseur « {s} » invalide"),
+                    &["fournisseur_id"],
+                ));
             }
             if let Some(t) = t
                 && !tva_valide(t)
             {
-                e.push(echec("identifiants", format!("n° de TVA « {t} » invalide")));
+                e.push(echec(
+                    "identifiants",
+                    format!("N° de TVA du fournisseur « {t} » invalide"),
+                    &["fournisseur_id"],
+                ));
             }
         }
     }
     match f.societe_id {
-        None => e.push(echec("societe", "structure destinataire non reconnue")),
+        None => e.push(echec(
+            "societe",
+            "Société destinataire non reconnue",
+            &["societe_id"],
+        )),
         Some(_) if f.confiance_societe < CONFIANCE_SOCIETE_MIN => e.push(echec(
             "societe",
             format!(
-                "structure reconnue avec une confiance de {:.0} %",
+                "Société à vérifier : reconnue avec une confiance de {:.0}\u{a0}%",
                 f.confiance_societe * 100.0
             ),
+            &["societe_id"],
         )),
         Some(_) if !f.adresse_depot => e.push(echec(
             "depot",
-            "la structure n'a pas d'adresse de dépôt (Dext ou Yooz)",
+            "La société n'a pas d'adresse d'envoi vers Dext ou Yooz",
+            &["societe_id"],
         )),
         _ => {}
     }
     match f.fournisseur_statut {
         Some("valide") => {}
-        Some(_) => e.push(echec("fournisseur", "fiche fournisseur à confirmer")),
-        None => e.push(echec("fournisseur", "fournisseur non identifié")),
+        Some(_) => e.push(echec(
+            "fournisseur",
+            "Nouveau fournisseur (à confirmer)",
+            &["fournisseur_id"],
+        )),
+        None => e.push(echec(
+            "fournisseur",
+            "Fournisseur non identifié",
+            &["fournisseur_id"],
+        )),
     }
     if let Some(d) = f.date {
         let jours = (aujourdhui - d).whole_days();
         if jours < 0 {
-            e.push(echec("date", format!("date {d} dans le futur")));
+            e.push(echec(
+                "date",
+                format!("Date du {} dans le futur", date_fr(d)),
+                &["date_document"],
+            ));
         } else if jours > AGE_MAX_JOURS {
-            e.push(echec("date", format!("date {d} de plus de 12 mois")));
+            e.push(echec(
+                "date",
+                format!("Date du {} : plus de 12 mois", date_fr(d)),
+                &["date_document"],
+            ));
         }
     }
     e

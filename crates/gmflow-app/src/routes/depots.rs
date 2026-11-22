@@ -18,16 +18,16 @@ pub struct Filtre {
 #[derive(Serialize)]
 pub struct LigneSuivi {
     pub(crate) societe_id: Option<i64>,
-    societe: Option<String>,
+    pub(crate) societe: Option<String>,
     /// Factures et avoirs reçus (date du document, à défaut date du mail) ce mois-là.
-    recues: i64,
-    deposees: i64,
-    pretes: i64,
-    a_verifier: i64,
-    en_erreur: i64,
-    doublons: i64,
+    pub(crate) recues: i64,
+    pub(crate) deposees: i64,
+    pub(crate) pretes: i64,
+    pub(crate) a_verifier: i64,
+    pub(crate) en_erreur: i64,
+    pub(crate) doublons: i64,
     /// Montant TTC déposé.
-    montant_depose: f64,
+    pub(crate) montant_depose: f64,
 }
 
 #[derive(Serialize)]
@@ -36,12 +36,9 @@ pub struct Suivi {
     pub(crate) lignes: Vec<LigneSuivi>,
 }
 
-pub async fn suivi(
-    acces: Acces,
-    State(etat): State<Etat>,
-    Query(f): Query<Filtre>,
-) -> Resultat<Json<Suivi>> {
-    let mois = match f.mois.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+/// Mois demandé (AAAA-MM), le mois en cours (heure de Paris) par défaut ; `400` si mal formé.
+pub(crate) fn mois_choisi(mois: Option<&str>) -> Resultat<String> {
+    Ok(match mois.map(str::trim).filter(|m| !m.is_empty()) {
         Some(m) => {
             let ok = m.len() == 7
                 && m[..4].chars().all(|c| c.is_ascii_digit())
@@ -56,7 +53,15 @@ pub async fn suivi(
             let d = gmflow_core::controles::aujourdhui_paris();
             format!("{:04}-{:02}", d.year(), u8::from(d.month()))
         }
-    };
+    })
+}
+
+pub async fn suivi(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Query(f): Query<Filtre>,
+) -> Resultat<Json<Suivi>> {
+    let mois = mois_choisi(f.mois.as_deref())?;
     let debut = format!("{mois}-01");
     let lignes = sqlx::query_as!(
         LigneSuivi,
@@ -76,6 +81,7 @@ pub async fn suivi(
              and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) < $1::date + interval '1 month'
              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))
+             and ($2::bigint is null or d.societe_id is null or d.societe_id = $2)
            group by d.societe_id, s.raison_sociale
            order by s.raison_sociale nulls last"#,
         time::Date::parse(&debut, time::macros::format_description!("[year]-[month]-[day]"))

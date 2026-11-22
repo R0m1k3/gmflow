@@ -1,5 +1,6 @@
-//! Référentiel des fournisseurs : liste et fiche (tous les comptes, pour corriger un
-//! document), création, modification, validation et fusion (administrateur).
+//! Référentiel des fournisseurs : liste, fiche et fil (un responsable ne voit que les
+//! fournisseurs de sa société : un document dans son périmètre, ou sa société par défaut),
+//! création, modification (complète ou partielle), validation et fusion (administrateur).
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -64,6 +65,12 @@ pub async fn lister(
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
              and ($2::text is null or f.nom ilike $2 or f.siret ilike $2 or f.tva ilike $2
                   or array_to_string(f.domaines, ' ') ilike $2)
+             and ($3::bigint is null or f.societe_defaut_id = $3
+                  or exists (select 1 from document d
+                             where d.fournisseur_id = f.id
+                               and (d.societe_id is null or d.societe_id = $3)
+                               and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                           where mb.mail_id = d.mail_id and b.societe_id = $3)))
              and ($4::bigint is null or exists (
                    select 1 from document d
                    where d.fournisseur_id = f.id and d.etat = 'lu'
@@ -85,9 +92,17 @@ pub async fn lister(
         LigneFournisseur,
         r#"select f.id, f.nom, f.siret, f.tva, f.domaines, f.statut, f.societe_defaut_id,
                   s.raison_sociale as "societe_defaut?",
-                  (select count(*) from document d where d.fournisseur_id = f.id) as "nb_documents!",
                   (select count(*) from document d where d.fournisseur_id = f.id
-                     and d.statut_depot = 'a_verifier') as "a_verifier!",
+                     and ($5::bigint is null
+                          or ((d.societe_id is null or d.societe_id = $5)
+                              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                          where mb.mail_id = d.mail_id and b.societe_id = $5)))) as "nb_documents!",
+                  (select count(*) from document d where d.fournisseur_id = f.id
+                     and d.statut_depot = 'a_verifier'
+                     and ($5::bigint is null
+                          or ((d.societe_id is null or d.societe_id = $5)
+                              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                          where mb.mail_id = d.mail_id and b.societe_id = $5)))) as "a_verifier!",
                   e.factures_mois as "factures_mois!", e.a_valider as "a_valider!",
                   e.bl_sans_facture as "bl_sans_facture!", e.dernier as dernier_document
            from fournisseur f
@@ -120,6 +135,12 @@ pub async fn lister(
              and ($2::text is null or f.nom ilike $2 or f.siret ilike $2 or f.tva ilike $2
                   or array_to_string(f.domaines, ' ') ilike $2)
              and ($6::bigint is null or e.n > 0)
+             and ($5::bigint is null or f.societe_defaut_id = $5
+                  or exists (select 1 from document d
+                             where d.fournisseur_id = f.id
+                               and (d.societe_id is null or d.societe_id = $5)
+                               and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                           where mb.mail_id = d.mail_id and b.societe_id = $5)))
            order by (f.statut = 'a_confirmer') desc, f.nom
            limit $3 offset $4"#,
         statut,
@@ -147,6 +168,8 @@ pub struct Fiche {
     domaines: Vec<String>,
     statut: String,
     societe_defaut_id: Option<i64>,
+    /// Nom de la société par défaut.
+    societe_defaut: Option<String>,
     format_bl: Option<String>,
     notes: Option<String>,
     fusionne_dans: Option<i64>,
@@ -154,16 +177,41 @@ pub struct Fiche {
     cree_le: time::OffsetDateTime,
 }
 
+/// Vrai si le fournisseur existe et que cet accès le voit : tout le référentiel pour un
+/// administrateur ; pour un responsable, un document du fournisseur dans son périmètre (boîte
+/// de sa société, rangé dans sa société ou pas encore rangé), ou sa société par défaut.
+pub(crate) async fn fournisseur_visible(etat: &Etat, acces: &Acces, id: i64) -> Resultat<bool> {
+    Ok(sqlx::query_scalar!(
+        r#"select exists (
+             select 1 from fournisseur f
+             where f.id = $1
+               and ($2::bigint is null or f.societe_defaut_id = $2
+                    or exists (select 1 from document d
+                               where d.fournisseur_id = f.id
+                                 and (d.societe_id is null or d.societe_id = $2)
+                                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                             where mb.mail_id = d.mail_id and b.societe_id = $2)))) as "ok!""#,
+        id,
+        acces.societe_filtre()
+    )
+    .fetch_one(&etat.pool)
+    .await?)
+}
+
 pub async fn fiche(
-    _a: Acces,
+    acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
 ) -> Resultat<Json<Fiche>> {
+    if !fournisseur_visible(&etat, &acces, id).await? {
+        return Err(ErreurApi::Absent);
+    }
     let f = sqlx::query_as!(
         Fiche,
-        "select id, nom, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
-                fusionne_dans, cree_le
-         from fournisseur where id = $1",
+        r#"select id, nom, siret, tva, domaines, statut, societe_defaut_id,
+                  (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
+                  format_bl, notes, fusionne_dans, cree_le
+           from fournisseur where id = $1"#,
         id
     )
     .fetch_optional(&etat.pool)
@@ -251,11 +299,12 @@ pub async fn creer(
     let mut tx = etat.pool.begin().await?;
     let f = sqlx::query_as!(
         Fiche,
-        "insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
-                                  societe_defaut_id, format_bl, notes)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         returning id, nom, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
-                   fusionne_dans, cree_le",
+        r#"insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
+                                    societe_defaut_id, format_bl, notes)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           returning id, nom, siret, tva, domaines, statut, societe_defaut_id,
+                     (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
+                     format_bl, notes, fusionne_dans, cree_le"#,
         e.nom,
         normaliser(&e.nom),
         e.siret,
@@ -287,15 +336,91 @@ pub async fn modifier(
     Path(id): Path<i64>,
     Json(e): Json<Entree>,
 ) -> Resultat<Json<Fiche>> {
+    enregistrer(&etat, &a, id, e).await
+}
+
+/// Champ présent dans le corps, même à `null` (`Some(None)`) ; absent : `None`.
+fn present<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
+}
+
+/// Modification partielle : seuls les champs présents changent (`null` efface un champ
+/// facultatif).
+#[derive(Deserialize)]
+pub struct Changements {
+    #[serde(default)]
+    nom: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    siret: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    tva: Option<Option<String>>,
+    #[serde(default)]
+    domaines: Option<Vec<String>>,
+    #[serde(default)]
+    statut: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    societe_defaut_id: Option<Option<i64>>,
+    #[serde(default, deserialize_with = "present")]
+    format_bl: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    notes: Option<Option<String>>,
+}
+
+/// `PATCH /api/admin/fournisseurs/{id}` : « Confirmer la fiche » (`{"statut": "valide"}`),
+/// « Toujours ranger dans X » (`{"societe_defaut_id": 1}`), sans renvoyer toute la fiche.
+pub async fn modifier_partiel(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+    Json(c): Json<Changements>,
+) -> Resultat<Json<Fiche>> {
+    let f = sqlx::query!(
+        "select nom, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes
+         from fournisseur where id = $1 and fusionne_dans is null",
+        id
+    )
+    .fetch_optional(&etat.pool)
+    .await?
+    .ok_or(ErreurApi::Absent)?;
+    let e = Entree {
+        nom: c.nom.unwrap_or(f.nom),
+        siret: c.siret.unwrap_or(f.siret),
+        tva: c.tva.unwrap_or(f.tva),
+        domaines: c.domaines.unwrap_or(f.domaines),
+        statut: c.statut.unwrap_or(f.statut),
+        societe_defaut_id: c.societe_defaut_id.unwrap_or(f.societe_defaut_id),
+        format_bl: c.format_bl.unwrap_or(f.format_bl),
+        notes: c.notes.unwrap_or(f.notes),
+    };
+    enregistrer(&etat, &a, id, e).await
+}
+
+async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Json<Fiche>> {
     let e = e.nettoyer()?;
+    if let Some(s) = e.societe_defaut_id {
+        let existe = sqlx::query_scalar!(
+            r#"select exists (select 1 from societe where id = $1) as "ok!""#,
+            s
+        )
+        .fetch_one(&etat.pool)
+        .await?;
+        if !existe {
+            return Err(ErreurApi::Donnees("société inconnue".into()));
+        }
+    }
     let mut tx = etat.pool.begin().await?;
     let f = sqlx::query_as!(
         Fiche,
-        "update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,
-            statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10
-         where id = $1 and fusionne_dans is null
-         returning id, nom, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
-                   fusionne_dans, cree_le",
+        r#"update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,
+              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10
+           where id = $1 and fusionne_dans is null
+           returning id, nom, siret, tva, domaines, statut, societe_defaut_id,
+                     (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
+                     format_bl, notes, fusionne_dans, cree_le"#,
         id,
         e.nom,
         normaliser(&e.nom),
@@ -474,11 +599,15 @@ pub async fn fil(
     Path(id): Path<i64>,
     Query(f): Query<FiltresFil>,
 ) -> Resultat<Json<Fil>> {
+    if !fournisseur_visible(&etat, &acces, id).await? {
+        return Err(ErreurApi::Absent);
+    }
     let fiche = sqlx::query_as!(
         Fiche,
-        "select id, nom, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
-                fusionne_dans, cree_le
-         from fournisseur where id = $1",
+        r#"select id, nom, siret, tva, domaines, statut, societe_defaut_id,
+                  (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
+                  format_bl, notes, fusionne_dans, cree_le
+           from fournisseur where id = $1"#,
         id
     )
     .fetch_optional(&etat.pool)
@@ -553,6 +682,8 @@ pub async fn fil(
         r#"select m.id, m.expediteur, m.objet, m.date_mail, m.categorie, m.statut_reponse, m.resume,
                   ((coalesce(m.date_mail, m.recu_le)) at time zone 'Europe/Paris')::date as "date!",
                   array(select d.id from document d where d.mail_id = m.id and d.fournisseur_id = $3
+                          and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
+                          and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
                         order by d.id) as "document_ids!"
            from mail m, fournisseur f
            where f.id = $3

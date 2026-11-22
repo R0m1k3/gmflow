@@ -57,6 +57,13 @@ pub struct Entree {
     /// Dossier IMAP des messages envoyés (copie des réponses, exemples de ton).
     #[serde(default)]
     dossier_envoyes: Option<String>,
+    /// Création : essai réussi de ces paramètres (`POST /api/admin/boites/tester`, moins d'une
+    /// heure, même serveur, port, identifiant et mot de passe), repris comme test de la boîte.
+    #[serde(default)]
+    essai_id: Option<uuid::Uuid>,
+    /// Création : démarrer la surveillance tout de suite (exige `essai_id`).
+    #[serde(default)]
+    activer: bool,
 }
 
 fn vide(v: Option<String>) -> Option<String> {
@@ -135,7 +142,8 @@ impl Entree {
         json!({ "societe_id": self.societe_id, "libelle": self.libelle, "serveur": self.serveur, "port": self.port,
                 "identifiant": self.identifiant, "dossiers": self.dossiers, "reprise_mois": self.reprise_mois,
                 "mot_de_passe_change": self.mot_de_passe.is_some(), "smtp_serveur": self.smtp_serveur,
-                "smtp_port": self.smtp_port, "smtp_securite": self.smtp_securite, "dossier_envoyes": self.dossier_envoyes })
+                "smtp_port": self.smtp_port, "smtp_securite": self.smtp_securite, "dossier_envoyes": self.dossier_envoyes,
+                "essai_id": self.essai_id })
     }
 }
 
@@ -151,6 +159,65 @@ async fn lire(etat: &Etat, id: i64) -> Resultat<Boite> {
     .fetch_optional(&etat.pool)
     .await?
     .ok_or(ErreurApi::Absent)
+}
+
+/// `GET /api/admin/boites/{id}`.
+pub async fn fiche(
+    _a: AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<Json<Boite>> {
+    Ok(Json(lire(&etat, id).await?))
+}
+
+/// Essai réussi repris à la création d'une boîte : rend le `dernier_test` à enregistrer, ou
+/// `409 {"code": "essai"}` si l'essai ne vaut pas pour ces paramètres.
+async fn test_de_l_essai(
+    etat: &Etat,
+    essai_id: uuid::Uuid,
+    e: &Entree,
+    mot_de_passe: &str,
+) -> Resultat<Value> {
+    use gmflow_core::essai_boite;
+    let refus = |m: &str| ErreurApi::ConflitCode {
+        code: "essai",
+        message: format!("{m} : relancez l'essai de connexion"),
+    };
+    let essai = match super::mise_en_route::lire_essai(etat, essai_id).await {
+        Ok(x) => x,
+        Err(ErreurApi::Absent) => return Err(refus("essai introuvable ou expiré")),
+        Err(x) => return Err(x),
+    };
+    if essai.etat != "termine" {
+        return Err(refus("essai pas terminé"));
+    }
+    if essai_boite::age_minutes(&essai).is_none_or(|m| m > i64::from(essai_boite::DUREE_MINUTES)) {
+        return Err(refus("essai de plus d'une heure"));
+    }
+    let memes = essai.boite_id.is_none()
+        && essai.identifiant == e.identifiant
+        && essai
+            .imap
+            .as_ref()
+            .is_some_and(|p| p.serveur == e.serveur && i32::from(p.port) == e.port)
+        && essai.mdp_empreinte.as_deref()
+            == Some(essai_boite::empreinte(essai_id, mot_de_passe).as_str());
+    if !memes {
+        return Err(refus("l'essai a été fait avec d'autres paramètres"));
+    }
+    let Some(r) = essai.resultat_imap.filter(|r| r.ok) else {
+        return Err(refus("la connexion n'a pas réussi"));
+    };
+    let noms: Vec<&str> = r.dossiers.iter().map(|d| d.nom.as_str()).collect();
+    Ok(json!({
+        "quand": essai.termine_le.unwrap_or(essai.cree_le),
+        "ok": true,
+        "message": r.message,
+        "dossiers": noms,
+        "dossiers_detail": r.dossiers,
+        "envoyes": r.envoyes,
+        "essai_id": essai_id,
+    }))
 }
 
 pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vec<Boite>>> {
@@ -190,12 +257,22 @@ pub async fn creer(
     let Some(mdp) = &e.mot_de_passe else {
         return Err(ErreurApi::Donnees("mot de passe obligatoire".into()));
     };
+    let test = match e.essai_id {
+        Some(essai) => Some(test_de_l_essai(&etat, essai, &e, mdp).await?),
+        None if e.activer => {
+            return Err(ErreurApi::Donnees(
+                "pour démarrer la surveillance à la création, donnez un essai réussi (essai_id)"
+                    .into(),
+            ));
+        }
+        None => None,
+    };
     let chiffre = etat.chiffreur.chiffrer(mdp.as_bytes());
     let mut tx = etat.pool.begin().await?;
     let id = sqlx::query_scalar!(
         "insert into boite_mail (societe_id, libelle, serveur, port, identifiant, mot_de_passe_chiffre, dossiers, reprise_mois,
-                                 smtp_serveur, smtp_port, smtp_securite, dossier_envoyes)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id",
+                                 smtp_serveur, smtp_port, smtp_securite, dossier_envoyes, dernier_test, active)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) returning id",
         e.societe_id,
         e.libelle,
         e.serveur,
@@ -207,7 +284,9 @@ pub async fn creer(
         e.smtp_serveur,
         e.smtp_port,
         e.smtp_securite,
-        e.dossier_envoyes
+        e.dossier_envoyes,
+        test,
+        e.activer
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -220,6 +299,17 @@ pub async fn creer(
         e.journal(),
     )
     .await?;
+    if e.activer {
+        gmflow_core::journal::ecrire(
+            &mut *tx,
+            Some(a.utilisateur_id),
+            "activation",
+            "boite_mail",
+            Some(id.to_string()),
+            json!({ "essai_id": e.essai_id }),
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(Json(lire(&etat, id).await?))
 }

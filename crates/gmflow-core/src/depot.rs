@@ -126,13 +126,15 @@ pub async fn evaluer_dans(conn: &mut PgConnection, id: i64) -> anyhow::Result<Op
             Echec {
                 code: "doublon".into(),
                 message: format!(
-                    "même facture que le document {autre} ({})",
+                    "Même facture que le document {autre} ({})",
                     if STATUTS_FIGES.contains(&statut.as_str()) {
-                        "déjà déposé"
+                        "déjà envoyée à Dext/Yooz"
                     } else {
-                        "reçu avant"
+                        "reçue avant"
                     }
                 ),
+                champs: Vec::new(),
+                proposition: None,
             },
         );
         "doublon"
@@ -199,5 +201,32 @@ pub async fn reevaluer(
     for id in &ids {
         evaluer_et_deposer(pool, *id).await?;
     }
+    Ok(ids.len())
+}
+
+/// Version des phrases des contrôles enregistrées dans `document.controles` (2 : vocabulaire
+/// de l'interface, montants à la française, champs visés et correction proposée).
+pub const VERSION_CONTROLES: i64 = 2;
+const CLE_VERSION_CONTROLES: &str = "controles_version";
+
+/// Au démarrage de l'app : si les phrases des contrôles ont changé, les factures pas encore
+/// parties sont réévaluées une fois (sans dépôt automatique). Rend le nombre de documents revus.
+pub async fn mettre_a_jour_controles(pool: &PgPool) -> anyhow::Result<usize> {
+    let version = crate::parametre::lire(pool, CLE_VERSION_CONTROLES)
+        .await?
+        .and_then(|v| v.as_i64())
+        .unwrap_or(1);
+    if version >= VERSION_CONTROLES {
+        return Ok(0);
+    }
+    let ids = sqlx::query_scalar!(
+        "select id from document where statut_depot in ('a_verifier', 'pret', 'doublon') order by id"
+    )
+    .fetch_all(pool)
+    .await?;
+    for id in &ids {
+        evaluer(pool, *id).await?;
+    }
+    crate::parametre::ecrire(pool, CLE_VERSION_CONTROLES, &json!(VERSION_CONTROLES)).await?;
     Ok(ids.len())
 }

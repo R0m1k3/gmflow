@@ -91,3 +91,51 @@ fn chaque_controle() {
     f.date = None;
     assert_eq!(codes(&f, jour()), ["incomplet"]);
 }
+
+#[test]
+fn messages_dans_le_vocabulaire_de_l_ecran() {
+    use gmflow_core::controles::montant_fr;
+    assert_eq!(montant_fr(1250.4), "1\u{a0}250,40\u{a0}€");
+    assert_eq!(montant_fr(60.0), "60,00\u{a0}€");
+    assert_eq!(montant_fr(1234567.891), "1\u{a0}234\u{a0}567,89\u{a0}€");
+    assert_eq!(montant_fr(-12.5), "-12,50\u{a0}€");
+
+    let mut f = bonne();
+    f.ht = Some(1000.0);
+    f.tva = Some(200.0);
+    f.ttc = Some(1250.4);
+    let e = controler(&f, jour());
+    assert_eq!(
+        e[0].message,
+        "HT + TVA donnent 1\u{a0}200,00\u{a0}€, le TTC lu est 1\u{a0}250,40\u{a0}€"
+    );
+    assert_eq!(e[0].champs, ["montant_ttc"]);
+    let p = e[0].proposition.as_ref().unwrap();
+    assert_eq!((p.champ.as_str(), p.valeur), ("montant_ttc", 1200.0));
+
+    f.ht = None;
+    let e = controler(&f, jour());
+    let p = e[0].proposition.as_ref().unwrap();
+    assert_eq!((p.champ.as_str(), p.valeur), ("montant_ht", 1050.4));
+
+    let mut f = bonne();
+    f.societe_id = None;
+    f.fournisseur_statut = Some("a_confirmer");
+    f.date = Some(time::macros::date!(2026 - 11 - 21));
+    let m: Vec<String> = controler(&f, jour())
+        .into_iter()
+        .map(|e| e.message)
+        .collect();
+    assert_eq!(
+        m,
+        [
+            "Société destinataire non reconnue",
+            "Nouveau fournisseur (à confirmer)",
+            "Date du 21/11/2026 dans le futur"
+        ]
+    );
+    let mut f = bonne();
+    f.adresse_depot = false;
+    let e = controler(&f, jour());
+    assert!(!e[0].message.contains("structure") && e[0].message.contains("Dext"));
+}
