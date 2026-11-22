@@ -1,0 +1,804 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GMFlow, maquette B : trois volets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --black:#000;
+  --text:#171717; --text2:#5b5b57; --muted:#8c8c87;
+  --bg:#fbfbf9; --pane:#f4f4f1; --sunk:#ececE8; --line:#e3e3df; --line2:#cfcfca; --white:#fff;
+  --accent:#1a47d1; --accent-ink:#163ba9; --accent-weak:#ebf0fd;
+  --warn:#7f4d00; --warn-bg:#fff4d9; --warn-line:#e2ad3f;
+  --err:#ad2a20; --err-bg:#fcecea;
+  --ok:#2c6a39;
+  --sans:"Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --mono:"Geist Mono", ui-monospace, monospace;
+  --ease:cubic-bezier(.2,.7,.2,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{font:13px/20px var(--sans);color:var(--text);background:#d9d9d5;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;cursor:pointer}
+input,textarea,select{font:inherit;color:inherit}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:12px;letter-spacing:0;word-spacing:-.32em}
+svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* barre de la maquette (hors produit) */
+.maq{height:40px;display:flex;align-items:center;gap:4px;padding:0 16px;background:#2a2a28;color:#cfcfca}
+.maq b{font-weight:500;color:#fff;margin-right:16px}
+.maq button{background:none;border:0;height:28px;padding:0 12px;border-radius:4px;color:#bdbdb8;transition:background-color .12s var(--ease),color .12s var(--ease)}
+.maq button:hover{color:#fff}
+.maq button[aria-selected=true]{background:#454542;color:#fff}
+.maq span{margin-left:auto;color:#8c8c87;font-size:12px}
+
+.screen{display:none;height:calc(100vh - 40px);min-height:900px}
+.screen.on{display:flex;flex-direction:column}
+
+/* application */
+.app{flex:1;display:flex;flex-direction:column;background:var(--bg);min-height:0}
+.top{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--white)}
+.logo{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;margin-right:20px;color:var(--black)}
+.logo i{width:16px;height:16px;background:var(--black);display:block;clip-path:polygon(0 0,100% 0,100% 100%,0 100%,0 60%,60% 60%,60% 40%,0 40%)}
+.nav{display:flex;gap:2px}
+.nav a{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:6px;color:var(--text2);text-decoration:none;font-weight:500}
+.nav a:hover{background:var(--pane);color:var(--text)}
+.nav a.cur{color:var(--black);background:var(--pane)}
+.nav a .n{font-family:var(--mono);font-size:11px;color:var(--white);background:var(--black);border-radius:4px;padding:0 5px;line-height:16px}
+.sp{flex:1}
+.search{display:flex;align-items:center;gap:8px;width:340px;height:32px;padding:0 8px 0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--muted)}
+.search span{flex:1}
+.sel{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--white);color:var(--text);white-space:nowrap}
+.sel svg{color:var(--muted)}
+.state{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:6px;color:var(--err);font-weight:500;text-decoration:none}
+.state:hover{background:var(--err-bg)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.iconbtn{width:32px;height:32px;display:grid;place-items:center;border:0;background:none;border-radius:6px;color:var(--text2)}
+.iconbtn:hover{background:var(--pane);color:var(--text)}
+.me{width:28px;height:28px;border-radius:50%;background:var(--sunk);display:grid;place-items:center;font-size:11px;font-weight:600;color:var(--text2);margin-left:4px}
+
+kbd{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;background:var(--white);font:500 10px/1 var(--mono);color:var(--text2)}
+.btn kbd{margin-left:4px}
+.btn{text-decoration:none;color:var(--text);display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--white);font-weight:500;white-space:nowrap;transition:background-color .12s var(--ease),border-color .12s var(--ease),transform .08s var(--ease)}
+.btn:hover{background:var(--pane)}
+.btn:active{transform:scale(.98)}
+.btn.sm{height:28px;padding:0 10px;font-size:12px}
+.btn.main{background:var(--accent);border-color:var(--accent);color:#fff;height:36px;padding:0 14px}
+.btn.main:hover{background:var(--accent-ink)}
+.btn.main kbd{background:transparent;color:#fff;border-color:rgba(255,255,255,.45)}
+.btn.ghost{border-color:transparent;background:none;color:var(--text2)}
+.btn.ghost:hover{background:var(--pane);color:var(--text)}
+.btn:focus-visible,.row:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+.body{flex:1;display:flex;min-height:0}
+
+/* volet liste */
+.list{width:420px;flex:none;display:flex;flex-direction:column;background:var(--pane);border-right:1px solid var(--line);min-height:0}
+.list-h{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--line)}
+.list-h h1{margin:0;font-size:16px;font-weight:600}
+.list-h .num{color:var(--muted)}
+.list-s{flex:1;overflow:auto}
+.sec{padding-bottom:8px}
+.sec-h{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;height:40px;padding:0 16px;background:var(--pane)}
+.sec-h h2{margin:0;font-size:13px;font-weight:600}
+.sec-h .num{color:var(--muted)}
+.sec-h .btn{margin-left:auto}
+.sec-h.err h2{color:var(--err)}
+.row{display:grid;grid-template-columns:1fr auto;column-gap:12px;padding:8px 16px 8px 14px;border-left:2px solid transparent;cursor:pointer;outline:none}
+.row:hover{background:var(--sunk)}
+.row.cur{background:var(--white);border-left-color:var(--accent);box-shadow:inset 0 1px 0 var(--line),inset 0 -1px 0 var(--line)}
+.row .a{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .b{grid-column:1;color:var(--text2);font-size:12px;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .r{grid-row:1;grid-column:2;text-align:right}
+.row .r2{grid-row:2;grid-column:2;text-align:right;color:var(--muted);font-size:12px;line-height:18px}
+.row .b .num{font-size:11px;color:var(--text2)}
+.flag{font-size:12px;font-weight:500}
+.flag.w{color:var(--warn)}
+.flag.e{color:var(--err)}
+.row.block{grid-template-columns:1fr auto;align-items:center}
+.row.block .a{white-space:normal}
+.row.block .r{grid-row:1 / span 2}
+.more{display:block;padding:6px 16px;color:var(--text2);font-size:12px;text-decoration:none}
+.more:hover{color:var(--text)}
+.list-f{height:36px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+.list-f span{display:flex;align-items:center;gap:4px}
+
+/* volet ouvert */
+.pane{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;background:var(--bg)}
+.pane-h{height:52px;flex:none;display:flex;align-items:center;gap:8px;padding:0 16px 0 24px;border-bottom:1px solid var(--line);background:var(--white)}
+.pane-h .pos{color:var(--muted)}
+.pane-h .pos .num{color:var(--text)}
+.pane-b{flex:1;display:flex;min-height:0}
+.pane-f{height:64px;flex:none;display:flex;align-items:center;gap:8px;padding:0 24px;border-top:1px solid var(--line);background:var(--white)}
+.pane-f .next{white-space:nowrap;margin-left:auto;color:var(--muted);font-size:12px;display:flex;gap:6px;align-items:center}
+.pane-f .next b{font-weight:500;color:var(--text2)}
+
+.preview{flex:none;overflow:auto;background:var(--sunk);border-right:1px solid var(--line);padding:24px;display:flex;justify-content:center}
+.preview .tools{display:flex;gap:4px}
+.fields{flex:1;overflow:auto;padding:20px 24px 24px;min-width:0}
+.doc-t{display:flex;align-items:baseline;gap:10px;margin:0 0 4px}
+.doc-t h1{margin:0;font-size:20px;line-height:28px;font-weight:600}
+.doc-t .num{font-size:14px;color:var(--text2)}
+.doc-m{color:var(--text2);margin-bottom:16px}
+.alert{display:flex;gap:10px;padding:10px 12px;border-radius:6px;background:var(--warn-bg);color:var(--warn);margin-bottom:16px}
+.alert svg{margin-top:2px}
+.alert p{margin:0;color:#4d3200}
+.alert p b{font-weight:600}
+
+.fl{display:grid;grid-template-columns:120px 1fr;border-top:1px solid var(--line)}
+.fl > div{padding:7px 0;border-bottom:1px solid var(--line);min-height:36px;display:flex;align-items:center}
+.fl .k{color:var(--text2)}
+.fl .v{gap:8px;padding-left:8px;margin-left:-8px;border-radius:0}
+.fl .v .num{font-size:13px}
+.fl .v.edit:hover{background:var(--pane)}
+.fl .v.doubt{background:var(--warn-bg);box-shadow:inset 2px 0 0 var(--warn-line);flex-wrap:wrap}
+.fl .v.doubt .num{font-weight:500}
+.fl .v .hint{color:var(--muted);font-size:12px}
+.fl .v .src{margin-left:auto;color:var(--muted);font-size:12px}
+.fl .k.doubt{color:var(--warn);font-weight:500}
+.sum{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;margin-top:0}
+
+.fold{border-bottom:1px solid var(--line)}
+.fold > summary{list-style:none;display:flex;align-items:center;gap:8px;height:44px;cursor:pointer;font-weight:500}
+.fold > summary::-webkit-details-marker{display:none}
+.fold > summary .s{color:var(--text2);font-weight:400}
+.fold > summary .chev{margin-left:auto;color:var(--muted);transition:transform .15s var(--ease)}
+.fold[open] > summary .chev{transform:rotate(90deg)}
+.fold .in{padding:0 0 16px}
+.folds{margin-top:20px;border-top:1px solid var(--line)}
+
+table.t{width:100%;border-collapse:collapse}
+table.t th{font-weight:400;color:var(--muted);font-size:12px;text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid var(--line)}
+table.t td{padding:7px 8px 7px 0;border-bottom:1px solid var(--line);vertical-align:middle}
+table.t td.n,table.t th.n{text-align:right}
+table.t tr.cand td{background:var(--accent-weak)}
+table.t td:first-child,table.t th:first-child{padding-left:8px}
+table.t tr.cand td:first-child{box-shadow:inset 2px 0 0 var(--accent)}
+.gap{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:10px 12px;background:var(--white);border:1px solid var(--line);border-radius:6px;color:var(--text2)}
+.gap b{color:var(--text);font-weight:500}
+.muted{color:var(--muted)}
+.t2{color:var(--text2)}
+
+/* fausse facture */
+.paper{width:595px;flex:none;background:#fff;color:#222;font:9.5px/1.45 "Helvetica Neue",Arial,sans-serif;padding:40px 40px 32px;box-shadow:0 1px 2px rgba(0,0,0,.08),0 4px 16px rgba(0,0,0,.06);position:relative;align-self:flex-start}
+.paper .ph{display:flex;justify-content:space-between;align-items:flex-start}
+.paper .vl{font:700 30px/1 "Arial Rounded MT Bold","Helvetica Neue",Arial,sans-serif;color:#d4001e;letter-spacing:-.5px}
+.paper .vl small{display:block;font:400 8.5px/1.4 Arial,sans-serif;color:#666;letter-spacing:0;margin-top:6px}
+.paper .ft{font-size:20px;font-weight:700;text-align:right;color:#111}
+.paper .meta{display:grid;grid-template-columns:auto auto;gap:1px 12px;margin-top:6px;font-size:9px;text-align:left}
+.paper .meta span:nth-child(odd){color:#777}
+.paper .addr{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin:28px 0 20px}
+.paper .addr div{border:1px solid #ddd;padding:8px 10px}
+.paper .addr em{font-style:normal;color:#777;display:block;margin-bottom:2px}
+.paper table{width:100%;border-collapse:collapse;font-size:9px}
+.paper th{background:#f1f1f1;text-align:left;font-weight:700;padding:5px 6px;border-bottom:1px solid #ccc}
+.paper td{padding:5px 6px;border-bottom:1px solid #eee}
+.paper .r{text-align:right;font-variant-numeric:tabular-nums}
+.paper .tot{display:flex;justify-content:flex-end;margin-top:14px}
+.paper .tot table{width:220px}
+.paper .tot td{border:0;padding:3px 6px}
+.paper .tot tr.ttc td{font-weight:700;font-size:11px;border-top:1.5px solid #222;padding-top:6px}
+.paper .tot{position:relative}
+.paper .mark{position:absolute;right:-6px;bottom:-5px;width:232px;height:29px;border:2px solid var(--warn-line);border-radius:3px;background:rgba(255,214,120,.16);pointer-events:none}
+.paper .mark span{position:absolute;right:calc(100% + 6px);top:4px;background:var(--warn-line);color:#3d2700;font:500 10px/16px var(--sans);padding:0 6px;border-radius:3px;white-space:nowrap}
+.paper .foot{margin-top:28px;padding-top:10px;border-top:1px solid #ddd;color:#777;font-size:8px;line-height:1.5}
+.paper .stampbl{margin-top:16px;font-size:9px;color:#444}
+
+/* plein écran */
+.wide .preview{width:58%;padding:28px}
+.wide .fields{padding:20px 28px 28px}
+.wide .pane-f{padding-left:calc(58% + 28px);padding-right:28px}
+.back{display:flex;align-items:center;gap:6px;color:var(--text2);text-decoration:none;height:32px;padding:0 8px;border-radius:6px;margin-left:-8px}
+.back:hover{background:var(--pane);color:var(--text)}
+.vsep{width:1px;height:20px;background:var(--line);margin:0 8px}
+
+/* mail */
+.mail-b{flex:1;display:grid;grid-template-columns:1fr 1fr;min-height:0}
+.mail-l{overflow:auto;padding:20px 24px;border-right:1px solid var(--line)}
+.mail-r{overflow:auto;padding:20px 24px;display:flex;flex-direction:column;background:var(--white)}
+.resume{padding:12px 14px;border:1px solid var(--line);border-radius:6px;background:var(--white);margin-bottom:16px}
+.resume .lab{font-size:12px;color:var(--muted);margin-bottom:2px}
+.resume p{margin:0;font-size:14px;line-height:21px}
+.tri{display:flex;align-items:center;gap:6px;margin:0 0 20px;color:var(--muted);font-size:12px}
+.tri .btn{color:var(--text2)}
+.from{display:grid;grid-template-columns:52px 1fr;row-gap:2px;font-size:12px;padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:16px}
+.from span:nth-child(odd){color:var(--muted)}
+.mailtext{font-size:13px;line-height:21px;color:#2a2a28;max-width:62ch}
+.mailtext p{margin:0 0 12px}
+.att{display:flex;align-items:center;gap:10px;padding:8px 12px;border:1px solid var(--line);border-radius:6px;background:var(--white);margin-top:16px;text-decoration:none;color:var(--text)}
+.att:hover{border-color:var(--line2)}
+.att .t2{font-size:12px}
+.att .go{margin-left:auto;color:var(--text2);font-size:12px}
+.ctx{margin-top:16px;font-size:12px;color:var(--text2)}
+.ctx h3{margin:0 0 6px;font-size:12px;font-weight:500;color:var(--muted)}
+.ctx div{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+.rep-h{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.rep-h h2{margin:0;font-size:14px;font-weight:600}
+.rep-h .muted{font-size:12px}
+.editor{flex:1;min-height:360px;border:1px solid var(--line2);border-radius:6px;padding:14px 16px;font-size:13px;line-height:21px;max-width:none;color:var(--text);background:var(--white)}
+.editor:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-weak)}
+.editor p{margin:0 0 12px}
+.fill{background:var(--warn-bg);box-shadow:inset 0 -1.5px 0 var(--warn-line);padding:0 2px;color:var(--warn)}
+.rep-f{display:flex;align-items:center;gap:8px;margin-top:12px}
+.rep-n{margin-top:10px;font-size:12px;color:var(--warn);display:flex;gap:6px;align-items:center}
+
+/* réglages */
+.set{flex:1;display:flex;min-height:0}
+.set-nav{width:240px;flex:none;border-right:1px solid var(--line);background:var(--pane);padding:16px 8px}
+.set-nav h1{font-size:16px;font-weight:600;margin:0 8px 12px}
+.set-nav a{display:flex;align-items:center;gap:10px;height:32px;padding:0 8px;border-radius:6px;color:var(--text2);text-decoration:none;margin-bottom:2px}
+.set-nav a:hover{background:var(--sunk);color:var(--text)}
+.set-nav a.cur{background:var(--white);color:var(--black);font-weight:500;box-shadow:inset 0 0 0 1px var(--line)}
+.set-nav a .st{margin-left:auto;font-size:12px;color:var(--muted)}
+.set-nav .grp{margin:20px 8px 6px;font-size:12px;color:var(--muted)}
+.set-main{flex:1;overflow:auto;padding:24px 40px 40px}
+.set-col{max-width:760px}
+.set-main h2{font-size:20px;line-height:28px;font-weight:600;margin:0}
+.set-main .lead{color:var(--text2);margin:4px 0 20px;max-width:60ch}
+.prog{display:flex;gap:4px;margin-bottom:16px}
+.prog i{flex:1;height:4px;border-radius:2px;background:var(--line)}
+.prog i.d{background:var(--black)}
+.prog i.c{background:var(--accent)}
+.steps{border-top:1px solid var(--line)}
+.step{border-bottom:1px solid var(--line)}
+.step-h{display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:12px;min-height:52px;padding:6px 0}
+.step-n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font:500 11px/1 var(--mono);border:1px solid var(--line2);color:var(--text2)}
+.step.done .step-n{background:var(--black);border-color:var(--black);color:#fff}
+.step.open .step-n{border-color:var(--accent);color:var(--accent);border-width:1.5px}
+.step-h h3{margin:0;font-size:14px;font-weight:500}
+.step-h p{margin:0;color:var(--text2);font-size:12px}
+.step-h .st{font-size:12px;color:var(--muted)}
+.step-b{padding:0 0 24px 44px}
+.sub{display:flex;gap:20px;margin-bottom:16px;font-size:12px;color:var(--muted)}
+.sub span{display:flex;align-items:center;gap:6px}
+.sub span.cur{color:var(--text);font-weight:500}
+.sub span i{font-style:normal;font-family:var(--mono);font-size:11px}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px}
+.form .full{grid-column:1 / -1}
+.f label{display:block;font-weight:500;margin-bottom:6px}
+.f .in{display:flex;align-items:center;height:36px;padding:0 10px;border:1px solid var(--line2);border-radius:6px;background:var(--white)}
+.f .in.foc{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-weak)}
+.f .in span{flex:1}
+.f .in .muted{flex:none}
+.f .help{margin-top:6px;font-size:12px;line-height:18px;color:var(--text2)}
+.f .help a{color:var(--accent-ink)}
+.detect{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:6px;background:var(--pane);font-size:12px;line-height:18px;color:var(--text2)}
+.detect b{color:var(--text);font-weight:500}
+.detect .num{font-size:11px}
+.form-f{display:flex;gap:8px;align-items:center;margin-top:4px}
+.boxes{margin:0 0 16px;border:1px solid var(--line);border-radius:6px;background:var(--white)}
+.boxes div{display:flex;align-items:center;gap:10px;padding:10px 12px}
+.boxes .ok{color:var(--ok)}
+.boxes .muted{margin-left:auto;font-size:12px}
+
+/* téléphone */
+.stage{flex:1;overflow:auto;background:#e4e4e0;display:flex;justify-content:center;align-items:flex-start;gap:48px;padding:40px}
+.phone-w{display:flex;flex-direction:column;gap:12px;align-items:center}
+.phone-w p{margin:0;color:var(--text2);font-size:12px}
+.phone{width:390px;height:844px;border-radius:44px;background:var(--black);padding:10px;flex:none}
+.ph-s{width:100%;height:100%;border-radius:34px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;position:relative}
+.ph-sb{height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-weight:600;font-size:13px;background:var(--white)}
+.ph-top{height:48px;flex:none;display:flex;align-items:center;gap:8px;padding:0 12px 0 16px;background:var(--white);border-bottom:1px solid var(--line)}
+.ph-top .logo{margin-right:auto}
+.ph-body{flex:1;overflow:hidden;background:var(--pane)}
+.ph-tabs{height:64px;flex:none;display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);background:var(--white);padding-bottom:12px}
+.ph-tabs a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:11px;color:var(--muted);text-decoration:none}
+.ph-tabs a.cur{color:var(--black);font-weight:500}
+.ph-tabs a .n{font-family:var(--mono);font-size:10px;color:#fff;background:var(--black);border-radius:4px;padding:0 4px;line-height:14px}
+.ph-body .row{padding:10px 16px 10px 14px}
+.ph-body .row .a{font-size:14px}
+.ph-body .row .b{font-size:12px}
+.ph-st{display:flex;align-items:center;gap:8px;padding:12px 16px;background:var(--err-bg);color:var(--err);font-weight:500;font-size:12px}
+.ph-doc{flex:1;overflow:hidden;background:var(--bg);display:flex;flex-direction:column}
+.ph-doc .pv{height:268px;flex:none;background:var(--sunk);overflow:hidden;display:flex;justify-content:center;padding-top:16px;position:relative}
+.ph-doc .pv .paper{zoom:.56}
+.ph-doc .pv > div{margin-top:-150px}
+.ph-doc .pv .tap{position:absolute;right:12px;bottom:12px}
+.ph-doc .fd{padding:14px 16px;flex:1;overflow:hidden}
+.ph-doc .fd h1{font-size:18px;line-height:24px;margin:0;font-weight:600}
+.ph-doc .fl{grid-template-columns:96px 1fr}
+.ph-doc .alert{margin:12px 0}
+.ph-bar{flex:none;padding:12px 16px 28px;background:var(--white);border-top:1px solid var(--line);display:flex;gap:8px}
+.ph-bar .btn.main{flex:1;justify-content:center;height:48px;font-size:15px}
+.ph-bar .btn{height:48px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="m21.4 11-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></symbol>
+  <symbol id="i-zoom" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M11 8v6M8 11h6"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="17.5" r="1.5"/><circle cx="17" cy="17.5" r="1.5"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></symbol>
+  <symbol id="i-build" viewBox="0 0 24 24"><path d="M4 21V5l8-3 8 3v16M9 21v-5h6v5M8 9h.01M12 9h.01M16 9h.01M8 13h.01M12 13h.01M16 13h.01"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M12 22v-5M9 8V2M15 8V2M18 8v4a6 6 0 0 1-12 0V8z"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M16 4a4 4 0 0 1 0 8M22 21a7 7 0 0 0-4-6.3"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 22V4M4 4h13l-2 4 2 4H4"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+</svg>
+
+<template id="facture">
+  <div class="paper">
+    <div class="ph">
+      <div class="vl">vileda<small>Vileda France SAS, division Retail<br>ZA des Tilleuls, 2 rue Ampère, 60100 Creil<br>SIRET 512 873 406 00031, TVA FR 41 512873406</small></div>
+      <div>
+        <div class="ft">Facture</div>
+        <div class="meta">
+          <span>N°</span><span>F2611-08734</span>
+          <span>Date</span><span>14/11/2026</span>
+          <span>Client</span><span>LFF-0458</span>
+          <span>Votre commande</span><span>0458-1126</span>
+          <span>Échéance</span><span>14/12/2026</span>
+        </div>
+      </div>
+    </div>
+    <div class="addr">
+      <div><em>Livré à</em>La Foir’Fouille Frouard<br>ZAC de la Porte des Vosges<br>54390 Frouard</div>
+      <div><em>Facturé à</em><b>SAS Frouard Distribution</b><br>Service comptabilité<br>ZAC de la Porte des Vosges, 54390 Frouard</div>
+    </div>
+    <table>
+      <thead><tr><th>Réf.</th><th>Désignation</th><th class="r">Qté</th><th class="r">PU HT</th><th class="r">Montant HT</th></tr></thead>
+      <tbody>
+        <tr><td>160553</td><td>Balai Ultramax Box XL</td><td class="r">24</td><td class="r">18,90</td><td class="r">453,60</td></tr>
+        <tr><td>158634</td><td>Serpillière microfibre, lot de 2</td><td class="r">120</td><td class="r">3,15</td><td class="r">378,00</td></tr>
+        <tr><td>167422</td><td>Éponge Pur Active, lot de 3</td><td class="r">144</td><td class="r">2,05</td><td class="r">295,20</td></tr>
+        <tr><td>141019</td><td>Seau essoreur Easy Wring</td><td class="r">18</td><td class="r">21,40</td><td class="r">385,20</td></tr>
+        <tr><td>152280</td><td>Gants multi-usages taille M</td><td class="r">96</td><td class="r">1,38</td><td class="r">132,48</td></tr>
+        <tr><td>170311</td><td>Lavette microfibre Colors, lot de 4</td><td class="r">72</td><td class="r">2,74</td><td class="r">197,28</td></tr>
+      </tbody>
+    </table>
+    <div class="stampbl">Livraisons : BL 4471203 du 07/11/2026, BL 4471288 du 12/11/2026</div>
+    <div class="tot"><table>
+      <tr><td>Total HT</td><td class="r">1 841,76</td></tr>
+      <tr><td>TVA 20 %</td><td class="r">368,35</td></tr>
+      <tr class="ttc"><td>Total TTC (EUR)</td><td class="r">2 210,11</td></tr>
+    </table><div class="mark"><span>Lu 2 270,11</span></div></div>
+    <div class="foot">Règlement par virement à 30 jours, IBAN FR76 3000 4013 2800 0109 8765 412, BIC BNPAFRPPXXX. Pas d’escompte pour paiement anticipé. Pénalités de retard au taux légal majoré de 10 points, indemnité forfaitaire de recouvrement 40 €.</div>
+  </div>
+</template>
+
+<nav class="maq" role="tablist">
+  <b>Maquette B, trois volets</b>
+  <button role="tab" data-s="1">1. À traiter</button>
+  <button role="tab" data-s="2">2. Fiche document</button>
+  <button role="tab" data-s="3">3. Fiche mail</button>
+  <button role="tab" data-s="4">4. Réglages</button>
+  <button role="tab" data-s="5">Téléphone</button>
+  <span>Données fictives</span>
+</nav>
+
+<!-- ============ barre haute (réutilisée) ============ -->
+<template id="topbar">
+  <header class="top">
+    <div class="logo"><i></i>GMFlow</div>
+    <nav class="nav">
+      <a href="#1" data-nav="1">À traiter <span class="n">19</span></a>
+      <a href="#">Fournisseurs</a>
+      <a href="#">Bilan du mois</a>
+    </nav>
+    <div class="sp"></div>
+    <div class="search"><svg class="i"><use href="#i-search"/></svg><span>Fournisseur, n°, montant</span><kbd>/</kbd></div>
+    <div class="sel">Toutes les sociétés <svg class="i"><use href="#i-down"/></svg></div>
+    <a class="state" href="#1"><span class="dot"></span>2 problèmes</a>
+    <a class="iconbtn" href="#4" title="Réglages"><svg class="i"><use href="#i-gear"/></svg></a>
+    <div class="me">MR</div>
+  </header>
+</template>
+
+<!-- ============ liste (réutilisée) ============ -->
+<template id="liste">
+  <aside class="list">
+    <div class="list-h"><h1>À traiter</h1><span class="num">19</span><span class="sp"></span><span class="muted" style="font-size:12px">Mis à jour à 10:12</span></div>
+    <div class="list-s">
+      <section class="sec">
+        <div class="sec-h err"><span class="dot" style="color:var(--err)"></span><h2>Bloqué</h2><span class="num">2</span></div>
+        <div class="row block" tabindex="0">
+          <div class="a">Envoi à Dext échoué : facture Spontex 2026-55120</div>
+          <div class="b">Dext a refusé le mail, pièce jointe de 14 Mo</div>
+          <div class="r"><button class="btn sm">Renvoyer</button></div>
+        </div>
+        <div class="row block" tabindex="0">
+          <div class="a">Boîte factures@houdemont-distribution.fr arrêtée</div>
+          <div class="b">Mot de passe refusé par Infomaniak depuis 06:40</div>
+          <div class="r"><button class="btn sm">Corriger</button></div>
+        </div>
+      </section>
+      <section class="sec">
+        <div class="sec-h"><h2>À valider</h2><span class="num">12</span><button class="btn sm">Commencer <kbd>↵</kbd></button></div>
+        <div class="row" data-k tabindex="0" data-doc>
+          <div class="a">Vileda</div><div class="r num">2 210,11 €</div>
+          <div class="b">Facture <span class="num">F2611-08734</span>, Frouard <span class="flag w">&nbsp;Montant incohérent</span></div><div class="r2">8 j</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Sodistra</div><div class="r num">986,40 €</div>
+          <div class="b">Facture <span class="num">2026/11/0457</span>, Houdemont <span class="flag e">&nbsp;Doublon possible</span></div><div class="r2">6 j</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Comptoir Lorrain d’Emballage</div><div class="r t2" style="font-size:12px">18 colis</div>
+          <div class="b">BL <span class="num">CLE-22871</span>, Frouard <span class="flag w">&nbsp;Nouveau fournisseur</span></div><div class="r2">5 j</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Arc France</div><div class="r num">4 118,40 €</div>
+          <div class="b">Facture <span class="num">26FA02104</span>, Houdemont</div><div class="r2">3 j</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Spontex</div><div class="r num">−312,00 €</div>
+          <div class="b">Avoir <span class="num">AV-55203</span>, Frouard</div><div class="r2">2 j</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">5five Simply Smart</div><div class="r num">1 506,72 €</div>
+          <div class="b">Facture <span class="num">FC118842</span>, Frouard</div><div class="r2">hier</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Duralex</div><div class="r t2" style="font-size:12px">32 colis</div>
+          <div class="b">BL <span class="num">7781104</span>, Houdemont</div><div class="r2">hier</div>
+        </div>
+        <a class="more" href="#">5 autres, reçus aujourd’hui</a>
+      </section>
+      <section class="sec">
+        <div class="sec-h"><h2>À répondre</h2><span class="num">5</span></div>
+        <div class="row" data-k tabindex="0" data-mail>
+          <div class="a">Arc France relance la facture 26FA01877</div><div class="r"><span class="flag e">Urgent</span></div>
+          <div class="b">Demande la date de règlement, échue le 15/11</div><div class="r2">09:41</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Sodistra demande le RIB de Houdemont</div><div class="r"></div>
+          <div class="b">Pour rembourser l’avoir AV-26-0412</div><div class="r2">hier</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Vileda propose de décaler la livraison</div><div class="r"></div>
+          <div class="b">Commande 0458-1131 livrable le 28/11 au lieu du 26</div><div class="r2">hier</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Transports Heppner réclame un BL signé</div><div class="r"></div>
+          <div class="b">Livraison du 18/11 à Houdemont, 6 palettes</div><div class="r2">20/11</div>
+        </div>
+        <div class="row" data-k tabindex="0">
+          <div class="a">Cabinet Muller et associés</div><div class="r"></div>
+          <div class="b">Demande les relevés bancaires d’octobre</div><div class="r2">19/11</div>
+        </div>
+      </section>
+    </div>
+    <div class="list-f"><span><kbd>J</kbd><kbd>K</kbd> suivant, précédent</span><span><kbd>↵</kbd> valider</span><span><kbd>/</kbd> chercher</span></div>
+  </aside>
+</template>
+
+<!-- ============ champs du document (réutilisés) ============ -->
+<template id="champs">
+  <div class="alert"><svg class="i"><use href="#i-warn"/></svg><p><b>Montant incohérent.</b> HT + TVA donnent 2 210,11 €, le total lu est 2 270,11 €. Vérifiez le total sur la facture.</p></div>
+  <div class="fl">
+    <div class="k">Type</div><div class="v edit">Facture</div>
+    <div class="k">Société</div><div class="v edit">SAS Frouard Distribution <span class="src">comme les 14 dernières</span></div>
+    <div class="k">Fournisseur</div><div class="v edit">Vileda</div>
+    <div class="k">N°</div><div class="v edit"><span class="num">F2611-08734</span></div>
+    <div class="k">Date</div><div class="v edit"><span class="num">14/11/2026</span> <span class="hint">échéance 14/12/2026</span></div>
+    <div class="k">Total HT</div><div class="v edit"><span class="num">1 841,76 €</span></div>
+    <div class="k">TVA</div><div class="v edit"><span class="num">368,35 €</span> <span class="hint">20 %</span></div>
+    <div class="k doubt">Total TTC</div><div class="v doubt"><span class="num">2 270,11 €</span><button class="btn sm" style="margin-left:auto">Mettre 2 210,11 €</button></div>
+  </div>
+</template>
+
+<!-- ============ ÉCRAN 1 ============ -->
+<section class="screen" id="s1">
+  <div class="app">
+    <div data-use="topbar"></div>
+    <div class="body">
+      <div data-use="liste" data-cur="doc" style="display:contents"></div>
+      <main class="pane">
+        <div class="pane-h">
+          <span class="pos">À valider <span class="num">1</span> sur <span class="num">12</span></span>
+          <span class="sp"></span>
+          <button class="btn sm ghost"><svg class="i"><use href="#i-up"/></svg><kbd>K</kbd></button>
+          <button class="btn sm ghost"><svg class="i"><use href="#i-down"/></svg><kbd>J</kbd></button>
+          <span class="vsep"></span>
+          <a class="btn sm ghost" href="#2"><svg class="i"><use href="#i-max"/></svg>Plein écran <kbd>F</kbd></a>
+        </div>
+        <div class="pane-b">
+          <div class="preview" style="width:452px;padding:20px 16px">
+            <div data-use="facture" style="zoom:.7;display:flex"></div>
+          </div>
+          <div class="fields">
+            <div class="doc-t"><h1>Facture Vileda</h1><span class="num">F2611-08734</span></div>
+            <div class="doc-m">Reçue le 14/11 par factures@frouard-distribution.fr, lue dans le scan</div>
+            <div data-use="champs"></div>
+            <div class="folds">
+              <details class="fold"><summary><svg class="i"><use href="#i-truck"/></svg>BL liés <span class="s">2 liés, 1 à lier, écart de 24 serpillières</span><svg class="i chev"><use href="#i-right"/></svg></summary></details>
+              <details class="fold"><summary><svg class="i"><use href="#i-send"/></svg>Envoi à Dext <span class="s">Dext Frouard, pas encore envoyée</span><svg class="i chev"><use href="#i-right"/></svg></summary></details>
+              <details class="fold"><summary><svg class="i"><use href="#i-mail"/></svg>Mail d’origine <span class="s">factures@vileda-retail.fr, 14/11 08:57</span><svg class="i chev"><use href="#i-right"/></svg></summary></details>
+            </div>
+          </div>
+        </div>
+        <div class="pane-f">
+          <button class="btn main">Valider et envoyer à Dext <kbd>↵</kbd></button>
+          <button class="btn">Écarter <kbd>E</kbd></button>
+          <div class="next">Ensuite <b>Sodistra, facture 2026/11/0457</b></div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ÉCRAN 2 ============ -->
+<section class="screen wide" id="s2">
+  <div class="app">
+    <div data-use="topbar"></div>
+    <main class="pane">
+      <div class="pane-h">
+        <a class="back" href="#1"><svg class="i"><use href="#i-left"/></svg>À traiter <kbd>Échap</kbd></a>
+        <span class="vsep"></span>
+        <span class="pos">À valider <span class="num">1</span> sur <span class="num">12</span></span>
+        <span class="sp"></span>
+        <button class="btn sm ghost"><svg class="i"><use href="#i-zoom"/></svg>Zoom</button>
+        <button class="btn sm ghost"><svg class="i"><use href="#i-dl"/></svg>PDF</button>
+        <span class="vsep"></span>
+        <button class="btn sm ghost"><svg class="i"><use href="#i-up"/></svg><kbd>K</kbd></button>
+        <button class="btn sm ghost"><svg class="i"><use href="#i-down"/></svg><kbd>J</kbd></button>
+      </div>
+      <div class="pane-b">
+        <div class="preview">
+          <div data-use="facture" style="zoom:1.12;display:flex"></div>
+        </div>
+        <div class="fields">
+          <div class="doc-t"><h1>Facture Vileda</h1><span class="num">F2611-08734</span></div>
+          <div class="doc-m">Reçue le 14/11 par factures@frouard-distribution.fr, lue dans le scan</div>
+          <div data-use="champs"></div>
+          <div class="folds">
+            <details class="fold" open>
+              <summary><svg class="i"><use href="#i-truck"/></svg>BL liés <span class="s">2 liés, 1 à lier</span><svg class="i chev"><use href="#i-right"/></svg></summary>
+              <div class="in">
+                <table class="t">
+                  <thead><tr><th>BL</th><th>Livré le</th><th>Lien</th><th class="n">Serpillières</th><th></th></tr></thead>
+                  <tbody>
+                    <tr><td class="num">4471203</td><td class="num">07/11</td><td class="t2">par n° de BL</td><td class="n num">48</td><td class="n"><button class="btn sm ghost">Délier</button></td></tr>
+                    <tr><td class="num">4471288</td><td class="num">12/11</td><td class="t2">par n° de BL</td><td class="n num">48</td><td class="n"><button class="btn sm ghost">Délier</button></td></tr>
+                    <tr class="cand"><td class="num">4471310</td><td class="num">13/11</td><td class="t2">même commande 0458-1126</td><td class="n num">24</td><td class="n"><button class="btn sm">Lier <kbd>L</kbd></button></td></tr>
+                  </tbody>
+                </table>
+                <div class="gap"><svg class="i" style="margin-top:2px;color:var(--warn)"><use href="#i-warn"/></svg><div><b>Serpillière microfibre : 120 facturées, 96 livrées</b> sur les deux BL liés. Le BL 4471310 en apporte 24 : le lier règle l’écart.</div></div>
+              </div>
+            </details>
+            <details class="fold"><summary><svg class="i"><use href="#i-send"/></svg>Envoi à Dext <span class="s">vers frouard.factures@dext.cc, pas encore envoyée</span><svg class="i chev"><use href="#i-right"/></svg></summary></details>
+            <details class="fold"><summary><svg class="i"><use href="#i-mail"/></svg>Mail d’origine <span class="s">factures@vileda-retail.fr, 14/11 08:57</span><svg class="i chev"><use href="#i-right"/></svg></summary></details>
+          </div>
+        </div>
+      </div>
+      <div class="pane-f">
+        <button class="btn main">Valider et envoyer à Dext <kbd>↵</kbd></button>
+        <button class="btn">Écarter <kbd>E</kbd></button>
+        <div class="next">Ensuite <b>Sodistra</b> <kbd>J</kbd></div>
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- ============ ÉCRAN 3 ============ -->
+<section class="screen" id="s3">
+  <div class="app">
+    <div data-use="topbar"></div>
+    <div class="body">
+      <div data-use="liste" data-cur="mail" style="display:contents"></div>
+      <main class="pane">
+        <div class="pane-h">
+          <span class="pos">À répondre <span class="num">1</span> sur <span class="num">5</span></span>
+          <span class="sp"></span>
+          <button class="btn sm ghost"><svg class="i"><use href="#i-up"/></svg><kbd>K</kbd></button>
+          <button class="btn sm ghost"><svg class="i"><use href="#i-down"/></svg><kbd>J</kbd></button>
+        </div>
+        <div class="mail-b">
+          <div class="mail-l">
+            <div class="doc-t"><h1>Relance facture 26FA01877</h1></div>
+            <div class="doc-m">Arc France, à compta@frouard-distribution.fr, aujourd’hui 09:41</div>
+            <div class="resume"><div class="lab">En une phrase</div><p>Arc France relance la facture 26FA01877 de 3 412,80 € TTC, échue le 15/11, et demande quand le virement partira.</p></div>
+            <div class="tri">Mal trié ?
+              <button class="btn sm">Pas besoin de réponse</button>
+              <button class="btn sm">Information</button>
+              <button class="btn sm">Publicité</button>
+            </div>
+            <div class="from">
+              <span>De</span><span>Céline Marchal &lt;c.marchal@arc-france.fr&gt;</span>
+              <span>À</span><span>compta@frouard-distribution.fr</span>
+              <span>Objet</span><span>Relance facture 26FA01877</span>
+            </div>
+            <div class="mailtext">
+              <p>Bonjour,</p>
+              <p>Sauf erreur de notre part, la facture 26FA01877 du 16/10/2026, d’un montant de 3 412,80 € TTC, arrivée à échéance le 15/11, reste impayée à ce jour.</p>
+              <p>Pourriez-vous nous indiquer la date prévue de règlement ? Vous trouverez la facture en pièce jointe.</p>
+              <p>Bien cordialement,<br>Céline Marchal<br>Service recouvrement, Arc France<br>03 21 12 74 00</p>
+            </div>
+            <a class="att" href="#2"><svg class="i"><use href="#i-file"/></svg><div><div>Facture 26FA01877.pdf</div><div class="t2">Envoyée à Dext le 28/10</div></div><span class="go">Ouvrir la fiche</span></a>
+            <div class="ctx">
+              <h3>Arc France chez Frouard</h3>
+              <div><span>Factures ce mois</span><span class="num">3</span></div>
+              <div><span>BL en attente de facture</span><span class="num">1</span></div>
+            </div>
+          </div>
+          <div class="mail-r">
+            <div class="rep-h"><h2>Réponse proposée</h2><span class="muted">à relire</span><span class="sp"></span><button class="btn sm ghost">Proposer une autre</button><button class="btn sm ghost">Effacer</button></div>
+            <div class="editor" contenteditable="true" spellcheck="false">
+              <p>Bonjour Madame Marchal,</p>
+              <p>Nous avons bien reçu votre facture 26FA01877 du 16/10/2026 de 3 412,80 € TTC, transmise à notre comptabilité le 28/10.</p>
+              <p>Le règlement est programmé : le virement partira le <span class="fill">date à compléter</span>. Nous vous prions de nous excuser pour ce retard.</p>
+              <p>Bien cordialement,</p>
+              <p>Service comptabilité<br>SAS Frouard Distribution, La Foir’Fouille Frouard</p>
+            </div>
+            <div class="rep-n"><svg class="i"><use href="#i-warn"/></svg>Un passage reste à compléter avant l’envoi</div>
+            <div class="rep-f">
+              <button class="btn main">Envoyer depuis compta@frouard-distribution.fr <kbd>Ctrl</kbd><kbd>↵</kbd></button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ÉCRAN 4 ============ -->
+<section class="screen" id="s4">
+  <div class="app">
+    <div data-use="topbar"></div>
+    <div class="set">
+      <nav class="set-nav">
+        <h1>Réglages</h1>
+        <a class="cur" href="#"><svg class="i"><use href="#i-flag"/></svg>Mise en route <span class="st num">2/5</span></a>
+        <div class="grp">Par sujet</div>
+        <a href="#"><svg class="i"><use href="#i-build"/></svg>Sociétés <span class="st num">2</span></a>
+        <a href="#"><svg class="i"><use href="#i-inbox"/></svg>Boîtes mail <span class="st num">1</span></a>
+        <a href="#"><svg class="i"><use href="#i-plug"/></svg>Connexion à Claude</a>
+        <a href="#"><svg class="i"><use href="#i-send"/></svg>Envoi vers Dext / Yooz</a>
+        <a href="#"><svg class="i"><use href="#i-users"/></svg>Utilisateurs <span class="st num">1</span></a>
+        <a href="#"><svg class="i"><use href="#i-sliders"/></svg>Avancé</a>
+      </nav>
+      <div class="set-main">
+        <div class="set-col">
+          <h2>Mise en route</h2>
+          <p class="lead">Trois étapes manquent encore pour que les factures de Houdemont arrivent et partent seules vers Dext.</p>
+          <div class="prog"><i class="d"></i><i class="c"></i><i></i><i></i><i></i></div>
+          <div class="steps">
+            <div class="step done"><div class="step-h"><span class="step-n"><svg class="i" style="width:12px;height:12px;stroke-width:2.5"><use href="#i-check"/></svg></span><div><h3>Sociétés</h3><p>SAS Frouard Distribution, SAS Houdemont Distribution</p></div><button class="btn sm ghost">Modifier</button></div></div>
+            <div class="step open">
+              <div class="step-h"><span class="step-n">2</span><div><h3>Boîtes mail</h3><p>Une boîte pour Frouard, aucune pour Houdemont</p></div><span class="st">En cours</span></div>
+              <div class="step-b">
+                <div class="boxes"><div><svg class="i ok"><use href="#i-check"/></svg>factures@frouard-distribution.fr <span class="muted">Frouard, relève toutes les 5 min, 1 284 mails vus</span></div></div>
+                <div class="sub"><span class="cur"><i>1</i> Connexion</span><span><i>2</i> Dossiers</span><span><i>3</i> Historique</span></div>
+                <div class="form">
+                  <div class="f">
+                    <label>Adresse</label>
+                    <div class="in"><span>compta@houdemont-distribution.fr</span></div>
+                    <div class="help">L’adresse où arrivent les factures et les mails des fournisseurs.</div>
+                  </div>
+                  
+                  <div class="f">
+                    <label>Mot de passe d’application</label>
+                    <div class="in foc"><span class="num" style="font-size:14px;letter-spacing:1px">••••••••••••••••</span><span class="muted">Afficher</span></div>
+                    <div class="help">Pas le mot de passe habituel de la boîte. Créez-en un dans le Manager Infomaniak, rubrique Service Mail, puis Mots de passe d’application. <a href="#">Voir comment</a></div>
+                  </div>
+<div class="detect full"><svg class="i" style="margin-top:1px"><use href="#i-check"/></svg><div><b>Boîte Infomaniak reconnue.</b> Serveurs préremplis : réception <span class="num">mail.infomaniak.com:993</span>, envoi <span class="num">mail.infomaniak.com:465</span>. <a href="#" style="color:var(--text2)">Changer les serveurs</a></div></div>
+                  <div class="f">
+                    <label>Société</label>
+                    <div class="in"><span>SAS Houdemont Distribution</span><svg class="i muted"><use href="#i-down"/></svg></div>
+                    <div class="help">Les documents reçus ici sont rangés dans cette société, sauf pour un fournisseur déjà rangé ailleurs.</div>
+                  </div>
+                  <div class="form-f full"><button class="btn main">Suivant : tester la connexion</button><button class="btn ghost">Annuler</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="step"><div class="step-h"><span class="step-n">3</span><div><h3>Connexion à Claude</h3><p>Pour lire les factures et proposer les réponses</p></div><span class="st">À faire</span></div></div>
+            <div class="step"><div class="step-h"><span class="step-n">4</span><div><h3>Envoi vers Dext / Yooz</h3><p>L’adresse de collecte de chaque société</p></div><span class="st">À faire</span></div></div>
+            <div class="step"><div class="step-h"><span class="step-n">5</span><div><h3>Utilisateurs</h3><p>Les responsables de magasin et ce qu’ils voient</p></div><span class="st">À faire</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TÉLÉPHONE ============ -->
+<section class="screen" id="s5">
+  <div class="stage">
+    <div class="phone-w">
+      <div class="phone"><div class="ph-s">
+        <div class="ph-sb"><span>10:12</span><span class="num" style="font-size:11px">5G</span></div>
+        <div class="ph-top"><div class="logo"><i></i>GMFlow</div><button class="iconbtn"><svg class="i"><use href="#i-search"/></svg></button><div class="sel" style="height:32px">Toutes <svg class="i"><use href="#i-down"/></svg></div></div>
+        <div class="ph-body">
+          <div class="ph-st"><span class="dot"></span>2 problèmes à débloquer<svg class="i" style="margin-left:auto"><use href="#i-right"/></svg></div>
+          <section class="sec">
+            <div class="sec-h"><h2>À valider</h2><span class="num">12</span><button class="btn sm">Commencer</button></div>
+            <div class="row cur"><div class="a">Vileda</div><div class="r num">2 210,11 €</div><div class="b">Facture, Frouard <span class="flag w">&nbsp;Montant incohérent</span></div><div class="r2">8 j</div></div>
+            <div class="row"><div class="a">Sodistra</div><div class="r num">986,40 €</div><div class="b">Facture, Houdemont <span class="flag e">&nbsp;Doublon possible</span></div><div class="r2">6 j</div></div>
+            <div class="row"><div class="a">Comptoir Lorrain d’Emb…</div><div class="r t2" style="font-size:12px">18 colis</div><div class="b">BL, Frouard <span class="flag w">&nbsp;Nouveau fournisseur</span></div><div class="r2">5 j</div></div>
+            <div class="row"><div class="a">Arc France</div><div class="r num">4 118,40 €</div><div class="b">Facture, Houdemont</div><div class="r2">3 j</div></div>
+            <a class="more" href="#">8 autres</a>
+          </section>
+          <section class="sec">
+            <div class="sec-h"><h2>À répondre</h2><span class="num">5</span></div>
+            <div class="row"><div class="a">Arc France relance une facture</div><div class="r"><span class="flag e">Urgent</span></div><div class="b">Demande la date de règlement</div><div class="r2">09:41</div></div>
+            <div class="row"><div class="a">Sodistra demande le RIB</div><div class="r"></div><div class="b">Pour rembourser l’avoir AV-26-0412</div><div class="r2">hier</div></div>
+          </section>
+        </div>
+        <div class="ph-tabs"><a class="cur" href="#">À traiter <span class="n">19</span></a><a href="#">Fournisseurs</a><a href="#">Bilan</a></div>
+      </div></div>
+      <p>La liste devient la page d’accueil</p>
+    </div>
+
+    <div class="phone-w">
+      <div class="phone"><div class="ph-s">
+        <div class="ph-sb"><span>10:12</span><span class="num" style="font-size:11px">5G</span></div>
+        <div class="ph-top"><a class="back" href="#" style="margin-left:-8px"><svg class="i"><use href="#i-left"/></svg>À traiter</a><span class="sp"></span><span class="muted"><span class="num" style="color:var(--text)">1</span> sur <span class="num">12</span></span></div>
+        <div class="ph-doc">
+          <div class="pv"><div data-use="facture" style="display:flex"></div><button class="btn sm tap"><svg class="i"><use href="#i-zoom"/></svg>Agrandir</button></div>
+          <div class="fd">
+            <h1>Facture Vileda</h1>
+            <div class="t2" style="font-size:12px"><span class="num">F2611-08734</span>, Frouard</div>
+            <div class="alert"><svg class="i"><use href="#i-warn"/></svg><p><b>Montant incohérent.</b> HT + TVA donnent 2 210,11 €, total lu 2 270,11 €.</p></div>
+            <div class="fl">
+              <div class="k">Total HT</div><div class="v"><span class="num">1 841,76 €</span></div>
+              <div class="k">TVA</div><div class="v"><span class="num">368,35 €</span></div>
+              <div class="k doubt">Total TTC</div><div class="v doubt"><span class="num">2 270,11 €</span><button class="btn sm" style="margin-left:auto">Mettre 2 210,11</button></div>
+              <div class="k">BL liés</div><div class="v">2 liés, 1 à lier <svg class="i" style="margin-left:auto;color:var(--muted)"><use href="#i-right"/></svg></div>
+            </div>
+          </div>
+          <div class="ph-bar"><button class="btn main">Valider et envoyer à Dext</button></div>
+        </div>
+      </div></div>
+      <p>La fiche s’ouvre en page, bouton fixé en bas</p>
+    </div>
+  </div>
+</section>
+
+<script>
+// assemble les morceaux réutilisés
+document.querySelectorAll('[data-use]').forEach(el => {
+  const t = document.getElementById(el.dataset.use).content.cloneNode(true);
+  if (el.dataset.cur) {
+    const r = t.querySelector('[data-' + el.dataset.cur + ']');
+    if (r) r.classList.add('cur');
+  }
+  el.appendChild(t);
+});
+document.querySelectorAll('#s1 [data-nav],#s2 [data-nav],#s3 [data-nav]').forEach(a => a.classList.add('cur'));
+document.querySelectorAll('#s4 .top .iconbtn').forEach(a => a.style.cssText='background:var(--pane);color:var(--black)');
+
+const tabs = document.querySelectorAll('.maq [data-s]');
+function show(n){
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === 's' + n));
+  tabs.forEach(b => b.setAttribute('aria-selected', b.dataset.s == n));
+}
+tabs.forEach(b => b.onclick = () => { location.hash = b.dataset.s; });
+window.onhashchange = () => show(location.hash.slice(1) || 1);
+show(location.hash.slice(1) || 1);
+
+// J / K dans la liste visible
+document.addEventListener('keydown', e => {
+  if (e.target.isContentEditable) return;
+  const s = document.querySelector('.screen.on');
+  const rows = [...s.querySelectorAll('.list [data-k]')];
+  if (!rows.length || !'jk'.includes(e.key)) return;
+  let i = rows.findIndex(r => r.classList.contains('cur'));
+  i = Math.max(0, Math.min(rows.length - 1, i + (e.key === 'j' ? 1 : -1)));
+  rows.forEach(r => r.classList.remove('cur'));
+  rows[i].classList.add('cur'); rows[i].scrollIntoView({block:'nearest'});
+});
+</script>
+</body>
+</html>
