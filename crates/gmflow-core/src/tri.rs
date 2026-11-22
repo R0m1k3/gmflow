@@ -27,7 +27,10 @@ litige, relance qui demande une réponse) ; « information » = message écrit p
 n'attend pas de réponse ; « document_seul » = le mail sert seulement à transmettre un document \
 (facture, avoir, bon de livraison, relevé) ; « publicite » = prospection, promotion, newsletter ; \
 « notification » = message automatique (confirmation, avis d'expédition, alerte, accusé de \
-réception). En cas de doute entre question et autre chose, choisis question. « resume » : une \
+réception). « question » est réservé à un message écrit par une personne, avec une vraie demande ou \
+question explicite adressée à nous et qui attend une réponse : jamais un envoi de document, une \
+confirmation, un remerciement, un message de masse ni un simple « pour information ». En cas \
+de doute entre question et information, choisis information. « resume » : une \
 ligne en français, 120 caractères au plus, qui dit ce que veut l'expéditeur. « priorite » : haute \
 si c'est urgent ou bloquant (échéance proche, litige, réclamation), basse si rien ne presse, \
 normale sinon.";

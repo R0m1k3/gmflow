@@ -316,8 +316,16 @@ fn lu_depuis_extraction(
         v["lignes"] = json!(e.lignes.len());
         v
     });
+    // Seuls les factures, avoirs et BL servent : relance, devis, autre sont ignorés.
+    let garde = matches!(e.r#type.as_str(), "facture" | "avoir" | "bl");
     Lu {
-        etat: "lu",
+        etat: if garde { "lu" } else { "ignore" },
+        message: (!garde).then(|| {
+            format!(
+                "document de type « {} » : seuls les factures, avoirs et bons de livraison sont gardés",
+                e.r#type
+            )
+        }),
         voie: Some(voie.code()),
         type_doc: Some(e.r#type.clone()),
         societe_id: societe_code.or(e.societe_id),

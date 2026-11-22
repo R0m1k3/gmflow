@@ -3,7 +3,6 @@
 //! aucune règle ne suffit, dans la limite du quota de tri du jour.
 
 use gmflow_core::claude::{self, Appel, ErreurClaude};
-use gmflow_core::lecture::IMAGE_MIN;
 use gmflow_core::tri::{self, ContexteRegle, ErreurTri, Marque, PieceVue, Tri};
 use gmflow_core::{file, reglages, stockage};
 use sqlx::PgPool;
@@ -204,7 +203,7 @@ async fn trier_pris(ctx: &Contexte, m: &MailTri) -> anyhow::Result<()> {
         .filter(|p| match p.etat.as_deref() {
             Some("ignore") => false,
             Some(_) => true,
-            None => !(p.type_mime.starts_with("image/") && (p.taille as usize) < IMAGE_MIN),
+            None => !p.type_mime.starts_with("image/"),
         })
         .count();
     let contexte = ContexteRegle {

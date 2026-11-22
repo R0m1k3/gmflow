@@ -153,13 +153,10 @@ fn images_et_types_ignores() {
         Aiguillage::Ignore(_)
     ));
     let photo = fixtures::jpeg(120_000);
-    assert_eq!(
+    assert!(matches!(
         aiguiller("IMG_2041.jpg", "image/jpeg", &photo, false),
-        Aiguillage::Scan {
-            extension: "jpg",
-            pages: 1
-        }
-    );
+        Aiguillage::Ignore(_)
+    ));
     assert!(matches!(
         aiguiller("promo.jpg", "image/jpeg", &photo, true),
         Aiguillage::Ignore(_)

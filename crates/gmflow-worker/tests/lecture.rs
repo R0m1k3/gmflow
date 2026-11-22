@@ -228,7 +228,7 @@ async fn pdf_texte_lu_par_claude_avec_le_texte_seul() {
 }
 
 #[tokio::test]
-async fn scan_lu_par_claude_dans_un_dossier_de_travail() {
+async fn photo_jpg_ignoree_sans_appel_a_claude() {
     let faux = FauxClaude::new(&reponse(&extraction("bl", None, true)), INVALIDE);
     let b = banc(&faux).await;
     let a = societe(&b, "Magasin Frouard", SIRET_A).await;
@@ -249,18 +249,9 @@ async fn scan_lu_par_claude_dans_un_dossier_de_travail() {
     lire_tout(&b, &[m]).await;
     w.arreter();
     let d = &docs(&b, m).await[0];
-    assert_eq!(
-        (d.etat.as_str(), d.voie.as_deref(), d.r#type.as_deref()),
-        ("lu", Some("scan"), Some("bl"))
-    );
-    assert_eq!(d.texte.as_deref(), Some("FACTURE F-1 transcrite"));
-    let args = &faux.appels()[0];
-    assert!(args.contains("--tools\nRead\n"), "{args}");
-    assert!(
-        args.contains("document.jpg"),
-        "le fichier doit être dans le dossier courant : {args}"
-    );
-    assert!(args.contains("--effort\nmedium\n"));
+    // Les images ne sont plus lues : seuls les PDF, XML et tableurs le sont.
+    assert_eq!(d.etat, "ignore");
+    assert!(faux.appels().is_empty());
     b.fermer().await;
 }
 
