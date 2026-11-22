@@ -76,22 +76,14 @@
   } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type {
-    BoiteVisible,
-    Brouillon,
-    Categorie,
-    EtatFournisseur,
-    FicheDocument,
-    FicheMail,
-    MailARepondre,
-    SocieteVisible
-  } from '#lib/types.ts';
+  import type { Brouillon, Categorie, EtatFournisseur, FicheMail, MailARepondre } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
   import Etiquette from './Etiquette.svelte';
   import Icone from './Icone.svelte';
   import Kbd from './Kbd.svelte';
+  import { formatMontant } from './Montant.svelte';
   import Repli from './Repli.svelte';
 
   let {
@@ -125,10 +117,7 @@
   /** Brouillon dont on attend l'envoi par le worker. */
   let attenteEnvoi = $state<number | null>(null);
   let file = $state<MailARepondre[] | null>(null);
-  let docs = $state<Record<number, FicheDocument>>({});
   let contexte = $state<{ fournisseurId: number; nom: string; societe: string | null; etat: EtatFournisseur } | null>(null);
-  let boitesVisibles = $state<BoiteVisible[]>([]);
-  let societesVisibles = $state<SocieteVisible[]>([]);
   let maintenant = $state(Date.now());
   let citeOuverte = $state(false);
   let arret: (() => void) | null = null;
@@ -147,16 +136,9 @@
   let depuisSecondes = $derived(actif && EN_COURS.includes(actif.statut) ? Math.max(0, Math.round((maintenant - Date.parse(actif.modifie_le)) / 1000)) : 0);
 
   /** Société de chaque boîte du mail (pour « à compta@…, Frouard »). */
-  let societesDuMail = $derived.by(() => {
-    if (!m) return [] as string[];
-    const noms = new Set<string>();
-    for (const b of m.boites) {
-      const sid = boitesVisibles.find((v) => v.id === b.boite_id)?.societe_id;
-      const s = societesVisibles.find((x) => x.id === sid);
-      if (s) noms.add(nomCourtSociete(s.raison_sociale));
-    }
-    return [...noms];
-  });
+  let societesDuMail = $derived(m ? [...new Set(m.boites.map((b) => nomCourtSociete(b.societe)))] : []);
+  /** Adresses des boîtes qui ont reçu le mail (une boîte peut être vue dans plusieurs dossiers). */
+  let adressesDuMail = $derived(m ? [...new Set(m.boites.map((b) => b.adresse))] : []);
 
   // ---------- Chargement ----------
 
@@ -193,22 +175,19 @@
     }, 2000);
   }
 
-  async function lireDocuments(v: FicheMail) {
-    const ids = v.pieces.filter((p) => p.document_id && p.document_etat === 'lu').map((p) => p.document_id!);
-    const lus = await Promise.all(ids.map((d) => api.get<FicheDocument>(`/api/documents/${d}`).catch(() => null)));
-    if (v.id !== id) return;
-    const carte: Record<number, FicheDocument> = {};
-    for (const d of lus) if (d) carte[d.id] = d;
-    docs = carte;
-    const avecFournisseur = lus.find((d) => d?.fournisseur_id && (d.type === 'facture' || d.type === 'avoir' || d.type === 'bl'));
-    if (!avecFournisseur) return;
+  /** Encadré « fournisseur » : le fil du fournisseur de la première pièce lue qui en a un. */
+  async function lireContexte(v: FicheMail) {
+    const p = v.pieces.find(
+      (x) => x.document_etat === 'lu' && x.document_fournisseur_id && (x.document_type === 'facture' || x.document_type === 'avoir' || x.document_type === 'bl')
+    );
+    if (!p) return;
     try {
-      const fil = await filFournisseur(avecFournisseur.fournisseur_id!, { societe: societe.id, mois: 1 });
+      const fil = await filFournisseur(p.document_fournisseur_id!, { societe: societe.id, mois: 1 });
       if (v.id !== id) return;
       contexte = {
         fournisseurId: fil.fournisseur.id,
         nom: fil.fournisseur.nom,
-        societe: nomCourtSociete(avecFournisseur.societe ?? societe.courante?.raison_sociale) || null,
+        societe: nomCourtSociete(p.document_societe ?? societe.courante?.raison_sociale) || null,
         etat: fil.etat
       };
     } catch {
@@ -242,7 +221,6 @@
     annonce.texte = '';
     occupe = null;
     attenteEnvoi = null;
-    docs = {};
     contexte = null;
     citeOuverte = false;
     texte = '';
@@ -251,7 +229,7 @@
         if (!v) return;
         etaitDansFile = v.statut_reponse === 'a_repondre';
         if (v.brouillons.some((b) => EN_COURS.includes(b.statut))) suivre();
-        void lireDocuments(v);
+        void lireContexte(v);
       })
       .catch((e) => {
         if (ident === id) erreurChargement = e instanceof ErreurApi && e.code === 404 ? 'Mail introuvable, ou hors de vos sociétés.' : message(e);
@@ -262,11 +240,6 @@
   $effect(() => {
     void societe.id;
     void lireFile();
-  });
-
-  $effect(() => {
-    api.get<BoiteVisible[]>('/api/boites').then((v) => (boitesVisibles = v)).catch(() => {});
-    api.get<SocieteVisible[]>('/api/societes').then((v) => (societesVisibles = v)).catch(() => {});
   });
 
   // Chronomètre pendant la préparation ou l'envoi.
@@ -321,7 +294,7 @@
 
   async function apresEnvoi(b: Brouillon) {
     void rafraichirCompteurs();
-    const texteInfo = b.erreur ? `Réponse envoyée depuis ${b.boite}, mais : ${b.erreur}` : `Réponse envoyée depuis ${b.boite}.`;
+    const texteInfo = b.erreur ? `Réponse envoyée depuis ${b.boite_adresse}, mais : ${b.erreur}` : `Réponse envoyée depuis ${b.boite_adresse}.`;
     if (etaitDansFile) {
       annonce.texte = texteInfo;
       await passerAuSuivant();
@@ -411,7 +384,7 @@
       : '';
     demander({
       genre: 'envoi',
-      titre: `Envoyer depuis ${actif.boite} ?`,
+      titre: `Envoyer depuis ${actif.boite_adresse} ?`,
       libelle: 'Envoyer',
       danger: aCompleter > 0,
       texte: `La réponse part à ${m?.expediteur || 'l’expéditeur'} telle qu’affichée, dans le fil du mail reçu.${reste}`,
@@ -494,29 +467,27 @@
       const ton = p.document_etat === 'erreur' ? 'erreur' : 'pale';
       return { texte: libelleEtat(p.document_etat), ton };
     }
-    const d = docs[p.document_id];
     const type = libelleType(p.document_type, true);
-    if (!d) return { texte: `${type}, lu`, ton: 'neutre' };
-    if (d.type === 'facture' || d.type === 'avoir') {
-      if (d.statut_depot === 'depose') {
-        const envoi = d.envois.find((e) => e.etat === 'envoye');
-        return {
-          texte: `Envoyée à ${nomOutil(d.societe_outil_depot)}${envoi ? ` le ${dateMail(envoi.quand, false)}` : ''}`,
-          ton: 'ok'
-        };
-      }
-      const s = libelleStatutEnvoi(d.statut_depot, d.societe_outil_depot);
-      const ton = d.statut_depot === 'erreur' || d.statut_depot === 'doublon' ? 'erreur' : d.statut_depot === 'a_verifier' ? 'alerte' : 'neutre';
-      return { texte: s || `${type}, lue`, ton };
+    const quoi = [`${type}${p.document_numero ? ` ${p.document_numero}` : ''}`];
+    if (p.document_montant_ttc !== null) quoi.push(formatMontant(p.document_montant_ttc));
+    const avec = (etat: string) => [...quoi, etat].join(', ');
+    if (p.document_type === 'facture' || p.document_type === 'avoir') {
+      const outil = nomOutil(p.document_outil);
+      if (p.document_statut_depot === 'depose')
+        return { texte: avec(`envoyée à ${outil}${p.document_envoye_le ? ` le ${dateMail(p.document_envoye_le, false)}` : ''}`), ton: 'ok' };
+      const st = p.document_statut_depot;
+      const s = libelleStatutEnvoi(st, p.document_outil);
+      const ton = st === 'erreur' || st === 'doublon' ? 'erreur' : st === 'a_verifier' ? 'alerte' : 'neutre';
+      return { texte: avec(s ? s.charAt(0).toLowerCase() + s.slice(1) : 'lue'), ton };
     }
-    if (d.type === 'bl') return d.verifie_le ? { texte: 'Bon de livraison validé', ton: 'ok' } : { texte: 'Bon de livraison à valider', ton: 'alerte' };
-    return { texte: `${libelleType(d.type, true)}, lu`, ton: 'neutre' };
+    if (p.document_type === 'bl') return p.document_verifie ? { texte: avec('validé'), ton: 'ok' } : { texte: avec('à valider'), ton: 'alerte' };
+    return { texte: avec('lu'), ton: 'neutre' };
   }
 
   let meta = $derived.by(() => {
     if (!m) return '';
     const morceaux = [nomExpediteur(m.expediteur) || 'Expéditeur inconnu'];
-    const boites = m.boites.map((b) => b.libelle).join(', ');
+    const boites = adressesDuMail.join(', ');
     if (boites) morceaux.push(`à ${boites}${societesDuMail.length ? ` (${societesDuMail.join(', ')})` : ''}`);
     if (m.date_mail) morceaux.push(dateMail(m.date_mail));
     return morceaux.join(', ');
@@ -530,7 +501,7 @@
     return 'Pas encore trié';
   });
 
-  let boiteBrouillon = $derived(actif?.boite ?? m?.boites.find((b) => String(b.boite_id) === boiteEnvoi)?.libelle ?? '');
+  let boiteBrouillon = $derived(actif?.boite_adresse ?? m?.boites.find((b) => String(b.boite_id) === boiteEnvoi)?.adresse ?? '');
 </script>
 
 <div class="volet-h">
@@ -618,7 +589,7 @@
         <span>De</span><span>{m.expediteur || '—'}</span>
         <span>À</span><span>{m.destinataires.join(', ') || '—'}</span>
         <span>Objet</span><span>{m.objet || '(sans objet)'}</span>
-        <span>Reçu</span><span>{m.boites.map((b) => b.libelle).join(', ')}{societesDuMail.length ? `, ${societesDuMail.join(', ')}` : ''}</span>
+        <span>Reçu</span><span>{adressesDuMail.join(', ')}{societesDuMail.length ? `, ${societesDuMail.join(', ')}` : ''}</span>
       </div>
 
       <div class="mailtext">
@@ -696,7 +667,7 @@
         <Repli icone="info" titre="Détails techniques">
           <div class="from details">
             <span>Message-ID</span><span class="num">{m.message_id}</span>
-            {#each m.boites as b (b.boite_id)}<span>Boîte</span><span>{b.libelle}, dossier {b.dossier}</span>{/each}
+            {#each m.boites as b (b.boite_id)}<span>Boîte</span><span>{b.adresse}{b.libelle !== b.adresse ? ` (${b.libelle})` : ''}, dossier {b.dossier}</span>{/each}
             {#each m.pieces as p (p.id)}<span>Pièce</span><span>{p.nom} <span class="muted">({p.type_mime}, {taille(p.taille)})</span></span>{/each}
           </div>
         </Repli>
@@ -726,11 +697,11 @@
           <div class="rep-n"><Icone nom="alerte" />{aCompleter === 1 ? 'Un passage « [à compléter] » reste à remplir avant l’envoi' : `${aCompleter} passages « [à compléter] » restent à remplir avant l’envoi`}</div>
         {/if}
         {#if !actif.smtp}
-          <div class="rep-n"><Icone nom="alerte" />Envoi impossible : le serveur d’envoi de {actif.boite} n’est pas configuré (Réglages, Boîtes mail)</div>
+          <div class="rep-n"><Icone nom="alerte" />Envoi impossible : le serveur d’envoi de {actif.boite_adresse} n’est pas configuré (Réglages, Boîtes mail)</div>
         {/if}
         <div class="rep-f">
           <button type="button" class="btn principal" class:en-cours={occupe === 'envoyer'} disabled={!peutEnvoyer} onclick={demanderEnvoi}>
-            {libelleEnvoyerDepuis(actif.boite)}<Kbd t={['Ctrl', 'Enter']} />
+            {libelleEnvoyerDepuis(actif.boite_adresse)}<Kbd t={['Ctrl', 'Enter']} />
           </button>
           {#if modifieIci}
             <button type="button" class="btn fantome" disabled={!!occupe} class:en-cours={occupe === 'enregistrer'} onclick={enregistrer}>Enregistrer</button>
@@ -744,7 +715,7 @@
           <div>
             <div>Claude rédige une réponse dans le ton de vos réponses précédentes.</div>
             <div class="petit muted">
-              Depuis <span class="num">{depuisSecondes}</span> s, depuis {actif.boite}.
+              Depuis <span class="num">{depuisSecondes}</span> s, depuis {actif.boite_adresse}.
               {#if depuisSecondes > 90}C’est plus long que d’habitude : vous pouvez quitter la page, la réponse vous attendra ici.{/if}
             </div>
           </div>
@@ -755,7 +726,7 @@
         <div class="attente" role="status" aria-live="polite">
           <span class="roue" aria-hidden="true"></span>
           <div>
-            <div>Envoi depuis {actif.boite}.</div>
+            <div>Envoi depuis {actif.boite_adresse}.</div>
             <div class="petit muted">Depuis <span class="num">{depuisSecondes}</span> s.</div>
           </div>
           {#if depuisSecondes > 20 && etaitDansFile}
@@ -773,7 +744,7 @@
             <label class="depuis">
               <span>Répondre depuis</span>
               <select bind:value={boiteEnvoi} disabled={!!occupe}>
-                {#each m.boites as b (b.boite_id)}<option value={String(b.boite_id)}>{b.libelle}</option>{/each}
+                {#each m.boites as b (b.boite_id)}<option value={String(b.boite_id)}>{b.adresse}</option>{/each}
               </select>
             </label>
           {/if}
@@ -796,7 +767,7 @@
       {#if envoyes.length}
         <div class="replis envoyes">
           {#each envoyes as b (b.id)}
-            <Repli icone="envoyer" titre="Réponse envoyée" resume="{dateMail(b.envoye_le)}{b.envoye_par ? `, par ${b.envoye_par}` : ''}, depuis {b.boite}">
+            <Repli icone="envoyer" titre="Réponse envoyée" resume="{dateMail(b.envoye_le)}{b.envoye_par ? `, par ${b.envoye_par}` : ''}, depuis {b.boite_adresse}">
               {#if b.erreur}<Bandeau>{b.erreur}</Bandeau>{/if}
               <div class="texte-envoye">{b.texte}</div>
             </Repli>

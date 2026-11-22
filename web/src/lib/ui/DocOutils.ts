@@ -1,7 +1,7 @@
 // Petits utilitaires des écrans À traiter et fiche document (dates courtes, montants saisis,
 // alertes rattachées aux champs). Le vocabulaire affiché reste dans #lib/libelles.ts.
 import { libelleType, titreAlerte } from '#lib/libelles.ts';
-import type { Controle, DocumentAValider, FicheDocument, TypeDocument } from '#lib/types.ts';
+import type { ChampControle, Controle, DocumentAValider, FicheDocument, TypeDocument } from '#lib/types.ts';
 
 const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
 const jourMois = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit' });
@@ -72,48 +72,16 @@ export function ecrireMontant(v: number | null | undefined): string {
   return v === null || v === undefined ? '' : v.toFixed(2).replace('.', ',');
 }
 
-const fmtMontant = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const montantFr = (s: string) => fmtMontant.format(Number(s)).replace(/[\u202f\s]/g, '\u00a0');
-
-/** Message d'une alerte dans le vocabulaire de l'écran (la « structure » devient la « société »). */
-export function phraseAlerte(message: string): string {
-  const t = message
-    .trim()
-    .replace(/^HT \+ TVA = (\S+) € pour un TTC de (\S+) €$/, 'HT + TVA donnent $1 €, le total lu est $2 €. Vérifiez le total sur la pièce')
-    .replace(/-?\d+\.\d{2}(?= €)/g, montantFr)
-    .replace(/^doublon\s*:\s*/i, '')
-    .replace(/\s*;\s*envoi bloqué\s*$/, '')
-    .replace(/structure destinataire/g, 'société')
-    .replace(/la structure/g, 'la société')
-    .replace(/structure/g, 'société')
-    .replace(/adresse de dépôt/g, 'adresse Dext / Yooz');
-  return t.charAt(0).toUpperCase() + t.slice(1);
-}
-
-/** La même phrase, avec son point final (pour un bandeau). */
+/** Une phrase du serveur (déjà dans le vocabulaire de l'écran), avec son point final (pour un bandeau). */
 export function phrase(message: string): string {
-  const t = phraseAlerte(message);
+  const t = message.trim();
   return /[.!?…]$/.test(t) ? t : `${t}.`;
-}
-
-/** Code de contrôle déduit de la phrase d'alerte de la file (la file ne rend que la phrase). */
-export function codeAlerte(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes('doublon') || m.includes('même facture')) return 'doublon';
-  if (m.includes('ht + tva') || m.includes('ht ou tva')) return 'montants';
-  if (m.includes('champ manquant')) return 'incomplet';
-  if (m.includes('siret') || m.includes('tva')) return 'identifiants';
-  if (m.includes('adresse de dépôt')) return 'depot';
-  if (m.includes('structure') || m.includes('société')) return 'societe';
-  if (m.includes('fournisseur')) return 'fournisseur';
-  if (m.includes('date')) return 'date';
-  return '';
 }
 
 /** Alerte courte d'une ligne de la file (« Montant incohérent ») et sa couleur. */
 export function drapeau(l: DocumentAValider): { texte: string; ton: 'w' | 'e' } | null {
   if (l.alerte) {
-    const code = codeAlerte(l.alerte);
+    const code = l.alerte_code ?? '';
     const texte = code === 'depot' ? 'Pas d’adresse Dext / Yooz' : titreAlerte({ code, message: l.alerte });
     return { texte, ton: code === 'doublon' ? 'e' : 'w' };
   }
@@ -134,19 +102,21 @@ export function nomCourtDocument(l: {
 
 export type CleChamp = 'type' | 'societe' | 'fournisseur' | 'numero' | 'date' | 'ht' | 'tva' | 'ttc';
 
-/** Champs visés par une alerte (pour les surligner en ambre). */
+const CHAMPS: Record<ChampControle, CleChamp> = {
+  numero: 'numero',
+  date_document: 'date',
+  montant_ht: 'ht',
+  montant_tva: 'tva',
+  montant_ttc: 'ttc',
+  societe_id: 'societe',
+  fournisseur_id: 'fournisseur'
+};
+
+/** Champs visés par une alerte (pour les surligner en ambre) : ceux que donne le serveur. */
 export function champsDeLAlerte(c: Controle): CleChamp[] {
+  if (c.champs) return c.champs.map((k) => CHAMPS[k]).filter((k) => k !== undefined);
+  // Contrôles enregistrés avant que le serveur ne donne les champs.
   switch (c.code) {
-    case 'montants':
-      return c.message.includes('manquant') ? ['ht', 'tva'] : ['ttc'];
-    case 'incomplet': {
-      const m = c.message;
-      const r: CleChamp[] = [];
-      if (m.includes('numéro')) r.push('numero');
-      if (m.includes('date')) r.push('date');
-      if (m.includes('TTC')) r.push('ttc');
-      return r;
-    }
     case 'identifiants':
     case 'fournisseur':
       return ['fournisseur'];

@@ -3,13 +3,13 @@
   // BL en attente de facture par fournisseur ; replié en bas, qualité de la lecture et du tri.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, bilanMois, message, requete } from '#lib/api.ts';
+  import { api, bilanMois, message } from '#lib/api.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { dateSimple } from '#lib/format.ts';
   import { BL_EN_ATTENTE, libelleVoie, nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { BilanMois, Compte, LigneSuivi, SemaineTri, Voie, VueRapprochement } from '#lib/types.ts';
+  import type { BilanMois, Compte, LigneSuivi, SemaineTri, Voie } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Icone from '#lib/ui/Icone.svelte';
@@ -136,26 +136,19 @@
     return m.join(' · ') || 'Pas encore de document vérifié';
   });
 
-  // BL lus avant le rapprochement (sans leurs lignes) : admin, chargé à l'ouverture du repli.
+  // BL lus avant le rapprochement (sans leurs lignes), donnés par le bilan ; remis à zéro après relecture.
   let qualiteOuverte = $state(false);
-  let blSansLignes = $state<number | null>(null);
+  let reluPour = $state<BilanMois | null>(null);
+  let blSansLignes = $derived(bilan && reluPour !== bilan ? bilan.bl_sans_lignes : 0);
   let relecture = $state('');
   let relectureEnCours = $state(false);
-  $effect(() => {
-    if (!qualiteOuverte || !admin || blSansLignes !== null) return;
-    const jour = new Date().toISOString().slice(0, 10);
-    api
-      .get<VueRapprochement>(`/api/rapprochement${requete({ du: jour, au: jour })}`)
-      .then((v) => (blSansLignes = v.bl_sans_lignes))
-      .catch(() => (blSansLignes = 0));
-  });
   async function relireBl() {
     relectureEnCours = true;
     relecture = '';
     try {
       const r = await api.post<{ n: number }>('/api/admin/rapprochement/relire-bl');
       relecture = `${r.n} BL remis en lecture`;
-      blSansLignes = 0;
+      reluPour = bilan;
     } catch (e) {
       relecture = message(e);
     } finally {

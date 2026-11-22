@@ -71,7 +71,6 @@
       retour="/"
       {position}
       ensuite={suivantListe && suivantListe.id !== id ? nomCourtDocument(suivantListe) : undefined}
-      recuLe={i >= 0 ? liste[i].recu_le : null}
       {annonce}
       onfait={apres}
       onchange={() => void aTraiter.file(societe.id).then((f) => (file = f)).catch(() => {})}

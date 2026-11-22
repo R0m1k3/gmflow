@@ -22,7 +22,7 @@
   // Raccourcis : Entrée (action principale), E (écarter), F (plein écran, volet), Échap (plein écran).
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
-  import { api, ecarterDocument, ErreurApi, message, sonder, urlApercu, validerDocument } from '#lib/api.ts';
+  import { api, ecarterDocument, ErreurApi, message, modifierFournisseur, sonder, urlApercu, validerDocument } from '#lib/api.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import {
@@ -46,7 +46,7 @@
     CorrectionDocument,
     DetailRapprochement,
     FicheDocument,
-    Fournisseur,
+    ChangementsFournisseur,
     LigneFournisseur,
     Page,
     TypeDocument
@@ -68,7 +68,6 @@
     nomCourtDocument,
     nomExpediteur,
     phrase,
-    phraseAlerte,
     tauxTva,
     type CleChamp
   } from './DocOutils.ts';
@@ -84,7 +83,6 @@
     retour = '/',
     position = null,
     ensuite,
-    recuLe = null,
     annonce = '',
     onfait,
     onchange,
@@ -98,8 +96,6 @@
     position?: PositionFiche | null;
     /** « Sodistra, facture 2026/11/0457 » : ce qui s'ouvrira après. */
     ensuite?: string;
-    /** Date du mail (la fiche ne la donne pas ; la file, si). */
-    recuLe?: string | null;
     /** Phrase laissée par l'action précédente (« Envoi à Dext demandé : … »). */
     annonce?: string;
     /** Validé, écarté : la page ouvre le suivant. */
@@ -158,7 +154,7 @@
   /** Validée, envoi demandé mais pas encore pris par le worker. */
   const envoiDemande = (v: FicheDocument) => !!v.valide_le && (v.statut_depot === 'pret' || v.statut_depot === 'a_verifier');
   const enCours = (v: FicheDocument) =>
-    v.etat === 'a_lire' || v.etat === 'en_cours' || v.statut_depot === 'en_envoi' || envoiDemande(v);
+    v.etat === 'a_lire' || v.etat === 'en_cours' || v.statut_depot === 'en_envoi' || envoiDemande(v) || v.envoi_relance;
 
   /** Relit la fiche ; garde les champs saisis si `garder`. Rend vrai s'il faut continuer à suivre. */
   async function charger(ident: number, garder: boolean): Promise<boolean> {
@@ -253,7 +249,7 @@
   function aControler(k: CleChamp): boolean | string {
     if (change(k)) return false;
     const c = alertes.find((a) => champsDeLAlerte(a).includes(k));
-    if (c) return c === alertes[0] ? true : phraseAlerte(c.message);
+    if (c) return c === alertes[0] ? true : c.message;
     // Montants : la confiance ne surligne rien de plus quand une alerte les vise déjà.
     if ((k === 'ht' || k === 'tva' || k === 'ttc') && alertes.some((a) => a.code === 'montants')) return false;
     return peuSurs.has(k);
@@ -274,12 +270,15 @@
   });
   let nomSocieteChoisie = $derived(optionsSociete.find((o) => o.valeur === choix.societe)?.libelle ?? '');
 
-  /** Correction proposée en un clic sur un montant (calcul HT + TVA = TTC). */
+  /** Correction proposée en un clic sur un montant (calcul HT + TVA = TTC du serveur), tant que les montants lus sont là. */
+  const MONTANTS: Partial<Record<string, 'ht' | 'tva' | 'ttc'>> = { montant_ht: 'ht', montant_tva: 'tva', montant_ttc: 'ttc' };
   let propositions = $derived.by(() => {
     const p: Partial<Record<'ht' | 'tva' | 'ttc', number>> = {};
-    if (ht !== null && tva !== null && ttc !== null && !Number.isNaN(ht + tva + ttc) && !montantsCoherents) p.ttc = Math.round((ht + tva) * 100) / 100;
-    else if (ht === null && tva !== null && ttc !== null) p.ht = Math.round((ttc - tva) * 100) / 100;
-    else if (tva === null && ht !== null && ttc !== null) p.tva = Math.round((ttc - ht) * 100) / 100;
+    if (change('ht') || change('tva') || change('ttc')) return p;
+    for (const c of alertes) {
+      const k = c.proposition ? MONTANTS[c.proposition.champ] : undefined;
+      if (k && c.proposition) p[k] = c.proposition.valeur;
+    }
     return p;
   });
 
@@ -346,24 +345,13 @@
     }
   }
 
-  /** Modifie la fiche fournisseur (admins) : PUT complet, à partir de la fiche actuelle. */
-  async function majFournisseur(fid: number, changements: Partial<Fournisseur>, phrase: string) {
+  /** Modifie la fiche fournisseur (admins) : PATCH des seuls champs changés. */
+  async function majFournisseur(fid: number, changements: ChangementsFournisseur, phrase: string) {
     if (occupe) return;
     occupe = 'fournisseur';
     erreur = '';
     try {
-      const f = await api.get<Fournisseur>(`/api/fournisseurs/${fid}`);
-      await api.put(`/api/admin/fournisseurs/${fid}`, {
-        nom: f.nom,
-        siret: f.siret,
-        tva: f.tva,
-        domaines: f.domaines,
-        statut: f.statut,
-        societe_defaut_id: f.societe_defaut_id,
-        format_bl: f.format_bl,
-        notes: f.notes,
-        ...changements
-      });
+      await modifierFournisseur(fid, changements);
       info = phrase;
       rangementFait = true;
       await charger(id, true);
@@ -437,27 +425,6 @@
     }
   }
 
-  /** Écarter un document lu qui n'est ni un doublon ni illisible : il devient « Autre document ». */
-  async function ecarterAutre() {
-    if (!d) return;
-    let corrections: CorrectionDocument;
-    try {
-      corrections = correctionComplete('autre');
-    } catch (e) {
-      erreur = message(e);
-      return;
-    }
-    erreur = '';
-    const quoi = titreDoc;
-    try {
-      const r = await validerDocument(d.id, { corrections }, societe.id);
-      void rafraichirCompteurs();
-      onfait({ id: d.id, suivant: r.suivant, info: `Écarté : ${quoi}` });
-    } catch (e) {
-      erreur = message(e);
-    }
-  }
-
   async function relire() {
     if (!d) return;
     erreur = '';
@@ -501,7 +468,7 @@
         : { principal: { libelle: 'Retour à À traiter', href: retour }, secondaires: [] };
     }
     if (d.statut_depot === 'en_envoi') return { principal: { libelle: libelleStatutEnvoi('en_envoi'), enCours: true }, secondaires: [] };
-    if (d.statut_depot === 'depose' || envoiDemande(d)) return { principal: { libelle: 'Retour à À traiter', href: retour }, secondaires: [] };
+    if (d.statut_depot === 'depose' || envoiDemande(d) || d.envoi_relance) return { principal: { libelle: 'Retour à À traiter', href: retour }, secondaires: [] };
     if (refus?.code === 'doublon' || (d.statut_depot === 'doublon' && !d.verifie_le)) {
       const sec: Action[] = admin
         ? [{ libelle: 'Envoyer quand même', danger: true, onclick: () => (dlgForcer = true), enCours: occupe === 'forcer', desactive: occ }]
@@ -665,7 +632,7 @@
     {:else}
       <div class="titre-fiche"><h1>{titre}</h1>{#if choix.numero}<span class="num">{choix.numero}</span>{/if}</div>
       <div class="meta-fiche">
-        {recuLe ? `Reçue le ${jourHeure(recuLe)}` : 'Reçue'}{d.mail_expediteur ? ` de ${nomExpediteur(d.mail_expediteur)}` : ''}{#if admin && d.voie}, {libelleVoie(d.voie)}{/if}{#if d.valide_le}, validation le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}{:else if d.verifie_le}, validation le {jourHeure(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}{/if}
+        Reçue le {jourHeure(d.recu_le)}{d.mail_expediteur ? ` de ${nomExpediteur(d.mail_expediteur)}` : ''}{#if admin && d.voie}, {libelleVoie(d.voie)}{/if}{#if d.valide_le}, validation le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}{:else if d.verifie_le}, validation le {jourHeure(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}{/if}
         {#if d.copie_de}<span class="petit">· même fichier que le <a href="/documents/{d.copie_de}">document {d.copie_de}</a></span>{/if}
       </div>
 
@@ -699,6 +666,8 @@
         <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} demandé.">Validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : elle part dans quelques instants.</Bandeau>
       {:else if d.statut_depot === 'depose'}
         <Bandeau ton="ok" titre="{libelleStatutEnvoi('depose', outil)}.">{dernierEnvoi ? `Le ${jourHeure(dernierEnvoi.quand)}, à ${dernierEnvoi.adresse}.` : ''}</Bandeau>
+      {:else if d.envoi_relance}
+        <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} relancé.">Relancé le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : il part dans quelques instants.</Bandeau>
       {:else if d.statut_depot === 'erreur'}
         <Bandeau ton="erreur" titre="Envoi à {nomOutil(outil)} échoué.">
           {dernierEnvoi?.message ? phrase(dernierEnvoi.message) : ''}{admin ? '' : ' Un administrateur peut la renvoyer.'}
@@ -867,9 +836,12 @@
             {/if}
           </Repli>
         {/if}
-        <Repli icone="mail" titre="Mail d’origine" resume="{nomExpediteur(d.mail_expediteur) || 'Expéditeur inconnu'}{recuLe ? `, ${jourHeure(recuLe)}` : ''}">
+        <Repli icone="mail" titre="Mail d’origine" resume="{nomExpediteur(d.mail_expediteur) || 'Expéditeur inconnu'}{`, ${jourHeure(d.recu_le)}`}">
           <div class="doc-mail">
             <p><span class="t2">De</span> {d.mail_expediteur || '—'}</p>
+            {#each d.boites as b (b.boite_id)}
+              <p><span class="t2">À</span> {b.adresse}{b.libelle && b.libelle !== b.adresse ? ` (${b.libelle})` : ''}</p>
+            {/each}
             <p><span class="t2">Objet</span> {d.mail_objet || '(sans objet)'}</p>
             <p><span class="t2">Pièce</span> {d.nom_fichier}</p>
             <p><a class="btn sm" href="/mails/{d.mail_id}"><Icone nom="mail" />Ouvrir le mail</a></p>
@@ -914,8 +886,8 @@
 
 <BarreAction principal={plan.principal} secondaires={plan.secondaires} {ensuite} toucheEnsuite={pleinEcran && ensuite && onsuivant ? 'J' : undefined} aligne={pleinEcran} />
 
-<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarterAutre}>
-  <p>{titreDoc} sera classé « {libelleType('autre')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
+<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarter}>
+  <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
 </Confirmation>
 <Confirmation bind:ouvert={dlgForcer} titre="Envoyer ce doublon quand même ?" libelle="Envoyer quand même" danger onconfirmer={() => valider(true)}>
   <p>{refus?.code === 'doublon' ? phrase(refus.message) : doublon ? phrase(doublon.message) : ''} La facture partira à {nomOutil(outil)} telle quelle.</p>

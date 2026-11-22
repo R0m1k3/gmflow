@@ -49,7 +49,7 @@
   // Fiche d'un fournisseur : identité (admin : modifier, confirmer, fusionner), encadré « À rapprocher »,
   // puis le fil par mois (factures, avoirs, BL, mails). Sert au volet de /fournisseurs et à /fournisseurs/[id].
   import type { Snippet } from 'svelte';
-  import { api, filFournisseur, fournisseurs as listerFournisseurs, message } from '#lib/api.ts';
+  import { api, filFournisseur, fournisseurs as listerFournisseurs, message, modifierFournisseur } from '#lib/api.ts';
   import { dateSimple } from '#lib/format.ts';
   import {
     BL_EN_ATTENTE,
@@ -66,7 +66,7 @@
   } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { DocRap, ElementFil, FilFournisseur, LigneFournisseur, Rapproche, SocieteVisible } from '#lib/types.ts';
+  import type { DocRap, ElementFil, FilFournisseur, LigneFournisseur, Rapproche, ChangementsFournisseur } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Champ from './Champ.svelte';
   import Chargement from './Chargement.svelte';
@@ -102,16 +102,8 @@
   let enCours = $state(false);
   let ficheOuverte = $state(false);
 
-  // Sociétés pour « rangé par défaut dans » : la barre du haut les charge pour un admin.
-  let societesLocales = $state<SocieteVisible[]>([]);
-  let societes = $derived(admin ? societe.liste : societesLocales);
-  $effect(() => {
-    if (!admin && session.moi && societesLocales.length === 0)
-      api
-        .get<SocieteVisible[]>('/api/societes')
-        .then((v) => (societesLocales = v))
-        .catch(() => {});
-  });
+  // Sociétés pour « rangé par défaut dans » (modifiable par un admin seulement, la barre du haut les charge).
+  let societes = $derived(admin ? societe.liste : []);
 
   let jeton = 0;
   async function charger() {
@@ -147,9 +139,7 @@
 
   let f = $derived(fil?.fournisseur ?? null);
   let aConfirmer = $derived(f?.statut === 'a_confirmer');
-  let nomSocieteDefaut = $derived(
-    f?.societe_defaut_id ? (societes.find((s) => s.id === f?.societe_defaut_id)?.raison_sociale ?? '') : ''
-  );
+  let nomSocieteDefaut = $derived(f?.societe_defaut ?? '');
   let resumeFiche = $derived.by(() => {
     if (!f) return '';
     const m: string[] = [];
@@ -166,7 +156,13 @@
     info = '';
     enCours = true;
     try {
-      await api.put(`/api/admin/fournisseurs/${f.id}`, corpsFournisseur(ed, statut));
+      // PATCH des seuls champs changés : « Confirmer » n'envoie que le statut.
+      const avant = corpsFournisseur(versEdition(f));
+      const apres = corpsFournisseur(ed, statut);
+      const changements = Object.fromEntries(
+        Object.entries(apres).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(avant[k as keyof typeof avant]))
+      ) as ChangementsFournisseur;
+      if (Object.keys(changements).length) await modifierFournisseur(f.id, changements);
       info =
         statut === 'valide'
           ? 'Fournisseur confirmé : ses factures ont repassé les contrôles'

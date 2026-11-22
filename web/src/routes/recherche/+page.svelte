@@ -110,9 +110,7 @@
         const l = await api.get<Page<LigneMail>>(`/api/mails${requete({ societe: s, du: p.du, au: p.au })}`);
         r = { mode: 'derniers', interpretation: null, documents: null, mails: { total: l.total, elements: l.elements.map(versMail) } };
       } else {
-        // « Documents » : tous les types, sans les mails (l'API n'a pas de filtre « document »).
-        const typeApi = p.type === 'document' ? '' : p.type;
-        const t = await rechercher({ q: p.q, type: typeApi, du: p.du, au: p.au, societe: s });
+        const t = await rechercher({ q: p.q, type: p.type, du: p.du, au: p.au, societe: s });
         r = {
           mode: 'recherche',
           interpretation: t.interpretation,
@@ -197,7 +195,7 @@
   function etatDocument(d: DocumentTrouve): { texte: string; ton: Ton } {
     if (d.etat !== 'lu') return { texte: libelleEtat(d.etat), ton: tonEtat(d.etat) };
     if (d.type === 'facture' || d.type === 'avoir')
-      return { texte: libelleStatutEnvoi(d.statut_depot) || 'Lue', ton: tonStatutEnvoi(d.statut_depot) };
+      return { texte: libelleStatutEnvoi(d.statut_depot, d.outil) || 'Lue', ton: tonStatutEnvoi(d.statut_depot) };
     if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
     return { texte: 'Lu', ton: 'pale' };
   }

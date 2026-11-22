@@ -1,13 +1,13 @@
 <script lang="ts">
   // Ajouter une boîte mail (parcours C) : 1 connexion, 2 essai et dossiers, 3 historique.
   // L'essai passe par POST /api/admin/boites/tester (paramètres pas encore enregistrés) ;
-  // « Démarrer la surveillance » crée la boîte, la fait essayer, puis l'active.
+  // « Démarrer la surveillance » crée la boîte avec cet essai réussi (essai_id) et l'active d'un coup.
   import { goto } from '$app/navigation';
   import { tick } from 'svelte';
-  import { api, attendreEssai, essayerBoite, message } from '#lib/api.ts';
+  import { api, attendreEssai, creerBoite, ErreurApi, essayerBoite, message } from '#lib/api.ts';
   import { nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
-  import type { Boite, EssaiBoite, Societe } from '#lib/types.ts';
+  import type { EssaiBoite, Societe } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
@@ -86,10 +86,12 @@
 
   // ---------- Écran 2 : essai ----------
   let essai = $state<EssaiBoite | null>(null);
+  let essaiId = $state<string | null>(null);
   let essaiEnCours = $state(false);
   let erreurEssai = $state('');
   async function essayer() {
     essai = null;
+    essaiId = null;
     erreurEssai = '';
     essaiEnCours = true;
     try {
@@ -104,6 +106,7 @@
       });
       const r = await attendreEssai(id);
       essai = r;
+      essaiId = id;
       const imap = r.resultat_imap;
       if (imap?.ok) {
         // Réception cochée, Envoyés repéré ; on garde les choix d'un essai précédent s'ils existent encore.
@@ -144,16 +147,14 @@
   let demarrage = $state('');
   let erreurDemarrage = $state('');
 
-  async function lireBoite(id: number): Promise<Boite | undefined> {
-    return (await api.get<Boite[]>('/api/admin/boites')).find((b) => b.id === id);
-  }
   async function demarrer() {
     erreurDemarrage = '';
+    if (!essaiId) return;
     const avecSmtp = f.repondre && !!f.smtp_serveur.trim();
-    let id: number | null = null;
     try {
-      demarrage = 'Enregistrement de la boîte';
-      const b = await api.post<Boite>('/api/admin/boites', {
+      // L'essai réussi de l'écran 2 sert de test de la boîte : création et surveillance en un appel.
+      demarrage = 'Démarrage de la surveillance';
+      const b = await creerBoite({
         societe_id: Number(f.societe_id),
         libelle: f.adresse.trim(),
         serveur: f.imap_serveur.trim(),
@@ -164,29 +165,20 @@
         reprise_mois: Number(f.reprise_mois),
         smtp_serveur: avecSmtp ? f.smtp_serveur.trim() : null,
         smtp_port: avecSmtp ? Number(f.smtp_port) || null : null,
-        smtp_securite: avecSmtp ? f.smtp_securite : null,
-        dossier_envoyes: f.dossier_envoyes || null
+        smtp_securite: avecSmtp ? (f.smtp_securite as Securite) : null,
+        dossier_envoyes: f.dossier_envoyes || null,
+        essai_id: essaiId,
+        activer: true
       });
-      id = b.id;
-      // L'activation exige un essai réussi enregistré sur la boîte elle-même.
-      demarrage = 'Dernier essai de la connexion';
-      await api.post(`/api/admin/boites/${id}/tester`);
-      let testee: Boite | undefined;
-      for (let i = 0; i < 40; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        testee = await lireBoite(id);
-        if (testee?.dernier_test) break;
-      }
-      if (!testee?.dernier_test) throw new Error('L’essai ne répond pas : le worker est-il démarré ? La boîte est enregistrée, reprenez depuis sa fiche.');
-      if (!testee.dernier_test.ok) throw new Error(testee.dernier_test.message ?? 'La connexion a échoué.');
-      demarrage = 'Démarrage de la surveillance';
-      await api.post(`/api/admin/boites/${id}/activer`);
-      await goto(`/reglages/boites/${id}?nouvelle=1`);
+      await goto(`/reglages/boites/${b.id}?nouvelle=1`);
     } catch (e) {
       demarrage = '';
-      // Boîte déjà créée : sa fiche montre le résultat de l'essai et le bouton pour reprendre.
-      if (id !== null) await goto(`/reglages/boites/${id}`);
-      else erreurDemarrage = message(e);
+      // Essai trop ancien ou paramètres changés depuis : il est refait, puis on recommence.
+      if (e instanceof ErreurApi && e.raison === 'essai') {
+        erreurDemarrage = 'L’essai de connexion a plus d’une heure : il est refait. Cliquez à nouveau quand il a réussi.';
+        await essayer();
+        if (!essai?.resultat_imap?.ok) ecran = 2;
+      } else erreurDemarrage = message(e);
     }
   }
 
@@ -380,7 +372,7 @@
         {#if erreurDemarrage}<Bandeau ton="erreur" titre="La surveillance n’a pas démarré.">{erreurDemarrage}</Bandeau>{/if}
 
         <div class="form-f">
-          <button type="button" class="btn principal" class:en-cours={!!demarrage} disabled={!!demarrage} onclick={demarrer}>
+          <button type="button" class="btn principal" class:en-cours={!!demarrage || essaiEnCours} disabled={!!demarrage || essaiEnCours || !essaiId} onclick={demarrer}>
             {demarrage || 'Démarrer la surveillance'}
           </button>
           {#if !demarrage}<button type="button" class="btn fantome" onclick={() => (ecran = 2)}>Retour</button>{/if}

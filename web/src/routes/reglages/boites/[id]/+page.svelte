@@ -3,7 +3,7 @@
   // réglages (connexion, dossiers lus, réponses), compteurs de la relève.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, attendreEssai, ErreurApi, essayerSmtp, message, sonder } from '#lib/api.ts';
+  import { api, attendreEssai, ErreurApi, essayerSmtp, lireBoite, message, sonder } from '#lib/api.ts';
   import { quand } from '#lib/format.ts';
   import { RUBRIQUES, nomCourtSociete, type Ton } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
@@ -81,12 +81,15 @@
     securitePrecedente = f.smtp_securite;
   }
   async function lire(): Promise<Boite> {
-    const v = (await api.get<Boite[]>('/api/admin/boites')).find((x) => x.id === id);
-    if (!v) {
-      introuvable = true;
-      throw new ErreurApi(404, 'Cette boîte n’existe pas, ou plus.');
+    try {
+      return await lireBoite(id);
+    } catch (e) {
+      if (e instanceof ErreurApi && e.code === 404) {
+        introuvable = true;
+        throw new ErreurApi(404, 'Cette boîte n’existe pas, ou plus.');
+      }
+      throw e;
     }
-    return v;
   }
   async function chargerCompteurs() {
     compteurs = await api.get<Compteur[]>(`/api/admin/boites/${id}/compteurs`);
@@ -216,18 +219,28 @@
 
   // ---------- Listes proposées ----------
   // Dossiers : ceux du serveur (dernier essai) et ceux déjà cochés.
-  let proposes = $derived([...new Set([...(b?.dernier_test?.dossiers ?? []), ...f.dossiers])].sort((x, y) => (x === 'INBOX' ? -1 : y === 'INBOX' ? 1 : nomDossier(x).localeCompare(nomDossier(y)))));
+  // Noms affichés et dossier des envoyés : donnés par le serveur depuis la refonte ; devinés pour un essai plus ancien.
+  let detail = $derived(new Map((b?.dernier_test?.dossiers_detail ?? []).map((d) => [d.nom, d])));
+  const affiche = (nom: string) => (nom.toUpperCase() === 'INBOX' ? 'Réception' : (detail.get(nom)?.affiche ?? nomDossier(nom)));
+  const estEnvoyes = (nom: string) => {
+    const d = detail.get(nom);
+    return d ? d.envoyes || nom === b?.dernier_test?.envoyes : ressembleEnvoyes(nom);
+  };
+  let envoyesRepere = $derived(
+    b?.dernier_test?.envoyes ?? (b?.dernier_test?.dossiers_detail ? null : (b?.dernier_test?.dossiers ?? []).find(ressembleEnvoyes)) ?? ''
+  );
+  let proposes = $derived([...new Set([...(b?.dernier_test?.dossiers ?? []), ...f.dossiers])].sort((x, y) => (x === 'INBOX' ? -1 : y === 'INBOX' ? 1 : affiche(x).localeCompare(affiche(y)))));
   let optionsEnvoyes = $derived([
     { valeur: '', libelle: 'Aucun (pas de copie des réponses)' },
     ...[...new Set([...(b?.dernier_test?.dossiers ?? []), ...(f.dossier_envoyes ? [f.dossier_envoyes] : [])])]
-      .sort((x, y) => Number(ressembleEnvoyes(y)) - Number(ressembleEnvoyes(x)) || nomDossier(x).localeCompare(nomDossier(y)))
-      .map((d) => ({ valeur: d, libelle: nomDossier(d) }))
+      .sort((x, y) => Number(estEnvoyes(y)) - Number(estEnvoyes(x)) || affiche(x).localeCompare(affiche(y)))
+      .map((d) => ({ valeur: d, libelle: affiche(d) }))
   ]);
   function proposerSmtp() {
     f.smtp_serveur = smtpPourImap(f.serveur);
     f.smtp_securite = 'tls';
     f.smtp_port = '465';
-    if (!f.dossier_envoyes) f.dossier_envoyes = (b?.dernier_test?.dossiers ?? []).find(ressembleEnvoyes) ?? '';
+    if (!f.dossier_envoyes) f.dossier_envoyes = envoyesRepere;
   }
   let securitePrecedente: string | null = null;
   $effect(() => {
@@ -365,7 +378,7 @@
         {#if !b.dernier_test?.ok}<p class="petit t2">Essayez la connexion pour voir tous les dossiers du serveur.</p>{/if}
         <div class="dossiers">
           {#each proposes as d (d)}
-            <label class="case"><input type="checkbox" value={d} bind:group={f.dossiers} /> {nomDossier(d)}</label>
+            <label class="case"><input type="checkbox" value={d} bind:group={f.dossiers} /> {affiche(d)}</label>
           {/each}
         </div>
 
@@ -419,7 +432,7 @@
         <tbody>
           {#each compteurs as c (c.dossier)}
             <tr>
-              <td>{nomDossier(c.dossier)}</td>
+              <td>{affiche(c.dossier)}</td>
               <td class="n num">{c.messages_vus}</td>
               <td class="n num">{c.mails_uniques}</td>
               <td class="n num">{c.messages_vus_total}</td>

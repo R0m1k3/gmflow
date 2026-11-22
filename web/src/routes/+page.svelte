@@ -16,7 +16,7 @@
   import BarreAction from '#lib/ui/BarreAction.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import DocFiche, { type PositionFiche, type ResultatFiche } from '#lib/ui/DocFiche.svelte';
-  import { age, drapeau, jourHeure, nomCourtDocument, nomExpediteur, phraseAlerte, quandCourt } from '#lib/ui/DocOutils.ts';
+  import { age, drapeau, jourHeure, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import Montant from '#lib/ui/Montant.svelte';
@@ -144,7 +144,6 @@
     const b = docs[i + 1];
     return b ? (b.fournisseur || b.numero ? nomCourtDocument(b) : (b.libelle ?? 'Document')) : undefined;
   });
-  let recuLe = $derived(file?.a_valider.find((l) => l.id === docId)?.recu_le ?? null);
 
   /** Après une validation ou un écart : le suivant de la même section, sinon la file. */
   async function apres(r: ResultatFiche) {
@@ -186,7 +185,7 @@
       await chargerFile();
       if (docId) await goto('/', { replace: true, reset: false });
     } catch (e) {
-      erreur = e instanceof ErreurApi && e.code === 409 ? phraseAlerte(e.message) : message(e);
+      erreur = e instanceof ErreurApi && e.code === 409 ? e.message : message(e);
     } finally {
       occupe = '';
     }
@@ -199,7 +198,7 @@
   }
 
   function texteBloque(b: Bloque): { a: string; b: string } {
-    const msg = b.message ? phraseAlerte(b.message) : '';
+    const msg = b.message ?? '';
     switch (b.genre) {
       case 'envoi_erreur':
         return { a: `Envoi à Dext / Yooz échoué : ${nomCourtDocument(b)}`, b: msg };
@@ -364,7 +363,6 @@
         id={docId}
         {position}
         {ensuite}
-        {recuLe}
         {annonce}
         onfait={apres}
         onchange={() => void chargerFile().catch(() => {})}
