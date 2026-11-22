@@ -108,13 +108,26 @@ pub async fn connecter(
             .login(identifiant, mot_de_passe)
             .await
             .map_err(|(e, _)| match e {
-                async_imap::error::Error::No(m) => ErreurImap::RefusAuth(m),
+                async_imap::error::Error::No(m) => ErreurImap::RefusAuth(texte_serveur(m)),
                 autre => ErreurImap::from(autre),
             })
     };
     timeout(DELAI, travail)
         .await
         .map_err(|_| ErreurImap::Autre(format!("délai de {} s dépassé", DELAI.as_secs())))?
+}
+
+/// Texte de la réponse du serveur, sans l'enrobage d'async-imap
+/// (« code: None, info: Some("[AUTHENTICATIONFAILED] …") » donne « [AUTHENTICATIONFAILED] … »).
+fn texte_serveur(m: String) -> String {
+    const DEBUT: &str = "info: Some(\"";
+    if let Some(i) = m.find(DEBUT) {
+        let reste = &m[i + DEBUT.len()..];
+        if let Some(j) = reste.rfind("\")") {
+            return reste[..j].replace("\\\"", "\"");
+        }
+    }
+    m
 }
 
 /// Noms de tous les dossiers du serveur (`LIST "" "*"`).
@@ -301,6 +314,17 @@ pub async fn derniers_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn texte_serveur_sans_enrobage() {
+        assert_eq!(
+            texte_serveur(
+                r#"code: None, info: Some("[AUTHENTICATIONFAILED] Authentication failed.")"#.into()
+            ),
+            "[AUTHENTICATIONFAILED] Authentication failed."
+        );
+        assert_eq!(texte_serveur("refusé".into()), "refusé");
+    }
 
     fn d(nom: &str, envoyes: bool) -> Dossier {
         Dossier {

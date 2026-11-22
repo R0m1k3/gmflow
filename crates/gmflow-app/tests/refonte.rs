@@ -889,12 +889,13 @@ async fn fournisseurs_par_societe_et_fil() {
     let attendu = app
         .compter(&format!(
             "select count(*) from document where fournisseur_id = {} and type = 'facture' and etat = 'lu'
+               and statut_depot is distinct from 'doublon'
                and (societe_id = {} or societe_id is null)
                and date_document >= date_trunc('month', now() at time zone 'Europe/Paris')::date",
             m.durand, m.sa
         ))
         .await;
-    assert_eq!(d["factures_mois"], attendu);
+    assert_eq!(d["factures_mois"], attendu, "doublon non compté");
     let r = app.requete("GET", "/api/fournisseurs", None, admin).await;
     assert_eq!(r.json["total"], 2);
     let r = app

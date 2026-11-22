@@ -311,10 +311,10 @@ async fn reponse_non_conforme_nouvel_essai_puis_erreur() {
     w.arreter();
     let d = &docs(&b, m2).await[0];
     assert_eq!(d.etat, "erreur");
-    assert!(
-        d.message.as_deref().unwrap().contains("sortie structurée"),
-        "{:?}",
-        d.message
+    // Phrase lisible dans À traiter ; le détail technique part au journal.
+    assert_eq!(
+        d.message.as_deref(),
+        Some("Claude n’a pas réussi à le lire, même au second essai.")
     );
     assert_eq!(faux2.appels().len(), 2);
     b.fermer().await;

@@ -117,6 +117,7 @@
   function commencer() {
     const s = file?.suivant ?? file?.a_valider[0]?.id;
     if (s) void goto(`/?doc=${s}`, { reset: false });
+    else if (file?.a_repondre[0]) void goto(`/?mail=${file.a_repondre[0].id}`, { reset: false });
     else if (elements[0]) void goto(elements[0].href, { reset: false });
   }
 
@@ -162,17 +163,16 @@
     const avant = elements.filter((e) => e.section === section).findIndex((e) => e.cle === `d${r.id}`);
     await chargerFile().catch((e) => (erreurFile = message(e)));
     let cible = '/';
-    let texte = r.info;
     if (section === 'a_valider') {
+      // Après le dernier, le volet vide dit « Tout est validé ».
       if (r.suivant) cible = `/?doc=${r.suivant}`;
-      else texte = `${r.info}. Tout est validé`;
     } else {
       const reste = elements.filter((e) => e.section === section);
       const e = reste[Math.max(0, avant)] ?? reste[reste.length - 1];
       if (e) cible = e.href;
       else if (file?.suivant) cible = `/?doc=${file.suivant}`;
     }
-    annoncer(texte, cible);
+    annoncer(r.info, cible);
     await goto(cible, { replace: true, reset: false });
   }
 
@@ -353,7 +353,7 @@
     </div>
     <div class="liste-f">
       <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
-      {#if mailId}<span><Kbd t={['Ctrl', 'Enter']} /> envoyer</span>{:else}<span><Kbd t="Enter" /> {docId ? 'valider' : 'commencer'}</span>{/if}
+      {#if mailId}<span><Kbd t={['Ctrl', 'Enter']} /> envoyer</span>{:else}<span><Kbd t="Enter" /> {docId ? 'valider' : file && !file.a_valider.length && file.a_repondre.length ? 'répondre' : 'commencer'}</span>{/if}
       <span><Kbd t="/" /> chercher</span>
     </div>
   {/snippet}
@@ -382,8 +382,14 @@
       <Vide icone="fichier" titre="{file.compteurs.a_valider} document{file.compteurs.a_valider > 1 ? 's' : ''} à valider" texte="Les plus anciens et ceux qui ont une alerte d’abord.">
         <button type="button" class="btn principal" onclick={commencer}>Commencer <Kbd t="Enter" /></button>
       </Vide>
+    {:else if file && file.a_repondre.length}
+      {@const n = file.compteurs.a_repondre}
+      <Vide icone="coche" titre="Tout est validé" texte="{n} mail{n > 1 ? 's attendent' : ' attend'} une réponse.">
+        <button type="button" class="btn principal" onclick={commencer}>Répondre <Kbd t="Enter" /></button>
+      </Vide>
     {:else if file}
-      <Vide icone="mail" titre="Choisissez un élément de la file" texte="J et K passent d’une ligne à l’autre." />
+      {@const n = file.compteurs.bloque}
+      <Vide icone="coche" titre="Tout est validé" texte="Reste {n} problème{n > 1 ? 's' : ''} à débloquer, dans la file." />
     {/if}
   {/snippet}
 </Volets>
