@@ -224,3 +224,38 @@ fn reponse_construite() {
     assert!(r.message_id.starts_with('<') && r.message_id.ends_with("@frouard.test>"));
     assert!(reponse::construire("pas une adresse", None, &o, "x").is_err());
 }
+
+#[test]
+fn historique_d_un_expediteur() {
+    let v = |c: &[&str]| c.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        tri::par_historique(&v(&["information", "information"])),
+        None
+    );
+    assert_eq!(
+        tri::par_historique(&v(&["information", "question", "information"])),
+        None
+    );
+    assert_eq!(
+        tri::par_historique(&v(&["publicite", "publicite", "publicite"])).map(|r| r.0),
+        Some("publicite".into())
+    );
+    assert_eq!(tri::par_historique(&v(&["x", "x", "x"])), None);
+}
+
+#[test]
+fn exemples_dans_le_prompt() {
+    assert_eq!(tri::bloc_exemples(&[]), "");
+    let b = tri::bloc_exemples(&[tri::Exemple {
+        expediteur: "jean@client.test".into(),
+        objet: "Livraison".into(),
+        corps: "Bonjour,\nPour info, livraison jeudi.\nCordialement,\nJean".into(),
+        categorie: "information".into(),
+        corrige_de: Some("question".into()),
+    }]);
+    assert!(b.contains("classés à la main"), "{b}");
+    assert!(
+        b.contains("Objet : Livraison | Texte : Pour info, livraison jeudi. => information (et non question)"),
+        "{b}"
+    );
+}

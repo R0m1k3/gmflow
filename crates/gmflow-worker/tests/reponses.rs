@@ -593,3 +593,75 @@ async fn purge_des_publicites() {
     );
     b.fermer().await;
 }
+
+#[tokio::test]
+async fn tri_appris_des_classements_a_la_main() {
+    let faux = FauxClaude::new();
+    let b = banc(&faux).await;
+    let s = b.societe("MS Frouard").await;
+    // Trois mails de Jean classés « information » à la main.
+    for i in 0..3 {
+        let id = mail(
+            &b,
+            s,
+            &eml(
+                &format!("h{i}@x.test"),
+                "Jean <jean@client.test>",
+                "Point livraison",
+                "Pour info, la livraison est prevue jeudi.",
+                "",
+            ),
+        )
+        .await;
+        sqlx::query(
+            "update mail set categorie = 'information', categorie_par = 'humain',
+                categorie_auto = 'question', categorie_auto_par = 'claude',
+                tri_etat = 'trie', trie_le = now() - make_interval(mins => $2) where id = $1",
+        )
+        .bind(id)
+        .bind(10 - i)
+        .execute(b.pool())
+        .await
+        .unwrap();
+    }
+    let de_jean = mail(
+        &b,
+        s,
+        &eml("j4@x.test", "jean@client.test", "Question ?", QUESTION, ""),
+    )
+    .await;
+    let autre = mail(
+        &b,
+        s,
+        &eml(
+            "p1@x.test",
+            "Paul <paul@autre.test>",
+            "Livraison",
+            QUESTION,
+            "",
+        ),
+    )
+    .await;
+    let w = WorkersTest::demarrer(b.ctx.clone());
+    trier_tout(&b).await;
+    w.arreter();
+
+    // Jean : la règle apprise suffit, sans Claude.
+    let c = classement(&b, de_jean).await;
+    assert_eq!(
+        (c.0.as_deref(), c.1.as_deref()),
+        (Some("information"), Some("regle"))
+    );
+    // Paul : Claude, avec les classements à la main en exemples.
+    let c = classement(&b, autre).await;
+    assert_eq!(c.1.as_deref(), Some("claude"));
+    let appels = faux.appels();
+    assert_eq!(appels.len(), 1, "{appels:?}");
+    assert!(appels[0].contains("classés à la main"), "{}", appels[0]);
+    assert!(
+        appels[0].contains("=> information (et non question)"),
+        "{}",
+        appels[0]
+    );
+    b.fermer().await;
+}

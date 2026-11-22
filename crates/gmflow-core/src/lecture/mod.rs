@@ -118,8 +118,9 @@ fn texte_utile(t: &str) -> usize {
 }
 
 /// Décide comment lire une pièce jointe. Fonction bloquante (analyse des PDF) : à lancer dans
-/// `spawn_blocking`. `liste_diffusion` : le mail a un en-tête `List-Unsubscribe`.
-pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], liste_diffusion: bool) -> Aiguillage {
+/// `spawn_blocking`. `_liste_diffusion` (en-tête `List-Unsubscribe`) ne sert plus depuis que les
+/// images ne sont plus lues ; gardé pour les appelants.
+pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) -> Aiguillage {
     if contenu.len() > FICHIER_MAX {
         return Aiguillage::Ignore(format!(
             "fichier de plus de {} Mo",

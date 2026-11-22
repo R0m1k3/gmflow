@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where statut_reponse = 'a_repondre') as \"a!\",\n                      count(*) filter (where statut_reponse = 'repondu') as \"r!\",\n                      count(*) filter (where statut_reponse = 'sans_suite') as \"s!\",\n                      count(*) filter (where categorie_auto is not null) as \"revus!\",\n                      count(*) filter (where categorie_auto is not null and categorie_auto <> categorie) as \"corriges!\"\n               from mail m\n               where coalesce(m.date_mail, m.recu_le) >= ($1::date::timestamp at time zone 'Europe/Paris')\n                 and coalesce(m.date_mail, m.recu_le) < (($1::date + 7)::timestamp at time zone 'Europe/Paris')\n                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                             where mb.mail_id = m.id and ($2::bigint is null or b.societe_id = $2))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "a!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "r!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "s!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "revus!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "corriges!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "de24dd8feee63443e3fba91e83394da6dc4ff3e101282fd0d08382d2bb75a134"
+}

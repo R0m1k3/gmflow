@@ -324,6 +324,76 @@ pub fn tronquer(s: &str, n: usize) -> &str {
     }
 }
 
+/// Mails d'un même expéditeur classés à la main de la même façon, à la suite, au-delà desquels
+/// ses mails suivants reçoivent cette catégorie sans Claude.
+pub const HISTORIQUE_REGLE: usize = 3;
+/// Exemples de tri humain ajoutés au prompt, et longueur de texte gardée pour chacun.
+pub const EXEMPLES_MAX: usize = 20;
+pub const EXEMPLE_CORPS_MAX: usize = 300;
+
+/// Catégorie apprise d'un expéditeur : `dernieres` = catégories de ses derniers mails classés à
+/// la main, du plus récent au plus ancien.
+pub fn par_historique(dernieres: &[String]) -> Option<(String, String)> {
+    let premiere = dernieres.first()?;
+    if dernieres.len() < HISTORIQUE_REGLE
+        || !CATEGORIES.contains(&premiere.as_str())
+        || dernieres
+            .iter()
+            .take(HISTORIQUE_REGLE)
+            .any(|c| c != premiere)
+    {
+        return None;
+    }
+    Some((
+        premiere.clone(),
+        format!(
+            "les {HISTORIQUE_REGLE} derniers mails de cet expéditeur ont été classés « {premiere} » à la main"
+        ),
+    ))
+}
+
+/// Mail déjà classé à la main, montré à Claude comme exemple.
+pub struct Exemple {
+    pub expediteur: String,
+    pub objet: String,
+    pub corps: String,
+    pub categorie: String,
+    /// La catégorie choisie avant par la règle ou Claude, quand elle était différente.
+    pub corrige_de: Option<String>,
+}
+
+/// Bloc de prompt : les mails classés à la main, pour que Claude suive les mêmes choix.
+pub fn bloc_exemples(exemples: &[Exemple]) -> String {
+    if exemples.is_empty() {
+        return String::new();
+    }
+    let mut p = String::from(
+        "\nExemples de mails déjà classés à la main par l'équipe du magasin (ce sont les bonnes \
+réponses : suis les mêmes choix pour des mails semblables) :\n",
+    );
+    for e in exemples {
+        let utile = corps_utile(&e.corps);
+        let texte = if utile.is_empty() {
+            e.corps.trim()
+        } else {
+            &utile
+        };
+        let texte = tronquer(texte, EXEMPLE_CORPS_MAX).replace('\n', " ");
+        p.push_str(&format!(
+            "- De : {} | Objet : {} | Texte : {} => {}",
+            e.expediteur,
+            e.objet,
+            texte.trim(),
+            e.categorie
+        ));
+        if let Some(avant) = &e.corrige_de {
+            p.push_str(&format!(" (et non {avant})"));
+        }
+        p.push('\n');
+    }
+    p
+}
+
 /// Pièce jointe montrée à Claude : nom, et type du document s'il est déjà lu.
 pub struct PieceVue<'a> {
     pub nom: &'a str,

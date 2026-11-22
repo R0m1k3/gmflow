@@ -161,7 +161,6 @@ async fn remettre(pool: &PgPool, id: i64, message: &str) -> anyhow::Result<()> {
 struct PieceTri {
     nom: String,
     type_mime: String,
-    taille: i64,
     etat: Option<String>,
     type_document: Option<String>,
 }
@@ -189,7 +188,7 @@ async fn trier_pris(ctx: &Contexte, m: &MailTri) -> anyhow::Result<()> {
     .await?;
     let pieces = sqlx::query_as!(
         PieceTri,
-        r#"select p.nom, p.type_mime, p.taille, d.etat as "etat?", d.type as "type_document?"
+        r#"select p.nom, p.type_mime, d.etat as "etat?", d.type as "type_document?"
            from piece_jointe p left join document d on d.piece_jointe_id = p.id
            where p.mail_id = $1 order by p.rang"#,
         m.id
@@ -214,6 +213,20 @@ async fn trier_pris(ctx: &Contexte, m: &MailTri) -> anyhow::Result<()> {
         corps: &m.corps_texte,
         pieces_utiles,
     };
+    // Ce que l'équipe a décidé pour cet expéditeur passe avant les règles générales.
+    let dernieres: Vec<String> = sqlx::query_scalar!(
+        r#"select categorie as "c!" from mail
+           where categorie_par = 'humain' and categorie is not null and id <> $2
+             and lower(expediteur) = lower($1) and expediteur <> ''
+           order by trie_le desc nulls last limit 3"#,
+        m.expediteur,
+        m.id
+    )
+    .fetch_all(pool)
+    .await?;
+    if let Some((categorie, raison)) = tri::par_historique(&dernieres) {
+        return appliquer(pool, m.id, &categorie, "regle", None, None, Some(&raison)).await;
+    }
     if let Some((categorie, raison)) = tri::par_regle(&contexte) {
         return appliquer(pool, m.id, categorie, "regle", None, None, Some(&raison)).await;
     }
@@ -233,7 +246,8 @@ async fn trier_pris(ctx: &Contexte, m: &MailTri) -> anyhow::Result<()> {
             type_document: p.type_document.as_deref(),
         })
         .collect();
-    let prompt = tri::prompt(&m.expediteur, &m.objet, &m.corps_texte, &vues);
+    let mut prompt = tri::prompt(&m.expediteur, &m.objet, &m.corps_texte, &vues);
+    prompt.push_str(&tri::bloc_exemples(&exemples(pool, m).await?));
     let schema = tri::schema().to_string();
     let args = [
         "--json-schema",
@@ -283,4 +297,37 @@ async fn trier_pris(ctx: &Contexte, m: &MailTri) -> anyhow::Result<()> {
         }
     }
     anyhow::bail!("deux réponses de tri non conformes : {derniere}")
+}
+
+/// Mails classés à la main, du même expéditeur puis du même domaine d'abord, les corrections
+/// avant les confirmations, puis les plus récents.
+async fn exemples(pool: &PgPool, m: &MailTri) -> anyhow::Result<Vec<tri::Exemple>> {
+    let domaine = tri::domaine(&m.expediteur).unwrap_or_default();
+    let lignes = sqlx::query!(
+        r#"select expediteur, objet, left(corps_texte, 4000) as "corps!", categorie as "categorie!",
+                  case when categorie_auto is distinct from categorie then categorie_auto end as corrige_de
+           from mail
+           where categorie_par = 'humain' and categorie is not null and id <> $1
+           order by (lower(expediteur) = lower($2)) desc,
+                    ($3 <> '' and lower(split_part(expediteur, '@', 2)) = $3) desc,
+                    (categorie_auto is not null and categorie_auto <> categorie) desc,
+                    trie_le desc nulls last
+           limit $4"#,
+        m.id,
+        m.expediteur,
+        domaine,
+        tri::EXEMPLES_MAX as i64
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(lignes
+        .into_iter()
+        .map(|l| tri::Exemple {
+            expediteur: l.expediteur,
+            objet: l.objet,
+            corps: l.corps,
+            categorie: l.categorie,
+            corrige_de: l.corrige_de,
+        })
+        .collect())
 }
