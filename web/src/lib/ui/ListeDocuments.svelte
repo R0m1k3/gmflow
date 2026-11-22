@@ -1,0 +1,173 @@
+<script lang="ts" module>
+  export type FiltreDocuments = { v: string; l: string; params: Record<string, string> };
+</script>
+
+<script lang="ts">
+  // Onglets Factures et BL : les documents reçus, les plus récents en haut, groupés par jour de
+  // réception. Filtres en puces (paramètres de GET /api/documents), fiche du document à droite (?doc=ID).
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
+  import { untrack } from 'svelte';
+  import { requete, sonder } from '#lib/api.ts';
+  import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
+  import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
+  import { libelleEtat, libelleStatutEnvoi, libelleType, nomCourtSociete, tonEtat, tonStatutEnvoi, type Ton } from '#lib/libelles.ts';
+  import { Liste, parJour } from '#lib/liste.svelte.ts';
+  import { societe } from '#lib/societe.svelte.ts';
+  import type { LigneDocument } from '#lib/types.ts';
+  import Bandeau from './Bandeau.svelte';
+  import Chargement from './Chargement.svelte';
+  import DocFiche, { type ResultatFiche } from './DocFiche.svelte';
+  import { dateFr } from './DocOutils.ts';
+  import Etiquette from './Etiquette.svelte';
+  import Icone from './Icone.svelte';
+  import Kbd from './Kbd.svelte';
+  import Montant from './Montant.svelte';
+  import Vide from './Vide.svelte';
+  import Volets from './Volets.svelte';
+
+  let {
+    titre,
+    chemin,
+    filtres,
+    rechercheType,
+    videTitre,
+    singulier
+  }: {
+    /** « Factures », « BL ». */
+    titre: string;
+    /** `/factures`, `/bl`. */
+    chemin: string;
+    /** Le premier est le filtre par défaut. */
+    filtres: FiltreDocuments[];
+    rechercheType: string;
+    videTitre: string;
+    /** « une facture », « un BL ». */
+    singulier: string;
+  } = $props();
+
+  let filtreV = $derived(page.url.searchParams.get('filtre') ?? filtres[0].v);
+  let filtre = $derived(filtres.find((f) => f.v === filtreV) ?? filtres[0]);
+  let docId = $derived(Number(page.url.searchParams.get('doc')) || null);
+
+  const lst = new Liste<LigneDocument>((p) => `/api/documents${requete({ societe: societe.id, ...filtre.params, page: p })}`);
+
+  $effect(() => {
+    void societe.id;
+    void filtre;
+    untrack(() => void lst.lire());
+    return sonder(async () => {
+      if (document.visibilityState === 'visible') await lst.lire(true);
+    }, 60_000);
+  });
+
+  let groupes = $derived(parJour(lst.elements, (d) => d.date_mail));
+
+  function lien(id: number | null, f = filtreV) {
+    return `${chemin}${requete({ filtre: f === filtres[0].v ? '' : f, doc: id })}`;
+  }
+
+  /** Où en est le document, en deux mots. */
+  function statut(d: LigneDocument): { texte: string; ton: Ton } | null {
+    if (d.etat !== 'lu') return { texte: libelleEtat(d.etat), ton: tonEtat(d.etat) };
+    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+    if (d.statut_depot === 'depose') return { texte: 'Envoyée', ton: 'ok' };
+    if (d.statut_depot) return { texte: libelleStatutEnvoi(d.statut_depot), ton: tonStatutEnvoi(d.statut_depot) };
+    return d.verifie ? { texte: 'Validée', ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+  }
+
+  let annonce = $state('');
+  let annoncePour = 0;
+  $effect(() => {
+    if (docId !== annoncePour) annonce = '';
+  });
+  /** Validé ou écarté : la liste est relue et le document suivant de la liste s'ouvre. */
+  async function apres(r: ResultatFiche) {
+    const i = lst.elements.findIndex((d) => d.id === r.id);
+    const suivant = lst.elements[i + 1]?.id ?? null;
+    void rafraichirCompteurs();
+    await lst.lire(true);
+    annonce = r.info;
+    annoncePour = suivant ?? 0;
+    await goto(lien(suivant), { replace: true });
+  }
+
+  let listeEl = $state<HTMLElement>();
+  let indice = $derived(lst.elements.findIndex((d) => d.id === docId));
+  function deplacerDe(sens: 1 | -1) {
+    const i = deplacer(indice, sens, lst.elements.length);
+    if (i < 0) return;
+    const id = lst.elements[i].id;
+    void goto(lien(id), { replace: true }).then(() => montrer(listeEl, `[data-id="${id}"]`));
+  }
+  $effect(() => {
+    const carte: Record<string, () => void> = { j: () => deplacerDe(1), k: () => deplacerDe(-1) };
+    if (docId) carte.Escape = () => void goto(lien(null));
+    return raccourcis(carte, { dansLesChamps: [] });
+  });
+</script>
+
+<svelte:head><title>{titre} · GMFlow</title></svelte:head>
+
+<Volets ouvert={!!docId} libelleListe={titre} largeur={460}>
+  {#snippet liste()}
+    <div class="liste-h">
+      <h1>{titre}</h1>
+      <span class="num">{lst.total}</span>
+      <span class="sp"></span>
+      <a class="btn sm fantome" href="/recherche?type={rechercheType}"><Icone nom="chercher" />Chercher</a>
+    </div>
+    <div class="puces" role="group" aria-label="Filtre">
+      {#each filtres as f (f.v)}
+        <a class="btn sm" href={lien(null, f.v)} aria-current={filtreV === f.v ? "true" : undefined} data-sveltekit-replacestate>{f.l}</a>
+      {/each}
+    </div>
+    <div class="liste-s" bind:this={listeEl}>
+      {#if lst.erreur}
+        <Bandeau ton="erreur" titre="Liste non chargée.">
+          {lst.erreur}
+          {#snippet action()}<button type="button" class="btn sm" onclick={() => lst.lire()}>Réessayer</button>{/snippet}
+        </Bandeau>
+      {/if}
+      {#if !lst.charge}
+        <Chargement texte="Chargement" />
+      {:else if !lst.elements.length}
+        <Vide compact icone="fichier" titre={videTitre} texte="Rien avec ce filtre pour l’instant." />
+      {:else}
+        {#each groupes as g (g.titre)}
+          <div class="jour-h">{g.titre} <span class="num muted">{g.elements.length}</span></div>
+          {#each g.elements as d (d.id)}
+            {@const s = statut(d)}
+            <a class="ligne" class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
+              <div class="a">{d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu'}</div>
+              <div class="r">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} avoir={d.type === 'avoir'} />{/if}</div>
+              <div class="b">
+                {libelleType(d.type)}{#if d.numero}{' '}<span class="num">{d.numero}</span>{/if}{#if d.date_document}<span class="muted">{' du '}<span class="num">{dateFr(d.date_document, true)}</span></span>{/if}{d.societe ? `, ${nomCourtSociete(d.societe)}` : ''}
+              </div>
+              <div class="r2">{#if s}<Etiquette ton={s.ton}>{s.texte}</Etiquette>{/if}</div>
+            </a>
+          {/each}
+        {/each}
+        {#if lst.reste > 0}
+          <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
+            {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
+          </button>
+        {/if}
+      {/if}
+    </div>
+    <div class="liste-f">
+      <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
+      <span><Kbd t="/" /> chercher</span>
+    </div>
+  {/snippet}
+
+  {#snippet detail()}
+    {#if docId}
+      <DocFiche id={docId} retour={lien(null)} retourLibelle={titre} {annonce} onfait={apres} onchange={() => lst.lire(true)} />
+    {/if}
+  {/snippet}
+
+  {#snippet vide()}
+    <Vide icone="fichier" titre="Choisissez {singulier}" texte="Cliquez sur une ligne pour voir le document, ses montants et le mail d’origine." />
+  {/snippet}
+</Volets>

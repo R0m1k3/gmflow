@@ -11,8 +11,8 @@ export const load: PageLoad = ({ url }) => {
   if (fournisseur && /^\d+$/.test(fournisseur)) redirect(307, `/fournisseurs/${fournisseur}`);
   // Ce qui attend ou ce qui coince : la file À traiter.
   const statut = p.get('statut_depot');
-  if (statut === 'erreur' || statut === 'doublon' || p.get('etat') === 'erreur') redirect(307, '/#bloque');
-  if (statut === 'a_verifier' || statut === 'pret' || p.get('verifie') === 'false') redirect(307, '/');
+  if (statut === 'erreur' || statut === 'doublon' || p.get('etat') === 'erreur') redirect(307, '/a-traiter#bloque');
+  if (statut === 'a_verifier' || statut === 'pret' || p.get('verifie') === 'false') redirect(307, '/a-traiter');
 
   const garde = new URLSearchParams();
   const type = p.get('type') ?? '';

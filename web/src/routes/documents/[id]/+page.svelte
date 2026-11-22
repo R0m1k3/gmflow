@@ -56,7 +56,7 @@
       aTraiter.file(societe.id).then((f) => (file = f)).catch(() => {});
       await goto(`/documents/${r.suivant}`, { replace: true });
     } else {
-      await goto('/?fait=valide');
+      await goto('/a-traiter?fait=valide');
     }
   }
 </script>

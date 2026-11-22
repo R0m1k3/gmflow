@@ -88,7 +88,7 @@
 
   let {
     id,
-    retour = { href: '/', libelle: 'À traiter' },
+    retour = { href: '/a-traiter', libelle: 'À traiter' },
     ouvrir,
     volet = false
   }: {
@@ -102,7 +102,7 @@
   } = $props();
 
   const aller = (suivant: number | null) =>
-    ouvrir ? ouvrir(suivant) : goto(suivant ? `/mails/${suivant}` : '/');
+    ouvrir ? ouvrir(suivant) : goto(suivant ? `/mails/${suivant}` : '/a-repondre');
 
   const ACTIFS = ['generation', 'propose', 'modifie', 'envoi'];
   const EN_COURS = ['generation', 'envoi'];

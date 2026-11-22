@@ -5,7 +5,7 @@
   import MailFiche from '#lib/ui/MailFiche.svelte';
 
   let id = $derived(Number(page.params.id));
-  let retour = $state({ href: '/', libelle: 'À traiter' });
+  let retour = $state({ href: '/mails', libelle: 'Mails' });
 
   // Retour vers la page d'où l'on vient (recherche, fiche fournisseur…), gardé quand on enchaîne les mails.
   afterNavigate(({ from }) => {
@@ -16,7 +16,8 @@
     else if (p.startsWith('/fournisseurs')) retour = { href, libelle: 'Fournisseur' };
     else if (p.startsWith('/documents/')) retour = { href, libelle: 'Document' };
     else if (p === '/bilan') retour = { href, libelle: 'Bilan du mois' };
-    else retour = { href: '/', libelle: 'À traiter' };
+    else if (p === '/') retour = { href: '/', libelle: 'Accueil' };
+    else retour = { href: '/mails', libelle: 'Mails' };
   });
 </script>
 

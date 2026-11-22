@@ -16,6 +16,6 @@
       ? 'Le lien est peut-être ancien. Tout ce qui attend une action est dans À traiter.'
       : (page.error?.message ?? 'Réessayez dans un instant.')}
   >
-    <a class="btn" href="/">Retour à À traiter</a>
+    <a class="btn" href="/">Retour à l’accueil</a>
   </Vide>
 </div>

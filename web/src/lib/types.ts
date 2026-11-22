@@ -789,3 +789,41 @@ export interface EntreeBoite {
 export type ChangementsFournisseur = Partial<
   Pick<Fournisseur, 'nom' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'>
 >;
+
+// ---------- Onglets Factures, BL, À répondre (listes existantes) ----------
+
+/** Ligne de `GET /api/documents?type=&verifie=&statut_depot=&q=&page=`. */
+export interface LigneDocument {
+  id: number;
+  mail_id: number;
+  nom_fichier: string;
+  etat: EtatDocument;
+  voie: string | null;
+  type: TypeDocument | null;
+  societe: string | null;
+  fournisseur_nom: string | null;
+  numero: string | null;
+  date_document: string | null;
+  montant_ttc: number | null;
+  message: string | null;
+  verifie: boolean;
+  date_mail: string | null;
+  fournisseur_id: number | null;
+  fournisseur: string | null;
+  statut_depot: StatutDepot | null;
+  controles: unknown;
+}
+
+/** Ligne de `GET /api/a-repondre?page=` : priorité haute d'abord, puis les plus anciens. */
+export interface LigneARepondre {
+  id: number;
+  expediteur: string;
+  objet: string;
+  date_mail: string | null;
+  resume: string | null;
+  priorite: Priorite | null;
+  categorie_par: string | null;
+  structures: string[];
+  boites: string[];
+  brouillon: StatutBrouillon | null;
+}
