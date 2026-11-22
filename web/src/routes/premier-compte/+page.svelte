@@ -1,6 +1,9 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { api, message } from '#lib/api.ts';
+  import Bandeau from '#lib/ui/Bandeau.svelte';
+  import Champ from '#lib/ui/Champ.svelte';
+  import Chargement from '#lib/ui/Chargement.svelte';
 
   const jeton = page.url.searchParams.get('jeton') ?? '';
   let valide = $state<boolean | null>(null);
@@ -8,47 +11,125 @@
   let motDePasse = $state('');
   let confirmation = $state('');
   let erreur = $state('');
+  let envoi = $state(false);
   let fait = $state(false);
 
   $effect(() => {
+    if (!jeton) {
+      valide = false;
+      return;
+    }
     api
       .get(`/api/premier-compte/${encodeURIComponent(jeton)}`)
       .then(() => (valide = true))
       .catch(() => (valide = false));
   });
 
+  let tropCourt = $derived(motDePasse.length > 0 && motDePasse.length < 12);
+  let different = $derived(confirmation.length > 0 && confirmation !== motDePasse);
+
   async function creer(e: SubmitEvent) {
     e.preventDefault();
     erreur = '';
+    if (motDePasse.length < 12) {
+      erreur = 'Le mot de passe doit faire 12 caractères au moins.';
+      return;
+    }
     if (motDePasse !== confirmation) {
       erreur = 'Les deux mots de passe sont différents.';
       return;
     }
+    envoi = true;
     try {
-      await api.post('/api/premier-compte', { jeton, identifiant, mot_de_passe: motDePasse });
+      await api.post('/api/premier-compte', { jeton, identifiant: identifiant.trim(), mot_de_passe: motDePasse });
       fait = true;
     } catch (err) {
       erreur = message(err);
+    } finally {
+      envoi = false;
     }
   }
 </script>
 
-<div class="carte">
-  <h1>Premier compte</h1>
+<svelte:head><title>Premier compte · GMFlow</title></svelte:head>
+
+<div class="accueil">
+  <div class="logo"><span class="marque" aria-hidden="true"></span>GMFlow</div>
+
   {#if fait}
-    <div class="bandeau ok">Compte administrateur créé.</div>
-    <a href="/connexion">Se connecter</a>
+    <h1>Compte créé</h1>
+    <p class="t2">Le compte administrateur <b>{identifiant.trim()}</b> est prêt. Connectez-vous pour faire la mise en route.</p>
+    <a class="btn principal plein" href="/connexion">Se connecter</a>
   {:else if valide === false}
-    <div class="bandeau erreur">Ce lien n'est plus valable (déjà utilisé, expiré, ou un compte existe déjà).</div>
-    <a href="/connexion">Aller à la connexion</a>
+    <h1>Lien plus valable</h1>
+    <Bandeau ton="erreur" titre="Ce lien ne sert plus.">Il a déjà servi, il a expiré, ou un compte existe déjà.</Bandeau>
+    <a class="btn plein" href="/connexion">Aller à la connexion</a>
   {:else if valide}
-    <p class="discret">Création du compte administrateur. Le lien ne sert qu'une fois.</p>
-    {#if erreur}<div class="bandeau erreur">{erreur}</div>{/if}
+    <h1>Créer le premier compte</h1>
+    <p class="t2">Ce compte administrateur fera la mise en route de GMFlow. Le lien ne sert qu’une fois.</p>
+    {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
     <form onsubmit={creer}>
-      <p><label for="id">Identifiant</label><input id="id" bind:value={identifiant} autocomplete="username" required /></p>
-      <p><label for="mdp">Mot de passe (12 caractères au moins)</label><input id="mdp" type="password" minlength="12" bind:value={motDePasse} autocomplete="new-password" required /></p>
-      <p><label for="mdp2">Confirmation</label><input id="mdp2" type="password" bind:value={confirmation} autocomplete="new-password" required /></p>
-      <button>Créer le compte</button>
+      <Champ libelle="Identifiant" bind:valeur={identifiant} requis autocomplete="username" aide="Une adresse mail ou un nom court." />
+      <Champ
+        libelle="Mot de passe"
+        type="password"
+        bind:valeur={motDePasse}
+        requis
+        autocomplete="new-password"
+        aide={tropCourt ? `Encore ${12 - motDePasse.length} caractères au moins.` : '12 caractères au moins.'}
+        aControler={tropCourt}
+      />
+      <Champ
+        libelle="Confirmation"
+        type="password"
+        bind:valeur={confirmation}
+        requis
+        autocomplete="new-password"
+        aControler={different ? 'Les deux mots de passe sont différents.' : false}
+      />
+      <button class="btn principal plein" class:en-cours={envoi} disabled={envoi}>Créer le compte</button>
     </form>
+  {:else}
+    <Chargement texte="Vérification du lien" />
   {/if}
 </div>
+
+<style>
+  .accueil {
+    padding: var(--e8) 0;
+  }
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--black);
+    margin-bottom: var(--e10);
+  }
+  .marque {
+    width: 16px;
+    height: 16px;
+    background: var(--black);
+    display: block;
+    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 60%, 60% 60%, 60% 40%, 0 40%);
+  }
+  h1 {
+    margin-bottom: var(--e1);
+  }
+  p.t2 {
+    margin-bottom: var(--e6);
+  }
+  .accueil > :global(.bandeau) {
+    margin-bottom: var(--e4);
+  }
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+  }
+  .plein {
+    width: 100%;
+    margin-top: var(--e2);
+  }
+</style>
