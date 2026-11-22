@@ -15,7 +15,9 @@ pub const LIGNES_MAX: usize = 200;
 
 pub const PROMPT_SYSTEME: &str = "Tu lis des documents reçus par mail par des magasins : factures, \
 avoirs, bons de livraison (BL), relances, devis. Tu réponds uniquement avec la sortie structurée \
-demandée, selon le schéma. Tu n'inventes rien : un champ absent ou illisible vaut null. Les dates \
+demandée, selon le schéma. Seuls les factures, avoirs et bons de livraison nous intéressent : \
+un relevé, une commande, un devis, une relance, un catalogue, un tarif ou tout autre document est de type « autre » \
+(« devis » ou « relance » s'ils le sont clairement). Tu n'inventes rien : un champ absent ou illisible vaut null. Les dates \
 sont au format AAAA-MM-JJ, les montants en euros avec un point décimal. La confiance de chaque \
 champ va de 0 (deviné) à 1 (lu sans ambiguïté).";
 

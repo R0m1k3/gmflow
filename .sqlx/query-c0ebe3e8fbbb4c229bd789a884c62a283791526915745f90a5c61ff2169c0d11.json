@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select p.nom, p.type_mime, p.taille, d.etat as \"etat?\", d.type as \"type_document?\"\n           from piece_jointe p left join document d on d.piece_jointe_id = p.id\n           where p.mail_id = $1 order by p.rang",
+  "query": "select p.nom, p.type_mime, d.etat as \"etat?\", d.type as \"type_document?\"\n           from piece_jointe p left join document d on d.piece_jointe_id = p.id\n           where p.mail_id = $1 order by p.rang",
   "describe": {
     "columns": [
       {
@@ -27,17 +27,6 @@
       },
       {
         "ordinal": 2,
-        "name": "taille",
-        "type_info": "Int8",
-        "origin": {
-          "Table": {
-            "table": "piece_jointe",
-            "name": "taille"
-          }
-        }
-      },
-      {
-        "ordinal": 3,
         "name": "etat?",
         "type_info": "Text",
         "origin": {
@@ -48,7 +37,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "type_document?",
         "type_info": "Text",
         "origin": {
@@ -68,9 +57,8 @@
       false,
       false,
       false,
-      false,
       true
     ]
   },
-  "hash": "f9ed1ed3fba71af0dfc9e020b0165704fbdf21116a43f72eb06a4a4e5b12a024"
+  "hash": "c0ebe3e8fbbb4c229bd789a884c62a283791526915745f90a5c61ff2169c0d11"
 }

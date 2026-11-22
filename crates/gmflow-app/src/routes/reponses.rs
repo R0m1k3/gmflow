@@ -188,6 +188,10 @@ pub struct Semaine {
     a_repondre: i64,
     repondu: i64,
     sans_suite: i64,
+    /// Mails triés par une règle ou par Claude, puis revus à la main (corrigés ou confirmés).
+    revus: i64,
+    /// Parmi eux, ceux dont la catégorie a été changée.
+    corriges: i64,
 }
 
 /// Bilan du tri pour la semaine en cours et la précédente (lundi à dimanche, heure de Paris) :
@@ -217,7 +221,9 @@ pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<V
         let r = sqlx::query!(
             r#"select count(*) filter (where statut_reponse = 'a_repondre') as "a!",
                       count(*) filter (where statut_reponse = 'repondu') as "r!",
-                      count(*) filter (where statut_reponse = 'sans_suite') as "s!"
+                      count(*) filter (where statut_reponse = 'sans_suite') as "s!",
+                      count(*) filter (where categorie_auto is not null) as "revus!",
+                      count(*) filter (where categorie_auto is not null and categorie_auto <> categorie) as "corriges!"
                from mail m
                where coalesce(m.date_mail, m.recu_le) >= ($1::date::timestamp at time zone 'Europe/Paris')
                  and coalesce(m.date_mail, m.recu_le) < (($1::date + 7)::timestamp at time zone 'Europe/Paris')
@@ -235,6 +241,8 @@ pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<V
             a_repondre: r.a,
             repondu: r.r,
             sans_suite: r.s,
+            revus: r.revus,
+            corriges: r.corriges,
         });
     }
     Ok(Json(v))
@@ -268,6 +276,8 @@ pub async fn changer_categorie(
     sqlx::query!(
         "update mail set categorie = $2, categorie_par = 'humain', tri_etat = 'trie', trie_le = now(),
             tri_message = null,
+            categorie_auto = case when categorie_par in ('regle', 'claude') then categorie else categorie_auto end,
+            categorie_auto_par = case when categorie_par in ('regle', 'claude') then categorie_par else categorie_auto_par end,
             statut_reponse = case
                 when $2 = 'question' then coalesce(statut_reponse, 'a_repondre')
                 when statut_reponse = 'a_repondre' then null
@@ -627,6 +637,8 @@ pub async fn marquer(
     .await?;
     let n = sqlx::query!(
         "update mail set categorie = 'publicite',
+            categorie_auto = case when id = $3 and categorie_par in ('regle', 'claude') then categorie else categorie_auto end,
+            categorie_auto_par = case when id = $3 and categorie_par in ('regle', 'claude') then categorie_par else categorie_auto_par end,
             categorie_par = case when id = $3 then 'humain' else 'regle' end,
             tri_etat = 'trie', trie_le = now(), tri_message = 'expéditeur marqué comme publicité',
             statut_reponse = case when statut_reponse = 'a_repondre' then null else statut_reponse end

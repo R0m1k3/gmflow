@@ -1,0 +1,69 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select expediteur, objet, left(corps_texte, 4000) as \"corps!\", categorie as \"categorie!\",\n                  case when categorie_auto is distinct from categorie then categorie_auto end as corrige_de\n           from mail\n           where categorie_par = 'humain' and categorie is not null and id <> $1\n           order by (lower(expediteur) = lower($2)) desc,\n                    ($3 <> '' and lower(split_part(expediteur, '@', 2)) = $3) desc,\n                    (categorie_auto is not null and categorie_auto <> categorie) desc,\n                    trie_le desc nulls last\n           limit $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "corps!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "categorie!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "categorie"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "corrige_de",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "59a810f9b44b9cfa5f6f6d96623c893133cec5110bb5f17e0cee706310394393"
+}

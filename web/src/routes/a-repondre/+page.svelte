@@ -49,6 +49,29 @@
     charger();
   }
 
+  let enCours = $state<number | null>(null);
+
+  /** Classement à la main depuis la file : il sert d'exemple au tri des mails suivants. */
+  async function classer(ev: Event, m: LigneARepondre, categorie: 'question' | 'information' | 'publicite') {
+    ev.stopPropagation();
+    enCours = m.id;
+    erreur = '';
+    try {
+      await api.put(`/api/mails/${m.id}/categorie`, { categorie });
+      if (categorie === 'question') m.categorie_par = 'humain';
+      else await charger();
+      api.get<SemaineTri[]>('/api/tri/semaines').then((v) => (semaines = v));
+    } catch (e) {
+      erreur = message(e);
+    } finally {
+      enCours = null;
+    }
+  }
+
+  function justesse(s: SemaineTri) {
+    return Math.round((100 * (s.revus - s.corriges)) / s.revus);
+  }
+
   function lien(s: SemaineTri, categorie: string | null) {
     return `/mails?du=${s.debut}&au=${s.fin}&categorie=${categorie ?? 'non_trie'}`;
   }
@@ -78,9 +101,11 @@
 {#if resultat}
   <p class="discret">
     {resultat.total} question{resultat.total > 1 ? 's' : ''} en attente, priorité haute d'abord puis les plus anciennes.
+    Chaque classement à la main sert d'exemple au tri des mails suivants ; après trois mails d'un même
+    expéditeur classés pareil, ses mails suivants le sont directement.
   </p>
   <table>
-    <thead><tr><th>Priorité</th><th>Date</th><th>Expéditeur</th><th>Question</th><th>Boîte</th></tr></thead>
+    <thead><tr><th>Priorité</th><th>Date</th><th>Expéditeur</th><th>Question</th><th>Boîte</th><th>Classer</th></tr></thead>
     <tbody>
       {#each resultat.elements as m (m.id)}
         <tr class="cliquable" onclick={() => goto(`/mails/${m.id}`)}>
@@ -95,9 +120,18 @@
             {#if m.brouillon}<div><span class="etiquette att">{libelleBrouillon[m.brouillon]}</span></div>{/if}
           </td>
           <td class="discret">{m.boites.join(', ')}{m.structures.length > 1 ? ` (${m.structures.join(', ')})` : ''}</td>
+          <td class="classer">
+            {#if m.categorie_par === 'humain'}
+              <span class="discret">Question confirmée</span>
+            {:else}
+              <button class="second" disabled={enCours === m.id} onclick={(ev) => classer(ev, m, 'question')}>Vraie question</button>
+              <button class="second" disabled={enCours === m.id} onclick={(ev) => classer(ev, m, 'information')}>Information</button>
+              <button class="second" disabled={enCours === m.id} onclick={(ev) => classer(ev, m, 'publicite')}>Publicité</button>
+            {/if}
+          </td>
         </tr>
       {:else}
-        <tr><td colspan="5" class="discret">Aucune question en attente.</td></tr>
+        <tr><td colspan="6" class="discret">Aucune question en attente.</td></tr>
       {/each}
     </tbody>
   </table>
@@ -132,6 +166,11 @@
         <div class="discret">
           {s.a_repondre} à répondre, {s.repondu} répondu{s.repondu > 1 ? 's' : ''}, {s.sans_suite} sans suite
         </div>
+        {#if s.revus}
+          <div class="discret">
+            Tri automatique juste à {justesse(s)} % : {s.corriges} corrigé{s.corriges > 1 ? 's' : ''} sur {s.revus} revu{s.revus > 1 ? 's' : ''} à la main
+          </div>
+        {/if}
       </div>
     {/each}
   </div>
@@ -142,4 +181,6 @@
   .filtres > div { min-width: 200px; }
   .bilan { margin: 0.5rem 0; border: none; }
   .bilan td { padding: 0.25rem 0.4rem; }
+  .classer { white-space: nowrap; }
+  .classer button { padding: 0.2rem 0.5rem; font-size: 0.85rem; }
 </style>

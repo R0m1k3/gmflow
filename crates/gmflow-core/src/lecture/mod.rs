@@ -8,8 +8,6 @@ pub mod societe;
 pub mod tableur;
 pub mod xml;
 
-/// Images plus petites : logos, signatures, pictogrammes de mise en page.
-pub const IMAGE_MIN: usize = 60 * 1024;
 /// Fichiers plus gros : non lus (Claude refuse au-delà, et ce n'est pas une facture).
 pub const FICHIER_MAX: usize = 25 * 1024 * 1024;
 /// Caractères utiles (lettres, chiffres) en dessous desquels un PDF est traité comme un scan.
@@ -120,8 +118,9 @@ fn texte_utile(t: &str) -> usize {
 }
 
 /// Décide comment lire une pièce jointe. Fonction bloquante (analyse des PDF) : à lancer dans
-/// `spawn_blocking`. `liste_diffusion` : le mail a un en-tête `List-Unsubscribe`.
-pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], liste_diffusion: bool) -> Aiguillage {
+/// `spawn_blocking`. `_liste_diffusion` (en-tête `List-Unsubscribe`) ne sert plus depuis que les
+/// images ne sont plus lues ; gardé pour les appelants.
+pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) -> Aiguillage {
     if contenu.len() > FICHIER_MAX {
         return Aiguillage::Ignore(format!(
             "fichier de plus de {} Mo",
@@ -176,20 +175,10 @@ pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], liste_diffusion: bool) -
                 Aiguillage::Ignore("CSV vide".into())
             }
         }
-        Genre::Image(ext) => {
-            if liste_diffusion {
-                Aiguillage::Ignore("image d'un mail de liste de diffusion".into())
-            } else if contenu.len() < IMAGE_MIN {
-                Aiguillage::Ignore(format!(
-                    "image de moins de {} Ko (logo, signature)",
-                    IMAGE_MIN / 1024
-                ))
-            } else {
-                Aiguillage::Scan {
-                    extension: ext,
-                    pages: 1,
-                }
-            }
+        // Photos, captures, logos : jamais des factures, avoirs ou BL utiles (les scans passent
+        // par des PDF). Les images ne sont pas lues.
+        Genre::Image(_) => {
+            Aiguillage::Ignore("image : seuls les PDF, XML et tableurs sont lus".into())
         }
         Genre::Autre => Aiguillage::Ignore(format!(
             "type de fichier non lu ({})",

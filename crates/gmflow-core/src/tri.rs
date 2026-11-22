@@ -27,7 +27,10 @@ litige, relance qui demande une réponse) ; « information » = message écrit p
 n'attend pas de réponse ; « document_seul » = le mail sert seulement à transmettre un document \
 (facture, avoir, bon de livraison, relevé) ; « publicite » = prospection, promotion, newsletter ; \
 « notification » = message automatique (confirmation, avis d'expédition, alerte, accusé de \
-réception). En cas de doute entre question et autre chose, choisis question. « resume » : une \
+réception). « question » est réservé à un message écrit par une personne, avec une vraie demande ou \
+question explicite adressée à nous et qui attend une réponse : jamais un envoi de document, une \
+confirmation, un remerciement, un message de masse ni un simple « pour information ». En cas \
+de doute entre question et information, choisis information. « resume » : une \
 ligne en français, 120 caractères au plus, qui dit ce que veut l'expéditeur. « priorite » : haute \
 si c'est urgent ou bloquant (échéance proche, litige, réclamation), basse si rien ne presse, \
 normale sinon.";
@@ -319,6 +322,76 @@ pub fn tronquer(s: &str, n: usize) -> &str {
         Some((i, _)) => &s[..i],
         None => s,
     }
+}
+
+/// Mails d'un même expéditeur classés à la main de la même façon, à la suite, au-delà desquels
+/// ses mails suivants reçoivent cette catégorie sans Claude.
+pub const HISTORIQUE_REGLE: usize = 3;
+/// Exemples de tri humain ajoutés au prompt, et longueur de texte gardée pour chacun.
+pub const EXEMPLES_MAX: usize = 20;
+pub const EXEMPLE_CORPS_MAX: usize = 300;
+
+/// Catégorie apprise d'un expéditeur : `dernieres` = catégories de ses derniers mails classés à
+/// la main, du plus récent au plus ancien.
+pub fn par_historique(dernieres: &[String]) -> Option<(String, String)> {
+    let premiere = dernieres.first()?;
+    if dernieres.len() < HISTORIQUE_REGLE
+        || !CATEGORIES.contains(&premiere.as_str())
+        || dernieres
+            .iter()
+            .take(HISTORIQUE_REGLE)
+            .any(|c| c != premiere)
+    {
+        return None;
+    }
+    Some((
+        premiere.clone(),
+        format!(
+            "les {HISTORIQUE_REGLE} derniers mails de cet expéditeur ont été classés « {premiere} » à la main"
+        ),
+    ))
+}
+
+/// Mail déjà classé à la main, montré à Claude comme exemple.
+pub struct Exemple {
+    pub expediteur: String,
+    pub objet: String,
+    pub corps: String,
+    pub categorie: String,
+    /// La catégorie choisie avant par la règle ou Claude, quand elle était différente.
+    pub corrige_de: Option<String>,
+}
+
+/// Bloc de prompt : les mails classés à la main, pour que Claude suive les mêmes choix.
+pub fn bloc_exemples(exemples: &[Exemple]) -> String {
+    if exemples.is_empty() {
+        return String::new();
+    }
+    let mut p = String::from(
+        "\nExemples de mails déjà classés à la main par l'équipe du magasin (ce sont les bonnes \
+réponses : suis les mêmes choix pour des mails semblables) :\n",
+    );
+    for e in exemples {
+        let utile = corps_utile(&e.corps);
+        let texte = if utile.is_empty() {
+            e.corps.trim()
+        } else {
+            &utile
+        };
+        let texte = tronquer(texte, EXEMPLE_CORPS_MAX).replace('\n', " ");
+        p.push_str(&format!(
+            "- De : {} | Objet : {} | Texte : {} => {}",
+            e.expediteur,
+            e.objet,
+            texte.trim(),
+            e.categorie
+        ));
+        if let Some(avant) = &e.corrige_de {
+            p.push_str(&format!(" (et non {avant})"));
+        }
+        p.push('\n');
+    }
+    p
 }
 
 /// Pièce jointe montrée à Claude : nom, et type du document s'il est déjà lu.

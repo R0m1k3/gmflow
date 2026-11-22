@@ -76,6 +76,8 @@ export interface SemaineTri {
   a_repondre: number;
   repondu: number;
   sans_suite: number;
+  revus: number;
+  corriges: number;
 }
 
 export interface ExpediteurMarque {
