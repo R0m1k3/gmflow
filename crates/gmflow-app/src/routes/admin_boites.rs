@@ -311,6 +311,10 @@ pub async fn creer(
         .await?;
     }
     tx.commit().await?;
+    // Surveillée tout de suite : la première relève part sans attendre la planification (5 min).
+    if e.activer {
+        gmflow_core::file::pousser_releve(&etat.pool, id).await?;
+    }
     Ok(Json(lire(&etat, id).await?))
 }
 
@@ -419,6 +423,7 @@ pub async fn activer(
         json!({}),
     )
     .await?;
+    gmflow_core::file::pousser_releve(&etat.pool, id).await?;
     Ok(Json(lire(&etat, id).await?))
 }
 

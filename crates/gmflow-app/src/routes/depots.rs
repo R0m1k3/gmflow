@@ -72,7 +72,8 @@ pub async fn suivi(
                   count(*) filter (where d.statut_depot = 'a_verifier') as "a_verifier!",
                   count(*) filter (where d.statut_depot = 'erreur') as "en_erreur!",
                   count(*) filter (where d.statut_depot = 'doublon') as "doublons!",
-                  coalesce(sum(d.montant_ttc) filter (where d.statut_depot = 'depose'), 0)::float8 as "montant_depose!"
+                  coalesce(sum(case when d.type = 'avoir' then -abs(d.montant_ttc) else d.montant_ttc end)
+                               filter (where d.statut_depot = 'depose'), 0)::float8 as "montant_depose!"
            from document d
            join mail m on m.id = d.mail_id
            left join societe s on s.id = d.societe_id

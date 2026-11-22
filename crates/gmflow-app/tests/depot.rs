@@ -57,6 +57,13 @@ async fn monde() -> Monde {
 
 /// Facture lue, complète et datée d'aujourd'hui, rattachée au fournisseur du monde.
 async fn facture(m: &Monde, boites: &[i64], societe_id: i64, numero: &str) -> i64 {
+    let id = facture_lue(m, boites, societe_id, numero).await;
+    gmflow_core::depot::evaluer(m.app.pool(), id).await.unwrap();
+    id
+}
+
+/// Comme `facture`, sans l'évaluation (statut de dépôt pas encore calculé).
+async fn facture_lue(m: &Monde, boites: &[i64], societe_id: i64, numero: &str) -> i64 {
     let app = &m.app;
     let eml = gmflow_core::fixtures::eml(
         &format!("{numero}-{}@test", rand_suffixe()),
@@ -66,7 +73,7 @@ async fn facture(m: &Monde, boites: &[i64], societe_id: i64, numero: &str) -> i6
     );
     let mail = app.mail_vu(&eml, boites).await;
     let piece = app.piece_de(mail).await;
-    let id: i64 = sqlx::query_scalar(
+    sqlx::query_scalar(
         "insert into document (piece_jointe_id, mail_id, sha256, etat, voie, type, societe_id,
              fournisseur_nom, fournisseur_id, numero, date_document, montant_ht, montant_tva,
              montant_ttc, confiance, texte, lu_le)
@@ -81,9 +88,7 @@ async fn facture(m: &Monde, boites: &[i64], societe_id: i64, numero: &str) -> i6
     .bind(numero)
     .fetch_one(app.pool())
     .await
-    .unwrap();
-    gmflow_core::depot::evaluer(app.pool(), id).await.unwrap();
-    id
+    .unwrap()
 }
 
 fn rand_suffixe() -> u64 {
@@ -300,6 +305,17 @@ async fn validation_et_depot() {
         .await;
     assert_eq!(r.code, StatusCode::CONFLICT);
 
+    // Un avoir envoyé se retranche du montant du mois.
+    let avoir = facture(&m, &[m.boite_a], m.sa, "A-1").await;
+    sqlx::query(
+        "update document set type = 'avoir', montant_ttc = 24, statut_depot = 'depose'
+         where id = $1",
+    )
+    .bind(avoir)
+    .execute(app.pool())
+    .await
+    .unwrap();
+
     // Suivi du mois.
     let r = app.requete("GET", "/api/depots/suivi", None, admin).await;
     assert_eq!(r.code, StatusCode::OK, "{}", r.json);
@@ -310,8 +326,8 @@ async fn validation_et_depot() {
         .find(|l| l["societe_id"] == m.sa)
         .unwrap()
         .clone();
-    assert_eq!(frouard["deposees"], 1);
-    assert_eq!(frouard["montant_depose"], 60.0);
+    assert_eq!(frouard["deposees"], 2);
+    assert_eq!(frouard["montant_depose"], 36.0, "60 de facture moins 24 d'avoir");
     m.app.fermer().await;
 }
 
@@ -360,4 +376,21 @@ async fn fusion_de_fiches() {
         .await;
     assert_eq!(r.json["total"], 1);
     m.app.fermer().await;
+}
+
+#[tokio::test]
+async fn doublon_lu_avant_l_original() {
+    // Première relève : les deux exemplaires sont lus en parallèle, le plus récent est évalué
+    // le premier. Le plus récent devient quand même le doublon.
+    let m = monde().await;
+    let app = &m.app;
+    let original = facture_lue(&m, &[m.boite_a], m.sa, "F-30").await;
+    let copie = facture_lue(&m, &[m.boite_a], m.sa, "F-30").await;
+    gmflow_core::depot::evaluer(app.pool(), copie).await.unwrap();
+    assert_ne!(statut(app, copie).await.as_deref(), Some("doublon"));
+    gmflow_core::depot::evaluer(app.pool(), original)
+        .await
+        .unwrap();
+    assert_ne!(statut(app, original).await.as_deref(), Some("doublon"));
+    assert_eq!(statut(app, copie).await.as_deref(), Some("doublon"));
 }

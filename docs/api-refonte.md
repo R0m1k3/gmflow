@@ -70,10 +70,12 @@ Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisse
 **À répondre** : mails `statut_reponse = a_repondre`, priorité `haute`, `normale`, `basse`, puis les plus anciens.
 
 ```json
-{ "id": 4402, "expediteur": "Fournisseur X <compta@x.fr>", "objet": "RIB",
+{ "id": 4402, "expediteur": "compta@x.fr", "objet": "RIB",
   "date_mail": "2026-11-20T08:00:00Z", "resume": "Demande le RIB pour régler la facture 123",
-  "priorite": "haute", "societes": ["Frouard"], "brouillon": "propose" }
+  "priorite": "haute", "societes": ["Frouard"], "fournisseur": "Fournisseur X", "brouillon": "propose" }
 ```
+
+`expediteur` : adresse seule (le nom affiché n'est pas gardé). `fournisseur` : fiche dont un domaine est celui de l'expéditeur, sinon `null`.
 
 `brouillon` : réponse proposée en cours (`generation`, `propose`, `modifie`, `envoi`) ou `null`.
 
@@ -367,7 +369,7 @@ Essai SMTP (envoi des réponses) d'une boîte enregistrée : connexion et authen
 }
 ```
 
-- `societes` : mêmes colonnes que `GET /api/depots/suivi?mois=` (reçues, déposées, prêtes, à vérifier, en erreur, doublons, montant déposé), avec la règle commune : un responsable ne compte que son périmètre ; avec `?societe=` (ou pour un responsable), les factures pas encore rangées reçues par les boîtes de la société comptent dans sa ligne. Sans filtre, chez un admin, une ligne `societe_id: null` regroupe les factures pas encore rangées. « À valider » = `pretes + a_verifier`. Un responsable qui demande une autre société : listes vides.
+- `societes` : mêmes colonnes que `GET /api/depots/suivi?mois=` (reçues, déposées, prêtes, à vérifier, en erreur, doublons, montant déposé : factures moins avoirs), avec la règle commune : un responsable ne compte que son périmètre ; avec `?societe=` (ou pour un responsable), les factures pas encore rangées reçues par les boîtes de la société comptent dans sa ligne. Sans filtre, chez un admin, une ligne `societe_id: null` regroupe les factures pas encore rangées. « À valider » = `pretes + a_verifier`. Un responsable qui demande une autre société : listes vides.
 - `bl_en_attente` : par société et fournisseur, BL datés du mois sans facture rapprochée (ni écartés), même règle.
 - `bl_sans_lignes` : BL lus avant le rapprochement, sans leurs lignes (tout l'historique, même règle) : le front n'a plus à appeler `/api/rapprochement` pour ce nombre.
 - `qualite` (partie repliée) : `GET /api/documents/bilan` et `GET /api/tri/semaines` tels quels (périmètre appliqué, mais pas `?societe=` ni `mois`).

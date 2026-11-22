@@ -93,6 +93,8 @@ pub struct ARepondre {
     resume: Option<String>,
     priorite: Option<String>,
     societes: Vec<String>,
+    /// Fiche fournisseur dont un domaine est celui de l'expéditeur (« Sodistra : demande le RIB »).
+    fournisseur: Option<String>,
     /// Réponse proposée en cours (`generation`, `propose`, `modifie`, `envoi`).
     brouillon: Option<String>,
 }
@@ -339,6 +341,10 @@ pub async fn file(
                      join boite_mail b on b.id = mb.boite_id join societe s on s.id = b.societe_id
                      where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)
                      order by s.raison_sociale) as "societes!",
+               (select f.nom from fournisseur f
+                where f.fusionne_dans is null
+                  and lower(split_part(m.expediteur, '@', 2)) = any(f.domaines)
+                order by f.id limit 1) as fournisseur,
                (select br.statut from brouillon_reponse br
                 where br.mail_id = m.id and br.statut in ('generation', 'propose', 'modifie', 'envoi')
                 limit 1) as brouillon

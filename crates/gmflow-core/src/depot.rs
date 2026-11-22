@@ -46,7 +46,39 @@ pub async fn evaluer(pool: &PgPool, id: i64) -> anyhow::Result<Option<String>> {
 }
 
 /// `evaluer` sur une connexion donnée (dans une transaction : validation en un appel).
+///
+/// Le doublon est toujours le plus récent des deux : quand un document est évalué après un
+/// autre plus récent qui lui est identique (lectures en parallèle à la première relève), ce
+/// dernier est réévalué pour devenir le doublon.
 pub async fn evaluer_dans(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option<String>> {
+    let statut = evaluer_seul(conn, id).await?;
+    if statut.as_deref().is_some_and(|s| s != "doublon") {
+        for plus_recent in identiques_plus_recents(&mut *conn, id).await? {
+            evaluer_seul(conn, plus_recent).await?;
+        }
+    }
+    Ok(statut)
+}
+
+/// Documents plus récents, identiques à celui-ci (critères de `doublon_de`), pas encore marqués
+/// doublons ni envoyés.
+async fn identiques_plus_recents<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar!(
+        r#"select o.id from document d, document o
+           where d.id = $1 and o.id > d.id
+             and o.statut_depot is not null and o.statut_depot not in ('doublon', 'en_envoi', 'depose')
+             and (o.sha256 = d.sha256
+                  or (d.fournisseur_id is not null and o.fournisseur_id = d.fournisseur_id
+                      and d.numero is not null and lower(trim(o.numero)) = lower(trim(d.numero))
+                      and d.montant_ttc is not null and o.montant_ttc = d.montant_ttc))
+           order by o.id"#,
+        id
+    )
+    .fetch_all(db)
+    .await
+}
+
+async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option<String>> {
     let Some(d) = sqlx::query!(
         r#"select d.etat, d.type, d.statut_depot, d.societe_id,
                   coalesce((d.confiance->>'societe')::float8, 0) as "conf_societe!",

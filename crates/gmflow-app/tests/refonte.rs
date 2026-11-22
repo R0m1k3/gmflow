@@ -1586,6 +1586,14 @@ async fn boite_creee_depuis_un_essai() {
         .await,
         1
     );
+    // Surveillée tout de suite : la première relève est déjà dans la file.
+    assert_eq!(
+        app.compter(&format!(
+            "select count(*) from apalis.jobs where job_type = 'boites' and convert_from(job, 'UTF8') like '%Releve%' and convert_from(job, 'UTF8') like '%\"boite_id\":{id}%'"
+        ))
+        .await,
+        1
+    );
     // Sans essai : créée en pause, comme avant.
     let r = app
         .requete(

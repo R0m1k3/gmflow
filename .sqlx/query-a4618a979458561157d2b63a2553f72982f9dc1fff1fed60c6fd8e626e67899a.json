@@ -1,0 +1,87 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select coalesce(d.societe_id, $3) as societe_id, s.raison_sociale as \"societe?\",\n                      count(*) filter (where d.statut_depot <> 'doublon') as \"recues!\",\n                      count(*) filter (where d.statut_depot = 'depose') as \"deposees!\",\n                      count(*) filter (where d.statut_depot in ('pret', 'en_envoi')) as \"pretes!\",\n                      count(*) filter (where d.statut_depot = 'a_verifier') as \"a_verifier!\",\n                      count(*) filter (where d.statut_depot = 'erreur') as \"en_erreur!\",\n                      count(*) filter (where d.statut_depot = 'doublon') as \"doublons!\",\n                      coalesce(sum(case when d.type = 'avoir' then -abs(d.montant_ttc) else d.montant_ttc end)\n                               filter (where d.statut_depot = 'depose'), 0)::float8 as \"montant_depose!\"\n               from document d\n               join mail m on m.id = d.mail_id\n               left join societe s on s.id = coalesce(d.societe_id, $3)\n               where d.statut_depot is not null\n                 and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $1::date\n                 and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) < $1::date + interval '1 month'\n                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                             where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))\n                 and ($2::bigint is null or d.societe_id is null or d.societe_id = $2)\n                 and ($4::bigint is null or d.societe_id = $4\n                      or (d.societe_id is null\n                          and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id\n                                      where mb.mail_id = d.mail_id and b.societe_id = $4)))\n               group by 1, s.raison_sociale\n               order by s.raison_sociale nulls last",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "recues!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "deposees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "pretes!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "a_verifier!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "en_erreur!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "doublons!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "montant_depose!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a4618a979458561157d2b63a2553f72982f9dc1fff1fed60c6fd8e626e67899a"
+}
