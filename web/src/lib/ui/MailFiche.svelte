@@ -178,19 +178,21 @@
     }, 2000);
   }
 
-  /** Encadré « fournisseur » : le fil du fournisseur de la première pièce lue qui en a un. */
+  /** Encadré « fournisseur » : le fil du fournisseur de la première pièce lue qui en a un,
+   *  à défaut celui reconnu par le domaine de l'expéditeur. */
   async function lireContexte(v: FicheMail) {
     const p = v.pieces.find(
       (x) => x.document_etat === 'lu' && x.document_fournisseur_id && (x.document_type === 'facture' || x.document_type === 'avoir' || x.document_type === 'bl')
     );
-    if (!p) return;
+    const fournisseurId = p?.document_fournisseur_id ?? v.fournisseur_id;
+    if (!fournisseurId) return;
     try {
-      const fil = await filFournisseur(p.document_fournisseur_id!, { societe: societe.id, mois: 1 });
+      const fil = await filFournisseur(fournisseurId, { societe: societe.id, mois: 1 });
       if (v.id !== id) return;
       contexte = {
         fournisseurId: fil.fournisseur.id,
         nom: fil.fournisseur.nom,
-        societe: nomCourtSociete(p.document_societe ?? societe.courante?.raison_sociale) || null,
+        societe: nomCourtSociete(p?.document_societe ?? v.boites[0]?.societe ?? societe.courante?.raison_sociale) || null,
         etat: fil.etat
       };
     } catch {
@@ -498,7 +500,7 @@
 
   let meta = $derived.by(() => {
     if (!m) return '';
-    const morceaux = [nomExpediteur(m.expediteur) || 'Expéditeur inconnu'];
+    const morceaux = [m.fournisseur ?? (nomExpediteur(m.expediteur) || 'Expéditeur inconnu')];
     const boites = adressesDuMail.join(', ');
     if (boites) morceaux.push(`à ${boites}${societesDuMail.length ? ` (${societesDuMail.join(', ')})` : ''}`);
     if (m.date_mail) morceaux.push(dateMail(m.date_mail));
@@ -576,12 +578,11 @@
             Publicité
           </button>
           {#if m.categorie === 'question' && m.categorie_par !== 'humain'}
-            <span class="sp"></span>
-            <button type="button" class="btn sm fantome" class:en-cours={occupe === 'categorie:question'} disabled={!!occupe} onclick={() => classer('question', 'Question confirmée : le tri s’en souviendra.')}>
+            <button type="button" class="btn sm fantome droite" class:en-cours={occupe === 'categorie:question'} disabled={!!occupe} onclick={() => classer('question', 'Question confirmée : le tri s’en souviendra.')}>
               Vraie question
             </button>
           {:else if m.categorie_par === 'humain'}
-            <span class="sp"></span><span>Question confirmée</span>
+            <span class="droite">Question confirmée</span>
           {/if}
         {:else}
           <span>{etatTri}</span>
@@ -865,6 +866,10 @@
   }
   .tri .btn {
     color: var(--text2);
+  }
+  /* Confirmation du tri : à droite, y compris quand la ligne passe à la ligne. */
+  .tri .droite {
+    margin-left: auto;
   }
   .from {
     display: grid;

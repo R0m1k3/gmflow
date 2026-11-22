@@ -60,6 +60,12 @@
   let initial = $state('');
   let modifie = $derived(JSON.stringify(f) !== initial);
 
+  /** Message du dernier essai sans le « Connexion réussie : » déjà dit par l'étiquette. */
+  function detailTest(m: string | null | undefined): string {
+    const t = (m ?? '').replace(/^connexion (réussie|refusée)\s*:\s*/i, '');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+
   function remplir(v: Boite) {
     b = v;
     const dossiers = [...v.dossiers];
@@ -320,7 +326,7 @@
               Essai de la connexion en cours…
             {:else if b.dernier_test}
               <Etiquette ton={b.dernier_test.ok ? 'ok' : 'erreur'}>{b.dernier_test.ok ? 'Connexion réussie' : 'Connexion refusée'}</Etiquette>
-              <span class="t2 msg">{b.dernier_test.message ?? ''}</span>
+              <span class="t2 msg">{detailTest(b.dernier_test.message)}</span>
             {:else}
               <span class="t2">Pas encore essayée : l’essai est nécessaire avant de démarrer la surveillance.</span>
             {/if}

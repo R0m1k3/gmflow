@@ -17,8 +17,17 @@
     valeur,
     devise = '€',
     class: classe = '',
-    title
-  }: { valeur: number | null | undefined; devise?: string; class?: string; title?: string } = $props();
+    title,
+    avoir = false
+  }: {
+    valeur: number | null | undefined;
+    devise?: string;
+    class?: string;
+    title?: string;
+    /** Montant d'un avoir : toujours affiché en négatif dans les listes (« −312,00 € »). */
+    avoir?: boolean;
+  } = $props();
+  let affiche = $derived(avoir && typeof valeur === 'number' ? -Math.abs(valeur) : valeur);
 </script>
 
-<span class="num {classe}" {title}>{formatMontant(valeur, devise)}</span>
+<span class="num {classe}" {title}>{formatMontant(affiche, devise)}</span>

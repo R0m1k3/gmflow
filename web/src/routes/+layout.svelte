@@ -61,10 +61,12 @@
   });
 
   // ---------- Recherche ----------
+  // Sur la page Recherche, son propre champ remplace celui de la barre (une seule barre).
   let recherche = $state('');
   let champRecherche = $state<HTMLInputElement>();
+  let surRecherche = $derived(page.url.pathname === '/recherche');
   $effect(() => {
-    if (page.url.pathname === '/recherche') recherche = page.url.searchParams.get('q') ?? '';
+    if (surRecherche) recherche = '';
   });
   function chercher(e: SubmitEvent) {
     e.preventDefault();
@@ -76,8 +78,9 @@
     if (!session.moi) return;
     return raccourcis({
       '/': () => {
-        // Champ masqué sur téléphone : on va directement à la page de recherche.
-        if (champRecherche && champRecherche.offsetParent !== null) champRecherche.focus();
+        // Champ masqué (téléphone, page Recherche) : celui de la page Recherche.
+        if (surRecherche) document.getElementById('champ-recherche')?.focus();
+        else if (champRecherche && champRecherche.offsetParent !== null) champRecherche.focus();
         else void goto('/recherche');
       }
     });
@@ -159,7 +162,7 @@
 
     <span class="sp"></span>
 
-    <form class="recherche" role="search" onsubmit={chercher}>
+    <form class="recherche" class:cache={surRecherche} role="search" onsubmit={chercher}>
       <Icone nom="chercher" />
       <input
         bind:this={champRecherche}
@@ -311,6 +314,9 @@
       border-color var(--vite) var(--ease),
       box-shadow var(--vite) var(--ease),
       background-color var(--vite) var(--ease);
+  }
+  .recherche.cache {
+    visibility: hidden;
   }
   .recherche:focus-within {
     border-color: var(--accent);

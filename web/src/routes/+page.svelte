@@ -16,6 +16,7 @@
   import Chargement from '#lib/ui/Chargement.svelte';
   import DocFiche, { type PositionFiche, type ResultatFiche } from '#lib/ui/DocFiche.svelte';
   import { age, drapeau, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
+  import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import MailFiche from '#lib/ui/MailFiche.svelte';
   import Montant from '#lib/ui/Montant.svelte';
@@ -54,6 +55,9 @@
     return arret;
   });
 
+  // Téléphone : la section Bloqué tient en une bande, ouverte au toucher (ou par /#bloque).
+  let bloqueOuvert = $state(false);
+
   // Arrivée par une ancre (/#bloque depuis la pastille d'état, /#a-repondre depuis l'ancienne page) :
   // la section n'existe qu'une fois la file chargée.
   let ancreVue = '';
@@ -62,6 +66,7 @@
     const ancre = page.url.hash.slice(1);
     if (!ancre || ancre === ancreVue) return;
     ancreVue = ancre;
+    if (ancre === 'bloque') bloqueOuvert = true;
     requestAnimationFrame(() => document.getElementById(ancre)?.scrollIntoView({ block: 'start' }));
   });
 
@@ -267,7 +272,14 @@
         <Vide icone="coche" titre="Tout est à jour" texte="Aucun document à valider ni mail à répondre." compact />
       {:else}
         {#if file.bloque.length}
-          <section class="sec" id="bloque">
+          {#if !bloqueOuvert}
+            <button type="button" class="bande-bloque tel-seul" onclick={() => (bloqueOuvert = true)}>
+              <span class="point"></span>
+              {file.compteurs.bloque} problème{file.compteurs.bloque > 1 ? 's' : ''} à débloquer
+              <span class="sp"></span><Icone nom="droite" />
+            </button>
+          {/if}
+          <section class="sec" class:replie-tel={!bloqueOuvert} id="bloque">
             <div class="sec-h erreur"><span class="point"></span><h2>Bloqué</h2><span class="num">{file.compteurs.bloque}</span></div>
             {#each file.bloque as b (cleBloque(b))}
               {@const t = texteBloque(b)}
@@ -310,9 +322,9 @@
             {@const f = drapeau(l)}
             <a class="ligne" class:cur={docId === l.id} aria-current={docId === l.id ? 'true' : undefined} href="/?doc={l.id}" data-cle="d{l.id}">
               <div class="a">{l.fournisseur ?? 'Fournisseur non reconnu'}</div>
-              <div class="r">{#if l.montant_ttc !== null}<Montant valeur={l.montant_ttc} />{/if}</div>
+              <div class="r">{#if l.montant_ttc !== null}<Montant valeur={l.montant_ttc} avoir={l.type === 'avoir'} />{/if}</div>
               <div class="b">
-                {libelleType(l.type)}{#if l.numero}{' '}<span class="num">{l.numero}</span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}
+                {libelleType(l.type)}{#if l.numero}<span class="large-seul">{' '}<span class="num">{l.numero}</span></span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}
               </div>
               <div class="r2">{age(l.recu_le)}</div>
             </a>
@@ -400,5 +412,26 @@
   .doc-bloc .r {
     position: relative;
     z-index: 1;
+  }
+  /* Téléphone : Bloqué replié en une bande */
+  .bande-bloque {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    width: 100%;
+    padding: var(--e3) var(--e4);
+    border: 0;
+    background: var(--err-bg);
+    color: var(--err);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+  }
+  @media (max-width: 760px) {
+    .replie-tel {
+      display: none;
+    }
   }
 </style>

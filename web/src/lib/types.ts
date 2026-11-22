@@ -79,6 +79,9 @@ export interface FicheMail {
   objet: string;
   date_mail: string | null;
   corps_texte: string;
+  /** Fiche fournisseur reconnue par le domaine de l'expéditeur. */
+  fournisseur_id: number | null;
+  fournisseur: string | null;
   pieces: {
     id: number;
     nom: string;
@@ -613,6 +616,8 @@ export type ElementFil =
       verifie: boolean;
       societe_id: number | null;
       societe: string | null;
+      /** Outil de collecte de la société (« Envoyée à Dext »). */
+      outil: 'dext' | 'yooz' | null;
       rapproche: boolean;
       nb_alertes: number;
     }

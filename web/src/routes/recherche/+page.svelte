@@ -229,6 +229,7 @@
     <input
       bind:this={champ}
       bind:value={saisie}
+      id="champ-recherche"
       type="search"
       placeholder="Fournisseur, n° de facture, montant (1 250,40), date (18/11)"
       aria-label="Chercher un document ou un mail"
@@ -310,7 +311,7 @@
               {@const e = etatDocument(d)}
               <a class="ligne" class:cur={cur === i} data-indice={i} href="/documents/{d.id}">
                 <div class="a">{d.fournisseur || d.nom_fichier}</div>
-                <div class="r">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} />{/if}</div>
+                <div class="r">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} avoir={d.type === 'avoir'} />{/if}</div>
                 <div class="b">
                   {libelleType(d.type)}{#if d.numero}{' '}<span class="num">{d.numero}</span>{/if}{d.societe ? `, ${nomCourtSociete(d.societe)}` : ''}
                   <span class="etat"><Etiquette ton={e.ton}>{e.texte}</Etiquette></span>

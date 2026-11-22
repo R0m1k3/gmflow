@@ -437,8 +437,8 @@
                   {#if e.numero}<span class="num">{e.numero}</span>{/if}
                 </div>
                 <div class="r">
-                  {#if e.montant_ttc !== null}<Montant valeur={e.montant_ttc} />
-                  {:else if e.montant_ht !== null}<Montant valeur={e.montant_ht} /> <span class="muted petit">HT</span>{/if}
+                  {#if e.montant_ttc !== null}<Montant valeur={e.montant_ttc} avoir={e.type === 'avoir'} />
+                  {:else if e.montant_ht !== null}<Montant valeur={e.montant_ht} avoir={e.type === 'avoir'} /> <span class="muted petit">HT</span>{/if}
                 </div>
                 <div class="b">
                   <span class="num">{dateSimple(e.date)}</span>
@@ -446,7 +446,7 @@
                     {#if !e.verifie} · <Etiquette ton="alerte">À valider</Etiquette>{/if}
                     {#if !e.rapproche} · <span class="flag w">{BL_EN_ATTENTE}</span>{/if}
                   {:else if e.statut_depot}
-                    · <Etiquette ton={tonStatutEnvoi(e.statut_depot)}>{libelleStatutEnvoi(e.statut_depot)}</Etiquette>
+                    · <Etiquette ton={tonStatutEnvoi(e.statut_depot)}>{libelleStatutEnvoi(e.statut_depot, e.outil)}</Etiquette>
                   {/if}
                   {#if e.nb_alertes}
                     · <span class="flag w">{e.nb_alertes} alerte{e.nb_alertes > 1 ? 's' : ''}</span>{/if}

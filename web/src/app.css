@@ -1043,8 +1043,6 @@ tr.cliquable:hover td {
 }
 .titre-fiche .num {
   flex: none;
-}
-.titre-fiche .num {
   font-size: 14px;
   color: var(--text2);
 }
@@ -1519,6 +1517,16 @@ dialog.confirmation .dlg-pied {
   }
   .formulaire {
     grid-template-columns: 1fr;
+  }
+  .titre-fiche {
+    flex-wrap: wrap;
+  }
+  .titre-fiche h1 {
+    font-size: 18px;
+    line-height: 24px;
+  }
+  .titre-fiche .num {
+    flex-basis: 100%;
   }
   kbd,
   .touches,
