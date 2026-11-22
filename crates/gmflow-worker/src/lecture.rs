@@ -344,7 +344,6 @@ fn lu_depuis_extraction(
         resultat,
         modele: Some(reglage.modele.clone()),
         effort: Some(reglage.effort.clone()),
-        ..Default::default()
     }
 }
 
