@@ -103,9 +103,31 @@ pub fn message_imap(e: &ErreurImap) -> (String, String) {
     (m, brut)
 }
 
+/// Chaîne des causes sans redite : lettre répète souvent la cause dans le message
+/// (« Connection error: Connection error: received corrupt message… »).
+fn chaine_sans_redite(e: &anyhow::Error) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for cause in e.chain() {
+        let s = cause.to_string();
+        if parts.iter().any(|p| p.contains(&s)) {
+            continue;
+        }
+        parts.push(s);
+    }
+    // Préfixe répété dans un même message (« Connection error: Connection error: … »).
+    let mut morceaux: Vec<&str> = Vec::new();
+    let tout = parts.join(" : ");
+    for m in tout.split(": ") {
+        if morceaux.last() != Some(&m) {
+            morceaux.push(m);
+        }
+    }
+    morceaux.join(": ")
+}
+
 /// Erreur SMTP dite en clair, et le détail brut.
 pub fn message_smtp(e: &anyhow::Error) -> (String, String) {
-    let brut = format!("{e:#}");
+    let brut = chaine_sans_redite(e);
     let b = brut.to_lowercase();
     let m = if b.contains("535") || b.contains("534") || b.contains("authentication") {
         "Mot de passe refusé par le serveur d'envoi : il faut un mot de passe d'application."
@@ -140,5 +162,27 @@ fn message_reseau(brut: &str, protocole: &str, ports: &str) -> String {
         )
     } else {
         format!("Connexion {protocole} impossible : {brut}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn causes_sans_redite() {
+        let e = anyhow::anyhow!("received corrupt message of type InvalidContentType")
+            .context("Connection error: received corrupt message of type InvalidContentType")
+            .context("essai SMTP");
+        assert_eq!(
+            chaine_sans_redite(&anyhow::anyhow!(
+                "Connection error: Connection error: refusée"
+            )),
+            "Connection error: refusée"
+        );
+        assert_eq!(
+            chaine_sans_redite(&e),
+            "essai SMTP : Connection error: received corrupt message of type InvalidContentType"
+        );
     }
 }

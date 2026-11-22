@@ -108,7 +108,7 @@ pub async fn lister(
            from fournisseur f
            left join societe s on s.id = f.societe_defaut_id
            cross join lateral (
-               select count(*) filter (where d.type in ('facture', 'avoir')
+               select count(*) filter (where d.type in ('facture', 'avoir') and d.statut_depot is distinct from 'doublon'
                                          and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date)
                                              >= date_trunc('month', now() at time zone 'Europe/Paris')::date) as factures_mois,
                       count(*) filter (where d.type in ('facture', 'avoir', 'bl')
@@ -536,6 +536,8 @@ pub enum ElementFil {
         verifie: bool,
         societe_id: Option<i64>,
         societe: Option<String>,
+        /// Outil de collecte de la société (`dext`, `yooz`), pour « Envoyée à Dext ».
+        outil: Option<String>,
         /// BL : rattaché à une facture ; facture : au moins un BL rattaché.
         rapproche: bool,
         nb_alertes: i64,
@@ -621,7 +623,7 @@ pub async fn fil(
     let societe = f.societe;
     let etat_f = sqlx::query_as!(
         EtatFournisseur,
-        r#"select count(*) filter (where d.type in ('facture', 'avoir')
+        r#"select count(*) filter (where d.type in ('facture', 'avoir') and d.statut_depot is distinct from 'doublon'
                                      and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date)
                                          >= date_trunc('month', now() at time zone 'Europe/Paris')::date) as "factures_mois!",
                   count(*) filter (where d.type in ('facture', 'avoir', 'bl')
@@ -652,7 +654,7 @@ pub async fn fil(
                   coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date) as "date!",
                   d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,
                   d.statut_depot, d.verifie_le is not null as "verifie!", d.societe_id,
-                  s.raison_sociale as "societe?",
+                  s.raison_sociale as "societe?", s.outil_depot as "outil?",
                   exists (select 1 from rapprochement r
                           where not r.rejete and (r.bl_id = d.id or r.facture_id = d.id)) as "rapproche!",
                   jsonb_array_length(d.controles)::bigint as "nb_alertes!"
@@ -721,6 +723,7 @@ pub async fn fil(
             verifie: d.verifie,
             societe_id: d.societe_id,
             societe: d.societe,
+            outil: d.outil,
             rapproche: d.rapproche,
             nb_alertes: d.nb_alertes,
         })

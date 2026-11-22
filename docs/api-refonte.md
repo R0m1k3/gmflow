@@ -210,7 +210,7 @@ Choix : un endpoint `fil` dédié plutôt que `GET /api/mails?fournisseur=` : la
       { "genre": "document", "id": 812, "mail_id": 4410, "type": "facture", "numero": "F-118",
         "date": "2026-11-18", "date_document": "2026-11-18", "montant_ht": 1042.0,
         "montant_ttc": 1250.4, "statut_depot": "pret", "verifie": true,
-        "societe_id": 1, "societe": "Frouard", "rapproche": true, "nb_alertes": 0 },
+        "societe_id": 1, "societe": "Frouard", "outil": "dext", "rapproche": true, "nb_alertes": 0 },
       { "genre": "mail", "id": 4402, "date": "2026-11-17", "date_mail": "2026-11-17T08:00:00Z",
         "expediteur": "compta@durand.fr", "objet": "Relance", "categorie": "question",
         "statut_reponse": "a_repondre", "resume": "...", "document_ids": [] }
@@ -378,5 +378,6 @@ Essai SMTP (envoi des réponses) d'une boîte enregistrée : connexion et authen
 
 `GET /api/mails/{id}` :
 - `boites[]` : `{ "boite_id", "libelle", "dossier", "adresse": "compta@frouard.fr", "societe_id", "societe", "smtp": true }` (une ligne par dossier ; `adresse` pour « Envoyer depuis compta@… », `smtp` : la boîte peut envoyer).
+- `fournisseur_id`, `fournisseur` : fiche reconnue par le domaine de l'expéditeur (`null` sinon), pour le nom en tête de la fiche et l'encadré du fil fournisseur quand le mail n'a pas de pièce lue.
 - `pieces[]` : en plus de `document_id`, `document_etat`, `document_type`, `document_voie` : `document_statut_depot`, `document_verifie`, `document_numero`, `document_montant_ttc`, `document_fournisseur_id`, `document_fournisseur` (fiche, à défaut nom lu), `document_societe_id`, `document_societe`, `document_outil` (`dext`/`yooz`), `document_envoye_le` (dernier envoi réussi) : la liste des pièces se lit sans ouvrir chaque fiche document.
 - `brouillons[]` (et toute réponse proposée) : `boite_adresse` (adresse de la boîte d'envoi).

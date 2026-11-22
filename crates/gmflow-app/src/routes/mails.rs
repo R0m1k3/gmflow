@@ -245,6 +245,9 @@ pub struct FicheMail {
     #[serde(with = "time::serde::rfc3339::option")]
     date_mail: Option<time::OffsetDateTime>,
     corps_texte: String,
+    /// Fiche fournisseur reconnue par le domaine de l'expéditeur (nom affiché, encadré du fil).
+    fournisseur_id: Option<i64>,
+    fournisseur: Option<String>,
     pieces: Vec<PieceVue>,
     boites: Vec<BoiteDuMail>,
     categorie: Option<String>,
@@ -284,6 +287,14 @@ pub async fn fiche(
         id
     )
     .fetch_one(&etat.pool)
+    .await?;
+    let fournisseur = sqlx::query!(
+        "select f.id, f.nom from fournisseur f
+         where f.fusionne_dans is null and lower(split_part($1, '@', 2)) = any(f.domaines)
+         order by f.id limit 1",
+        m.expediteur
+    )
+    .fetch_optional(&etat.pool)
     .await?;
     let pieces = sqlx::query_as!(
         PieceVue,
@@ -331,6 +342,8 @@ pub async fn fiche(
         objet: m.objet,
         date_mail: m.date_mail,
         corps_texte: m.corps_texte,
+        fournisseur_id: fournisseur.as_ref().map(|f| f.id),
+        fournisseur: fournisseur.map(|f| f.nom),
         pieces,
         boites,
         categorie: m.categorie,

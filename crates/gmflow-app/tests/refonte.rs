@@ -434,6 +434,22 @@ async fn file_a_traiter_et_compteurs() {
     assert_eq!(bloque[4]["message"], "PDF illisible");
     assert_eq!(ids(&r.json["a_repondre"]), vec![f.mail_a, f.mail_b]);
     assert_eq!(r.json["a_repondre"][0]["resume"], "Demande le RIB");
+    // Fournisseur reconnu par le domaine de l'expéditeur, dans la file et dans la fiche.
+    assert_eq!(r.json["a_repondre"][0]["fournisseur"], "Grossiste Durand");
+    let fiche = app
+        .requete(
+            "GET",
+            &format!("/api/mails/{}", f.mail_a),
+            None,
+            Some(&m.c_admin),
+        )
+        .await;
+    assert_eq!(
+        fiche.json["fournisseur"], "Grossiste Durand",
+        "{}",
+        fiche.json
+    );
+    assert_eq!(fiche.json["fournisseur_id"], json!(m.durand));
     assert_eq!(
         r.json["compteurs"],
         json!({ "bloque": 5, "a_valider": 6, "a_repondre": 2, "total": 13 })

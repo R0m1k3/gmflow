@@ -327,7 +327,10 @@ async fn validation_et_depot() {
         .unwrap()
         .clone();
     assert_eq!(frouard["deposees"], 2);
-    assert_eq!(frouard["montant_depose"], 36.0, "60 de facture moins 24 d'avoir");
+    assert_eq!(
+        frouard["montant_depose"], 36.0,
+        "60 de facture moins 24 d'avoir"
+    );
     m.app.fermer().await;
 }
 
@@ -386,7 +389,9 @@ async fn doublon_lu_avant_l_original() {
     let app = &m.app;
     let original = facture_lue(&m, &[m.boite_a], m.sa, "F-30").await;
     let copie = facture_lue(&m, &[m.boite_a], m.sa, "F-30").await;
-    gmflow_core::depot::evaluer(app.pool(), copie).await.unwrap();
+    gmflow_core::depot::evaluer(app.pool(), copie)
+        .await
+        .unwrap();
     assert_ne!(statut(app, copie).await.as_deref(), Some("doublon"));
     gmflow_core::depot::evaluer(app.pool(), original)
         .await
