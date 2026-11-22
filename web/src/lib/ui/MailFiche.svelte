@@ -89,13 +89,16 @@
   let {
     id,
     retour = { href: '/', libelle: 'À traiter' },
-    ouvrir
+    ouvrir,
+    volet = false
   }: {
     id: number;
     /** Lien « retour » de l'en-tête (Échap). */
     retour?: { href: string; libelle: string };
     /** Ouvre le mail suivant de la file À répondre, ou `null` quand elle est vide. Par défaut : /mails/ID, sinon /. */
     ouvrir?: (suivant: number | null) => void | Promise<void>;
+    /** Dans le volet de droite de À traiter : la page garde J, K et Échap ; retour sur téléphone seulement. */
+    volet?: boolean;
   } = $props();
 
   const aller = (suivant: number | null) =>
@@ -377,8 +380,13 @@
     confirmationOuverte = true;
   }
 
+  /** Envoi en un clic (parcours B) ; confirmation seulement s'il reste un « [à compléter] ». */
   function demanderEnvoi() {
     if (!peutEnvoyer || !actif) return;
+    if (!aCompleter) {
+      void envoyer();
+      return;
+    }
     const reste = aCompleter
       ? ` Attention : ${aCompleter === 1 ? 'un passage « [à compléter] » reste' : `${aCompleter} passages « [à compléter] » restent`} dans le texte.`
       : '';
@@ -448,12 +456,16 @@
           if (confirmationOuverte || !peutEnvoyer) return false;
           demanderEnvoi();
         },
-        j: () => voisin(1),
-        k: () => voisin(-1),
-        Escape: () => {
-          if (confirmationOuverte) return false; // le dialogue se ferme tout seul
-          void goto(retour.href);
-        }
+        ...(volet
+          ? {}
+          : {
+              j: () => voisin(1),
+              k: () => voisin(-1),
+              Escape: () => {
+                if (confirmationOuverte) return false; // le dialogue se ferme tout seul
+                void goto(retour.href);
+              }
+            })
       },
       { dansLesChamps: ['Ctrl+Enter'] }
     )
@@ -505,9 +517,13 @@
 </script>
 
 <div class="volet-h">
-  <a class="retour" href={retour.href}><Icone nom="gauche" />{retour.libelle}<Kbd t="Escape" /></a>
+  {#if volet}
+    <a class="retour tel-seul" href={retour.href}><Icone nom="gauche" />{retour.libelle}</a>
+  {:else}
+    <a class="retour" href={retour.href}><Icone nom="gauche" />{retour.libelle}<Kbd t="Escape" /></a>
+  {/if}
   {#if indiceFile >= 0 && file}
-    <span class="vsep"></span>
+    {#if !volet}<span class="vsep"></span>{/if}
     <span class="pos">À répondre <span class="num">{indiceFile + 1}</span> sur <span class="num">{file.length}</span></span>
   {/if}
   <span class="sp"></span>

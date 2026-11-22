@@ -274,7 +274,7 @@
         {/if}
         <ol class="etapes">
           <li class:cur={etape === 1} class:fait={etape > 1}>
-            <span class="n">{#if etape > 1}<Icone nom="coche" />{:else}1{/if}</span>
+            <span class="rond-etape" class:fait={etape > 1} class:cur={etape === 1}>{#if etape > 1}<Icone nom="coche" />{:else}1{/if}</span>
             <div>
               <div class="t">Obtenir le lien de connexion</div>
               {#if enCoursSeance && seance?.url}
@@ -289,14 +289,14 @@
             </div>
           </li>
           <li class:cur={etape === 3} class:fait={etape > 3}>
-            <span class="n">{#if etape > 3}<Icone nom="coche" />{:else}2{/if}</span>
+            <span class="rond-etape" class:fait={etape > 3} class:cur={etape === 3}>{#if etape > 3}<Icone nom="coche" />{:else}2{/if}</span>
             <div>
               <div class="t">Se connecter chez Claude</div>
               <div class="petit t2">Avec le compte Claude de la société. Claude affiche ensuite un code : copiez-le.</div>
             </div>
           </li>
           <li class:cur={etape === 3} class:fait={etape > 3}>
-            <span class="n">{#if etape > 3}<Icone nom="coche" />{:else}3{/if}</span>
+            <span class="rond-etape" class:fait={etape > 3} class:cur={etape === 3}>{#if etape > 3}<Icone nom="coche" />{:else}3{/if}</span>
             <div>
               <div class="t">Coller le code ici</div>
               {#if etape === 4}
@@ -394,31 +394,6 @@
     grid-template-columns: 32px 1fr;
     gap: var(--e3);
     padding: var(--e2) 0 var(--e3);
-  }
-  .etapes .n {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font: 500 11px/1 var(--mono);
-    border: 1px solid var(--line2);
-    color: var(--text2);
-  }
-  .etapes .n :global(svg.i) {
-    width: 12px;
-    height: 12px;
-    stroke-width: 2.5;
-  }
-  .etapes li.fait .n {
-    background: var(--black);
-    border-color: var(--black);
-    color: #fff;
-  }
-  .etapes li.cur .n {
-    border-color: var(--accent);
-    color: var(--accent);
-    border-width: 1.5px;
   }
   .etapes .t {
     font-weight: 500;

@@ -1,16 +1,16 @@
 # GMFlow : socle de l'interface (mode d'emploi pour les pages)
 
-Référence visuelle : `docs/maquette-b.html`. Démonstration vivante : `/_demo` (écran À traiter) et `/_demo?vue=catalogue` (tous les composants), supprimée en phase 3. Styles : `web/src/app.css` ; composants : `web/src/lib/ui/` (import `#lib/ui/Nom.svelte`).
+Référence visuelle : `docs/maquette-b.html`. Styles : `web/src/app.css` ; composants : `web/src/lib/ui/` (import `#lib/ui/Nom.svelte`).
 
 ## Règles de mise en page
 
 - **Un écran, une tâche, un bouton principal** (`.btn.principal`, bleu tampon). Le reste : `.btn` (secondaire), `.btn.fantome` (discret), `.btn.danger`. Taille `.sm` dans les listes et en-têtes.
 - **Raccourcis affichés** dans les boutons (`<Kbd t="Enter" />`) et posés avec `raccourcis()`. Masqués sur téléphone, automatiquement.
-- **Montants, numéros, dates, compteurs en mono** : `<Montant valeur={x} />` ou `<span class="num">`. Jamais `toFixed` ni le `montant()` de `format.ts` pour un affichage neuf.
+- **Montants, numéros, dates, compteurs en mono** : `<Montant valeur={x} />` ou `<span class="num">`. Jamais `toFixed`.
 - **Filets plutôt que cartes** : listes `.ligne` séparées par des filets, sections `.sec`, blocs repliés `<Repli>`. Pas de cartes empilées, pas d'ombre, pas de pastille colorée : un état = du texte coloré (`<Etiquette>`).
 - **Couleurs à sens unique** : bleu = action principale et sélection ; ambre = à contrôler ; rouge = bloqué ou urgent ; vert = fait. Le reste en neutres (`--text`, `--text2`, `--muted`).
 - **Vocabulaire** : tout libellé métier passe par `#lib/libelles.ts` (voir plus bas). Pas de point final sur titres, boutons, étiquettes ; pas de point d'exclamation.
-- **Racine de la page** : `<Volets>` (file + détail), `<div class="pleine">` (fiche plein écran) ou `<div class="page">` (réglages, bilan, fournisseur ; `.page.etroite` pour un formulaire). Sans l'une de ces trois classes en racine, la page reçoit les marges de l'ancien cadre (transition).
+- **Racine de la page** : `<Volets>` (file + détail), `<div class="pleine">` (fiche plein écran) ou `<div class="page">` (réglages, bilan, fournisseur ; `.page.etroite` pour un formulaire).
 - Grille de 4 px : utiliser les jetons `--e1`… `--e10` (4 à 40 px), rayons `--r1/--r2/--r3` (4, 6, 8).
 
 ## Structure des écrans
@@ -74,10 +74,8 @@ Ligne de liste : `.a` titre, `.b` sous-ligne, `.r` à droite (montant), `.r2` â
 ## Modules
 
 - **`#lib/clavier.ts`** : `$effect(() => raccourcis({ j: suivant, k: precedent, Enter: valider, Escape: fermer, e: ecarter, l: lier, 'Ctrl+Enter': envoyer }))`. Ignoré quand on tape dans un champ (sauf `Escape` et `Ctrl+Enter`, réglable par `dansLesChamps`), quand un dialogue est ouvert, et pour Entrée sur un bouton ou lien qui a le focus. `deplacer(i, ±1, n)` et `montrer(conteneur, sélecteur)` pour J/K. `/` est déjà pris par la barre du haut (recherche).
-- **`#lib/libelles.ts`** : vocabulaire de l'architecture §4. `nomOutil`, `titreEnvoi`, `libelleValider(type, outil)` ; `libelleType`, `libelleEtat`/`tonEtat`, `libelleStatutEnvoi(s, outil)`/`tonStatutEnvoi`, `libelleVoie` (admins), `titreAlerte`/`tonAlerte` (contrôles) ; `libelleMethode`, `titreLiens`, `BL_EN_ATTENTE`, `FACTURE_SANS_BL` ; `libelleCategorie`, `libelleStatutReponse`/`tonStatutReponse`, `libellePriorite` (« Urgent »), `libelleBrouillon`, `ACTIONS_REPONSE`, `libelleEnvoyerDepuis`, `libelleTriePar` ; `RUBRIQUES` (réglages), `libelleTache`, `libelleRole`, `nomCourtSociete`. Les anciens `documents.ts` / `reponses.ts` gardent l'ancien vocabulaire : ne plus s'en servir pour l'affichage.
+- **`#lib/libelles.ts`** : vocabulaire de l'architecture §4. `nomOutil`, `titreEnvoi`, `libelleValider(type, outil)` ; `libelleType`, `libelleEtat`/`tonEtat`, `libelleStatutEnvoi(s, outil)`/`tonStatutEnvoi`, `libelleVoie` (admins), `titreAlerte`/`tonAlerte` (contrôles) ; `libelleMethode`, `titreLiens`, `BL_EN_ATTENTE`, `FACTURE_SANS_BL` ; `libelleCategorie`, `libelleStatutReponse`/`tonStatutReponse`, `libellePriorite` (« Urgent »), `libelleBrouillon`, `ACTIONS_REPONSE`, `libelleEnvoyerDepuis`, `libelleTriePar` ; `RUBRIQUES` (réglages), `libelleTache`, `libelleRole`, `nomCourtSociete`.
 - **`#lib/societe.svelte.ts`** : `societe.id` (null = toutes), `societe.courante`, `societe.liste`, `societe.url('/api/…')` ajoute `societe=` ; lire `societe.id` dans un `$effect` recharge la page au changement. Responsable : toujours `null` (le serveur filtre).
 - **`#lib/compteurs.svelte.ts`** : `compteurs.aTraiter`, `compteurs.problemes` (barre du haut) ; appeler `rafraichirCompteurs()` après une validation, un envoi ou une réponse.
 
-## Transition (phase 3)
-
-En fin de `app.css`, les anciennes classes (`carte`, `grille`, `champs`, `actions`, `discret`, `nombre`, `valeur`, `rouge`, `pagination`, `button.second`, bouton nu bleu) ne servent qu'aux pages pas encore refondues : ne pas les utiliser dans une page neuve. Les ajouts propres à une page vont dans son `<style>` ; un ajout commun va en fin de `app.css`, commenté.
+Les ajouts propres à une page vont dans son `<style>` ; un style servant à deux pages ou plus va dans `app.css`.

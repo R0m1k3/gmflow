@@ -33,6 +33,7 @@
     libelleValider,
     libelleVoie,
     nomOutil,
+    detailAlerte,
     titreAlerte,
     titreEnvoi,
     titreLiens,
@@ -127,6 +128,8 @@
   let d = $state<FicheDocument | null>(null);
   let rap = $state<DetailRapprochement | null>(null);
   let erreurChargement = $state('');
+  /** 404 : document absent ou hors du périmètre ; rien à réessayer ni à valider. */
+  let introuvable = $state(false);
   let erreur = $state('');
   let info = $state('');
   let refus = $state<{ code: CodeRefus | undefined; message: string } | null>(null);
@@ -185,6 +188,7 @@
       info = '';
       refus = null;
       erreurChargement = '';
+      introuvable = false;
       choix = { ...VIDE };
       lu = { ...VIDE };
       editionF = false;
@@ -195,7 +199,9 @@
           ouvrirLiens = pleinEcran && !!rap && (rap.candidats.length > 0 || rap.liens.some((l) => l.ecarts.length > 0));
         })
         .catch((e) => {
-          if (ident === id) erreurChargement = e instanceof ErreurApi && e.code === 404 ? 'Document introuvable, ou hors de votre société.' : message(e);
+          if (ident !== id) return;
+          introuvable = e instanceof ErreurApi && e.code === 404;
+          erreurChargement = introuvable ? 'Document introuvable, ou hors de votre société.' : message(e);
         });
     });
     return () => {
@@ -614,7 +620,7 @@
 </div>
 
 <div class="volet-b">
-  <div class="apercu-zone">
+  <div class="apercu-zone" class:sr={erreurChargement !== ''}>
     {#if d}<ApercuPiece id={d.piece_id} typeMime={d.type_mime} nom={d.nom_fichier} outils={false} />{/if}
   </div>
   <div class="contenu-fiche avec-barre">
@@ -625,7 +631,9 @@
     {#if erreurChargement}
       <Bandeau ton="erreur">
         {erreurChargement}
-        {#snippet action()}<button type="button" class="btn sm" onclick={reessayer}>Réessayer</button>{/snippet}
+        {#snippet action()}
+          {#if introuvable}<a class="btn sm" href={retour}>Retour à À traiter</a>{:else}<button type="button" class="btn sm" onclick={reessayer}>Réessayer</button>{/if}
+        {/snippet}
       </Bandeau>
     {:else if !d}
       <Chargement texte="Chargement du document" />
@@ -676,7 +684,7 @@
         <Bandeau ton="erreur" titre="Doublon.">{phrase(doublon.message)}</Bandeau>
       {:else if alertes.length && !refus}
         <Bandeau titre="{titreAlerte(alertes[0])}.">
-          {phrase(alertes[0].message)}{#if alertes.length > 1}
+          {#if detailAlerte(alertes[0])}{phrase(detailAlerte(alertes[0]))}{/if}{#if alertes.length > 1}
             {' '}{alertes.length - 1 === 1 ? 'Une autre alerte' : `${alertes.length - 1} autres alertes`}, surlignée{alertes.length > 2 ? 's' : ''} dans les champs.{/if}
         </Bandeau>
       {/if}
@@ -745,7 +753,8 @@
                   </button>
                 {/if}
               </div>
-              {#if typeof ctrlF === 'string'}<div class="aide">{ctrlF}</div>{/if}
+              <!-- « Nouveau fournisseur (à confirmer) » est déjà écrit à côté du nom -->
+              {#if typeof ctrlF === 'string' && !(d.fournisseur_statut === 'a_confirmer' && ctrlF.includes('confirmer'))}<div class="aide">{ctrlF}</div>{/if}
             {/if}
           </div>
           <Champ disposition="ligne" libelle="N°" bind:valeur={choix.numero} mono modifiable={editable} aControler={aControler('numero')} />
@@ -884,7 +893,9 @@
   </div>
 </div>
 
-<BarreAction principal={plan.principal} secondaires={plan.secondaires} {ensuite} toucheEnsuite={pleinEcran && ensuite && onsuivant ? 'J' : undefined} aligne={pleinEcran} />
+{#if !erreurChargement}
+  <BarreAction principal={plan.principal} secondaires={plan.secondaires} {ensuite} toucheEnsuite={pleinEcran && ensuite && onsuivant ? 'J' : undefined} aligne={pleinEcran} />
+{/if}
 
 <Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarter}>
   <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>

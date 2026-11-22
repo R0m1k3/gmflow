@@ -16,7 +16,7 @@
 <details class="repli" bind:open={ouvert}>
   <summary>
     {#if icone}<Icone nom={icone} />{/if}
-    <span>{titre}</span>
+    <span class="titre-repli">{titre}</span>
     {#if resume}<span class="resume-repli">{resume}</span>{/if}
     <Icone nom="droite" class="chev" />
   </summary>

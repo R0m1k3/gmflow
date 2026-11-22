@@ -1,7 +1,7 @@
 /* GMFlow : feuille de style commune (direction B, « trois volets »).
    Référence visuelle : docs/maquette-b.html. Mode d'emploi : docs/ui.md.
    Ordre : polices, jetons, base, icônes et touches, boutons, champs, étiquettes,
-   bandeaux, listes, tableaux, volets, fiche, états, téléphone, transition. */
+   bandeaux, listes, tableaux, volets, fiche, états, téléphone. */
 
 /* ---------- Polices (OFL, sous-ensemble latin, fichiers variables) ---------- */
 @font-face {
@@ -482,6 +482,26 @@ input.num {
 }
 .case input {
   margin-top: 2px;
+}
+.case .aide {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text2);
+}
+/* champ court à droite d'un champ large (serveur + port) */
+.deux {
+  display: grid;
+  grid-template-columns: 1fr 96px;
+  gap: var(--e3);
+}
+/* erreur brute d'un essai, sous la phrase en clair */
+.detail-brut {
+  margin-top: var(--e1);
+  font-size: 11px;
+  opacity: 0.8;
+  word-break: break-word;
 }
 
 /* Champ « ligne » : clé à gauche, valeur à droite, filets (fiche document) */
@@ -1054,7 +1074,13 @@ tr.cliquable:hover td {
 .repli > summary:focus-visible {
   outline-offset: -2px;
 }
+/* le titre ne passe jamais à la ligne : c'est le résumé qui s'abrège */
+.repli > summary .titre-repli {
+  flex: none;
+  white-space: nowrap;
+}
 .repli > summary .resume-repli {
+  flex: 0 1 auto;
   color: var(--text2);
   font-weight: 400;
   min-width: 0;
@@ -1063,6 +1089,7 @@ tr.cliquable:hover td {
   white-space: nowrap;
 }
 .repli > summary .chev {
+  flex: none;
   margin-left: auto;
   color: var(--muted);
   transition: transform var(--moyen) var(--ease);
@@ -1072,6 +1099,79 @@ tr.cliquable:hover td {
 }
 .repli .dedans {
   padding: 0 0 var(--e4);
+}
+
+/* numéro d'étape (mise en route, connexion à Claude) : cerclé, bleu en cours, noir coché */
+.rond-etape {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 500 11px/1 var(--mono);
+  border: 1px solid var(--line2);
+  color: var(--text2);
+}
+.rond-etape svg.i {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.5;
+}
+.rond-etape.fait {
+  background: var(--black);
+  border-color: var(--black);
+  color: #fff;
+}
+.rond-etape.cur {
+  border-color: var(--accent);
+  color: var(--accent);
+  border-width: 1.5px;
+}
+
+/* liste vide dans une section de réglages */
+.vide-l {
+  padding: var(--e2);
+  margin: 0;
+}
+
+/* écrans seuls : connexion, premier compte */
+.marque {
+  width: 16px;
+  height: 16px;
+  background: var(--black);
+  display: block;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 60%, 60% 60%, 60% 40%, 0 40%);
+}
+.accueil {
+  padding: var(--e8) 0;
+}
+.accueil .logo {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--black);
+  margin-bottom: var(--e10);
+}
+.accueil h1 {
+  margin-bottom: var(--e1);
+}
+.accueil > p.t2 {
+  margin-bottom: var(--e6);
+}
+.accueil > .bandeau {
+  margin-bottom: var(--e4);
+}
+.accueil form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e4);
+}
+.accueil .btn.plein {
+  width: 100%;
+  margin-top: var(--e2);
 }
 
 /* page simple (réglages, bilan, fiche fournisseur) */
@@ -1448,114 +1548,4 @@ dialog.confirmation .dlg-pied {
   .chargement {
     animation-delay: 0s !important;
   }
-}
-
-/* =====================================================================
-   Transition : anciennes classes des pages pas encore refondues.
-   À supprimer en phase 3, quand plus aucune page ne s'en sert.
-   Le bouton nu (sans classe .btn) ne garde son ancien aspect que dans une
-   page ancienne, c'est-à-dire un <main> qui ne contient ni .page, ni .volets,
-   ni .pleine. Sélecteurs en :where() pour ne rien imposer aux nouvelles pages.
-   ===================================================================== */
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(h1) {
-  margin: 0 0 var(--e4);
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(h2) {
-  margin: var(--e6) 0 var(--e2);
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(label) {
-  display: block;
-  font-size: 12px;
-  color: var(--text2);
-  margin-bottom: var(--e1);
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(button:not(.btn, .btn-icone, .btn-lien, .plus)) {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--e2);
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--accent);
-  border-radius: var(--r2);
-  background: var(--accent);
-  color: #fff;
-  font-weight: 500;
-  white-space: nowrap;
-  transition: background-color var(--vite) var(--ease);
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(button.second) {
-  background: var(--white);
-  color: var(--text);
-  border-color: var(--line2);
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(button.second:hover) {
-  background: var(--pane);
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(button.danger) {
-  background: var(--white);
-  color: var(--err);
-  border-color: var(--err-line);
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(button:disabled) {
-  opacity: 0.5;
-}
-:where(main:not(:has(> .page, > .volets, > .pleine))) :where(table) {
-  margin-bottom: var(--e2);
-}
-.nombre,
-.date {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-}
-.valeur {
-  font-family: var(--mono);
-  font-size: 20px;
-  line-height: 28px;
-  font-variant-numeric: tabular-nums;
-}
-.rouge {
-  color: var(--err);
-}
-.carte {
-  display: block;
-  background: var(--white);
-  border: 1px solid var(--line);
-  border-radius: var(--r3);
-  padding: var(--e4) var(--e5);
-  color: inherit;
-  text-decoration: none;
-}
-.grille {
-  display: grid;
-  gap: var(--e4);
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-.champs {
-  display: grid;
-  gap: var(--e3) var(--e4);
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  margin-bottom: var(--e4);
-}
-.actions {
-  display: flex;
-  gap: var(--e2);
-  flex-wrap: wrap;
-  align-items: center;
-}
-.discret {
-  color: var(--text2);
-  font-size: 12px;
-}
-.pagination {
-  display: flex;
-  gap: var(--e3);
-  align-items: center;
-  margin-top: var(--e3);
-}
-pre.corps {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: inherit;
-  margin: 0;
 }

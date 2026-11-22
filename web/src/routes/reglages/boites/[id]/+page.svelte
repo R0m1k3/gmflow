@@ -410,7 +410,7 @@
             <div class="plein">
               <Bandeau ton={r.ok ? 'ok' : 'erreur'}>
                 {r.message}{#if r.ok}{' '}Rien n’a été envoyé.{/if}
-                {#if !r.ok && r.detail}<div class="detail num">{r.detail}</div>{/if}
+                {#if !r.ok && r.detail}<div class="detail-brut num">{r.detail}</div>{/if}
               </Bandeau>
             </div>
           {/if}
@@ -495,11 +495,6 @@
     font-weight: 500;
     margin: var(--e8) 0 var(--e2);
   }
-  .deux {
-    display: grid;
-    grid-template-columns: 1fr 96px;
-    gap: var(--e3);
-  }
   .formulaire p.plein {
     margin: 0;
   }
@@ -513,12 +508,6 @@
     gap: var(--e2);
     align-items: flex-end;
     flex-wrap: wrap;
-  }
-  .detail {
-    margin-top: var(--e1);
-    font-size: 11px;
-    opacity: 0.8;
-    word-break: break-word;
   }
   .form-f {
     display: flex;

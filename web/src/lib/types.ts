@@ -18,12 +18,6 @@ export interface SocieteVisible {
   raison_sociale: string;
 }
 
-export interface BoiteVisible {
-  id: number;
-  libelle: string;
-  societe_id: number;
-}
-
 export interface LigneMail {
   id: number;
   expediteur: string;
@@ -56,19 +50,6 @@ export interface Brouillon {
   envoye_le: string | null;
   envoye_par: string | null;
   smtp: boolean;
-}
-
-export interface LigneARepondre {
-  id: number;
-  expediteur: string;
-  objet: string;
-  date_mail: string | null;
-  resume: string | null;
-  priorite: Priorite | null;
-  categorie_par: string | null;
-  structures: string[];
-  boites: string[];
-  brouillon: StatutBrouillon | null;
 }
 
 export interface SemaineTri {
@@ -141,18 +122,6 @@ export interface FicheMail {
   tri_etat: 'a_trier' | 'en_cours' | 'trie' | 'erreur' | null;
   tri_message: string | null;
   brouillons: Brouillon[];
-}
-
-export interface Tableau {
-  mails_du_jour: { societe_id: number; raison_sociale: string; n: number }[];
-  boites_alerte: { id: number; libelle: string; motif: 'erreur' | 'pause_auto'; depuis: string | null; message: string | null }[];
-  claude?: { etat: string; teste_le?: string | null };
-  stockage?: { octets: number; libre_pourcent: number | null };
-  documents: { a_lire: number; erreur: number; a_verifier: number; lus_aujourdhui: number };
-  depots: { a_verifier: number; prets: number; bloques: number; deposes_mois: number };
-  lecture?: { auto: boolean; quota: number; appels_du_jour: number };
-  a_repondre: number;
-  tri?: { auto: boolean; quota: number; appels_du_jour: number; en_attente: number; en_erreur: number };
 }
 
 export interface Societe {
@@ -250,27 +219,6 @@ export interface LigneJournal {
 export type TypeDocument = 'facture' | 'avoir' | 'bl' | 'relance' | 'devis' | 'autre';
 export type EtatDocument = 'a_lire' | 'en_cours' | 'lu' | 'ignore' | 'erreur';
 export type Voie = 'facturx' | 'xml' | 'pdf_texte' | 'tableur' | 'scan';
-
-export interface LigneDocument {
-  id: number;
-  mail_id: number;
-  nom_fichier: string;
-  etat: EtatDocument;
-  voie: Voie | null;
-  type: TypeDocument | null;
-  societe: string | null;
-  fournisseur_nom: string | null;
-  numero: string | null;
-  date_document: string | null;
-  montant_ttc: number | null;
-  message: string | null;
-  verifie: boolean;
-  date_mail: string | null;
-  fournisseur_id: number | null;
-  fournisseur: string | null;
-  statut_depot: StatutDepot | null;
-  controles: Controle[];
-}
 
 export type StatutDepot = 'a_verifier' | 'pret' | 'en_envoi' | 'depose' | 'erreur' | 'doublon';
 
@@ -512,26 +460,6 @@ export interface Rapproche {
   ecarts: EcartLigne[];
 }
 
-export interface ResumeFournisseur {
-  fournisseur_id: number | null;
-  fournisseur: string | null;
-  bls: number;
-  factures: number;
-  bl_sans_facture: number;
-  factures_sans_bl: number;
-  factures_avec_ecart: number;
-}
-
-export interface VueRapprochement {
-  resume: ResumeFournisseur[];
-  bl_sans_facture: DocRap[];
-  factures_sans_bl: DocRap[];
-  avec_ecart: Rapproche[];
-  sans_ecart: Rapproche[];
-  tronque: boolean;
-  bl_sans_lignes: number;
-}
-
 export interface LigneArticle {
   rang: number;
   reference: string | null;
@@ -553,12 +481,6 @@ export interface DetailRapprochement {
 
 // ---------------------------------------------------------------------------------------------
 // Refonte de l'interface : contrat dans docs/api-refonte.md.
-
-/** Réponse d'erreur de l'API ; `code` seulement pour certains 409 (voir api-refonte.md). */
-export interface ErreurCorps {
-  erreur: string;
-  code?: CodeRefus;
-}
 
 export type CodeRefus =
   | 'etat'
@@ -627,6 +549,8 @@ export interface MailARepondre {
   resume: string | null;
   priorite: Priorite | null;
   societes: string[];
+  /** Fiche fournisseur reconnue par le domaine de l'expéditeur. */
+  fournisseur: string | null;
   brouillon: StatutBrouillon | null;
 }
 

@@ -257,15 +257,6 @@
 </section>
 
 <style>
-  .deux {
-    display: grid;
-    grid-template-columns: 1fr 96px;
-    gap: var(--e3);
-  }
-  .vide-l {
-    padding: var(--e2);
-    margin: 0;
-  }
   .essai {
     padding: var(--e3) var(--e2);
     display: flex;

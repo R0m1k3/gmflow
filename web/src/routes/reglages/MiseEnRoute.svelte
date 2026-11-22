@@ -77,13 +77,13 @@
         <li class="step" class:done={e.fait} class:open={ouverte === e.cle && !e.fait}>
           {#if e.fait}
             <div class="step-h">
-              <span class="step-n" aria-label="Fait"><Icone nom="coche" /></span>
+              <span class="rond-etape fait" aria-label="Fait"><Icone nom="coche" /></span>
               <div><h3>{t.titre}</h3><p>{e.resume}</p></div>
               <button type="button" class="btn sm fantome" onclick={() => aller(e.cle)}>Modifier</button>
             </div>
           {:else}
             <button type="button" class="step-h" aria-expanded={ouverte === e.cle} onclick={() => basculer(e.cle)}>
-              <span class="step-n">{i + 1}</span>
+              <span class="rond-etape" class:cur={ouverte === e.cle}>{i + 1}</span>
               <div><h3>{t.titre}</h3><p>{e.resume || t.but}</p></div>
               <span class="st">{ouverte === e.cle ? 'En cours' : 'À faire'}</span>
             </button>
@@ -168,31 +168,6 @@
   }
   button.step-h:hover h3 {
     color: var(--accent-ink);
-  }
-  .step-n {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font: 500 11px/1 var(--mono);
-    border: 1px solid var(--line2);
-    color: var(--text2);
-  }
-  .step-n :global(svg.i) {
-    width: 12px;
-    height: 12px;
-    stroke-width: 2.5;
-  }
-  .step.done .step-n {
-    background: var(--black);
-    border-color: var(--black);
-    color: #fff;
-  }
-  .step.open .step-n {
-    border-color: var(--accent);
-    color: var(--accent);
-    border-width: 1.5px;
   }
   .step-h h3 {
     margin: 0;

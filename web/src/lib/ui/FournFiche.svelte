@@ -49,7 +49,7 @@
   // Fiche d'un fournisseur : identité (admin : modifier, confirmer, fusionner), encadré « À rapprocher »,
   // puis le fil par mois (factures, avoirs, BL, mails). Sert au volet de /fournisseurs et à /fournisseurs/[id].
   import type { Snippet } from 'svelte';
-  import { api, filFournisseur, fournisseurs as listerFournisseurs, message, modifierFournisseur } from '#lib/api.ts';
+  import { api, ErreurApi, filFournisseur, fournisseurs as listerFournisseurs, message, modifierFournisseur } from '#lib/api.ts';
   import { dateSimple } from '#lib/format.ts';
   import {
     BL_EN_ATTENTE,
@@ -98,6 +98,7 @@
   let ed = $state<EditionFournisseur | null>(null);
   let nbMois = $state(6);
   let erreur = $state('');
+  let introuvable = $state(false);
   let info = $state('');
   let enCours = $state(false);
   let ficheOuverte = $state(false);
@@ -114,8 +115,11 @@
       fil = v;
       ed = versEdition(v.fournisseur);
       erreur = '';
+      introuvable = false;
     } catch (e) {
-      if (moi === jeton) erreur = message(e);
+      if (moi !== jeton) return;
+      introuvable = e instanceof ErreurApi && e.code === 404;
+      erreur = message(e);
     }
   }
 
@@ -296,10 +300,14 @@
 
 {#if !fil}
   {#if erreur}
-    <Bandeau ton="erreur" titre="Fiche introuvable.">
-      {erreur}
-      {#snippet action()}<button type="button" class="btn sm" onclick={charger}>Réessayer</button>{/snippet}
-    </Bandeau>
+    {#if introuvable}
+      <Bandeau ton="erreur" titre="Fiche introuvable.">Ce fournisseur n’existe plus, ou n’a rien dans votre société.</Bandeau>
+    {:else}
+      <Bandeau ton="erreur" titre="Impossible d’ouvrir la fiche.">
+        {erreur}
+        {#snippet action()}<button type="button" class="btn sm" onclick={charger}>Réessayer</button>{/snippet}
+      </Bandeau>
+    {/if}
   {:else}
     <Chargement />
   {/if}

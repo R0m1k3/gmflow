@@ -6,6 +6,20 @@ import type { SocieteVisible } from './types.ts';
 
 const CLE = 'gmflow.societe';
 
+/** « SAS Frouard Distribution » : « Frouard Distribution ». */
+export function sansFormeJuridique(raison: string): string {
+  return raison.replace(/^(SASU|SAS|SARL|EURL|SA|SNC|SCI)\s+/i, '').trim();
+}
+
+/** Mots du début communs à tous les noms (au moins deux noms, et il reste un mot à chacun). */
+function debutCommun(noms: string[]): string {
+  if (noms.length < 2) return '';
+  const mots = noms.map((n) => n.split(/\s+/));
+  const commun: string[] = [];
+  for (let i = 0; mots.every((m) => i < m.length - 1 && m[i] === mots[0][i]); i++) commun.push(mots[0][i]);
+  return commun.join(' ');
+}
+
 function lire(): number | null {
   try {
     const v = localStorage.getItem(CLE);
@@ -22,6 +36,9 @@ class SocieteChoisie {
   /** Sociétés visibles par l'utilisateur (`GET /api/societes`). */
   liste = $state<SocieteVisible[]>([]);
   charge = $state(false);
+
+  /** Début commun des raisons sociales (« La Foir'Fouille »), retiré des noms courts. */
+  prefixe = $derived(debutCommun(this.liste.map((s) => sansFormeJuridique(s.raison_sociale))));
 
   /** Société choisie (objet), `null` pour toutes. */
   get courante(): SocieteVisible | null {

@@ -1,11 +1,8 @@
 // Compteurs de la barre du haut : badge « À traiter » et pastille d'état (admins).
 // Lus par le layout (changement de page, de société, toutes les minutes) ; une page qui vient
 // de valider ou d'envoyer quelque chose appelle `rafraichirCompteurs()`.
-// Cible : GET /api/a-traiter/compteurs (contrat dans docs/api-refonte.md).
-// Tant qu'il ne répond pas, repli sur GET /api/tableau-de-bord. Seule `lireCompteurs`
-// est à ajuster quand le contrat sera figé.
-import { api, ErreurApi } from './api.ts';
-import type { Tableau } from './types.ts';
+// Source : GET /api/a-traiter/compteurs (docs/api-refonte.md, crates/gmflow-app/src/routes/a_traiter.rs).
+import { api } from './api.ts';
 
 export interface Compteurs {
   /** Éléments à traiter : documents à valider, mails à répondre, blocages. */
@@ -14,43 +11,17 @@ export interface Compteurs {
   problemes: number | null;
 }
 
-/** Réponse de /api/a-traiter/compteurs (crates/gmflow-app/src/routes/a_traiter.rs). */
 interface ReponseCompteurs {
-  bloque?: number;
-  a_valider?: number;
-  a_repondre?: number;
-  total?: number;
+  bloque: number;
+  a_valider: number;
+  a_repondre: number;
+  total: number;
 }
 
-let nouvelleRouteAbsente = false;
-
-function depuisCompteurs(r: ReponseCompteurs, admin: boolean): Compteurs {
-  const bloque = r.bloque ?? 0;
-  const aTraiter = r.total ?? (r.a_valider ?? 0) + (r.a_repondre ?? 0) + bloque;
-  return { aTraiter, problemes: admin ? bloque : null };
-}
-
-function depuisTableau(t: Tableau, admin: boolean): Compteurs {
-  const claudeKo = t.claude && t.claude.etat !== 'valide' && t.claude.etat !== 'en_test' ? 1 : 0;
-  const problemes = t.boites_alerte.length + t.depots.bloques + t.documents.erreur + claudeKo;
-  return {
-    aTraiter: t.documents.a_verifier + t.a_repondre + t.depots.bloques,
-    problemes: admin ? problemes : null
-  };
-}
-
-export async function lireCompteurs(parametreSociete: string, admin: boolean): Promise<Compteurs> {
+async function lireCompteurs(parametreSociete: string, admin: boolean): Promise<Compteurs> {
   const q = parametreSociete ? `?${parametreSociete}` : '';
-  if (!nouvelleRouteAbsente) {
-    try {
-      return depuisCompteurs(await api.get<ReponseCompteurs>(`/api/a-traiter/compteurs${q}`), admin);
-    } catch (e) {
-      // 404 ou 405 : route pas encore livrée, on ne la redemande plus pendant la session.
-      if (e instanceof ErreurApi && (e.code === 404 || e.code === 405)) nouvelleRouteAbsente = true;
-      else if (e instanceof ErreurApi && e.code === 401) throw e;
-    }
-  }
-  return depuisTableau(await api.get<Tableau>(`/api/tableau-de-bord${q}`), admin);
+  const r = await api.get<ReponseCompteurs>(`/api/a-traiter/compteurs${q}`);
+  return { aTraiter: r.total, problemes: admin ? r.bloque : null };
 }
 
 /** Valeurs affichées dans la barre du haut. */

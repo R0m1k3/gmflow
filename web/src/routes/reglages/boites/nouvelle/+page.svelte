@@ -293,7 +293,7 @@
         {:else if imap && !imap.ok}
           <Bandeau ton="erreur" titre="Connexion impossible.">
             {imap.message}
-            {#if imap.detail}<div class="detail num">{imap.detail}</div>{/if}
+            {#if imap.detail}<div class="detail-brut num">{imap.detail}</div>{/if}
           </Bandeau>
         {:else if imap?.ok}
           <Bandeau ton="ok" role="status">{imap.message}</Bandeau>
@@ -323,7 +323,7 @@
             {:else}
               <Bandeau titre="Les réponses ne pourront pas partir.">
                 {smtp.message}
-                {#if smtp.detail}<div class="detail num">{smtp.detail}</div>{/if}
+                {#if smtp.detail}<div class="detail-brut num">{smtp.detail}</div>{/if}
               </Bandeau>
             {/if}
             <label class="case">
@@ -500,13 +500,6 @@
     gap: var(--e2);
     margin: var(--e3) 0 var(--e5);
   }
-  .case .aide {
-    display: block;
-    margin-top: 2px;
-    font-size: 12px;
-    line-height: 18px;
-    color: var(--text2);
-  }
   .ecran > .case {
     margin-top: var(--e3);
   }
@@ -516,12 +509,6 @@
     gap: var(--e2);
     color: var(--ok);
     margin: var(--e3) 0;
-  }
-  .detail {
-    margin-top: var(--e1);
-    font-size: 11px;
-    opacity: 0.8;
-    word-break: break-word;
   }
   .recap {
     margin-bottom: var(--e4);

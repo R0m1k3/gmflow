@@ -4,6 +4,7 @@
   import { goto } from '$app/navigation';
   import { tick } from 'svelte';
   import { api, message, miseEnRoute } from '#lib/api.ts';
+  import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { RUBRIQUES } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
@@ -58,6 +59,8 @@
   async function rafraichir(avecSocietes = false) {
     await Promise.all([chargerListes().catch((e) => (erreur = message(e))), chargerEtat()]);
     if (avecSocietes) void societe.charger();
+    // Claude connecté, boîte réparée… : la pastille d'état de la barre du haut suit.
+    void rafraichirCompteurs();
   }
 
   $effect(() => {
@@ -77,7 +80,8 @@
   const SECTIONS = ['mise-en-route', 'societes', 'boites', 'claude', 'envoi', 'utilisateurs', 'avance'];
   function suivre() {
     if (!zone) return;
-    const haut = Math.max(zone.getBoundingClientRect().top, 48) + 96;
+    // Section courante : la dernière dont le titre a passé le premier tiers de la zone visible.
+    const haut = Math.max(zone.getBoundingClientRect().top, 48) + Math.max(96, zone.clientHeight / 3);
     let courante = SECTIONS[0];
     for (const id of SECTIONS) {
       const el = document.getElementById(id);
@@ -303,13 +307,6 @@
     align-items: center;
     margin-top: var(--e4);
     flex-wrap: wrap;
-  }
-  .reglages :global(.case .aide) {
-    display: block;
-    margin-top: 2px;
-    font-size: 12px;
-    line-height: 18px;
-    color: var(--text2);
   }
   .reglages :global(.sous-titre) {
     font-size: 14px;

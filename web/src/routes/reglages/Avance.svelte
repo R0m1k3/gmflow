@@ -368,8 +368,4 @@
     word-break: break-word;
     max-width: 320px;
   }
-  .vide-l {
-    padding: var(--e2);
-    margin: 0;
-  }
 </style>

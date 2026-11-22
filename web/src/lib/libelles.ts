@@ -12,6 +12,7 @@ import type {
   TypeDocument,
   Voie
 } from './types.ts';
+import { sansFormeJuridique, societe } from './societe.svelte.ts';
 
 /** Ton visuel d'une étiquette ou d'un bandeau (voir Etiquette.svelte). */
 export type Ton = 'neutre' | 'ok' | 'alerte' | 'erreur' | 'info' | 'pale';
@@ -151,9 +152,11 @@ export function titreAlerte(c: Pick<Controle, 'code' | 'message'>): string {
       return 'À vérifier';
   }
 }
-/** Ton d'une alerte : rouge pour un doublon, ambre sinon. */
-export function tonAlerte(c: Pick<Controle, 'code'>): Ton {
-  return c.code === 'doublon' ? 'erreur' : 'alerte';
+/** Détail d'une alerte sous son titre : le message du serveur, sauf s'il ne fait que répéter le titre. */
+export function detailAlerte(c: Pick<Controle, 'code' | 'message'>): string {
+  const m = c.message.trim();
+  if (!m.toLowerCase().startsWith(titreAlerte(c).toLowerCase())) return m;
+  return c.code === 'fournisseur' ? 'Vérifiez son nom et son SIRET, puis confirmez la fiche' : '';
 }
 
 /** Statut d'un fournisseur. */
@@ -281,5 +284,9 @@ export function libelleRole(r: string | null | undefined): string {
 /** « SAS Frouard Distribution » devient « Frouard Distribution » (forme juridique retirée). */
 export function nomCourtSociete(raison: string | null | undefined): string {
   if (!raison) return '';
-  return raison.replace(/^(SASU|SAS|SARL|EURL|SA|SNC|SCI)\s+/i, '').trim() || raison;
+  const court = sansFormeJuridique(raison);
+  // « La Foir'Fouille Frouard » et « La Foir'Fouille Houdemont » : « Frouard », « Houdemont ».
+  const p = societe.prefixe;
+  if (p && court.startsWith(p) && court.length > p.length) return court.slice(p.length).trim();
+  return court || raison;
 }

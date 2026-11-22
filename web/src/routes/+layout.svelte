@@ -267,13 +267,6 @@
     text-decoration: none;
     border-radius: var(--r1);
   }
-  .marque {
-    width: 16px;
-    height: 16px;
-    background: var(--black);
-    display: block;
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 60%, 60% 60%, 60% 40%, 0 40%);
-  }
   .menu {
     display: flex;
     gap: 2px;
@@ -484,11 +477,6 @@
   .contenu {
     min-height: calc(100dvh - var(--haut-barre));
   }
-  /* Pages pas encore refondues : marges de l'ancien cadre (voir la fin de app.css). */
-  .contenu:not(:has(> :global(.page), > :global(.volets), > :global(.pleine))) {
-    padding: var(--e6) var(--e8) var(--e10);
-    max-width: 1200px;
-  }
   main.seul {
     margin: 8vh auto;
     max-width: 400px;
@@ -582,9 +570,6 @@
     }
     .contenu {
       padding-bottom: calc(56px + env(safe-area-inset-bottom));
-    }
-    .contenu:not(:has(> :global(.page), > :global(.volets), > :global(.pleine))) {
-      padding: var(--e4) var(--e4) calc(72px + env(safe-area-inset-bottom));
     }
     /* Une fiche ouverte a sa propre barre d'action en bas : pas d'onglets par-dessus. */
     :global(body:has(.barre-action)) .onglets,

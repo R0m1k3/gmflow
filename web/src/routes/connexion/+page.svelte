@@ -51,43 +51,6 @@
 
 <style>
   /* Écran seul, centré (le cadre <main class="seul"> limite déjà la largeur). */
-  .accueil {
-    padding: var(--e8) 0;
-  }
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: var(--e2);
-    font-weight: 600;
-    font-size: 15px;
-    color: var(--black);
-    margin-bottom: var(--e10);
-  }
-  .marque {
-    width: 16px;
-    height: 16px;
-    background: var(--black);
-    display: block;
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 60%, 60% 60%, 60% 40%, 0 40%);
-  }
-  h1 {
-    margin-bottom: var(--e1);
-  }
-  p.t2 {
-    margin-bottom: var(--e6);
-  }
-  .accueil > :global(.bandeau) {
-    margin-bottom: var(--e4);
-  }
-  form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--e4);
-  }
-  .plein {
-    width: 100%;
-    margin-top: var(--e2);
-  }
   .pied {
     margin-top: var(--e5);
   }

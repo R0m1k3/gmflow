@@ -5,20 +5,19 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { untrack } from 'svelte';
-  import { aTraiter, api, ecarterDocument, ErreurApi, message, sonder, validerDocument } from '#lib/api.ts';
+  import { aTraiter, ecarterDocument, ErreurApi, message, sonder, validerDocument } from '#lib/api.ts';
   import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { libelleBrouillon, libellePriorite, libelleType, nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { Bloque, FicheMail, FileATraiter } from '#lib/types.ts';
+  import type { Bloque, FileATraiter } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
-  import BarreAction from '#lib/ui/BarreAction.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import DocFiche, { type PositionFiche, type ResultatFiche } from '#lib/ui/DocFiche.svelte';
-  import { age, drapeau, jourHeure, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
-  import Icone from '#lib/ui/Icone.svelte';
+  import { age, drapeau, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
   import Kbd from '#lib/ui/Kbd.svelte';
+  import MailFiche from '#lib/ui/MailFiche.svelte';
   import Montant from '#lib/ui/Montant.svelte';
   import Vide from '#lib/ui/Vide.svelte';
   import Volets from '#lib/ui/Volets.svelte';
@@ -53,6 +52,17 @@
       if (document.visibilityState === 'visible') await chargerFile();
     }, 60_000);
     return arret;
+  });
+
+  // Arrivée par une ancre (/#bloque depuis la pastille d'état, /#a-repondre depuis l'ancienne page) :
+  // la section n'existe qu'une fois la file chargée.
+  let ancreVue = '';
+  $effect(() => {
+    if (!file) return;
+    const ancre = page.url.hash.slice(1);
+    if (!ancre || ancre === ancreVue) return;
+    ancreVue = ancre;
+    requestAnimationFrame(() => document.getElementById(ancre)?.scrollIntoView({ block: 'start' }));
   });
 
   // ---------- Élément ouvert (URL) ----------
@@ -112,10 +122,10 @@
       k: () => deplacerDe(-1)
     };
     if (ouvert) carte.Escape = fermer;
-    // Entrée sur un document ouvert : la fiche valide ; sur un mail : « Ouvrir et répondre ».
+    // Entrée sur un document ouvert : la fiche valide ; sur un mail, Ctrl+Entrée envoie la réponse.
     if (!ouvert) carte.Enter = commencer;
-    else if (mailId) carte.Enter = () => void goto(`/mails/${mailId}`);
-    return raccourcis(carte);
+    // Échap ne ferme pas le volet pendant qu'on tape une réponse ou corrige un champ.
+    return raccourcis(carte, { dansLesChamps: [] });
   });
 
   // Position et « Ensuite » de l'élément ouvert.
@@ -128,12 +138,8 @@
     return { section: SECTIONS[courant.section], n: de.indexOf(courant) + 1, total };
   });
   let ensuite = $derived.by(() => {
-    if (!file || !courant) return undefined;
-    if (courant.section === 'a_repondre') {
-      const i = file.a_repondre.findIndex((m) => m.id === mailId);
-      const m = file.a_repondre[i + 1];
-      return m ? nomExpediteur(m.expediteur) : undefined;
-    }
+    // « Ensuite » de la fiche document ; la fiche mail donne sa propre position dans À répondre.
+    if (!file || !courant || courant.section === 'a_repondre') return undefined;
     if (courant.section === 'a_valider') {
       const i = file.a_valider.findIndex((l) => l.id === docId);
       const l = file.a_valider[i + 1] ?? (i > 0 ? file.a_valider[0] : undefined);
@@ -219,32 +225,15 @@
     }
   }
 
-  // ---------- Mail ouvert : aperçu court ----------
-  let mail = $state<FicheMail | null>(null);
-  let erreurMail = $state('');
-  $effect(() => {
-    const ident = mailId;
-    mail = null;
-    erreurMail = '';
-    if (!ident) return;
-    let vivant = true;
-    api
-      .get<FicheMail>(`/api/mails/${ident}`)
-      .then((m) => vivant && (mail = m))
-      .catch((e) => vivant && (erreurMail = message(e)));
-    return () => {
-      vivant = false;
-    };
-  });
-  let ligneMail = $derived(file?.a_repondre.find((m) => m.id === mailId) ?? null);
-  let extrait = $derived.by(() => {
-    const t = (mail?.corps_texte ?? '').replace(/\r/g, '').replace(/\n{3,}/g, '\n\n').trim();
-    return t.length > 700 ? `${t.slice(0, 700).replace(/\s+\S*$/, '')}…` : t;
-  });
+  // ---------- Mail ouvert : la fiche complète dans le volet ----------
+  /** Après un envoi ou un classement : la file est relue, puis le mail suivant (ou la file). */
+  async function apresMail(suivant: number | null) {
+    await chargerFile().catch((e) => (erreurFile = message(e)));
+    await goto(suivant ? `/?mail=${suivant}` : file?.suivant ? `/?doc=${file.suivant}` : '/', { replace: true, reset: false });
+  }
 
   /** « Demande le RIB » après « Sodistra : » devient « demande le RIB » (sauf sigle). */
   const minuscule = (t: string) => (/^\p{Lu}\p{Ll}/u.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t);
-  const majuscule = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
   const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
   let horsLimite = $derived(file ? file.compteurs.a_valider - file.a_valider.length : 0);
@@ -333,14 +322,14 @@
           {#if horsLimite > 0}<p class="plus">{horsLimite} autres, à voir après ceux-ci</p>{/if}
         </section>
 
-        <section class="sec">
+        <section class="sec" id="a-repondre">
           <div class="sec-h"><h2>À répondre</h2><span class="num">{file.compteurs.a_repondre}</span></div>
           {#each file.a_repondre as m (m.id)}
             <a class="ligne" class:cur={mailId === m.id} aria-current={mailId === m.id ? 'true' : undefined} href="/?mail={m.id}" data-cle="m{m.id}">
-              <div class="a">{m.resume ? `${nomExpediteur(m.expediteur)} : ${minuscule(m.resume)}` : m.objet || '(sans objet)'}</div>
+              <div class="a">{m.resume ? `${m.fournisseur ?? nomExpediteur(m.expediteur)} : ${minuscule(m.resume)}` : m.objet || '(sans objet)'}</div>
               <div class="r">{#if libellePriorite(m.priorite)}<span class="flag e">{libellePriorite(m.priorite)}</span>{/if}</div>
               <div class="b">
-                {m.resume ? m.objet || '(sans objet)' : nomExpediteur(m.expediteur)}{#if m.brouillon}<span class="flag">&nbsp; {libelleBrouillon(m.brouillon)}</span>{/if}
+                {m.resume ? m.objet || '(sans objet)' : (m.fournisseur ?? nomExpediteur(m.expediteur))}{#if m.brouillon}<span class="flag">&nbsp; {libelleBrouillon(m.brouillon)}</span>{/if}
               </div>
               <div class="r2">{quandCourt(m.date_mail)}</div>
             </a>
@@ -352,7 +341,7 @@
     </div>
     <div class="liste-f">
       <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
-      <span><Kbd t="Enter" /> {docId ? 'valider' : mailId ? 'répondre' : 'commencer'}</span>
+      {#if mailId}<span><Kbd t={['Ctrl', 'Enter']} /> envoyer</span>{:else}<span><Kbd t="Enter" /> {docId ? 'valider' : 'commencer'}</span>{/if}
       <span><Kbd t="/" /> chercher</span>
     </div>
   {/snippet}
@@ -370,51 +359,7 @@
         onsuivant={elements.length ? () => deplacerDe(1) : undefined}
       />
     {:else if mailId}
-      <div class="volet-h">
-        <a class="retour tel-seul" href="/"><Icone nom="gauche" />À traiter</a>
-        {#if position}<span class="pos">{position.section} <span class="num">{position.n}</span> sur <span class="num">{position.total}</span></span>{/if}
-        <span class="sp"></span>
-        <button type="button" class="btn sm fantome" aria-label="Précédent" onclick={() => deplacerDe(-1)}><Icone nom="haut" /><Kbd t="K" /></button>
-        <button type="button" class="btn sm fantome" aria-label="Suivant" onclick={() => deplacerDe(1)}><Icone nom="bas" /><Kbd t="J" /></button>
-      </div>
-      <div class="volet-b">
-        <div class="contenu-fiche avec-barre doc-mail">
-          {#if erreurMail}
-            <Bandeau ton="erreur">{erreurMail}</Bandeau>
-          {:else if !mail}
-            <Chargement texte="Chargement du mail" />
-          {:else}
-            <div class="titre-fiche"><h1>{mail.objet || '(sans objet)'}</h1></div>
-            <div class="meta-fiche">
-              {nomExpediteur(mail.expediteur)}{mail.boites.length ? `, à ${mail.boites.map((b) => b.libelle).join(', ')}` : ''}{mail.date_mail ? `, ${jourHeure(mail.date_mail)}` : ''}
-              {#if libellePriorite(mail.priorite)}<span class="flag e">&nbsp; {libellePriorite(mail.priorite)}</span>{/if}
-            </div>
-            {#if mail.resume}
-              <div class="encadre doc-resume">
-                <div>
-                  <div class="muted petit">En une phrase</div>
-                  <p>{majuscule(mail.resume)}</p>
-                </div>
-              </div>
-            {/if}
-            {#if ligneMail?.brouillon}<p class="t2 petit">{libelleBrouillon(ligneMail.brouillon)}</p>{/if}
-            <dl class="doc-de">
-              <dt>De</dt><dd>{mail.expediteur}</dd>
-              {#if mail.destinataires.length}<dt>À</dt><dd>{mail.destinataires.join(', ')}</dd>{/if}
-            </dl>
-            {#if extrait}<p class="doc-extrait">{extrait}</p>{/if}
-            {#each mail.pieces as p (p.id)}
-              <a class="encadre doc-piece" href={p.document_id ? `/?doc=${p.document_id}` : `/api/pieces/${p.id}`}>
-                <Icone nom="fichier" />
-                <span>{p.nom}</span>
-                <span class="sp"></span>
-                <span class="t2 petit">{p.document_id ? 'Ouvrir la fiche' : 'Télécharger'}</span>
-              </a>
-            {/each}
-          {/if}
-        </div>
-      </div>
-      <BarreAction principal={{ libelle: 'Ouvrir et répondre', touche: 'Enter', href: `/mails/${mailId}` }} {ensuite} />
+      <MailFiche id={mailId} volet ouvrir={apresMail} />
     {/if}
   {/snippet}
 
@@ -455,45 +400,5 @@
   .doc-bloc .r {
     position: relative;
     z-index: 1;
-  }
-  .doc-resume {
-    margin-bottom: var(--e4);
-  }
-  .doc-resume p {
-    margin: 0;
-    font-size: 14px;
-    line-height: 21px;
-    color: var(--text);
-  }
-  .doc-de {
-    display: grid;
-    grid-template-columns: 52px 1fr;
-    row-gap: 2px;
-    margin: 0 0 var(--e4);
-    padding-bottom: var(--e3);
-    border-bottom: 1px solid var(--line);
-    font-size: 12px;
-  }
-  .doc-de dt {
-    color: var(--muted);
-  }
-  .doc-de dd {
-    margin: 0;
-    overflow-wrap: anywhere;
-  }
-  .doc-extrait {
-    white-space: pre-line;
-    line-height: 21px;
-    color: var(--text);
-    max-width: 62ch;
-  }
-  .doc-piece {
-    align-items: center;
-    margin-top: var(--e3);
-    text-decoration: none;
-    color: var(--text);
-  }
-  .doc-piece:hover {
-    border-color: var(--line2);
   }
 </style>
