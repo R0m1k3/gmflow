@@ -31,6 +31,7 @@
   const ETATS: Record<EtapeTraitement['etat'], { texte: string; ton: 'ok' | 'alerte' | 'erreur' }> = {
     ok: { texte: 'Normal', ton: 'ok' },
     en_retard: { texte: 'En retard', ton: 'alerte' },
+    bloque: { texte: 'Bloqué', ton: 'erreur' },
     arrete: { texte: 'À l’arrêt', ton: 'erreur' }
   };
 
@@ -108,9 +109,14 @@
           </div>
           <div class="b">
             <span class="resume">{e.resume}.</span>
+            {#if e.blocage}
+              <span class="detail ko">Ne peut pas avancer : {e.blocage}.</span>
+            {/if}
             {#if e.plus_vieille && e.en_attente > 0}
               <span class="detail">
-                Le plus ancien attend depuis {quandCourt(e.plus_vieille.depuis)} : {e.plus_vieille.raison}.
+                Le plus ancien attend depuis {quandCourt(e.plus_vieille.depuis)}{e.plus_vieille.raison === e.blocage
+                  ? '.'
+                  : ` : ${e.plus_vieille.raison}.`}
               </span>
             {/if}
             {#if !e.file.vivante}

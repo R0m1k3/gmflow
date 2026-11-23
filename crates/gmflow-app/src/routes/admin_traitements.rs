@@ -40,10 +40,13 @@ pub struct Service {
 pub struct Etape {
     cle: &'static str,
     nom: &'static str,
-    /// `ok`, `en_retard` ou `arrete`.
+    /// `ok`, `en_retard`, `bloque` (elle ne peut pas avancer et du travail attend) ou
+    /// `arrete` (sa file ne bat plus).
     etat: &'static str,
     /// Une phrase qui résume l'étape.
     resume: String,
+    /// Pourquoi elle ne peut pas avancer (étape `bloque`).
+    blocage: Option<String>,
     en_attente: i64,
     plus_vieille: Option<PlusVieille>,
     #[serde(with = "time::serde::rfc3339::option")]
@@ -77,9 +80,11 @@ fn file_etat(b: &HashMap<String, OffsetDateTime>, nom: &'static str) -> FileEtat
     }
 }
 
-fn etat_de(file: &FileEtat, en_retard: bool) -> &'static str {
+fn etat_de(file: &FileEtat, blocage: &Option<String>, en_retard: bool) -> &'static str {
     if !file.vivante {
         "arrete"
+    } else if blocage.is_some() {
+        "bloque"
     } else if en_retard {
         "en_retard"
     } else {
@@ -124,7 +129,7 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<T
         .map(|i| i.message);
     let mut etapes = vec![
         releve(&etat, &b).await?,
-        lecture(&etat, &b).await?,
+        lecture(&etat, &b, &r, claude.clone()).await?,
         tri(&etat, &b, &r).await?,
         rapprochement(&etat, &b).await?,
         depot(&etat, &b).await?,
@@ -193,8 +198,9 @@ async fn releve(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Et
     Ok(Etape {
         cle: "releve",
         nom: "Relève des boîtes mail",
-        etat: etat_de(&file, en_retard > 0),
+        etat: etat_de(&file, &None, en_retard > 0),
         resume,
+        blocage: None,
         en_attente: en_retard,
         plus_vieille,
         dernier_passage: boites.iter().filter_map(|x| x.derniere_releve).max(),
@@ -203,7 +209,12 @@ async fn releve(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Et
     })
 }
 
-async fn lecture(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Etape> {
+async fn lecture(
+    etat: &Etat,
+    b: &HashMap<String, OffsetDateTime>,
+    r: &reglages::Reglages,
+    claude: Option<String>,
+) -> Resultat<Etape> {
     let pool = &etat.pool;
     let c = sqlx::query!(
         r#"select count(*) filter (where etat = 'a_lire') as "a_lire!",
@@ -230,6 +241,15 @@ async fn lecture(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<E
         None => None,
     };
     let file = file_etat(b, file::FILE_LECTURE);
+    // Du travail attend et Claude ne peut pas lire (jeton, refus, limite du jour) ou la
+    // lecture automatique est coupée : l'étape est bloquée, pas seulement en retard.
+    let blocage = if c.a_lire == 0 {
+        None
+    } else if !r.lecture_auto {
+        Some("La lecture automatique est coupée (Réglages > Claude)".to_string())
+    } else {
+        claude
+    };
     let en_retard = plus_vieille
         .as_ref()
         .is_some_and(|p| depuis_trop(Some(p.depuis)));
@@ -248,8 +268,9 @@ async fn lecture(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<E
     Ok(Etape {
         cle: "lecture",
         nom: "Lecture des pièces jointes",
-        etat: etat_de(&file, en_retard),
+        etat: etat_de(&file, &blocage, en_retard),
         resume,
+        blocage,
         en_attente: c.a_lire + c.en_cours,
         plus_vieille,
         dernier_passage: c.dernier,
@@ -289,6 +310,13 @@ async fn tri(
             .unwrap_or_else(|| "Dans la file de tri".into()),
     });
     let file = file_etat(b, file::FILE_TRI);
+    let blocage = if c.en_attente == 0 {
+        None
+    } else if !r.tri_auto {
+        Some("Le tri automatique est coupé (Réglages > Claude)".to_string())
+    } else {
+        indispo.clone()
+    };
     let en_retard = plus_vieille
         .as_ref()
         .is_some_and(|p| depuis_trop(Some(p.depuis)));
@@ -302,8 +330,9 @@ async fn tri(
     Ok(Etape {
         cle: "tri",
         nom: "Tri des mails",
-        etat: etat_de(&file, en_retard),
+        etat: etat_de(&file, &blocage, en_retard),
         resume,
+        blocage,
         en_attente: c.en_attente,
         plus_vieille,
         dernier_passage: c.dernier,
@@ -338,8 +367,9 @@ async fn rapprochement(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resu
     Ok(Etape {
         cle: "rapprochement",
         nom: "Rapprochement BL et factures",
-        etat: etat_de(&file, false),
+        etat: etat_de(&file, &None, false),
         resume,
+        blocage: None,
         en_attente: c.n,
         plus_vieille: c.plus_vieux.map(|depuis| PlusVieille {
             depuis,
@@ -361,6 +391,10 @@ async fn depot(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Eta
                       where (d.valide_le is not null and d.statut_depot in ('a_verifier', 'pret'))
                          or (d.valide_le is null and d.statut_depot = 'pret'
                              and coalesce(s.depot_auto, false))) as plus_vieux,
+                  count(*) filter (where s.adresse_depot is null
+                                     and ((d.valide_le is not null and d.statut_depot in ('a_verifier', 'pret'))
+                                          or (d.valide_le is null and d.statut_depot = 'pret'
+                                              and coalesce(s.depot_auto, false)))) as "sans_adresse!",
                   count(*) filter (where d.statut_depot = 'erreur') as "en_erreur!"
            from document d left join societe s on s.id = d.societe_id
            where d.etat = 'lu'"#
@@ -371,6 +405,24 @@ async fn depot(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Eta
         .fetch_one(pool)
         .await?;
     let file = file_etat(b, file::FILE_ENVOI);
+    let smtp = parametre::lire(pool, gmflow_core::expedition::CLE)
+        .await?
+        .is_some();
+    let blocage = if c.a_deposer == 0 {
+        None
+    } else if !smtp {
+        Some(
+            "L’adresse d’envoi de GMFlow n’est pas réglée (Réglages > Envoi vers Dext / Yooz)"
+                .to_string(),
+        )
+    } else if c.sans_adresse > 0 {
+        Some(format!(
+            "{} sans adresse de collecte (Réglages > Sociétés)",
+            pluriel(c.sans_adresse, "facture", "factures")
+        ))
+    } else {
+        None
+    };
     let en_retard = c.en_erreur > 0 || depuis_trop(c.plus_vieux);
     let mut resume = if c.a_deposer == 0 {
         "Rien à déposer".to_string()
@@ -386,8 +438,9 @@ async fn depot(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Eta
     Ok(Etape {
         cle: "depot",
         nom: "Dépôt vers Dext ou Yooz",
-        etat: etat_de(&file, en_retard),
+        etat: etat_de(&file, &blocage, en_retard),
         resume,
+        blocage,
         en_attente: c.a_deposer,
         plus_vieille: c.plus_vieux.map(|depuis| PlusVieille {
             depuis,

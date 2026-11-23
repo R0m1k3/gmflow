@@ -911,8 +911,11 @@ export type CleEtapeTraitement = 'releve' | 'lecture' | 'tri' | 'rapprochement' 
 export interface EtapeTraitement {
   cle: CleEtapeTraitement;
   nom: string;
-  etat: 'ok' | 'en_retard' | 'arrete';
+  /** `bloque` : elle ne peut pas avancer et du travail attend ; `arrete` : sa file ne bat plus. */
+  etat: 'ok' | 'en_retard' | 'bloque' | 'arrete';
   resume: string;
+  /** Pourquoi elle ne peut pas avancer (étape bloquée). */
+  blocage: string | null;
   en_attente: number;
   plus_vieille: { depuis: string; raison: string } | null;
   dernier_passage: string | null;

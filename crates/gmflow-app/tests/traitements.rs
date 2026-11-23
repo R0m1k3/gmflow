@@ -120,7 +120,15 @@ async fn traitements_relances_et_tout_relire() {
         .await;
     assert_eq!(r.json["service"]["en_marche"], true, "{}", r.json);
     let lecture = etape(&r.json, "lecture");
-    assert_eq!(lecture["etat"], "en_retard", "{lecture}");
+    // Claude pas connecté et un document attend : bloquée, pas « normale » ni « en retard ».
+    assert_eq!(lecture["etat"], "bloque", "{lecture}");
+    assert!(
+        lecture["blocage"]
+            .as_str()
+            .unwrap()
+            .contains("pas connecté"),
+        "{lecture}"
+    );
     assert_eq!(lecture["en_attente"], 1);
     assert!(
         lecture["plus_vieille"]["raison"]
@@ -133,11 +141,63 @@ async fn traitements_relances_et_tout_relire() {
     let depot = etape(&r.json, "depot");
     assert_eq!(depot["en_attente"], 1, "{depot}");
     assert_eq!(depot["file"]["vivante"], true);
+    // Adresse d'envoi pas réglée et une facture attend son dépôt : bloqué.
+    assert_eq!(depot["etat"], "bloque", "{depot}");
+    assert!(
+        depot["blocage"]
+            .as_str()
+            .unwrap()
+            .contains("adresse d’envoi")
+    );
+    // Rien à trier : le tri n'est pas bloqué, même sans Claude.
+    assert_eq!(etape(&r.json, "tri")["etat"], "ok");
+    assert_eq!(etape(&r.json, "tri")["blocage"], Value::Null);
     assert_eq!(
         etape(&r.json, "releve")["etat"],
         "en_retard",
         "boîte jamais relevée"
     );
+    // Un mail attend son tri sans Claude : bloqué. Adresse d'envoi réglée mais société sans
+    // adresse de collecte : toujours bloqué, pour une autre raison.
+    executer(
+        &app,
+        &format!(
+            "update mail set tri_etat = 'a_trier' where id = {m1};
+             insert into parametre (cle, valeur) values ('smtp_expedition', '{{\"serveur\": \"smtp.test\"}}')"
+        ),
+    )
+    .await;
+    let r = app
+        .requete("GET", "/api/admin/traitements", None, admin)
+        .await;
+    let tri = etape(&r.json, "tri");
+    assert_eq!(tri["etat"], "bloque", "{tri}");
+    assert!(tri["blocage"].as_str().unwrap().contains("pas connecté"));
+    let depot = etape(&r.json, "depot");
+    assert_eq!(depot["etat"], "bloque", "{depot}");
+    assert!(
+        depot["blocage"]
+            .as_str()
+            .unwrap()
+            .contains("adresse de collecte")
+    );
+    // Adresse de collecte indiquée : le dépôt peut partir.
+    executer(
+        &app,
+        &format!("update societe set adresse_depot = 'collecte@dext.test' where id = {sa}"),
+    )
+    .await;
+    let r = app
+        .requete("GET", "/api/admin/traitements", None, admin)
+        .await;
+    let depot = etape(&r.json, "depot");
+    assert_eq!(depot["etat"], "ok", "{depot}");
+    assert_eq!(depot["blocage"], Value::Null);
+    executer(
+        &app,
+        &format!("update mail set tri_etat = null where id = {m1}"),
+    )
+    .await;
 
     // Relance : une demande déposée dans la base, visible jusqu'à ce que le worker la prenne.
     let r = app
