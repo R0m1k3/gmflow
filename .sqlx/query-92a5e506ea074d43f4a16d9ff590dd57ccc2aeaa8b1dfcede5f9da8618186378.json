@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update fournisseur c set\n            siret = coalesce(c.siret, s.siret), tva = coalesce(c.tva, s.tva),\n            societe_defaut_id = coalesce(c.societe_defaut_id, s.societe_defaut_id),\n            format_bl = coalesce(c.format_bl, s.format_bl),\n            code_gestion = coalesce(c.code_gestion, s.code_gestion),\n            domaines = array(select distinct unnest(c.domaines || s.domaines) order by 1)\n         from fournisseur s where c.id = $2 and s.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92a5e506ea074d43f4a16d9ff590dd57ccc2aeaa8b1dfcede5f9da8618186378"
+}

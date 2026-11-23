@@ -320,6 +320,7 @@ export type StatutFournisseur = 'a_confirmer' | 'valide';
 export interface LigneFournisseur {
   id: number;
   nom: string;
+  code_gestion: string | null;
   siret: string | null;
   tva: string | null;
   domaines: string[];
@@ -338,6 +339,8 @@ export interface LigneFournisseur {
 export interface Fournisseur {
   id: number;
   nom: string;
+  /** Code du fournisseur dans le logiciel de gestion du magasin. */
+  code_gestion: string | null;
   siret: string | null;
   tva: string | null;
   domaines: string[];
@@ -787,7 +790,7 @@ export interface EntreeBoite {
 
 /** Corps de `PATCH /api/admin/fournisseurs/{id}` : seuls les champs présents changent. */
 export type ChangementsFournisseur = Partial<
-  Pick<Fournisseur, 'nom' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'>
+  Pick<Fournisseur, 'nom' | 'code_gestion' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'>
 >;
 
 // ---------- Onglets Factures, BL, À répondre (listes existantes) ----------

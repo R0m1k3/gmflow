@@ -1029,6 +1029,32 @@ async fn fournisseurs_par_societe_et_fil() {
         )
         .await;
     assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    // Code du logiciel de gestion : gardé, cherchable, jamais sur deux fiches.
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "code_gestion": " MAR01 " })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["code_gestion"], "MAR01");
+    let r = app
+        .requete("GET", "/api/fournisseurs?q=mar01", None, admin)
+        .await;
+    assert_eq!(r.json["total"], 1);
+    assert_eq!(r.json["elements"][0]["code_gestion"], "MAR01");
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.durand),
+            Some(json!({ "code_gestion": "mar01" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    assert!(r.json.to_string().contains("Martin Frais"), "{}", r.json);
     // Société par défaut = la sienne : le responsable voit la fiche (sans les documents de B).
     let r = app.requete("GET", "/api/fournisseurs", None, resp).await;
     assert_eq!(r.json["total"], 2);

@@ -360,6 +360,7 @@ pub async fn fusionner(tx: &mut PgConnection, source: i64, cible: i64) -> sqlx::
             siret = coalesce(c.siret, s.siret), tva = coalesce(c.tva, s.tva),
             societe_defaut_id = coalesce(c.societe_defaut_id, s.societe_defaut_id),
             format_bl = coalesce(c.format_bl, s.format_bl),
+            code_gestion = coalesce(c.code_gestion, s.code_gestion),
             domaines = array(select distinct unnest(c.domaines || s.domaines) order by 1)
          from fournisseur s where c.id = $2 and s.id = $1",
         source,

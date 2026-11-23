@@ -4,6 +4,7 @@
   /** Fiche fournisseur en saisie (chaînes, comme les champs). */
   export interface EditionFournisseur {
     nom: string;
+    code_gestion: string;
     siret: string;
     tva: string;
     domaines: string;
@@ -17,6 +18,7 @@
   export function versEdition(f: Fournisseur): EditionFournisseur {
     return {
       nom: f.nom,
+      code_gestion: f.code_gestion ?? '',
       siret: f.siret ?? '',
       tva: f.tva ?? '',
       domaines: f.domaines.join(', '),
@@ -31,6 +33,7 @@
   export function corpsFournisseur(x: EditionFournisseur, statut: StatutFournisseur = x.statut as StatutFournisseur) {
     return {
       nom: x.nom.trim(),
+      code_gestion: x.code_gestion,
       siret: x.siret,
       tva: x.tva,
       domaines: x.domaines
@@ -147,6 +150,7 @@
   let resumeFiche = $derived.by(() => {
     if (!f) return '';
     const m: string[] = [];
+    if (f.code_gestion) m.push(`Code ${f.code_gestion}`);
     if (f.siret) m.push(`SIRET ${f.siret}`);
     else if (f.tva) m.push(`TVA ${f.tva}`);
     if (f.domaines.length) m.push(f.domaines.length > 1 ? `${f.domaines[0]} et ${f.domaines.length - 1} autre${f.domaines.length > 2 ? 's' : ''}` : f.domaines[0]);
@@ -335,6 +339,17 @@
     <Repli icone="batiment" titre="Fiche du fournisseur" resume={resumeFiche} bind:ouvert={ficheOuverte}>
       <div class="lignes-champs">
         <Champ disposition="ligne" libelle="Nom" bind:valeur={ed.nom} modifiable={admin} onvalider={() => enregistrer()} />
+        <Champ
+          disposition="ligne"
+          libelle="Code fournisseur"
+          bind:valeur={ed.code_gestion}
+          mono
+          modifiable={admin}
+          onvalider={() => enregistrer()}
+          aide={admin ? 'Le code de ce fournisseur dans le logiciel de gestion du magasin ; repris dans les exports' : undefined}
+        >
+          {#snippet affichage()}{@render valeurOuTiret(ed?.code_gestion ?? '', true)}{/snippet}
+        </Champ>
         <Champ disposition="ligne" libelle="SIRET" bind:valeur={ed.siret} mono modifiable={admin} onvalider={() => enregistrer()}>
           {#snippet affichage()}{@render valeurOuTiret(ed?.siret ?? '', true)}{/snippet}
         </Champ>

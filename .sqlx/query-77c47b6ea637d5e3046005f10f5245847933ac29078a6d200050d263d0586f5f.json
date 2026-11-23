@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, nom, siret, tva, domaines, statut, societe_defaut_id,\n                  (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                  format_bl, notes, fusionne_dans, cree_le\n           from fournisseur where id = $1",
+  "query": "update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,\n              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,\n              code_gestion = $11\n           where id = $1 and fusionne_dans is null\n           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                     (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                     format_bl, notes, fusionne_dans, cree_le",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "code_gestion",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "code_gestion"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "siret",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "tva",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "domaines",
         "type_info": "TextArray",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "statut",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "societe_defaut_id",
         "type_info": "Int8",
         "origin": {
@@ -81,13 +92,13 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "societe_defaut?",
         "type_info": "Text",
         "origin": "Expression"
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "format_bl",
         "type_info": "Text",
         "origin": {
@@ -98,7 +109,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "notes",
         "type_info": "Text",
         "origin": {
@@ -109,7 +120,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "fusionne_dans",
         "type_info": "Int8",
         "origin": {
@@ -120,7 +131,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "cree_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -133,12 +144,23 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
+      true,
       true,
       true,
       false,
@@ -151,5 +173,5 @@
       false
     ]
   },
-  "hash": "0d9ed250d2c6cf9878436cc9817e1bdafcb63689c87ff79080d3c3cf92eac8a7"
+  "hash": "77c47b6ea637d5e3046005f10f5245847933ac29078a6d200050d263d0586f5f"
 }
