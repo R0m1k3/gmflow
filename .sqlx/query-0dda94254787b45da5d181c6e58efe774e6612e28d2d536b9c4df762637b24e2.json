@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select exists (\n             select 1 from fournisseur f\n             where f.id = $1\n               and ($2::bigint is null or f.societe_defaut_id = $2\n                    or exists (select 1 from document d\n                               where d.fournisseur_id = f.id\n                                 and (d.societe_id is null or d.societe_id = $2)\n                                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                             where mb.mail_id = d.mail_id and b.societe_id = $2)))) as \"ok!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0dda94254787b45da5d181c6e58efe774e6612e28d2d536b9c4df762637b24e2"
+}

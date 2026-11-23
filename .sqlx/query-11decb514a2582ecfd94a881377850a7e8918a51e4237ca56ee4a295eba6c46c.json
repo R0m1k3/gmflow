@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select s.id as societe_id, s.raison_sociale,\n               (select count(distinct mb.mail_id) from mail_boite_vue mb\n                  join boite_mail b on b.id = mb.boite_id\n                  join mail m on m.id = mb.mail_id\n                where b.societe_id = s.id\n                  and coalesce(m.date_mail, m.recu_le) >= (date_trunc('day', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris')\n               ) as \"n!\"\n           from societe s\n           where not s.archivee and ($1::bigint is null or s.id = $1)\n           order by s.raison_sociale",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "raison_sociale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "11decb514a2582ecfd94a881377850a7e8918a51e4237ca56ee4a295eba6c46c"
+}

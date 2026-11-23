@@ -1,0 +1,39 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where d.type in ('facture', 'avoir') and d.statut_depot is distinct from 'doublon'\n                                     and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date)\n                                         >= date_trunc('month', now() at time zone 'Europe/Paris')::date) as \"factures_mois!\",\n                  count(*) filter (where d.type in ('facture', 'avoir', 'bl')\n                                     and ((d.verifie_le is null\n                                           and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))\n                                          or (d.verifie_le is not null and d.valide_le is null\n                                              and d.statut_depot in ('a_verifier', 'pret')))) as \"a_valider!\",\n                  count(*) filter (where d.type = 'bl' and not d.rapprochement_ignore\n                                     and not exists (select 1 from rapprochement r\n                                                     where r.bl_id = d.id and not r.rejete)) as \"bl_sans_facture!\"\n           from document d join mail m on m.id = d.mail_id\n           where d.fournisseur_id = $3 and d.etat = 'lu'\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "factures_mois!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "a_valider!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "bl_sans_facture!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "def056ecb53810335a0a7fc22c17cb44b88511771debfb7b116be991bada5178"
+}

@@ -87,12 +87,12 @@ pub async fn bilan(
                where d.statut_depot is not null
                  and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $1::date
                  and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) < $1::date + interval '1 month'
-                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))
                  and ($2::bigint is null or d.societe_id is null or d.societe_id = $2)
                  and ($4::bigint is null or d.societe_id = $4
                       or (d.societe_id is null
-                          and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                       where mb.mail_id = d.mail_id and b.societe_id = $4)))
                group by 1, s.raison_sociale
                order by s.raison_sociale nulls last"#,
@@ -116,12 +116,12 @@ pub async fn bilan(
                  and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)
                  and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $1::date
                  and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) < $1::date + interval '1 month'
-                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))
                  and ($2::bigint is null or d.societe_id is null or d.societe_id = $2)
                  and ($3::bigint is null or d.societe_id = $3
                       or (d.societe_id is null
-                          and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                       where mb.mail_id = d.mail_id and b.societe_id = $3)))
                group by 1, s.raison_sociale, d.fournisseur_id, fo.nom
                order by s.raison_sociale nulls last, 5 desc, 4"#,
@@ -135,12 +135,12 @@ pub async fn bilan(
         let bl_sans_lignes = sqlx::query_scalar!(
             r#"select count(*) as "n!" from document d
                where d.type = 'bl' and d.etat = 'lu' and not d.lignes_lues
-                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
                  and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
                  and ($2::bigint is null or d.societe_id = $2
                       or (d.societe_id is null
-                          and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                       where mb.mail_id = d.mail_id and b.societe_id = $2)))"#,
             perimetre,
             f.societe

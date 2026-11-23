@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from mail m\n           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id\n                           and ($1::bigint is null or b.societe_id = $1)\n                           and ($2::bigint is null or b.societe_id = $2)\n                           and ($3::bigint is null or b.id = $3))\n             and ($4::date is null or coalesce(m.date_mail, m.recu_le) >= ($4::date::timestamp at time zone 'Europe/Paris'))\n             and ($5::date is null or coalesce(m.date_mail, m.recu_le) < (($5::date + 1)::timestamp at time zone 'Europe/Paris'))\n             and ($6::text is null or m.expediteur ilike $6 or m.objet ilike $6)\n             and ($7::text is null\n                  or ($7 = 'hors_publicite' and m.categorie is distinct from 'publicite')\n                  or ($7 = 'non_trie' and m.categorie is null)\n                  or m.categorie = $7)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Date",
+        "Date",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7faef213b4445723dbed126d4f1937d6a2428f54935b001492e432e46b7074e2"
+}

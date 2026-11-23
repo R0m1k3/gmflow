@@ -77,6 +77,10 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/boites", get(mails::boites))
         .route("/mails", get(mails::lister))
         .route("/mails/{id}", get(mails::fiche))
+        .route(
+            "/mails/{id}/hors-societe",
+            post(mails::masquer).delete(mails::demasquer),
+        )
         .route("/mails/{id}/categorie", put(reponses::changer_categorie))
         .route("/mails/{id}/statut-reponse", post(reponses::changer_statut))
         .route("/mails/{id}/brouillons", post(reponses::demander_brouillon))
@@ -101,6 +105,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
             delete(reponses::supprimer_marque),
         )
         .route("/pieces/{id}", get(fichiers::piece))
+        .route("/pieces/{id}/tableau", get(fichiers::tableau))
         .route("/tableau-de-bord", get(tableau::tableau))
         .route("/documents", get(documents::lister))
         .route("/documents/bilan", get(documents::bilan))

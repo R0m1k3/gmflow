@@ -404,7 +404,12 @@ pub(crate) async fn noter_utilisation(pool: &PgPool) {
     .await;
 }
 
-pub async fn lire(ctx: &Contexte, document_id: i64, forcer: bool) -> anyhow::Result<()> {
+pub async fn lire(
+    ctx: &Contexte,
+    document_id: i64,
+    forcer: bool,
+    approfondie: bool,
+) -> anyhow::Result<()> {
     let pool = &ctx.pool;
     let Some(doc) = sqlx::query_as!(
         Entree,
@@ -420,7 +425,7 @@ pub async fn lire(ctx: &Contexte, document_id: i64, forcer: bool) -> anyhow::Res
     else {
         return Ok(());
     };
-    let resultat = lire_pris(ctx, document_id, forcer, doc).await;
+    let resultat = lire_pris(ctx, document_id, forcer, approfondie, doc).await;
     if resultat.is_ok() {
         apres_lecture(ctx, document_id).await;
     }
@@ -499,7 +504,13 @@ struct Entree {
     corps: String,
 }
 
-async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::Result<()> {
+async fn lire_pris(
+    ctx: &Contexte,
+    id: i64,
+    forcer: bool,
+    approfondie: bool,
+    e: Entree,
+) -> anyhow::Result<()> {
     let pool = &ctx.pool;
     if !forcer && reprendre_identique(pool, id, &e.sha256).await? {
         return Ok(());
@@ -543,6 +554,8 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
                 dossier: None,
                 texte: Some(&texte),
                 pdf: (voie == Voie::PdfTexte).then_some(contenu.as_slice()),
+                pages: None,
+                approfondie,
             };
             match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, src).await? {
                 Lecture::Faite(ex, reglage, an) => {
@@ -582,6 +595,8 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
                     dossier: Some(&dossier.0),
                     texte: None,
                     pdf: None,
+                    pages: Some(pages),
+                    approfondie,
                 },
             )
             .await?
@@ -631,6 +646,10 @@ struct Source<'a> {
     texte: Option<&'a str>,
     /// PDF d'origine d'un PDF texte, joint au nouvel essai.
     pdf: Option<&'a [u8]>,
+    /// Pages du fichier à lire (scans) ; celles du PDF joint sont comptées au nouvel essai.
+    pages: Option<usize>,
+    /// Relecture en détail demandée par un humain : pas de premier essai au réglage de la tâche.
+    approfondie: bool,
 }
 
 /// Lecture par Claude en deux temps au plus : le réglage de la tâche, puis le nouvel essai
@@ -657,40 +676,44 @@ async fn lire_par_claude(
     };
     let transcription = src.dossier.is_some();
 
-    // Premier essai.
+    // Premier essai (sauf relecture en détail : directement le nouvel essai).
     let reglage = r.pour(tache).clone();
-    let premiere = match appel_lecture(
-        ctx,
-        tache,
-        &reglage,
-        prompt,
-        src.dossier,
-        transcription,
-        &acces,
-    )
-    .await
-    {
-        Ok(Ok(ex)) => {
-            noter_utilisation(pool).await;
-            let an = extraction::anomalies(&ex, src.texte);
-            if an.is_empty() {
-                return Ok(Lecture::Faite(ex, reglage, an));
+    let premiere = if src.approfondie {
+        None
+    } else {
+        match appel_lecture(
+            ctx,
+            tache,
+            &reglage,
+            prompt,
+            src.dossier,
+            transcription,
+            &acces,
+        )
+        .await
+        {
+            Ok(Ok(ex)) => {
+                noter_utilisation(pool).await;
+                let an = extraction::anomalies(&ex, src.texte);
+                if an.is_empty() {
+                    return Ok(Lecture::Faite(ex, reglage, an));
+                }
+                tracing::info!(document = id, anomalies = ?an, "lecture incomplète, nouvel essai");
+                Some((ex, reglage, an))
             }
-            tracing::info!(document = id, anomalies = ?an, "lecture incomplète, nouvel essai");
-            Some((ex, reglage, an))
-        }
-        Ok(Err(e)) => {
-            tracing::warn!(document = id, erreur = %e, "réponse de lecture non conforme");
-            None
-        }
-        Err(ErreurClaude::JsonInvalide) => {
-            tracing::warn!(document = id, "réponse de lecture : JSON invalide");
-            None
-        }
-        Err(e) => {
-            // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
-            remettre(pool, id, voie, &format!("Claude : {e}")).await?;
-            return Ok(Lecture::Reportee);
+            Ok(Err(e)) => {
+                tracing::warn!(document = id, erreur = %e, "réponse de lecture non conforme");
+                None
+            }
+            Err(ErreurClaude::JsonInvalide) => {
+                tracing::warn!(document = id, "réponse de lecture : JSON invalide");
+                None
+            }
+            Err(e) => {
+                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
+                remettre(pool, id, voie, &format!("Claude : {e}")).await?;
+                return Ok(Lecture::Reportee);
+            }
         }
     };
 
@@ -714,12 +737,27 @@ async fn lire_par_claude(
         }
         (None, None) => (None, None),
     };
+    let pages = match src.pdf {
+        Some(pdf) => Some(lect::pdf::pages(pdf)),
+        None => src.pages,
+    };
     let mut prompt2 = prompt.to_string();
     match &premiere {
-        Some((_, _, an)) => prompt2.push_str(&extraction::consigne_nouvel_essai(an, fichier)),
+        Some((_, _, an)) => {
+            prompt2.push_str(&extraction::consigne_nouvel_essai(an, fichier, pages))
+        }
+        None if src.approfondie => prompt2.push_str(&extraction::consigne_nouvel_essai(
+            &[
+                "un humain a demandé cette relecture : la lecture précédente était incomplète \
+               ou fausse (montants, numéro, date ou lignes)"
+                    .to_string(),
+            ],
+            fichier,
+            pages,
+        )),
         None => {
             if let Some(f) = fichier {
-                prompt2.push_str(&extraction::consigne_nouvel_essai(&[], Some(f)));
+                prompt2.push_str(&extraction::consigne_nouvel_essai(&[], Some(f), pages));
             }
         }
     }

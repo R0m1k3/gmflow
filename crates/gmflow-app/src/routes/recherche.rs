@@ -303,12 +303,12 @@ pub async fn chercher(
                left join fournisseur fo on fo.id = d.fournisseur_id
                left join societe s on s.id = d.societe_id
                where d.etat <> 'ignore'
-                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
                  and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
                  and ($2::bigint is null or d.societe_id = $2
                       or (d.societe_id is null
-                          and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                       where mb.mail_id = d.mail_id and b.societe_id = $2)))
                  and ($3::text is null or d.type = $3)
                  and ($4::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $4)
@@ -391,7 +391,7 @@ pub async fn chercher(
                       (select count(*) from piece_jointe p where p.mail_id = m.id) as "nb_pieces!",
                       count(*) over () as "total!"
                from mail m
-               where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+               where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = m.id
                                and ($1::bigint is null or b.societe_id = $1)
                                and ($2::bigint is null or b.societe_id = $2))

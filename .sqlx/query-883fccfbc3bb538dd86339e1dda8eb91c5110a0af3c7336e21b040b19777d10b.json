@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from document d\n               where d.type = 'bl' and d.etat = 'lu' and not d.lignes_lues\n                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                             where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n                 and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n                 and ($2::bigint is null or d.societe_id = $2\n                      or (d.societe_id is null\n                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                      where mb.mail_id = d.mail_id and b.societe_id = $2)))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "883fccfbc3bb538dd86339e1dda8eb91c5110a0af3c7336e21b040b19777d10b"
+}

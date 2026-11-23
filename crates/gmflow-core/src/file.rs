@@ -52,7 +52,14 @@ pub enum TacheClaude {
 /// `forcer` : relecture demandée par un administrateur (pas de reprise d'un document identique).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TacheLecture {
-    LireDocument { document_id: i64, forcer: bool },
+    LireDocument {
+        document_id: i64,
+        forcer: bool,
+        /// Relecture « en détail » demandée par un humain : directement le réglage du nouvel
+        /// essai (modèle plus fort), fichier d'origine joint.
+        #[serde(default)]
+        approfondie: bool,
+    },
 }
 
 /// Tâches d'envoi de mails depuis l'adresse d'expédition. Jamais rejouées par apalis : un
@@ -123,9 +130,24 @@ pub fn stockage_lecture(pool: &PgPool) -> PostgresStorage<TacheLecture> {
 }
 
 pub async fn pousser_lecture(pool: &PgPool, document_id: i64, forcer: bool) -> anyhow::Result<()> {
+    pousser(pool, document_id, forcer, false).await
+}
+
+/// Relecture en détail (modèle plus fort, fichier d'origine joint), toujours forcée.
+pub async fn pousser_relecture_approfondie(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
+    pousser(pool, document_id, true, true).await
+}
+
+async fn pousser(
+    pool: &PgPool,
+    document_id: i64,
+    forcer: bool,
+    approfondie: bool,
+) -> anyhow::Result<()> {
     let tache = TaskBuilder::new(TacheLecture::LireDocument {
         document_id,
         forcer,
+        approfondie,
     })
     .max_attempts(1)
     .build();

@@ -157,12 +157,12 @@ async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<C
                                      or (d.verifie_le is not null and d.valide_le is null
                                          and d.statut_depot in ('a_verifier', 'pret')))) as "a_valider!"
            from document d
-           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
              and ($2::bigint is null or d.societe_id = $2
                   or (d.societe_id is null
-                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))"#,
         s,
         societe
@@ -172,7 +172,7 @@ async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<C
     let a_repondre = sqlx::query_scalar!(
         r#"select count(*) as "n!" from mail m
            where m.statut_reponse = 'a_repondre'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
                            and ($1::bigint is null or b.societe_id = $1)
                            and ($2::bigint is null or b.societe_id = $2))"#,
@@ -251,12 +251,12 @@ pub async fn file(
                                                     and d.valide_le > now() - interval '30 minutes', false))
                   or (d.statut_depot = 'doublon' and d.verifie_le is null)
                   or d.etat = 'erreur')
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
              and ($2::bigint is null or d.societe_id = $2
                   or (d.societe_id is null
-                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))
            order by case when d.statut_depot = 'erreur' then 0
                          when d.statut_depot = 'doublon' then 1 else 2 end,
@@ -317,12 +317,12 @@ pub async fn file(
                    and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
                   or (d.verifie_le is not null and d.valide_le is null
                       and d.statut_depot in ('a_verifier', 'pret')))
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
              and ($2::bigint is null or d.societe_id = $2
                   or (d.societe_id is null
-                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))
            order by (jsonb_array_length(d.controles) > 0
                      or (d.type = 'bl' and d.fournisseur_id is null)) desc,
@@ -337,7 +337,7 @@ pub async fn file(
     let a_repondre = sqlx::query_as!(
         ARepondre,
         r#"select m.id, m.expediteur, m.objet, m.date_mail, m.resume, m.priorite,
-               array(select distinct s.raison_sociale from mail_boite mb
+               array(select distinct s.raison_sociale from mail_boite_vue mb
                      join boite_mail b on b.id = mb.boite_id join societe s on s.id = b.societe_id
                      where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)
                      order by s.raison_sociale) as "societes!",
@@ -350,7 +350,7 @@ pub async fn file(
                 limit 1) as brouillon
            from mail m
            where m.statut_reponse = 'a_repondre'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
                            and ($1::bigint is null or b.societe_id = $1)
                            and ($2::bigint is null or b.societe_id = $2))
@@ -413,12 +413,12 @@ pub async fn suivant(
                    and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
                   or (d.verifie_le is not null and d.valide_le is null
                       and d.statut_depot in ('a_verifier', 'pret')))
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
              and ($2::bigint is null or d.societe_id = $2
                   or (d.societe_id is null
-                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))
            order by ($4::bool is not null
                      and (not (jsonb_array_length(d.controles) > 0

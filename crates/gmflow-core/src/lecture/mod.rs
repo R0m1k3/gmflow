@@ -120,6 +120,16 @@ fn texte_utile(t: &str) -> usize {
 /// Décide comment lire une pièce jointe. Fonction bloquante (analyse des PDF) : à lancer dans
 /// `spawn_blocking`. `_liste_diffusion` (en-tête `List-Unsubscribe`) ne sert plus depuis que les
 /// images ne sont plus lues ; gardé pour les appelants.
+/// Aperçu d'un tableur (xlsx, xls, ods, csv) en feuilles de cellules ; rien pour les autres
+/// fichiers ou un classeur illisible.
+pub fn apercu_tableur(nom: &str, mime: &str, contenu: &[u8]) -> Option<Vec<tableur::Feuille>> {
+    match genre(nom, &mime.to_ascii_lowercase(), contenu) {
+        Genre::Classeur => tableur::apercu_classeur(contenu),
+        Genre::Csv => Some(vec![tableur::apercu_csv(contenu)]),
+        _ => None,
+    }
+}
+
 pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) -> Aiguillage {
     if contenu.len() > FICHIER_MAX {
         return Aiguillage::Ignore(format!(

@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select coalesce(d.societe_id, $4) as societe_id, s.raison_sociale as \"societe?\",\n                      d.fournisseur_id, coalesce(fo.nom, min(d.fournisseur_nom)) as fournisseur,\n                      count(*) as \"bl!\"\n               from document d\n               join mail m on m.id = d.mail_id\n               left join societe s on s.id = coalesce(d.societe_id, $4)\n               left join fournisseur fo on fo.id = d.fournisseur_id\n               where d.etat = 'lu' and d.type = 'bl' and not d.rapprochement_ignore\n                 and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)\n                 and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $1::date\n                 and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) < $1::date + interval '1 month'\n                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                             where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))\n                 and ($2::bigint is null or d.societe_id is null or d.societe_id = $2)\n                 and ($3::bigint is null or d.societe_id = $3\n                      or (d.societe_id is null\n                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                      where mb.mail_id = d.mail_id and b.societe_id = $3)))\n               group by 1, s.raison_sociale, d.fournisseur_id, fo.nom\n               order by s.raison_sociale nulls last, 5 desc, 4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "fournisseur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "bl!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "e1c8326e339659823ed3d7bc718753359a9032dfa06ae115cd9e8e5e4c7923ba"
+}

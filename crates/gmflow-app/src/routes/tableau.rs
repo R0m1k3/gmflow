@@ -10,7 +10,7 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
     let filtre = acces.societe_filtre();
     let du_jour = sqlx::query!(
         r#"select s.id as societe_id, s.raison_sociale,
-               (select count(distinct mb.mail_id) from mail_boite mb
+               (select count(distinct mb.mail_id) from mail_boite_vue mb
                   join boite_mail b on b.id = mb.boite_id
                   join mail m on m.id = mb.mail_id
                 where b.societe_id = s.id
@@ -39,7 +39,7 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
                   count(*) filter (where etat = 'lu' and verifie_le is null) as "a_verifier!",
                   count(*) filter (where etat = 'lu' and lu_le >= (date_trunc('day', now() at time zone 'Europe/Paris') at time zone 'Europe/Paris')) as "lus_aujourdhui!"
            from document d
-           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))"#,
         filtre
     )
@@ -55,7 +55,7 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
                       and ($1::bigint is null or e.societe_id = $1)) as "deposes_mois!"
            from document d
            where d.statut_depot is not null
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))"#,
         filtre
     )

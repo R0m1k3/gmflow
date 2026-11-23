@@ -1,7 +1,16 @@
 <script lang="ts">
-  // Aperçu d'une pièce jointe : PDF dans une iframe, image en <img>,
-  // sinon une phrase et le lien de téléchargement. Source : /api/pieces/{id}?inline=1.
+  // Aperçu d'une pièce jointe : PDF dans une iframe, image en <img>, tableur (xlsx, xls, ods,
+  // csv) en tableau lu par le serveur (/api/pieces/{id}/tableau), sinon une phrase et le lien de
+  // téléchargement. Source : /api/pieces/{id}?inline=1.
+  import { api, message } from '#lib/api.ts';
+  import Chargement from './Chargement.svelte';
   import Icone from './Icone.svelte';
+
+  interface Feuille {
+    nom: string;
+    lignes: string[][];
+    tronque: boolean;
+  }
 
   let {
     id,
@@ -14,14 +23,32 @@
   let telecharger = $derived(`/api/pieces/${id}`);
   let genre = $derived.by(() => {
     const t = (typeMime ?? '').toLowerCase();
-    if (t === 'application/pdf') return 'pdf';
+    const ext = (nom ?? '').toLowerCase().split('.').pop() ?? '';
+    if (t === 'application/pdf' || t === 'application/x-pdf' || ext === 'pdf') return 'pdf';
     if (/^image\/(png|jpe?g|gif|webp)$/.test(t)) return 'image';
+    if (['xlsx', 'xlsm', 'xls', 'ods', 'csv'].includes(ext) || /spreadsheet|excel|csv/.test(t)) return 'tableur';
     return 'autre';
   });
   let echec = $state(false);
+  let feuilles = $state<Feuille[] | null>(null);
+  let feuille = $state(0);
+  let erreurTableur = $state('');
   $effect(() => {
     void id;
     echec = false;
+    feuilles = null;
+    feuille = 0;
+    erreurTableur = '';
+    if (genre !== 'tableur') return;
+    const moi = id;
+    api
+      .get<Feuille[]>(`/api/pieces/${id}/tableau`)
+      .then((v) => {
+        if (moi === id) feuilles = v;
+      })
+      .catch((e) => {
+        if (moi === id) erreurTableur = message(e);
+      });
   });
 </script>
 
@@ -40,6 +67,36 @@
     <div class="apercu-cadre sans-marge">
       <iframe {src} title="Aperçu de {nom ?? 'la pièce'}" onerror={() => (echec = true)}></iframe>
     </div>
+  {:else if genre === 'tableur' && !erreurTableur}
+    {#if !feuilles}
+      <Chargement />
+    {:else}
+      {#if feuilles.length > 1}
+        <div class="feuilles" role="tablist" aria-label="Feuilles">
+          {#each feuilles as f, i (i)}
+            <button type="button" role="tab" aria-selected={i === feuille} onclick={() => (feuille = i)}>{f.nom}</button>
+          {/each}
+        </div>
+      {/if}
+      {@const f = feuilles[feuille]}
+      {#if f && f.lignes.length}
+        <div class="tableur">
+          <table>
+            <tbody>
+              {#each f.lignes as l, i (i)}
+                <tr class:entete={i === 0}>
+                  <th class="num">{i + 1}</th>
+                  {#each l as c, j (j)}<td class:num={/^-?[\d\s.,]+$/.test(c)}>{c}</td>{/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          {#if f.tronque}<p class="petit muted marge">Aperçu limité aux 500 premières lignes et 40 colonnes : téléchargez le fichier pour tout voir.</p>{/if}
+        </div>
+      {:else}
+        <p class="muted marge">Feuille vide.</p>
+      {/if}
+    {/if}
   {:else if genre === 'image' && !echec}
     <div class="apercu-cadre">
       <img {src} alt="Aperçu de {nom ?? 'la pièce'}" onerror={() => (echec = true)} />
@@ -47,9 +104,74 @@
   {:else}
     <div class="vide">
       <Icone nom="fichier" />
-      <div class="vide-titre">{echec ? 'Aperçu indisponible' : 'Pas d’aperçu pour ce fichier'}</div>
+      <div class="vide-titre">{echec || erreurTableur ? 'Aperçu indisponible' : 'Pas d’aperçu pour ce fichier'}</div>
       <p class="vide-texte">{nom ?? 'La pièce'} s’ouvre dans le logiciel de l’ordinateur.</p>
       <div class="vide-actions"><a class="btn sm" href={telecharger} download={nom ?? true}><Icone nom="telecharger" />Télécharger</a></div>
     </div>
   {/if}
 </div>
+
+<style>
+  .feuilles {
+    flex: none;
+    display: flex;
+    gap: var(--e1);
+    padding: var(--e2) var(--e3) 0;
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+  }
+  .feuilles button {
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 4px 4px 0 0;
+    background: var(--pane);
+    color: var(--text2);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .feuilles button[aria-selected='true'] {
+    background: var(--bg);
+    color: var(--text);
+    font-weight: 600;
+  }
+  .tableur {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    background: var(--bg);
+  }
+  table {
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  td,
+  th {
+    padding: 3px 8px;
+    border: 1px solid var(--line);
+    white-space: nowrap;
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+  }
+  td.num {
+    text-align: right;
+  }
+  th {
+    position: sticky;
+    left: 0;
+    background: var(--pane);
+    color: var(--muted);
+    font-weight: 400;
+  }
+  tr.entete td {
+    position: sticky;
+    top: 0;
+    background: var(--pane);
+    font-weight: 600;
+  }
+  .marge {
+    padding: var(--e3);
+  }
+</style>

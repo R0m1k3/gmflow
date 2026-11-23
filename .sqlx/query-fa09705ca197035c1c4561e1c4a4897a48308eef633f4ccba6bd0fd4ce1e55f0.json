@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select m.id, m.expediteur, m.objet, m.date_mail, m.resume, m.priorite, m.categorie_par,\n               array(select distinct s.raison_sociale from mail_boite_vue mb\n                     join boite_mail b on b.id = mb.boite_id join societe s on s.id = b.societe_id\n                     where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)\n                     order by s.raison_sociale) as \"structures!\",\n               array(select distinct b.libelle from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                     where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)\n                     order by b.libelle) as \"boites!\",\n               (select br.statut from brouillon_reponse br\n                where br.mail_id = m.id and br.statut in ('generation', 'propose', 'modifie', 'envoi')\n                limit 1) as brouillon\n           from mail m\n           where m.statut_reponse = 'a_repondre'\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id\n                           and ($1::bigint is null or b.societe_id = $1)\n                           and ($2::bigint is null or b.societe_id = $2))\n             and ($3::text is null or coalesce(m.priorite, 'normale') = $3)\n           order by case coalesce(m.priorite, 'normale') when 'haute' then 0 when 'normale' then 1 else 2 end,\n                    coalesce(m.date_mail, m.recu_le), m.id\n           limit $4 offset $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_mail",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "date_mail"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "resume",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "resume"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "priorite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "priorite"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "categorie_par",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "categorie_par"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "structures!",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "boites!",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "brouillon",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "fa09705ca197035c1c4561e1c4a4897a48308eef633f4ccba6bd0fd4ce1e55f0"
+}
