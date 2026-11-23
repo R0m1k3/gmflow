@@ -19,7 +19,12 @@
     statut: 'valide',
     societe_defaut_id: '',
     format_bl: '',
-    notes: ''
+    notes: '',
+    adresse: '',
+    telephone: '',
+    email: '',
+    interlocuteur: '',
+    conditions_paiement: ''
   });
   let erreur = $state('');
   let enCours = $state(false);
@@ -44,7 +49,7 @@
 {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
 <form class="formulaire" onsubmit={creer}>
   <div class="plein"><Champ libelle="Nom" bind:valeur={ed.nom} requis /></div>
-  <div class="plein"><Champ libelle="Code fournisseur" bind:valeur={ed.code_gestion} mono aide="Le code de ce fournisseur dans le logiciel de gestion du magasin" /></div>
+  <div class="plein"><Champ libelle="Code BO Phénix" bind:valeur={ed.code_gestion} mono aide="Notre code interne de ce fournisseur dans Phénix" /></div>
   <Champ libelle="SIRET" bind:valeur={ed.siret} mono inputmode="numeric" />
   <Champ libelle="N° TVA intracommunautaire" bind:valeur={ed.tva} mono />
   <div class="plein">
@@ -56,6 +61,11 @@
     bind:valeur={ed.societe_defaut_id}
     options={[{ valeur: '', libelle: 'Aucune société' }, ...societe.liste.map((s) => ({ valeur: String(s.id), libelle: s.raison_sociale }))]}
   />
+  <div class="plein"><Champ libelle="Adresse" type="textarea" bind:valeur={ed.adresse} placeholder="N°, rue, code postal, ville" /></div>
+  <Champ libelle="Téléphone" bind:valeur={ed.telephone} inputmode="tel" />
+  <Champ libelle="E-mail de contact" bind:valeur={ed.email} inputmode="email" />
+  <Champ libelle="Interlocuteur" bind:valeur={ed.interlocuteur} />
+  <Champ libelle="Conditions de paiement" bind:valeur={ed.conditions_paiement} placeholder="ex. 30 jours fin de mois" />
   <Champ libelle="Format des BL" bind:valeur={ed.format_bl} placeholder="ex. Excel, colonnes réf. / qté" />
   <div class="plein"><Champ libelle="Notes" type="textarea" bind:valeur={ed.notes} /></div>
   <label class="case plein"><input type="checkbox" checked={ed.statut === 'valide'} onchange={(e) => (ed.statut = e.currentTarget.checked ? 'valide' : 'a_confirmer')} /> Fiche confirmée</label>

@@ -1,27 +1,27 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, nom_normalise from fournisseur where fusionne_dans is null order by id",
+  "query": "select a, b from fournisseur_distinct",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "a",
         "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "fournisseur",
-            "name": "id"
+            "table": "fournisseur_distinct",
+            "name": "a"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "nom_normalise",
-        "type_info": "Text",
+        "name": "b",
+        "type_info": "Int8",
         "origin": {
           "Table": {
-            "table": "fournisseur",
-            "name": "nom_normalise"
+            "table": "fournisseur_distinct",
+            "name": "b"
           }
         }
       }
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "b03bd27408b0520deb9f413ca978d8f328331a62f237dfeb421f1a8ecda42cce"
+  "hash": "e81a6725a2ce94affacf7947de4f247ea06a9a19dd5797001b9dabff53e1dd60"
 }

@@ -45,6 +45,9 @@ const MOTS_VIDES: &[&str] = &[
     "cie", "co", "de", "du", "des", "la", "le", "les", "l", "d", "france", "group", "groupe",
 ];
 
+/// Ressemblance par trigrammes à partir de laquelle une fiche est montrée à Claude.
+pub const TRIGRAMMES_CANDIDAT: f64 = 0.45;
+
 /// Score de nom au-delà duquel une fiche est rattachée sans Claude.
 pub const SCORE_SUR: f64 = 0.8;
 /// Score à partir duquel une fiche est une candidate (Claude tranche).
@@ -91,6 +94,57 @@ pub fn ressemblance(a: &str, b: &str) -> f64 {
     let jaccard = commun / ma.union(&mb).count() as f64;
     let inclusion = commun / ma.len().min(mb.len()) as f64;
     jaccard.max(0.7 * inclusion)
+}
+
+/// Nom collé, sans accents ni ponctuation, sans extension s'il s'agit d'un domaine :
+/// « La Foir'Fouille » et « lafoirfouille.fr » donnent tous deux « lafoirfouille ».
+pub fn compact(nom: &str) -> String {
+    let t = nom.trim().to_lowercase();
+    let t = t.strip_prefix("www.").unwrap_or(&t);
+    let t = if ressemble_a_un_domaine(t) {
+        t.rsplit_once('.').map_or(t, |(a, _)| a)
+    } else {
+        t
+    };
+    t.chars()
+        .map(sans_accent)
+        .filter(|c| c.is_alphanumeric())
+        .collect()
+}
+
+/// « lafoirfouille.fr », « glama.fr » : un nom de fiche tiré du domaine faute de mieux.
+pub fn ressemble_a_un_domaine(nom: &str) -> bool {
+    let t = nom.trim();
+    !t.contains(' ')
+        && t.rsplit_once('.').is_some_and(|(a, ext)| {
+            !a.is_empty()
+                && (2..=6).contains(&ext.len())
+                && ext.chars().all(|c| c.is_ascii_alphabetic())
+        })
+}
+
+/// Nom lu, sans le complément entre parenthèses que Claude ajoute parfois
+/// (« U10 (SAS U10, Lingolsheim) » -> « U10 »).
+pub fn nom_propre(nom: &str) -> String {
+    let t = nom.trim();
+    match t.find(" (") {
+        Some(i) if t.ends_with(')') && !t[..i].trim().is_empty() => t[..i].trim().to_string(),
+        _ => t.to_string(),
+    }
+}
+
+/// Ressemblance de deux noms collés par trigrammes (indice de Dice), de 0 à 1 : rattrape
+/// « foirfouille » / « lafoirfouille » que les mots ne voient pas.
+pub fn trigrammes(a: &str, b: &str) -> f64 {
+    fn t(s: &str) -> BTreeSet<[char; 3]> {
+        let c: Vec<char> = format!("  {s} ").chars().collect();
+        c.windows(3).map(|w| [w[0], w[1], w[2]]).collect()
+    }
+    if a.len() < 3 || b.len() < 3 {
+        return 0.0;
+    }
+    let (ta, tb) = (t(a), t(b));
+    2.0 * ta.intersection(&tb).count() as f64 / (ta.len() + tb.len()) as f64
 }
 
 /// Domaine d'une adresse d'expédition (« Durand <factures@Durand.fr> » -> « durand.fr »).
@@ -254,30 +308,65 @@ pub async fn identifier(pool: &PgPool, ind: &Indices) -> sqlx::Result<Identifica
             return Ok(Identification::Candidats(candidats(pool, &ids).await?));
         }
     }
-    let Some(nom) = ind.nom_normalise() else {
+    let nom = ind.nom_normalise();
+    let colle = ind
+        .nom
+        .as_deref()
+        .map(|n| compact(&nom_propre(n)))
+        .filter(|c| c.len() >= 3);
+    // Le domaine de l'expéditeur sans extension, comparé aux noms des fiches.
+    let colle_domaine = ind.domaine.as_deref().map(compact).filter(|c| c.len() >= 3);
+    if nom.is_none() && colle.is_none() && colle_domaine.is_none() {
         return Ok(Identification::Aucun);
-    };
+    }
     let fiches = sqlx::query!(
-        "select id, nom_normalise from fournisseur where fusionne_dans is null order by id"
+        "select id, nom, nom_normalise, domaines from fournisseur where fusionne_dans is null order by id"
     )
     .fetch_all(pool)
     .await?;
-    let exacts: Vec<i64> = fiches
-        .iter()
-        .filter(|f| f.nom_normalise == nom)
-        .map(|f| f.id)
-        .collect();
+    let mut exacts: Vec<i64> = Vec::new();
+    let mut scores: Vec<(f64, i64)> = Vec::new();
+    for f in &fiches {
+        let colles_fiche: Vec<String> = std::iter::once(compact(&f.nom))
+            .chain(std::iter::once(f.nom_normalise.replace(' ', "")))
+            .chain(f.domaines.iter().map(|d| compact(d)))
+            .filter(|c| c.len() >= 3)
+            .collect();
+        let meme_nom = nom.as_deref().is_some_and(|n| *n == f.nom_normalise);
+        let meme_colle = colle
+            .iter()
+            .chain(colle_domaine.iter())
+            .any(|c| colles_fiche.contains(c));
+        if meme_nom || meme_colle {
+            exacts.push(f.id);
+            continue;
+        }
+        let mots = nom
+            .as_deref()
+            .map_or(0.0, |n| ressemblance(n, &f.nom_normalise));
+        let tri = colle
+            .iter()
+            .chain(colle_domaine.iter())
+            .flat_map(|c| colles_fiche.iter().map(move |x| trigrammes(c, x)))
+            .fold(0.0, f64::max);
+        // Les trigrammes seuls ne suffisent jamais à rattacher : candidate pour Claude.
+        let s = if mots >= SCORE_CANDIDAT {
+            mots
+        } else if tri >= TRIGRAMMES_CANDIDAT {
+            SCORE_CANDIDAT.max(tri.min(SCORE_SUR - 0.01))
+        } else {
+            0.0
+        };
+        if s > 0.0 {
+            scores.push((s, f.id));
+        }
+    }
     if let Some(id) = exacts.first() {
         return Ok(Identification::Trouve {
             id: *id,
             par: "nom",
         });
     }
-    let mut scores: Vec<(f64, i64)> = fiches
-        .iter()
-        .map(|f| (ressemblance(&nom, &f.nom_normalise), f.id))
-        .filter(|(s, _)| *s >= SCORE_CANDIDAT)
-        .collect();
     scores.sort_by(|a, b| b.0.total_cmp(&a.0));
     match scores.as_slice() {
         [] => Ok(Identification::Aucun),
@@ -308,8 +397,6 @@ pub async fn candidats(pool: &PgPool, ids: &[i64]) -> sqlx::Result<Vec<Candidat>
     .await
 }
 
-/// Nouvelle fiche « à confirmer » avec ce qu'on sait. Rend son id, ou rien sans nom ni
-/// identifiant.
 /// SIREN de nos sociétés (SIRET ou n° de TVA français) : jamais ceux d'un fournisseur.
 pub async fn sirens_societes(pool: &PgPool) -> sqlx::Result<Vec<String>> {
     let lignes = sqlx::query!("select siret, tva from societe")
@@ -327,13 +414,14 @@ pub async fn sirens_societes(pool: &PgPool) -> sqlx::Result<Vec<String>> {
     Ok(v)
 }
 
+/// Nouvelle fiche « à confirmer » avec ce qu'on sait. Rend son id, ou rien sans nom ni
+/// identifiant.
 pub async fn creer(pool: &PgPool, ind: &Indices) -> sqlx::Result<Option<i64>> {
     let nom = ind
         .nom
         .as_deref()
-        .map(str::trim)
+        .map(nom_propre)
         .filter(|n| !n.is_empty())
-        .map(str::to_string)
         .or_else(|| ind.domaine.clone());
     let Some(nom) = nom else {
         return Ok(None);
@@ -368,15 +456,26 @@ pub async fn apprendre(
     } else {
         None
     };
+    // Fiche nommée d'après un domaine faute de nom lu (« lafoirfouille.fr ») : prend le
+    // nom lu sur ce document, si c'en est un vrai.
+    let nom = ind
+        .nom
+        .as_deref()
+        .map(nom_propre)
+        .filter(|n| !n.is_empty() && !ressemble_a_un_domaine(n));
     sqlx::query!(
         "update fournisseur set siret = coalesce(siret, $2), tva = coalesce(tva, $3),
             domaines = case when $4::text is null or $4 = any(domaines) then domaines
-                            else array_append(domaines, $4) end
+                            else array_append(domaines, $4) end,
+            nom = case when $5::text is not null and nom ~ '^[^ ]+\\.[a-zA-Z]{2,6}$' then $5 else nom end,
+            nom_normalise = case when $5::text is not null and nom ~ '^[^ ]+\\.[a-zA-Z]{2,6}$' then $6 else nom_normalise end
          where id = $1",
         id,
         siret,
         ind.tva_nette(),
-        domaine
+        domaine,
+        nom,
+        nom.as_deref().map(normaliser)
     )
     .execute(pool)
     .await?;
@@ -400,6 +499,11 @@ pub async fn fusionner(tx: &mut PgConnection, source: i64, cible: i64) -> sqlx::
             societe_defaut_id = coalesce(c.societe_defaut_id, s.societe_defaut_id),
             format_bl = coalesce(c.format_bl, s.format_bl),
             code_gestion = coalesce(c.code_gestion, s.code_gestion),
+            adresse = coalesce(c.adresse, s.adresse), telephone = coalesce(c.telephone, s.telephone),
+            email = coalesce(c.email, s.email), interlocuteur = coalesce(c.interlocuteur, s.interlocuteur),
+            conditions_paiement = coalesce(c.conditions_paiement, s.conditions_paiement),
+            notes = case when s.notes is null then c.notes when c.notes is null then s.notes
+                         else c.notes || E'\n' || s.notes end,
             domaines = array(select distinct unnest(c.domaines || s.domaines) order by 1)
          from fournisseur s where c.id = $2 and s.id = $1",
         source,
@@ -446,6 +550,78 @@ pub async fn dans_texte(pool: &PgPool, texte: &str) -> sqlx::Result<Option<i64>>
     })
 }
 
+/// Deux fiches qui désignent probablement le même fournisseur, et pourquoi.
+#[derive(Debug, Clone, Serialize)]
+pub struct Doublon {
+    pub a: i64,
+    pub b: i64,
+    pub raison: &'static str,
+}
+
+/// Paires de fiches actives qui se ressemblent (même SIREN, domaine commun, même nom collé,
+/// nom de l'une = domaine de l'autre, noms très proches), hors paires marquées « pas un
+/// doublon ». La plus ancienne d'abord dans chaque paire.
+pub async fn doublons_probables(pool: &PgPool) -> sqlx::Result<Vec<Doublon>> {
+    let fiches = sqlx::query!(
+        "select id, nom, nom_normalise, siret, tva, domaines from fournisseur
+         where fusionne_dans is null order by id"
+    )
+    .fetch_all(pool)
+    .await?;
+    let distincts: BTreeSet<(i64, i64)> = sqlx::query!("select a, b from fournisseur_distinct")
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|r| (r.a, r.b))
+        .collect();
+    let sirens = |siret: &Option<String>, tva: &Option<String>| {
+        Indices {
+            siret: siret.clone(),
+            tva: tva.clone(),
+            ..Default::default()
+        }
+        .sirens()
+    };
+    let prep: Vec<_> = fiches
+        .iter()
+        .map(|f| {
+            let colles: BTreeSet<String> = std::iter::once(compact(&f.nom))
+                .chain(std::iter::once(f.nom_normalise.replace(' ', "")))
+                .chain(f.domaines.iter().map(|d| compact(d)))
+                .filter(|c| c.len() >= 3)
+                .collect();
+            (f, sirens(&f.siret, &f.tva), colles)
+        })
+        .collect();
+    let mut v = Vec::new();
+    for (i, (fa, sa, ca)) in prep.iter().enumerate() {
+        for (fb, sb, cb) in &prep[i + 1..] {
+            if distincts.contains(&(fa.id, fb.id)) {
+                continue;
+            }
+            let raison = if sa.iter().any(|s| sb.contains(s)) {
+                "même SIREN"
+            } else if fa.domaines.iter().any(|d| fb.domaines.contains(d)) {
+                "même domaine mail"
+            } else if !fa.nom_normalise.is_empty() && fa.nom_normalise == fb.nom_normalise
+                || ca.intersection(cb).next().is_some()
+            {
+                "même nom"
+            } else if ressemblance(&fa.nom_normalise, &fb.nom_normalise) >= SCORE_SUR {
+                "noms très proches"
+            } else {
+                continue;
+            };
+            v.push(Doublon {
+                a: fa.id,
+                b: fb.id,
+                raison,
+            });
+        }
+    }
+    Ok(v)
+}
+
 /// Fiche connue par le domaine de l'expéditeur, s'il y en a une seule.
 pub async fn par_domaine(pool: &PgPool, d: &str) -> sqlx::Result<Option<i64>> {
     let ids = sqlx::query_scalar!(
@@ -480,6 +656,22 @@ mod tests {
         assert!(ressemblance(&normaliser("METRO"), &normaliser("Metro Cash & Carry")) < SCORE_SUR);
         assert_eq!(ressemblance("durand", "martin"), 0.0);
         assert!(ressemblance("grossiste durand fils", "grossiste durand fils") > 0.99);
+    }
+
+    #[test]
+    fn noms_colles() {
+        assert_eq!(compact("La Foir'Fouille"), "lafoirfouille");
+        assert_eq!(compact("lafoirfouille.fr"), "lafoirfouille");
+        assert_eq!(compact("www.Glama.fr"), "glama");
+        assert_eq!(compact("Société Générale"), "societegenerale");
+        assert!(ressemble_a_un_domaine("glama.fr"));
+        assert!(!ressemble_a_un_domaine("La Foir'Fouille"));
+        assert!(!ressemble_a_un_domaine("M. Dupont"));
+        assert_eq!(nom_propre("U10 (SAS U10, Lingolsheim)"), "U10");
+        assert_eq!(nom_propre("(sans nom)"), "(sans nom)");
+        assert_eq!(nom_propre("Durand"), "Durand");
+        assert!(trigrammes("foirfouille", "lafoirfouille") >= TRIGRAMMES_CANDIDAT);
+        assert!(trigrammes("durand", "martin") < TRIGRAMMES_CANDIDAT);
     }
 
     #[test]

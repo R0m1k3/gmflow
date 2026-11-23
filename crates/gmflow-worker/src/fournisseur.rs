@@ -14,8 +14,11 @@ const EXEMPLES_MAX: i64 = 3;
 
 const PROMPT_SYSTEME: &str = "Tu rapproches le fournisseur d'un document des fiches d'un \
 référentiel. Tu réponds uniquement avec la sortie structurée demandée. fournisseur_id est l'id \
-de la fiche qui désigne la même entreprise (même société, autre écriture du nom), ou null si \
-aucune ne correspond. Dans le doute, null.";
+de la fiche qui désigne la même entreprise (même société, autre écriture du nom : sigle, \
+forme juridique, ville ajoutée, nom collé ou nom de domaine comme « lafoirfouille.fr » pour \
+« La Foir'Fouille »), ou null si aucune ne correspond (sinon une nouvelle fiche est créée). \
+Deux sociétés différentes d'un même groupe ont des SIREN différents : si les SIRET ou TVA \
+connus diffèrent, ce n'est pas la même fiche. Dans le doute, null.";
 
 fn schema() -> Value {
     json!({
