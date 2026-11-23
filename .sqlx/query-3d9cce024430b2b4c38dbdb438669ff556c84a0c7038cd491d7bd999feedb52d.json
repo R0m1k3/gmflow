@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, raison_sociale, siret, tva, adresses from societe where not archivee order by id",
+  "query": "select id, raison_sociale, autres_noms, siret, tva, adresses from societe where not archivee order by id",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "autres_noms",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "autres_noms"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "siret",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "tva",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "adresses",
         "type_info": "Jsonb",
         "origin": {
@@ -65,10 +76,11 @@
     "nullable": [
       false,
       false,
+      false,
       true,
       true,
       false
     ]
   },
-  "hash": "1b880740539add35669c85a7a061fb2102f809becdc5d3c2cea4de6e1455e253"
+  "hash": "3d9cce024430b2b4c38dbdb438669ff556c84a0c7038cd491d7bd999feedb52d"
 }

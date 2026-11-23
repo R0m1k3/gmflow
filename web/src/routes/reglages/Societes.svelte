@@ -15,6 +15,7 @@
   type Form = {
     id: number | null;
     raison_sociale: string;
+    autres_noms: string;
     siret: string;
     tva: string;
     adresses: string;
@@ -26,6 +27,7 @@
   const vide = (): Form => ({
     id: null,
     raison_sociale: '',
+    autres_noms: '',
     siret: '',
     tva: '',
     adresses: '',
@@ -58,6 +60,7 @@
     f = {
       id: s.id,
       raison_sociale: s.raison_sociale,
+      autres_noms: (s.autres_noms ?? []).join('\n'),
       siret: s.siret ?? '',
       tva: s.tva ?? '',
       adresses: (s.adresses ?? []).join('\n'),
@@ -76,6 +79,10 @@
     enCours = true;
     const corps = {
       raison_sociale: f.raison_sociale.trim(),
+      autres_noms: f.autres_noms
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean),
       siret: f.siret.trim(),
       tva: f.tva.trim(),
       adresses: f.adresses
@@ -114,6 +121,15 @@
     {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
     <div class="formulaire">
       <div class="plein"><Champ libelle="Raison sociale" bind:valeur={g.raison_sociale} requis placeholder="SAS Frouard Distribution" /></div>
+      <div class="plein">
+        <Champ
+          libelle="Autres noms"
+          type="textarea"
+          bind:valeur={g.autres_noms}
+          placeholder={'Frouard Distribution\nLa Foir’Fouille Frouard'}
+          aide="Un par ligne : les noms que les fournisseurs mettent sur leurs factures (nom complet, enseigne et ville). Écrivez l’enseigne avec la ville : l’enseigne seule ne distingue pas deux magasins."
+        />
+      </div>
       <Champ libelle="SIRET" bind:valeur={g.siret} mono inputmode="numeric" />
       <Champ libelle="N° de TVA" bind:valeur={g.tva} mono />
       <div class="plein">
@@ -178,6 +194,7 @@
             {#if s.archivee}<Etiquette ton="pale">Archivée</Etiquette>{/if}
           </div>
           <div class="b">
+            {#if s.autres_noms?.length}Aussi : {s.autres_noms.join(', ')} · {/if}
             {#if s.siret}SIRET <span class="num">{s.siret}</span> · {/if}
             {#if s.adresse_depot}
               {nomOutil(s.outil_depot)} : {s.adresse_depot}{#if s.depot_auto}{' '}· envoi automatique{/if}

@@ -11,6 +11,10 @@ fn societes() -> Vec<SocieteRef> {
         SocieteRef {
             id: 1,
             raison_sociale: "Magasin Frouard".into(),
+            autres_noms: vec![
+                "Frouard Distribution".into(),
+                "La Foir'Fouille Frouard".into(),
+            ],
             siret: Some(SIRET_A.into()),
             tva: Some("FR58123456789".into()),
             adresses: vec![],
@@ -18,11 +22,52 @@ fn societes() -> Vec<SocieteRef> {
         SocieteRef {
             id: 2,
             raison_sociale: "Magasin Houdemont".into(),
+            autres_noms: vec!["La Foir'Fouille Houdemont".into()],
             siret: Some(SIRET_B.into()),
             tva: None,
             adresses: vec![],
         },
     ]
+}
+
+#[test]
+fn acheteur_reconnu_par_un_autre_nom() {
+    let acheteur = |nom: &str| xml::Partie {
+        nom: Some(nom.into()),
+        siret: None,
+        tva: None,
+    };
+    let soc = societes();
+    assert_eq!(
+        societe::pour_acheteur(&acheteur("MAGASIN FROUARD"), &soc),
+        Some(1)
+    );
+    assert_eq!(
+        societe::pour_acheteur(&acheteur("Frouard distribution"), &soc),
+        Some(1)
+    );
+    assert_eq!(
+        societe::pour_acheteur(&acheteur("LA FOIR FOUILLE HOUDEMONT"), &soc),
+        Some(2)
+    );
+    assert_eq!(
+        societe::pour_acheteur(&acheteur("La Foir'Fouille"), &soc),
+        None
+    );
+}
+
+#[test]
+fn autres_noms_dans_le_prompt() {
+    let mail = extraction::ContexteMail {
+        expediteur: "x@y.fr",
+        objet: "Facture",
+        corps: "",
+        nom_fichier: "f.pdf",
+    };
+    let p = extraction::prompt(&mail, &societes(), &extraction::Contenu::Texte("Facture"));
+    assert!(p.contains(
+        "Magasin Frouard (aussi appelée : Frouard Distribution | La Foir'Fouille Frouard)"
+    ));
 }
 
 #[test]

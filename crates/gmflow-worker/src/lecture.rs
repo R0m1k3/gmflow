@@ -93,7 +93,7 @@ pub async fn pompe_apres_releve(pool: &PgPool) {
 
 pub async fn societes(pool: &PgPool) -> sqlx::Result<Vec<SocieteRef>> {
     let lignes = sqlx::query!(
-        "select id, raison_sociale, siret, tva, adresses from societe where not archivee order by id"
+        "select id, raison_sociale, autres_noms, siret, tva, adresses from societe where not archivee order by id"
     )
     .fetch_all(pool)
     .await?;
@@ -102,6 +102,7 @@ pub async fn societes(pool: &PgPool) -> sqlx::Result<Vec<SocieteRef>> {
         .map(|l| SocieteRef {
             id: l.id,
             raison_sociale: l.raison_sociale,
+            autres_noms: l.autres_noms,
             siret: l.siret,
             tva: l.tva,
             adresses: l

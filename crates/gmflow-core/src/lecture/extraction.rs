@@ -204,9 +204,14 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     p.push_str("Structures destinataires possibles (societe_id) :\n");
     for s in societes {
         p.push_str(&format!(
-            "- {} : {} ; SIRET {} ; TVA {} ; adresses : {}\n",
+            "- {} : {}{} ; SIRET {} ; TVA {} ; adresses : {}\n",
             s.id,
             s.raison_sociale,
+            if s.autres_noms.is_empty() {
+                String::new()
+            } else {
+                format!(" (aussi appelée : {})", s.autres_noms.join(" | "))
+            },
             s.siret.as_deref().unwrap_or("?"),
             s.tva.as_deref().unwrap_or("?"),
             if s.adresses.is_empty() {

@@ -9,6 +9,8 @@ use super::xml::Partie;
 pub struct SocieteRef {
     pub id: i64,
     pub raison_sociale: String,
+    /// Noms employés par les fournisseurs (nom complet, enseigne et ville...).
+    pub autres_noms: Vec<String>,
     pub siret: Option<String>,
     pub tva: Option<String>,
     /// Adresses en texte libre (pour le prompt).
@@ -121,7 +123,12 @@ pub fn pour_acheteur(acheteur: &Partie, societes: &[SocieteRef]) -> Option<i64> 
     let nom = nom_normalise(acheteur.nom.as_deref()?);
     let par_nom: Vec<i64> = societes
         .iter()
-        .filter(|s| !nom.is_empty() && nom_normalise(&s.raison_sociale) == nom)
+        .filter(|s| {
+            !nom.is_empty()
+                && std::iter::once(&s.raison_sociale)
+                    .chain(&s.autres_noms)
+                    .any(|n| nom_normalise(n) == nom)
+        })
         .map(|s| s.id)
         .collect();
     match par_nom.as_slice() {
