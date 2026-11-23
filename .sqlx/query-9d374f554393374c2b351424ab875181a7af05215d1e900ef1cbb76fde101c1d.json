@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                  (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                  format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  fusionne_dans, cree_le\n           from fournisseur where id = $1",
+  "query": "update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,\n              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,\n              code_gestion = $11, adresse = $12, telephone = $13, email = $14,\n              interlocuteur = $15, conditions_paiement = $16, groupe_id = $17,\n              noms_documents = $18\n           where id = $1 and fusionne_dans is null\n           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                     (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                     format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as \"groupe?\",\n                  noms_documents, fusionne_dans, cree_le",
   "describe": {
     "columns": [
       {
@@ -176,6 +176,34 @@
       },
       {
         "ordinal": 16,
+        "name": "groupe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "groupe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "groupe?",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 18,
+        "name": "noms_documents",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "noms_documents"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
         "name": "fusionne_dans",
         "type_info": "Int8",
         "origin": {
@@ -186,7 +214,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 20,
         "name": "cree_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -199,7 +227,24 @@
     ],
     "parameters": {
       "Left": [
-        "Int8"
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -220,8 +265,11 @@
       true,
       true,
       true,
+      null,
+      false,
+      true,
       false
     ]
   },
-  "hash": "b9d6d74f34c69cf06dcca2808735b780e261ff2f0590868954339c5775554019"
+  "hash": "9d374f554393374c2b351424ab875181a7af05215d1e900ef1cbb76fde101c1d"
 }

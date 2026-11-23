@@ -329,6 +329,8 @@ export interface LigneFournisseur {
   statut: StatutFournisseur;
   societe_defaut_id: number | null;
   societe_defaut: string | null;
+  /** Groupe dont ce fournisseur fait partie. */
+  groupe: string | null;
   nb_documents: number;
   a_verifier: number;
   /** Ligne d'état (refonte) : documents lus visibles, de la société choisie (`?societe=`). */
@@ -357,8 +359,23 @@ export interface Fournisseur {
   email: string | null;
   interlocuteur: string | null;
   conditions_paiement: string | null;
+  /** Fiche du groupe (société qui facture pour plusieurs marques) et son nom. */
+  groupe_id: number | null;
+  groupe: string | null;
+  /** Noms cherchés dans le texte des documents du groupe pour reconnaître cette marque. */
+  noms_documents: string[];
   fusionne_dans: number | null;
   cree_le: string;
+}
+
+/** Marque d'un groupe (`GET /api/fournisseurs/{id}/marques`). */
+export interface LigneMarque {
+  id: number;
+  nom: string;
+  code_gestion: string | null;
+  noms_documents: string[];
+  statut: StatutFournisseur;
+  nb_documents: number;
 }
 
 /** Fiche résumée d'une paire de `GET /api/admin/fournisseurs/doublons`. */
@@ -818,6 +835,7 @@ export interface EntreeBoite {
 export type ChangementsFournisseur = Partial<
   Pick<Fournisseur, 'nom' | 'code_gestion' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'
   | 'adresse' | 'telephone' | 'email' | 'interlocuteur' | 'conditions_paiement'
+  | 'groupe_id' | 'noms_documents'
 >
 >;
 

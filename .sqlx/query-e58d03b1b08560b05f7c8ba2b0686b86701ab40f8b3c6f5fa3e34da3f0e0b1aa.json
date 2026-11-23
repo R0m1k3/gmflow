@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select groupe_id from fournisseur where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "groupe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "groupe_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "e58d03b1b08560b05f7c8ba2b0686b86701ab40f8b3c6f5fa3e34da3f0e0b1aa"
+}

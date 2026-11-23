@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select groupe_id from fournisseur where id = $1 and fusionne_dans is null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "groupe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "groupe_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "2c96a142565041dba22622b0f10dde973fb1276bdd322a5ef4838a8292cf792b"
+}

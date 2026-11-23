@@ -277,7 +277,7 @@ pub async fn identifier(pool: &PgPool, ind: &Indices) -> sqlx::Result<Identifica
             "select id from fournisseur where fusionne_dans is null
                and (left(siret, 9) = any($1) or tva = any($2)
                     or (tva like 'FR%' and length(tva) = 13 and substr(tva, 5, 9) = any($1)))
-             order by id",
+             order by groupe_id is not null, id",
             &sirens,
             &tvas
         )
@@ -504,7 +504,9 @@ pub async fn fusionner(tx: &mut PgConnection, source: i64, cible: i64) -> sqlx::
             conditions_paiement = coalesce(c.conditions_paiement, s.conditions_paiement),
             notes = case when s.notes is null then c.notes when c.notes is null then s.notes
                          else c.notes || E'\n' || s.notes end,
-            domaines = array(select distinct unnest(c.domaines || s.domaines) order by 1)
+            domaines = array(select distinct unnest(c.domaines || s.domaines) order by 1),
+            noms_documents = array(select distinct unnest(c.noms_documents || s.noms_documents) order by 1),
+            groupe_id = case when c.groupe_id = s.id then s.groupe_id else coalesce(c.groupe_id, s.groupe_id) end
          from fournisseur s where c.id = $2 and s.id = $1",
         source,
         cible
@@ -513,6 +515,15 @@ pub async fn fusionner(tx: &mut PgConnection, source: i64, cible: i64) -> sqlx::
     .await?;
     sqlx::query!(
         "update fournisseur set fusionne_dans = $2 where id = $1 or fusionne_dans = $1",
+        source,
+        cible
+    )
+    .execute(&mut *tx)
+    .await?;
+    // Les marques de la fiche fusionnée passent au groupe gardé (jamais à elles-mêmes).
+    sqlx::query!(
+        "update fournisseur set groupe_id = case when id = $2 then null else $2 end
+         where groupe_id = $1",
         source,
         cible
     )
@@ -550,6 +561,54 @@ pub async fn dans_texte(pool: &PgPool, texte: &str) -> sqlx::Result<Option<i64>>
     })
 }
 
+/// Fournisseur d'un groupe (marque) et les noms qui le désignent sur un document.
+#[derive(Debug, Clone, Serialize)]
+pub struct Marque {
+    pub id: i64,
+    pub nom: String,
+    pub noms_documents: Vec<String>,
+}
+
+/// Marques actives du groupe `groupe_id` (vide si la fiche n'est pas un groupe).
+pub async fn marques(pool: &PgPool, groupe_id: i64) -> sqlx::Result<Vec<Marque>> {
+    sqlx::query_as!(
+        Marque,
+        "select id, nom, noms_documents from fournisseur
+         where groupe_id = $1 and fusionne_dans is null order by id",
+        groupe_id
+    )
+    .fetch_all(pool)
+    .await
+}
+
+/// Vrai si `nom` figure dans le texte : mots normalisés qui se suivent (« Decor 10 » dans
+/// « DECOR 10 SAS »), ou nom collé d'au moins 5 caractères (« decor10 » dans « Decor10.fr »).
+fn nomme(texte_mots: &str, texte_colle: &str, nom: &str) -> bool {
+    let n = normaliser(nom);
+    let c = compact(nom);
+    (!n.is_empty() && format!(" {texte_mots} ").contains(&format!(" {n} ")))
+        || (c.chars().count() >= 5 && texte_colle.contains(&c))
+}
+
+/// Marques dont un nom (nom de la fiche ou nom sur les documents) figure dans le texte.
+pub fn marques_nommees<'a>(marques: &'a [Marque], texte: &str) -> Vec<&'a Marque> {
+    let mots = normaliser(texte);
+    let colle: String = texte
+        .to_lowercase()
+        .chars()
+        .map(sans_accent)
+        .filter(|c| c.is_alphanumeric())
+        .collect();
+    marques
+        .iter()
+        .filter(|m| {
+            std::iter::once(&m.nom)
+                .chain(m.noms_documents.iter())
+                .any(|n| nomme(&mots, &colle, n))
+        })
+        .collect()
+}
+
 /// Deux fiches qui désignent probablement le même fournisseur, et pourquoi.
 #[derive(Debug, Clone, Serialize)]
 pub struct Doublon {
@@ -563,7 +622,7 @@ pub struct Doublon {
 /// doublon ». La plus ancienne d'abord dans chaque paire.
 pub async fn doublons_probables(pool: &PgPool) -> sqlx::Result<Vec<Doublon>> {
     let fiches = sqlx::query!(
-        "select id, nom, nom_normalise, siret, tva, domaines from fournisseur
+        "select id, nom, nom_normalise, siret, tva, domaines, groupe_id from fournisseur
          where fusionne_dans is null order by id"
     )
     .fetch_all(pool)
@@ -596,7 +655,11 @@ pub async fn doublons_probables(pool: &PgPool) -> sqlx::Result<Vec<Doublon>> {
     let mut v = Vec::new();
     for (i, (fa, sa, ca)) in prep.iter().enumerate() {
         for (fb, sb, cb) in &prep[i + 1..] {
-            if distincts.contains(&(fa.id, fb.id)) {
+            // Une marque et son groupe (ou deux marques du même groupe) partagent le SIREN.
+            let meme_groupe = fa.groupe_id == Some(fb.id)
+                || fb.groupe_id == Some(fa.id)
+                || (fa.groupe_id.is_some() && fa.groupe_id == fb.groupe_id);
+            if meme_groupe || distincts.contains(&(fa.id, fb.id)) {
                 continue;
             }
             let raison = if sa.iter().any(|s| sb.contains(s)) {
@@ -672,6 +735,32 @@ mod tests {
         assert_eq!(nom_propre("Durand"), "Durand");
         assert!(trigrammes("foirfouille", "lafoirfouille") >= TRIGRAMMES_CANDIDAT);
         assert!(trigrammes("durand", "martin") < TRIGRAMMES_CANDIDAT);
+    }
+
+    #[test]
+    fn marques_dans_le_texte() {
+        let m = |id, nom: &str, autres: &[&str]| Marque {
+            id,
+            nom: nom.into(),
+            noms_documents: autres.iter().map(|s| s.to_string()).collect(),
+        };
+        let l = [
+            m(1, "L3C", &[]),
+            m(2, "Homea", &[]),
+            m(3, "Decor10", &["Decor 10"]),
+        ];
+        let ids = |t: &str| {
+            marques_nommees(&l, t)
+                .iter()
+                .map(|m| m.id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("SAS U10 - Marque HOMEA - Facture 12"), vec![2]);
+        assert_eq!(ids("DECOR 10 collection hiver"), vec![3]);
+        assert_eq!(ids("www.decor10.fr"), vec![3]);
+        assert_eq!(ids("Bon de livraison L3C n° 44"), vec![1]);
+        assert_eq!(ids("Homeland L3CX"), Vec::<i64>::new());
+        assert_eq!(ids("Homea et L3C"), vec![1, 2]);
     }
 
     #[test]

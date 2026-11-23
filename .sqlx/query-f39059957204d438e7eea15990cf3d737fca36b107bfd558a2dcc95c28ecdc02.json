@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, nom, nom_normalise, siret, tva, domaines from fournisseur\n         where fusionne_dans is null order by id",
+  "query": "select id, nom, nom_normalise, siret, tva, domaines, groupe_id from fournisseur\n         where fusionne_dans is null order by id",
   "describe": {
     "columns": [
       {
@@ -68,6 +68,17 @@
             "name": "domaines"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "groupe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "groupe_id"
+          }
+        }
       }
     ],
     "parameters": {
@@ -79,8 +90,9 @@
       false,
       true,
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "b2de28e2bc3b35ec75ad322e4cb8c6f390e843adacbbc56b10fce58bc4ae6d3b"
+  "hash": "f39059957204d438e7eea15990cf3d737fca36b107bfd558a2dcc95c28ecdc02"
 }
