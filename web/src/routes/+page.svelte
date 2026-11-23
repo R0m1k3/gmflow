@@ -311,7 +311,7 @@
     position: static;
   }
 
-  @media (max-width: 1000px) {
+  @media (max-width: 1240px) {
     .grille {
       grid-template-columns: 1fr;
     }

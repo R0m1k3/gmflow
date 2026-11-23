@@ -1092,7 +1092,7 @@
   }
 
   /* Tablette étroite et téléphone : le mail, puis la réponse. */
-  @media (max-width: 960px) {
+  @media (max-width: 1200px) {
     .mail-b {
       display: block;
       overflow: auto;
