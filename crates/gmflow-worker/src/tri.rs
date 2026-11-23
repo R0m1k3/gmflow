@@ -11,21 +11,15 @@ use crate::Contexte;
 
 const PAR_TOUR: i64 = 200;
 
-/// Claude peut-il trier maintenant ? Sinon, pourquoi.
+/// Claude peut-il trier maintenant (jeton présent, pas de refus en cours, quota de tri non
+/// atteint) ? Sinon, pourquoi.
 pub async fn claude_indisponible(
     pool: &PgPool,
     r: &reglages::Reglages,
 ) -> anyhow::Result<Option<String>> {
-    if !claude::acces_configure(pool).await? {
-        return Ok(Some("jeton Claude absent".into()));
-    }
-    if reglages::appels_tri_du_jour(pool).await? >= r.quota_tri_jour {
-        return Ok(Some(format!(
-            "quota de tri du jour atteint ({} appels)",
-            r.quota_tri_jour
-        )));
-    }
-    Ok(None)
+    Ok(gmflow_core::attente::tri_indisponible(pool, r)
+        .await?
+        .map(|i| i.message))
 }
 
 /// Remet en file les tris bloqués, marque les mails récents à trier et pousse les tâches, les
@@ -233,10 +227,10 @@ async fn trier_pris(ctx: &Contexte, m: &MailTri) -> anyhow::Result<()> {
 
     let r = reglages::lire(pool).await?;
     if let Some(raison) = claude_indisponible(pool, &r).await? {
-        return remettre(pool, m.id, &format!("en attente de Claude : {raison}")).await;
+        return remettre(pool, m.id, &raison).await;
     }
     let Some(acces) = claude::acces(pool, &ctx.chiffreur).await? else {
-        return remettre(pool, m.id, "en attente de Claude : jeton Claude absent").await;
+        return remettre(pool, m.id, "Claude n’est pas connecté").await;
     };
     let vues: Vec<PieceVue<'_>> = pieces
         .iter()
@@ -292,7 +286,8 @@ async fn trier_pris(ctx: &Contexte, m: &MailTri) -> anyhow::Result<()> {
             Err(ErreurClaude::JsonInvalide) => derniere = ErreurClaude::JsonInvalide.to_string(),
             Err(e) => {
                 // Panne, délai, jeton refusé : la pompe réessaie dans 30 minutes.
-                return remettre(pool, m.id, &format!("Claude : {e}")).await;
+                let message = crate::lecture::message_echec(pool, &e).await;
+                return remettre(pool, m.id, &message).await;
             }
         }
     }

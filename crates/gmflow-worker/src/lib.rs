@@ -76,7 +76,8 @@ async fn tache_lecture(tache: TacheLecture, ctx: Data<Contexte>) -> Result<(), B
             document_id,
             forcer,
             approfondie,
-        } => lecture::lire(&ctx, document_id, forcer, approfondie).await?,
+            hors_quota,
+        } => lecture::lire(&ctx, document_id, forcer, approfondie, hors_quota).await?,
     }
     Ok(())
 }
@@ -193,6 +194,9 @@ pub async fn lancer(config: Config) -> anyhow::Result<()> {
         Transport::depuis_env(),
         DelaisSeance::default(),
     );
+    if gmflow_core::reglages::passer_quota_a_1000(&ctx.pool).await? {
+        tracing::info!("quota de lecture relevé de 100 à 1000 appels par jour");
+    }
     setup_token::fermer_seances_ouvertes(&ctx.pool).await?;
     envoi::envois_interrompus(&ctx.pool).await?;
     reponse::interrompus(&ctx.pool).await?;

@@ -441,7 +441,14 @@ async fn quota_atteint_ou_jeton_absent_le_document_attend() {
         (d.etat.as_str(), d.voie.as_deref()),
         ("a_lire", Some("pdf_texte"))
     );
-    assert_eq!(d.message.as_deref(), Some("jeton Claude absent"));
+    assert!(
+        d.message
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("Claude n’est pas connecté"),
+        "{:?}",
+        d.message
+    );
     // Jeton présent mais quota à 0 : toujours en attente, sans appel.
     jeton(&b).await;
     quota(&b, 0).await;

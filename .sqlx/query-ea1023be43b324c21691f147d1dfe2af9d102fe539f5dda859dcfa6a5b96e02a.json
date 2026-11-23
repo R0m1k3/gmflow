@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into parametre (cle, valeur) values ($1, 'true'::jsonb) on conflict (cle) do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ea1023be43b324c21691f147d1dfe2af9d102fe539f5dda859dcfa6a5b96e02a"
+}

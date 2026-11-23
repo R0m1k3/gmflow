@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from apalis.jobs\n           where job_type = $1\n             and (status = 'Queued'\n                  or (status = 'Pending' and run_at <= now()\n                      and (coalesce(priority, 0) > $2\n                           or (coalesce(priority, 0) = $2\n                               and (run_at < $3 or (run_at = $3 and id < $4))))))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "da1c9f7bed44a811b522fe2f306b991f378536de79aeb6980be91d6dcccbce83"
+}

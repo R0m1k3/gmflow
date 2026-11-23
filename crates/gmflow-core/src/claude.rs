@@ -175,6 +175,14 @@ pub async fn lancer(
         Ok(_) => (true, None),
         Err(e) => (false, Some(tronquer(&e.to_string(), 500))),
     };
+    match &resultat {
+        Ok(_) => crate::attente::noter_succes(pool).await,
+        Err(e) => {
+            if let Some(r) = refus(e) {
+                crate::attente::noter_refus(pool, &r, &e.to_string()).await;
+            }
+        }
+    }
     if let Err(e) = sqlx::query!(
         "insert into appel_claude (tache, modele, effort, duree_ms, succes, message) values ($1, $2, $3, $4, $5, $6)",
         tache,
@@ -268,4 +276,190 @@ pub fn sortie_structuree(reponse: &Value) -> Option<Value> {
     serde_json::from_str::<Value>(r)
         .ok()
         .filter(Value::is_object)
+}
+
+/// Refus de Claude qui vaut pour tous les appels (pas seulement pour ce document) : limite
+/// d'usage de l'abonnement ou jeton refusé.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refus {
+    pub genre: GenreRefus,
+    /// Heure de reprise annoncée par le CLI, si elle est lisible.
+    pub reprise: Option<Reprise>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenreRefus {
+    /// Limite d'usage, quota de l'API, crédit épuisé.
+    Limite,
+    /// Jeton ou clé refusés (expirés, révoqués, invalides).
+    Jeton,
+}
+
+impl GenreRefus {
+    pub fn code(self) -> &'static str {
+        match self {
+            GenreRefus::Limite => "limite",
+            GenreRefus::Jeton => "jeton",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reprise {
+    /// Instant exact (secondes Unix), format `usage limit reached|1736272800`.
+    Instant(i64),
+    /// Heure du jour (« resets 3pm », « resets 15:30 (Europe/Paris) ») : le prochain passage à
+    /// cette heure, dans le fuseau donné (UTC sinon).
+    Heure {
+        heure: u8,
+        minute: u8,
+        fuseau: Option<String>,
+    },
+}
+
+/// Le message d'erreur est-il un refus général de Claude ? Les pannes, délais et réponses
+/// illisibles n'en sont pas : elles ne concernent que l'appel en cours.
+pub fn refus(e: &ErreurClaude) -> Option<Refus> {
+    let texte = match e {
+        ErreurClaude::Modele(m) => m.as_str(),
+        ErreurClaude::Sortie { stderr, .. } => stderr.as_str(),
+        _ => return None,
+    };
+    refus_texte(texte)
+}
+
+pub fn refus_texte(texte: &str) -> Option<Refus> {
+    let t = texte.to_lowercase();
+    const LIMITE: &[&str] = &[
+        "usage limit",
+        "limit reached",
+        "hit your limit",
+        "rate limit",
+        "rate_limit",
+        "credit balance",
+        "quota",
+        "too many requests",
+        "resets ",
+        "error 429",
+        "status 429",
+        "429 ",
+    ];
+    const JETON: &[&str] = &[
+        "invalid bearer token",
+        "invalid api key",
+        "invalid x-api-key",
+        "authentication_error",
+        "authentication failed",
+        "oauth token",
+        "token has expired",
+        "token expired",
+        "revoked",
+        "unauthorized",
+        "please run /login",
+        "not logged in",
+        "error 401",
+        "status 401",
+        "401 ",
+    ];
+    let genre = if LIMITE.iter().any(|m| t.contains(m)) {
+        GenreRefus::Limite
+    } else if JETON.iter().any(|m| t.contains(m)) {
+        GenreRefus::Jeton
+    } else {
+        return None;
+    };
+    let reprise = (genre == GenreRefus::Limite)
+        .then(|| reprise(texte))
+        .flatten();
+    Some(Refus { genre, reprise })
+}
+
+/// Heure de reprise dans un message du CLI : `…|1736272800`, « resets 3pm », « resets 3:30 pm »,
+/// « resets 15:00 (Europe/Paris) », « resets at 9am ».
+fn reprise(texte: &str) -> Option<Reprise> {
+    if let Some((_, fin)) = texte.rsplit_once('|') {
+        let chiffres: String = fin
+            .trim()
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+        if chiffres.len() >= 9
+            && let Ok(n) = chiffres.parse::<i64>()
+        {
+            return Some(Reprise::Instant(n));
+        }
+    }
+    let bas = texte.to_lowercase();
+    let i = bas.find("reset")?;
+    let reste = &texte[i..];
+    let re = regex::Regex::new(
+        r"(?i)resets?\s+(?:at\s+|on\s+)?(?:[a-z]{3,9}\.?\s+)?(?:\d{1,2}\s*,?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?(?:\s*\(([A-Za-z_]+(?:/[A-Za-z_+\-]+)*)\))?",
+    )
+    .ok()?;
+    let c = re.captures(reste)?;
+    let mut heure: u8 = c.get(1)?.as_str().parse().ok()?;
+    let minute: u8 = c.get(2).map_or(Some(0), |m| m.as_str().parse().ok())?;
+    match c.get(3).map(|m| m.as_str().to_lowercase()) {
+        Some(ap) if ap == "pm" && heure < 12 => heure += 12,
+        Some(ap) if ap == "am" && heure == 12 => heure = 0,
+        Some(_) => {}
+        // Ni am ni pm ni minutes : un chiffre seul n'est pas une heure (« resets in 5 »).
+        None if c.get(2).is_none() => return None,
+        None => {}
+    }
+    if heure > 23 || minute > 59 {
+        return None;
+    }
+    Some(Reprise::Heure {
+        heure,
+        minute,
+        fuseau: c.get(4).map(|m| m.as_str().to_string()),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn heure(h: u8, m: u8, f: Option<&str>) -> Option<Reprise> {
+        Some(Reprise::Heure {
+            heure: h,
+            minute: m,
+            fuseau: f.map(str::to_string),
+        })
+    }
+
+    #[test]
+    fn refus_reconnus() {
+        let r = refus_texte("You've hit your limit · resets 3pm (Europe/Paris)").unwrap();
+        assert_eq!(r.genre, GenreRefus::Limite);
+        assert_eq!(r.reprise, heure(15, 0, Some("Europe/Paris")));
+        let r = refus_texte("5-hour limit reached ∙ resets 11:30am").unwrap();
+        assert_eq!(r.reprise, heure(11, 30, None));
+        let r = refus_texte("Claude AI usage limit reached|1736272800").unwrap();
+        assert_eq!(r.reprise, Some(Reprise::Instant(1736272800)));
+        let r = refus_texte("Weekly limit reached · resets Mon 9am (UTC)").unwrap();
+        assert_eq!(r.reprise, heure(9, 0, Some("UTC")));
+        let r = refus_texte("Session limit reached ∙ resets 12am").unwrap();
+        assert_eq!(r.reprise, heure(0, 0, None));
+        let r = refus_texte("API Error: 429 rate_limit_error").unwrap();
+        assert_eq!((r.genre, r.reprise), (GenreRefus::Limite, None));
+        let r = refus_texte("Invalid bearer token").unwrap();
+        assert_eq!((r.genre, r.reprise), (GenreRefus::Jeton, None));
+        let r = refus_texte("OAuth token has expired. Please run /login").unwrap();
+        assert_eq!(r.genre, GenreRefus::Jeton);
+    }
+
+    #[test]
+    fn erreurs_qui_ne_sont_pas_des_refus() {
+        assert!(refus_texte("Prompt is too long").is_none());
+        assert!(refus_texte("Overloaded").is_none());
+        assert!(refus(&ErreurClaude::Delai(300)).is_none());
+        assert!(refus(&ErreurClaude::JsonInvalide).is_none());
+        // Un chiffre seul n'est pas une heure.
+        assert_eq!(
+            refus_texte("limit reached, resets in 5").unwrap().reprise,
+            None
+        );
+    }
 }

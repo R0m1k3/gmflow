@@ -223,6 +223,16 @@
           b: [msg, depuis(b.depuis)].filter(Boolean).join(' ')
         };
       case 'claude':
+        // Refus noté pendant une lecture ou un tri : le message dit tout (« Claude refuse :
+        // limite d’usage, reprise vers 15:00 »).
+        if (b.motif === 'limite' || b.motif === 'jeton')
+          return {
+            a: msg || 'Claude refuse les appels',
+            b:
+              b.motif === 'limite'
+                ? 'Les documents et les mails attendent : ils repartiront tout seuls.'
+                : 'Les documents ne sont plus lus ni les mails triés.'
+          };
         return {
           a: b.motif === 'absent' ? 'Claude n’est pas connecté' : 'Connexion à Claude en échec',
           b: msg || 'Les documents ne sont plus lus ni les mails triés'
@@ -292,6 +302,8 @@
                 <div class="r">
                   {#if b.genre === 'boite' && b.boite_id !== null}
                     <a class="btn sm" href="/reglages/boites/{b.boite_id}">Corriger</a>
+                  {:else if b.genre === 'claude' && b.motif === 'limite'}
+                    <a class="btn sm" href="/reglages#claude">Voir Claude</a>
                   {:else if b.genre === 'claude'}
                     <a class="btn sm" href="/reglages#claude">Se reconnecter</a>
                   {:else if b.genre === 'envoi_erreur'}

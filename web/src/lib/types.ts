@@ -305,6 +305,32 @@ export interface FicheDocument {
   envois: Envoi[];
   /** Boîtes de réception du mail d'origine (visibles). */
   boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
+  /** Document pas encore lu : pourquoi il attend. */
+  attente: Attente | null;
+}
+
+export type GenreAttente =
+  | 'en_cours'
+  | 'en_file'
+  | 'bloque'
+  | 'jeton_absent'
+  | 'claude_refuse'
+  | 'quota'
+  | 'lecture_coupee'
+  | 'a_relancer';
+
+/** Pourquoi un document n'est pas encore lu. */
+export interface Attente {
+  genre: GenreAttente;
+  /** Phrase principale, sans point final. */
+  raison: string;
+  /** En attente depuis. */
+  depuis: string;
+  /** Documents qui passeront avant lui dans la file de lecture. */
+  devant: number | null;
+  lecture_auto: boolean;
+  /** Raison notée au dernier essai, si autre. */
+  dernier_essai: string | null;
 }
 
 export interface Envoi {
