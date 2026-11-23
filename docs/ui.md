@@ -66,7 +66,7 @@ Ligne de liste : `.a` titre, `.b` sous-ligne, `.r` à droite (montant), `.r2` â
 | `Bandeau` | `ton`: attention (défaut), erreur, ok, info, neutre ; `titre?` en gras ; snippet `action` (un `.btn.sm`). Une phrase, en tête de zone. |
 | `Repli` | `titre`, `resume?` (une ligne à droite), `icone?`, `bind:ouvert`. Grouper dans `<div class="replis">`. |
 | `ApercuPiece` | `id` (pièce), `typeMime`, `nom`, `outils?`. PDF en iframe, image en img, sinon phrase + Télécharger. Source `/api/pieces/{id}?inline=1`. |
-| `Confirmation` | `<dialog>` natif : `bind:ouvert`, `titre`, `libelle`, `danger?`, `onconfirmer` (async : bouton occupé pendant l'appel), contenu en enfant. |
+| `Confirmation` | `<dialog>` natif : `bind:ouvert`, `titre`, `libelle`, `danger?`, `desactive?` (bouton grisé), `onconfirmer` (async : bouton occupé pendant l'appel), contenu en enfant. |
 | `Vide` | `titre`, `texte?`, `icone?`, `compact?`, enfants = actions. Ex. « Tout est à jour ». |
 | `Chargement` | `texte?`, `compact?` ; n'apparaît qu'après 300 ms. Erreur de chargement : `<Bandeau ton="erreur">` + bouton « Réessayer ». |
 | `Kbd` | `t="J"`, `t="Enter"` (↵), `t={['Ctrl', 'Enter']}`. |

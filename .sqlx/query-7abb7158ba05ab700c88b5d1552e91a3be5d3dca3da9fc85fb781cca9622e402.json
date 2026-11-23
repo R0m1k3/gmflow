@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id as \"id!\", status as \"status!\", priority, run_at as \"run_at!\" from apalis.jobs\n           where job_type = $1\n             and (status in ('Pending', 'Queued')\n                  or (status = 'Running' and lock_at > now() - make_interval(mins => $3)))\n             and convert_from(job, 'UTF8')::jsonb #>> '{LireDocument,document_id}' = $2\n           order by (status = 'Pending'), priority desc nulls last, run_at\n           limit 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apalis.jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apalis.jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "priority",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "apalis.jobs",
+            "name": "priority"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "run_at!",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "apalis.jobs",
+            "name": "run_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "7abb7158ba05ab700c88b5d1552e91a3be5d3dca3da9fc85fb781cca9622e402"
+}

@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select worker_type as \"file!\", max(last_seen) as \"dernier!\"\n           from apalis.workers where worker_type = any($1) group by worker_type",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "apalis.workers",
+            "name": "worker_type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "dernier!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "5575fa482386ff8838ffc6669c634b5e6c9d6db9fded8a2b04c7c6d50f62a924"
+}

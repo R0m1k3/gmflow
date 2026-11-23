@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select recu_le, tri_message from mail\n           where tri_etat in ('a_trier', 'en_cours') order by recu_le, id limit 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "recu_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "recu_le"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "tri_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "tri_message"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "1c0fccd31265551c679bd3c4ddb00c6c04a0514cfa807abd4c38976493e5c044"
+}

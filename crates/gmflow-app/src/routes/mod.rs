@@ -3,7 +3,9 @@ pub mod admin_boites;
 pub mod admin_claude;
 pub mod admin_expedition;
 pub mod admin_journal;
+pub mod admin_reinitialiser;
 pub mod admin_societes;
+pub mod admin_traitements;
 pub mod admin_utilisateurs;
 pub mod auth;
 pub mod bilan;
@@ -191,6 +193,19 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/admin/boites/{id}/relever", post(admin_boites::relever))
         .route("/admin/boites/{id}/compteurs", get(admin_boites::compteurs))
         .route("/admin/journal", get(admin_journal::lister))
+        .route(
+            "/admin/reinitialiser",
+            post(admin_reinitialiser::reinitialiser),
+        )
+        .route("/admin/traitements", get(admin_traitements::lister))
+        .route(
+            "/admin/traitements/tout-relire",
+            post(admin_traitements::tout_relire),
+        )
+        .route(
+            "/admin/traitements/{etape}/relancer",
+            post(admin_traitements::relancer),
+        )
         .route("/admin/claude", get(admin_claude::etat))
         .route(
             "/admin/claude/jeton",

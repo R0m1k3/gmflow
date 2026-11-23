@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update parametre\n           set valeur = (valeur - 'refus' - 'reprise' - 'reprise_texte' - 'explication')\n                        || '{\"etat\": \"valide\", \"message\": \"\"}'::jsonb,\n               modifie_le = now()\n           where cle = $1 and valeur ->> 'etat' = 'erreur'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4f058623af784a682b7e4dd735357c2f3c69a670a50900a07af5fd25eb2f4749"
+}

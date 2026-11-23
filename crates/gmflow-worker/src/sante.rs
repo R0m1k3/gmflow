@@ -1,15 +1,23 @@
-//! `/health` du worker (port 8081) : base joignable et battement de moins de 10 minutes.
+//! `/health` du worker (port 8081) : base joignable, battement du planificateur de moins de
+//! 10 minutes et chacune des six files qui bat depuis moins de 5 minutes.
 
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
-use gmflow_core::parametre;
+use gmflow_core::{parametre, traitements};
 use sqlx::PgPool;
 
 pub const BATTEMENT_MAX: time::Duration = time::Duration::minutes(10);
+/// Une file bat toutes les 30 s ; une file relancée attend d'abord la fin des tâches de son
+/// incarnation précédente, d'où une marge plus large que pour l'orchestre (3 min).
+pub const BATTEMENT_FILE_MAX: time::Duration = time::Duration::minutes(5);
 
 pub async fn controle(pool: &PgPool) -> bool {
+    planificateur_vivant(pool).await && files_vivantes(pool).await
+}
+
+async fn planificateur_vivant(pool: &PgPool) -> bool {
     let Ok(Some(v)) = parametre::lire(pool, parametre::WORKER_BATTEMENT).await else {
         return false;
     };
@@ -22,13 +30,24 @@ pub async fn controle(pool: &PgPool) -> bool {
     }
 }
 
+async fn files_vivantes(pool: &PgPool) -> bool {
+    let Ok(b) = traitements::battements(pool).await else {
+        return false;
+    };
+    let maintenant = time::OffsetDateTime::now_utc();
+    traitements::FILES.iter().all(|f| {
+        b.get(*f)
+            .is_some_and(|t| maintenant - *t < BATTEMENT_FILE_MAX)
+    })
+}
+
 async fn health(State(pool): State<PgPool>) -> (StatusCode, &'static str) {
     if controle(&pool).await {
         (StatusCode::OK, "ok")
     } else {
         (
             StatusCode::SERVICE_UNAVAILABLE,
-            "base injoignable ou planificateur arrêté",
+            "base injoignable, planificateur ou file arrêté",
         )
     }
 }

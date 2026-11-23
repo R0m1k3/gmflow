@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from fournisseur f where f.id = $1\n                 and not exists (select 1 from document d where d.fournisseur_id = f.id)\n                 and not exists (select 1 from fournisseur g where g.groupe_id = f.id)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ae73aa7ec3581277b9313665a5d4861e3bcfd60eaa5848f819ea15bf5d6eae67"
+}

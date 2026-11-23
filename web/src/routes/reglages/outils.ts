@@ -114,7 +114,8 @@ const OBJETS: Record<string, string> = {
   fournisseur: 'fournisseur',
   claude: 'Claude',
   expedition: 'adresse d’envoi',
-  parametre: 'réglage'
+  parametre: 'réglage',
+  donnees: 'données'
 };
 export function libelleObjet(t: string): string {
   return OBJETS[t] ?? t.replace(/_/g, ' ');
@@ -155,6 +156,7 @@ const ACTIONS: Record<string, string> = {
   expediteur_publicite: 'Expéditeur publicitaire ajouté',
   expediteur_publicite_retire: 'Expéditeur publicitaire retiré',
   purge_publicites: 'Publicités anciennes effacées',
+  reinitialisation: 'Réinitialisation : tout effacé, relève relancée',
   piece_alteree: 'Pièce jointe modifiée',
   message_id_reutilise: 'Mail en double',
   seance_setup_token: 'Connexion au compte Claude',

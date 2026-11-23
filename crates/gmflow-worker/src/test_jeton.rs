@@ -56,15 +56,22 @@ pub async fn tester(ctx: &Contexte) -> anyhow::Result<()> {
             Ok(())
         }
         Err(e) => {
-            parametre::ecrire(
-                &ctx.pool,
-                parametre::CLAUDE_ETAT,
-                &json!({
-                    "etat": "erreur", "message": e.to_string(), "teste_le": quand,
-                    "utilise_le": precedent.get("utilise_le"), "fin": fin, "cle_api": acces.cle_api
-                }),
-            )
-            .await?;
+            let mut v = json!({
+                "etat": "erreur", "message": e.to_string(), "teste_le": quand,
+                "utilise_le": precedent.get("utilise_le"), "fin": fin, "cle_api": acces.cle_api
+            });
+            // Refus (limite d'usage, jeton refusé) : `claude::lancer` vient d'en noter
+            // l'explication et l'heure de reprise, elles restent.
+            if claude::refus(&e).is_some()
+                && let Some(actuel) = parametre::lire(&ctx.pool, parametre::CLAUDE_ETAT).await?
+            {
+                for cle in ["refus", "reprise", "reprise_texte", "explication"] {
+                    if let Some(x) = actuel.get(cle) {
+                        v[cle] = x.clone();
+                    }
+                }
+            }
+            parametre::ecrire(&ctx.pool, parametre::CLAUDE_ETAT, &v).await?;
             Err(e.into())
         }
     }

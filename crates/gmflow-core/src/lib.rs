@@ -1,6 +1,7 @@
 //! Code partagé par l'app et le worker : configuration, base, chiffrement,
 //! file de tâches, lecture des `.eml`, connexion IMAP et appels à Claude CLI.
 
+pub mod attente;
 pub mod claude;
 pub mod config;
 pub mod controles;
@@ -20,10 +21,12 @@ pub mod lecture;
 pub mod parametre;
 pub mod rapprochement;
 pub mod reglages;
+pub mod reinitialisation;
 pub mod reponse;
 pub mod stockage;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
+pub mod traitements;
 pub mod tri;
 
 /// Logs JSON sur la sortie standard (consultables dans Portainer).

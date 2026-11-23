@@ -1164,6 +1164,7 @@ dependencies = [
  "pdf-extract",
  "quick-xml",
  "rand 0.10.4",
+ "regex",
  "rust_xlsxwriter",
  "serde",
  "serde_json",

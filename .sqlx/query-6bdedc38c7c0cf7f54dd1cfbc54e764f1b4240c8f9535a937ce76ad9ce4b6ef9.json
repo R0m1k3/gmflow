@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select date_trunc('day', now(), 'UTC') + interval '1 day' as \"t!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "t!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6bdedc38c7c0cf7f54dd1cfbc54e764f1b4240c8f9535a937ce76ad9ce4b6ef9"
+}

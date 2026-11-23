@@ -1,6 +1,7 @@
 //! Lecture des pièces jointes : pompe (création des documents, mise en file) et tâche
 //! `LireDocument` (aiguillage, lecture par le code, puis un seul appel à Claude si besoin).
 
+use gmflow_core::attente::{self, VOIES_CLAUDE};
 use gmflow_core::claude::{self, Appel, DossierTemp, ErreurClaude};
 use gmflow_core::lecture::extraction::{self, Contenu, ContexteMail, ErreurExtraction, Extraction};
 use gmflow_core::lecture::societe::{self, SocieteRef};
@@ -15,27 +16,22 @@ use crate::Contexte;
 const PAR_TOUR: i64 = 200;
 /// Texte conservé en base.
 const TEXTE_CONSERVE: usize = 200_000;
-const VOIES_CLAUDE: &[&str] = &["pdf_texte", "tableur", "scan"];
 
-/// Claude peut-il lire maintenant (jeton présent, quota du jour non atteint) ? Sinon, pourquoi.
+/// Claude peut-il lire maintenant (jeton présent, pas de refus en cours, quota du jour non
+/// atteint) ? Sinon, pourquoi (phrase gardée dans `document.message`).
 pub(crate) async fn claude_indisponible(
     pool: &PgPool,
     r: &reglages::Reglages,
 ) -> anyhow::Result<Option<String>> {
-    if !claude::acces_configure(pool).await? {
-        return Ok(Some("jeton Claude absent".into()));
-    }
-    if reglages::appels_lecture_du_jour(pool).await? >= r.quota_lecture_jour {
-        return Ok(Some(format!(
-            "quota du jour atteint ({} appels)",
-            r.quota_lecture_jour
-        )));
-    }
-    Ok(None)
+    Ok(attente::lecture_indisponible(pool, r, false)
+        .await?
+        .map(|i| i.message))
 }
 
 /// Crée les documents des pièces jointes nouvelles, remet en file les documents bloqués, puis
-/// pousse les documents à lire, les plus récents d'abord. Rend le nombre de tâches poussées.
+/// pousse les documents à lire, les plus récents d'abord. Un document qui a déjà une tâche en
+/// file n'est pas repoussé ; un mail de moins de 24 h passe devant l'arriéré (priorité apalis).
+/// Rend le nombre de tâches poussées.
 pub async fn pompe(pool: &PgPool) -> anyhow::Result<usize> {
     sqlx::query!(
         "insert into document (piece_jointe_id, mail_id, sha256)
@@ -59,29 +55,39 @@ pub async fn pompe(pool: &PgPool) -> anyhow::Result<usize> {
     // partent : les autres attendraient pour rien.
     let sans_claude = claude_indisponible(pool, &r).await?.is_some();
     let voies: Vec<String> = VOIES_CLAUDE.iter().map(|v| v.to_string()).collect();
-    let ids = sqlx::query_scalar!(
+    let en_file = file::documents_en_file(pool).await?;
+    let choisis = sqlx::query!(
         r#"with choisis as (
-             select d.id, m.date_mail from document d join mail m on m.id = d.mail_id
+             select d.id, coalesce(m.date_mail, m.recu_le) as recu from document d
+             join mail m on m.id = d.mail_id
              where d.etat = 'a_lire'
                and (d.planifie_le is null or d.planifie_le < now() - interval '30 minutes')
                and not ($1 and d.voie is not null and d.voie = any($2))
+               and d.id <> all($4)
              order by m.date_mail desc nulls last, d.id desc
              limit $3
              for update of d skip locked
            ), maj as (
              update document set planifie_le = now() where id in (select id from choisis)
            )
-           select id as "id!" from choisis order by date_mail desc nulls last, id desc"#,
+           select id as "id!", coalesce(recu > now() - interval '24 hours', false) as "recent!"
+           from choisis order by recu desc nulls last, id desc"#,
         sans_claude,
         &voies,
-        PAR_TOUR
+        PAR_TOUR,
+        &en_file
     )
     .fetch_all(pool)
     .await?;
-    for id in &ids {
-        file::pousser_lecture(pool, *id, false).await?;
+    for c in &choisis {
+        let priorite = if c.recent {
+            file::PRIORITE_RECENT
+        } else {
+            file::PRIORITE_ARRIERE
+        };
+        file::pousser_lecture_auto(pool, c.id, priorite).await?;
     }
-    Ok(ids.len())
+    Ok(choisis.len())
 }
 
 /// La pompe après une relève : une erreur n'arrête pas la relève.
@@ -414,6 +420,7 @@ pub async fn lire(
     document_id: i64,
     forcer: bool,
     approfondie: bool,
+    hors_quota: bool,
 ) -> anyhow::Result<()> {
     let pool = &ctx.pool;
     let Some(doc) = sqlx::query_as!(
@@ -430,7 +437,7 @@ pub async fn lire(
     else {
         return Ok(());
     };
-    let resultat = lire_pris(ctx, document_id, forcer, approfondie, doc).await;
+    let resultat = lire_pris(ctx, document_id, forcer, approfondie, hors_quota, doc).await;
     if resultat.is_ok() {
         apres_lecture(ctx, document_id).await;
     }
@@ -514,6 +521,7 @@ async fn lire_pris(
     id: i64,
     forcer: bool,
     approfondie: bool,
+    hors_quota: bool,
     e: Entree,
 ) -> anyhow::Result<()> {
     let pool = &ctx.pool;
@@ -561,6 +569,7 @@ async fn lire_pris(
                 pdf: (voie == Voie::PdfTexte).then_some(contenu.as_slice()),
                 pages: None,
                 approfondie,
+                hors_quota,
             };
             match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, src).await? {
                 Lecture::Faite(ex, reglage, an) => {
@@ -602,6 +611,7 @@ async fn lire_pris(
                     pdf: None,
                     pages: Some(pages),
                     approfondie,
+                    hors_quota,
                 },
             )
             .await?
@@ -634,6 +644,17 @@ async fn lire_pris(
     Ok(())
 }
 
+/// Phrase gardée sur un document remis en attente après un appel en échec : l'explication du
+/// refus notée par `claude::lancer` (heure de reprise comprise), sinon la panne.
+pub(crate) async fn message_echec(pool: &PgPool, e: &ErreurClaude) -> String {
+    if claude::refus(e).is_some()
+        && let Ok(Some(i)) = attente::refus_actif(pool).await
+    {
+        return i.message;
+    }
+    format!("Claude n’a pas répondu ({e}) : nouvel essai dans 30 minutes")
+}
+
 enum Lecture {
     /// Lecture faite ; les anomalies restantes (vide si aucune) vont dans le message.
     Faite(Extraction, reglages::Reglage, Vec<String>),
@@ -655,6 +676,8 @@ struct Source<'a> {
     pages: Option<usize>,
     /// Relecture en détail demandée par un humain : pas de premier essai au réglage de la tâche.
     approfondie: bool,
+    /// Demande d'un humain sur ce document : le quota du jour ne compte pas.
+    hors_quota: bool,
 }
 
 /// Lecture par Claude en deux temps au plus : le réglage de la tâche, puis le nouvel essai
@@ -671,12 +694,21 @@ async fn lire_par_claude(
 ) -> anyhow::Result<Lecture> {
     let pool = &ctx.pool;
     let r = reglages::lire(pool).await?;
-    if let Some(raison) = claude_indisponible(pool, &r).await? {
-        remettre(pool, id, voie, &raison).await?;
+    if let Some(i) = attente::lecture_indisponible(pool, &r, src.hors_quota).await? {
+        remettre(pool, id, voie, &i.message).await?;
         return Ok(Lecture::Reportee);
     }
     let Some(acces) = claude::acces(pool, &ctx.chiffreur).await? else {
-        remettre(pool, id, voie, "jeton Claude absent").await?;
+        remettre(
+            pool,
+            id,
+            voie,
+            &attente::lecture_indisponible(pool, &r, true)
+                .await?
+                .map(|i| i.message)
+                .unwrap_or_else(|| "Claude n’est pas connecté".into()),
+        )
+        .await?;
         return Ok(Lecture::Reportee);
     };
     let transcription = src.dossier.is_some();
@@ -716,18 +748,18 @@ async fn lire_par_claude(
             }
             Err(e) => {
                 // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
-                remettre(pool, id, voie, &format!("Claude : {e}")).await?;
+                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
                 return Ok(Lecture::Reportee);
             }
         }
     };
 
     // Nouvel essai : réglage plus fort, ce qui manquait, et le PDF d'un PDF texte.
-    if let Some(raison) = claude_indisponible(pool, &r).await? {
+    if let Some(i) = attente::lecture_indisponible(pool, &r, src.hors_quota).await? {
         if let Some((ex, reglage, an)) = premiere {
             return Ok(Lecture::Faite(ex, reglage, an));
         }
-        remettre(pool, id, voie, &raison).await?;
+        remettre(pool, id, voie, &i.message).await?;
         return Ok(Lecture::Reportee);
     }
     let mut _garde = None;
@@ -795,7 +827,7 @@ async fn lire_par_claude(
         Err(e) => {
             tracing::warn!(document = id, erreur = %e, "nouvel essai de lecture impossible");
             if premiere.is_none() && !matches!(e, ErreurClaude::JsonInvalide) {
-                remettre(pool, id, voie, &format!("Claude : {e}")).await?;
+                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
                 return Ok(Lecture::Reportee);
             }
             e.to_string()

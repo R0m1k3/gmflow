@@ -248,6 +248,8 @@ pub struct FicheComplete {
     envois: Vec<EnvoiVue>,
     /// Boîtes de réception du mail d'origine, par libellé.
     boites: Vec<BoiteReception>,
+    /// Document pas encore lu (`a_lire`, `en_cours`) : pourquoi il attend.
+    attente: Option<gmflow_core::attente::Attente>,
 }
 
 async fn mail_du_document(etat: &Etat, id: i64) -> Resultat<i64> {
@@ -325,10 +327,18 @@ pub async fn fiche(
     )
     .fetch_all(&etat.pool)
     .await?;
+    let attente = if d.etat == "a_lire" || d.etat == "en_cours" {
+        gmflow_core::attente::expliquer(&etat.pool, id)
+            .await
+            .map_err(ErreurApi::Interne)?
+    } else {
+        None
+    };
     Ok(Json(FicheComplete {
         document: d,
         envois,
         boites,
+        attente,
     }))
 }
 
@@ -433,6 +443,8 @@ pub struct Relecture {
 }
 
 /// Relecture forcée (administrateur) : nouvel appel, même si un document identique est lu.
+/// Sert aussi de « Lire maintenant » pour un document en attente : la tâche passe devant toute
+/// la file de lecture et le quota du jour ne compte pas.
 pub async fn relire(
     AccesAdmin(acces): AccesAdmin,
     State(etat): State<Etat>,
@@ -456,7 +468,7 @@ pub async fn relire(
     if r.approfondie {
         file::pousser_relecture_approfondie(&etat.pool, id).await
     } else {
-        file::pousser_lecture(&etat.pool, id, true).await
+        file::pousser_lecture_maintenant(&etat.pool, id).await
     }
     .map_err(ErreurApi::Interne)?;
     journal::ecrire(

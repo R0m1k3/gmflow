@@ -4,6 +4,7 @@
   //     Il ne sera pas envoyé à Dext.
   //   </Confirmation>
   // Échap ou « Annuler » ferment sans rien faire ; le focus revient où il était.
+  // `desactive` : bouton de confirmation grisé (ex. tant que le mot demandé n'est pas tapé).
   import type { Snippet } from 'svelte';
 
   let {
@@ -12,6 +13,7 @@
     libelle = 'Confirmer',
     libelleAnnuler = 'Annuler',
     danger = false,
+    desactive = false,
     onconfirmer,
     children
   }: {
@@ -20,6 +22,7 @@
     libelle?: string;
     libelleAnnuler?: string;
     danger?: boolean;
+    desactive?: boolean;
     onconfirmer: () => void | Promise<void>;
     children?: Snippet;
   } = $props();
@@ -60,7 +63,7 @@
   </div>
   <div class="dlg-pied">
     <button type="button" class="btn" onclick={() => (ouvert = false)}>{libelleAnnuler}</button>
-    <button type="button" class="btn principal" class:danger class:en-cours={enCours} disabled={enCours} onclick={confirmer}>
+    <button type="button" class="btn principal" class:danger class:en-cours={enCours} disabled={enCours || desactive} onclick={confirmer}>
       {libelle}
     </button>
   </div>

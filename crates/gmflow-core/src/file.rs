@@ -59,6 +59,9 @@ pub enum TacheLecture {
         /// essai (modèle plus fort), fichier d'origine joint.
         #[serde(default)]
         approfondie: bool,
+        /// Demande d'un humain sur un seul document : le quota du jour ne compte pas.
+        #[serde(default)]
+        hors_quota: bool,
     },
 }
 
@@ -125,17 +128,43 @@ pub async fn pousser_envoi(pool: &PgPool, tache: TacheEnvoi) -> anyhow::Result<(
         .map_err(|e| anyhow::anyhow!("file envoi : {e}"))
 }
 
+/// Priorités de la file `lecture` (apalis sert `priority desc`, puis la plus ancienne) : une
+/// demande d'un humain passe devant tout, un mail de moins de 24 h devant l'arriéré.
+pub const PRIORITE_HUMAIN: usize = 10;
+pub const PRIORITE_RECENT: usize = 5;
+pub const PRIORITE_ARRIERE: usize = 0;
+
+/// Lots de 2 au plus : une tâche plus prioritaire poussée ensuite n'attend pas derrière dix
+/// tâches déjà prises par le worker.
 pub fn stockage_lecture(pool: &PgPool) -> PostgresStorage<TacheLecture> {
-    PostgresStorage::new(pool).with_config(Config::default().queue(FILE_LECTURE))
+    PostgresStorage::new(pool).with_config(Config::default().queue(FILE_LECTURE).batch_size(2))
 }
 
+/// Lecture poussée à la main (relecture des BL, « Relire »), `forcer` : pas de reprise d'un
+/// document identique. Le quota du jour s'applique.
 pub async fn pousser_lecture(pool: &PgPool, document_id: i64, forcer: bool) -> anyhow::Result<()> {
-    pousser(pool, document_id, forcer, false).await
+    pousser(pool, document_id, forcer, false, false, PRIORITE_RECENT).await
 }
 
-/// Relecture en détail (modèle plus fort, fichier d'origine joint), toujours forcée.
+/// « Lire maintenant » / « Relire » sur une fiche (administrateur) : devant toute la file, hors
+/// quota du jour.
+pub async fn pousser_lecture_maintenant(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
+    pousser(pool, document_id, true, false, true, PRIORITE_HUMAIN).await
+}
+
+/// Lecture automatique (pompe) : priorité selon l'âge du mail.
+pub async fn pousser_lecture_auto(
+    pool: &PgPool,
+    document_id: i64,
+    priorite: usize,
+) -> anyhow::Result<()> {
+    pousser(pool, document_id, false, false, false, priorite).await
+}
+
+/// Relecture en détail (modèle plus fort, fichier d'origine joint), toujours forcée, devant
+/// toute la file, hors quota du jour.
 pub async fn pousser_relecture_approfondie(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
-    pousser(pool, document_id, true, true).await
+    pousser(pool, document_id, true, true, true, PRIORITE_HUMAIN).await
 }
 
 async fn pousser(
@@ -143,13 +172,17 @@ async fn pousser(
     document_id: i64,
     forcer: bool,
     approfondie: bool,
+    hors_quota: bool,
+    priorite: usize,
 ) -> anyhow::Result<()> {
     let tache = TaskBuilder::new(TacheLecture::LireDocument {
         document_id,
         forcer,
         approfondie,
+        hors_quota,
     })
     .max_attempts(1)
+    .priority(priorite)
     .build();
     stockage_lecture(pool)
         .push_task(tache)
@@ -199,4 +232,79 @@ pub async fn pousser_seance(pool: &PgPool, seance_id: Uuid) -> anyhow::Result<()
 
 pub async fn pousser_test_jeton(pool: &PgPool) -> anyhow::Result<()> {
     pousser_claude(pool, TacheClaude::TestJeton, 2).await
+}
+
+/// Une tâche `running` plus vieille que ça est une tâche fantôme (worker mort pendant la
+/// lecture, accusé de fin perdu) : elle ne compte plus comme « en file ».
+pub const TACHE_FANTOME_MIN: i32 = 30;
+
+/// Documents qui ont déjà une tâche `lecture` en attente ou en cours (args JSON de la tâche :
+/// `{"LireDocument": {"document_id": 12, ...}}`).
+pub async fn documents_en_file<'e>(db: impl sqlx::PgExecutor<'e>) -> sqlx::Result<Vec<i64>> {
+    sqlx::query_scalar!(
+        r#"select distinct (convert_from(job, 'UTF8')::jsonb #>> '{LireDocument,document_id}')::bigint as "id!"
+           from apalis.jobs
+           where job_type = $1
+             and (status in ('Pending', 'Queued')
+                  or (status = 'Running' and lock_at > now() - make_interval(mins => $2)))
+             and convert_from(job, 'UTF8')::jsonb #>> '{LireDocument,document_id}' is not null"#,
+        FILE_LECTURE,
+        TACHE_FANTOME_MIN
+    )
+    .fetch_all(db)
+    .await
+}
+
+/// Place d'un document dans la file `lecture`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum PlaceEnFile {
+    /// Tâche prise par le worker (lecture en cours ou toute proche).
+    Prise,
+    /// En attente : `devant` tâches passeront avant elle ; `humain` : demandée par un humain.
+    EnAttente { devant: i64, humain: bool },
+}
+
+/// Place du document dans la file de lecture, `None` s'il n'y a aucune tâche pour lui.
+pub async fn place_lecture(pool: &PgPool, document_id: i64) -> sqlx::Result<Option<PlaceEnFile>> {
+    let id = document_id.to_string();
+    let Some(t) = sqlx::query!(
+        r#"select id as "id!", status as "status!", priority, run_at as "run_at!" from apalis.jobs
+           where job_type = $1
+             and (status in ('Pending', 'Queued')
+                  or (status = 'Running' and lock_at > now() - make_interval(mins => $3)))
+             and convert_from(job, 'UTF8')::jsonb #>> '{LireDocument,document_id}' = $2
+           order by (status = 'Pending'), priority desc nulls last, run_at
+           limit 1"#,
+        FILE_LECTURE,
+        id,
+        TACHE_FANTOME_MIN
+    )
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(None);
+    };
+    if t.status != "Pending" {
+        return Ok(Some(PlaceEnFile::Prise));
+    }
+    let devant = sqlx::query_scalar!(
+        r#"select count(*) as "n!" from apalis.jobs
+           where job_type = $1
+             and (status = 'Queued'
+                  or (status = 'Pending' and run_at <= now()
+                      and (coalesce(priority, 0) > $2
+                           or (coalesce(priority, 0) = $2
+                               and (run_at < $3 or (run_at = $3 and id < $4))))))"#,
+        FILE_LECTURE,
+        t.priority.unwrap_or(0),
+        t.run_at,
+        t.id
+    )
+    .fetch_one(pool)
+    .await?;
+    let priorite = t.priority.unwrap_or(0);
+    Ok(Some(PlaceEnFile::EnAttente {
+        devant,
+        humain: priorite >= PRIORITE_HUMAIN as i32,
+    }))
 }

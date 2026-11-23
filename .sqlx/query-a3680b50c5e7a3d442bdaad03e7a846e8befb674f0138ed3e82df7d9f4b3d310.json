@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with f as (select coalesce((select name from pg_timezone_names where name = $3 limit 1), 'UTC') as tz),\n                        x as (select (((now() at time zone f.tz)::date + make_time($1, $2, 0)) at time zone f.tz) as t from f)\n                   select case when t > now() then t else t + interval '1 day' end as \"t!\" from x",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "t!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a3680b50c5e7a3d442bdaad03e7a846e8befb674f0138ed3e82df7d9f4b3d310"
+}

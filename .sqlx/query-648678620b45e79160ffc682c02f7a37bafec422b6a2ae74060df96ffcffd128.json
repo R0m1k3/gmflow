@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select max(cree_le) from rapprochement",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "648678620b45e79160ffc682c02f7a37bafec422b6a2ae74060df96ffcffd128"
+}

@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where (d.valide_le is not null and d.statut_depot in ('a_verifier', 'pret'))\n                                     or (d.valide_le is null and d.statut_depot = 'pret'\n                                         and coalesce(s.depot_auto, false))) as \"a_deposer!\",\n                  min(coalesce(d.valide_le, d.lu_le)) filter (\n                      where (d.valide_le is not null and d.statut_depot in ('a_verifier', 'pret'))\n                         or (d.valide_le is null and d.statut_depot = 'pret'\n                             and coalesce(s.depot_auto, false))) as plus_vieux,\n                  count(*) filter (where s.adresse_depot is null\n                                     and ((d.valide_le is not null and d.statut_depot in ('a_verifier', 'pret'))\n                                          or (d.valide_le is null and d.statut_depot = 'pret'\n                                              and coalesce(s.depot_auto, false)))) as \"sans_adresse!\",\n                  count(*) filter (where d.statut_depot = 'erreur') as \"en_erreur!\"\n           from document d left join societe s on s.id = d.societe_id\n           where d.etat = 'lu'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "a_deposer!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "plus_vieux",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "sans_adresse!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "en_erreur!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "399f304b6f419608f436d3cd93039407587b9e7b6b01d7f4cfed2e01865becc6"
+}

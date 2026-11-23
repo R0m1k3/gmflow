@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into parametre (cle, valeur) values ($1, jsonb_build_object($2::text, $3::timestamptz))\n         on conflict (cle) do update\n           set valeur = coalesce(parametre.valeur, '{}'::jsonb) || excluded.valeur, modifie_le = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1eb92e76989f792df7e9a2cc17cb15b2ce9be4420747f2fcc2fe7950090acdad"
+}

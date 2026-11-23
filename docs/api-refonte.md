@@ -388,3 +388,11 @@ Essai SMTP (envoi des réponses) d'une boîte enregistrée : connexion et authen
 - `fournisseur_id`, `fournisseur` : fiche reconnue par le domaine de l'expéditeur (`null` sinon), pour le nom en tête de la fiche et l'encadré du fil fournisseur quand le mail n'a pas de pièce lue.
 - `pieces[]` : en plus de `document_id`, `document_etat`, `document_type`, `document_voie` : `document_statut_depot`, `document_verifie`, `document_numero`, `document_montant_ttc`, `document_fournisseur_id`, `document_fournisseur` (fiche, à défaut nom lu), `document_societe_id`, `document_societe`, `document_outil` (`dext`/`yooz`), `document_envoye_le` (dernier envoi réussi) : la liste des pièces se lit sans ouvrir chaque fiche document.
 - `brouillons[]` (et toute réponse proposée) : `boite_adresse` (adresse de la boîte d'envoi).
+
+## 9. Réinitialisation (Réglages > Avancé > Zone dangereuse)
+
+### `POST /api/admin/reinitialiser` (admin)
+
+Corps `{ "confirmation": "RÉINITIALISER" }` (sinon `400`). Efface dans une transaction tout ce qui vient des mails : `mail`, `mail_boite`, `piece_jointe`, `document`, `ligne_document`, `rapprochement`, `envoi_depot`, `brouillon_reponse`, `boite_dossier`, `mail_hors_societe`, `fournisseur`, `fournisseur_distinct`, `journal`, `appel_claude`, et les tâches apalis pas encore prises (lecture, tri, rédaction, dépôts et réponses, relèves). Garde `societe`, `boite_mail` (relève remise à zéro : `derniere_releve`, `derniere_erreur`, `erreur_depuis`, `alerte_le`, `releve_jusqu_a` vides, `echecs_auth` 0, `pause_auto` levée), `utilisateur`, `parametre`, `seance_claude`, `expediteur_marque`, les sessions et les `.eml` sur disque. Écrit une ligne d'historique `reinitialisation` (qui, combien), puis pousse une relève par boîte active : sans `boite_dossier`, elle repart de `SINCE aujourd'hui - reprise_mois`.
+
+Réponse : `{ "mails", "documents", "fournisseurs", "taches", "boites_relancees" }`. `409` si une relève tient son bail, si un envoi (Dext/Yooz ou réponse) a commencé depuis moins de 15 min, ou si la base reste verrouillée (message à afficher tel quel).

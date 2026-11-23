@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select exists (select 1 from envoi_depot\n                          where etat = 'en_cours' and quand > now() - make_interval(mins => $1))\n               or exists (select 1 from brouillon_reponse\n                          where statut = 'envoi' and modifie_le > now() - make_interval(mins => $1))\n           as \"e!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "e!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "574d89fb89bfda9344a1a6f46670beb3d7d6226fd22d4c385e890a45fd0e1c9d"
+}

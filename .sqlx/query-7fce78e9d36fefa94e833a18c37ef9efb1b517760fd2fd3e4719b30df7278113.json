@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select libelle, pause_auto, derniere_releve, derniere_erreur, erreur_depuis\n           from boite_mail where active order by id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pause_auto",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "pause_auto"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "derniere_releve",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "derniere_releve"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "derniere_erreur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "derniere_erreur"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "erreur_depuis",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "erreur_depuis"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "7fce78e9d36fefa94e833a18c37ef9efb1b517760fd2fd3e4719b30df7278113"
+}

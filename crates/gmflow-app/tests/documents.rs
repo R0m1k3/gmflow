@@ -321,7 +321,7 @@ async fn reglages_claude_et_journal_des_appels() {
         r.json["nouvel_essai"],
         json!({ "modele": "sonnet", "effort": "medium" })
     );
-    assert_eq!(r.json["quota_lecture_jour"], 100);
+    assert_eq!(r.json["quota_lecture_jour"], 1000);
     assert_eq!(r.json["lecture_auto"], true);
     let mut nouveau = json!({
         "extraction_texte": { "modele": "haiku", "effort": "low" },
@@ -399,6 +399,164 @@ async fn reglages_claude_et_journal_des_appels() {
     let r = app
         .requete("GET", "/api/admin/claude/reglages", None, admin)
         .await;
-    assert_eq!(r.json["appels_lecture_du_jour"], 2);
+    // Seuls les appels réussis comptent dans le quota.
+    assert_eq!(r.json["appels_lecture_du_jour"], 1);
+    m.app.fermer().await;
+}
+
+/// Fiche d'un document en attente : la raison en clair (Claude absent, quota, refus, file de
+/// lecture, lecture coupée), et « Lire maintenant » qui passe devant toute la file.
+#[tokio::test]
+async fn document_en_attente_explique() {
+    let m = monde().await;
+    let app = &m.app;
+    sqlx::query(
+        "update document set etat = 'a_lire', voie = 'pdf_texte', lu_le = null, planifie_le = null",
+    )
+    .execute(app.pool())
+    .await
+    .unwrap();
+    let attente = |id: i64| {
+        let c = m.c_admin.clone();
+        async move {
+            app.requete("GET", &format!("/api/documents/{id}"), None, Some(&c))
+                .await
+                .json["attente"]
+                .clone()
+        }
+    };
+    // Claude pas connecté.
+    let a = attente(m.doc_a).await;
+    assert_eq!(a["genre"], "jeton_absent", "{a}");
+    assert!(a["raison"].as_str().unwrap().contains("pas connecté"));
+    assert!(a["depuis"].is_string());
+    assert_eq!(a["lecture_auto"], true);
+    // Jeton présent, quota du jour atteint (seuls les appels réussis comptent).
+    sqlx::query("insert into parametre (cle, valeur_chiffree) values ('claude_jeton', '\\x00')")
+        .execute(app.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "insert into parametre (cle, valeur) values ('claude_reglages', '{\"quota_lecture_jour\": 2}')",
+    )
+    .execute(app.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "insert into appel_claude (tache, modele, duree_ms, succes) values
+           ('extraction_texte', 'haiku', 1, true), ('extraction_texte', 'haiku', 1, false),
+           ('nouvel_essai', 'sonnet', 1, false)",
+    )
+    .execute(app.pool())
+    .await
+    .unwrap();
+    let a = attente(m.doc_a).await;
+    assert_eq!(a["genre"], "a_relancer", "un échec ne compte pas : {a}");
+    sqlx::query("insert into appel_claude (tache, modele, duree_ms, succes) values ('ocr_scan', 'haiku', 1, true)")
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let a = attente(m.doc_a).await;
+    assert_eq!(a["genre"], "quota", "{a}");
+    let raison = a["raison"].as_str().unwrap();
+    assert!(
+        raison.starts_with("Limite du jour atteinte (2 lectures"),
+        "{raison}"
+    );
+    assert!(raison.contains("reprend seule"), "{raison}");
+    // Refus de Claude en cours : la phrase notée par le worker, heure de reprise comprise.
+    sqlx::query("update parametre set valeur = '{\"quota_lecture_jour\": 1000}' where cle = 'claude_reglages'")
+        .execute(app.pool())
+        .await
+        .unwrap();
+    gmflow_core::parametre::ecrire(
+        app.pool(),
+        gmflow_core::parametre::CLAUDE_ETAT,
+        &json!({
+            "etat": "erreur", "message": "You've hit your limit · resets 3pm",
+            "teste_le": "2026-11-23T10:00:00Z", "refus": "limite",
+            "reprise": "2999-01-01T14:00:00Z", "reprise_texte": "vers 15:00",
+            "explication": "Claude refuse : limite d’usage, reprise vers 15:00"
+        }),
+    )
+    .await
+    .unwrap();
+    let a = attente(m.doc_a).await;
+    assert_eq!(a["genre"], "claude_refuse");
+    assert_eq!(
+        a["raison"],
+        "Claude refuse : limite d’usage, reprise vers 15:00"
+    );
+    // L'alerte d'À valider dit la même chose.
+    let f = app
+        .requete("GET", "/api/a-traiter", None, Some(&m.c_admin))
+        .await;
+    let b = f.json["bloque"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["genre"] == "claude")
+        .cloned()
+        .expect("alerte Claude");
+    assert_eq!(b["motif"], "limite");
+    assert_eq!(
+        b["message"],
+        "Claude refuse : limite d’usage, reprise vers 15:00"
+    );
+    // Refus passé (reprise dépassée) : plus bloquant, l'alerte reste jusqu'au prochain succès.
+    sqlx::query(
+        "update parametre set valeur = jsonb_set(valeur, '{reprise}', '\"2000-01-01T00:00:00Z\"') where cle = 'claude_etat'",
+    )
+    .execute(app.pool())
+    .await
+    .unwrap();
+    assert_eq!(attente(m.doc_a).await["genre"], "a_relancer");
+    // Lire maintenant : B puis A demandés, A a un document devant lui.
+    for id in [m.doc_b, m.doc_a] {
+        assert_eq!(
+            app.requete(
+                "POST",
+                &format!("/api/admin/documents/{id}/relire"),
+                Some(json!({})),
+                Some(&m.c_admin)
+            )
+            .await
+            .code,
+            StatusCode::ACCEPTED
+        );
+    }
+    assert_eq!(
+        app.compter("select count(*) from apalis.jobs where job_type = 'lecture' and priority = 10 and convert_from(job, 'UTF8') like '%\"hors_quota\":true%'").await,
+        2
+    );
+    let a = attente(m.doc_a).await;
+    assert_eq!(a["genre"], "en_file", "{a}");
+    assert_eq!(a["devant"], 1);
+    assert_eq!(
+        a["raison"],
+        "Dans la file de lecture : 1 document passe avant lui"
+    );
+    assert_eq!(attente(m.doc_b).await["devant"], 0);
+    // Lecture automatique coupée et plus de tâche : il attend un administrateur.
+    sqlx::query("delete from apalis.jobs")
+        .execute(app.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "update parametre set valeur = '{\"lecture_auto\": false}' where cle = 'claude_reglages'",
+    )
+    .execute(app.pool())
+    .await
+    .unwrap();
+    let a = attente(m.doc_a).await;
+    assert_eq!(a["genre"], "lecture_coupee");
+    assert_eq!(a["lecture_auto"], false);
+    // Un document lu n'a pas d'attente.
+    sqlx::query("update document set etat = 'lu' where id = $1")
+        .bind(m.doc_a)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    assert!(attente(m.doc_a).await.is_null());
     m.app.fermer().await;
 }
