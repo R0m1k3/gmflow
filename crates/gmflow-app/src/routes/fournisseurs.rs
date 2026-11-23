@@ -29,6 +29,7 @@ pub struct Filtres {
 pub struct LigneFournisseur {
     id: i64,
     nom: String,
+    code_gestion: Option<String>,
     siret: Option<String>,
     tva: Option<String>,
     domaines: Vec<String>,
@@ -63,7 +64,7 @@ pub async fn lister(
     let total = sqlx::query_scalar!(
         r#"select count(*) as "n!" from fournisseur f
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
-             and ($2::text is null or f.nom ilike $2 or f.siret ilike $2 or f.tva ilike $2
+             and ($2::text is null or f.nom ilike $2 or f.code_gestion ilike $2 or f.siret ilike $2 or f.tva ilike $2
                   or array_to_string(f.domaines, ' ') ilike $2)
              and ($3::bigint is null or f.societe_defaut_id = $3
                   or exists (select 1 from document d
@@ -90,7 +91,7 @@ pub async fn lister(
     .await?;
     let elements = sqlx::query_as!(
         LigneFournisseur,
-        r#"select f.id, f.nom, f.siret, f.tva, f.domaines, f.statut, f.societe_defaut_id,
+        r#"select f.id, f.nom, f.code_gestion, f.siret, f.tva, f.domaines, f.statut, f.societe_defaut_id,
                   s.raison_sociale as "societe_defaut?",
                   (select count(*) from document d where d.fournisseur_id = f.id
                      and ($5::bigint is null
@@ -132,7 +133,7 @@ pub async fn lister(
                                       where mb.mail_id = d.mail_id and b.societe_id = $6)))
            ) e
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
-             and ($2::text is null or f.nom ilike $2 or f.siret ilike $2 or f.tva ilike $2
+             and ($2::text is null or f.nom ilike $2 or f.code_gestion ilike $2 or f.siret ilike $2 or f.tva ilike $2
                   or array_to_string(f.domaines, ' ') ilike $2)
              and ($6::bigint is null or e.n > 0)
              and ($5::bigint is null or f.societe_defaut_id = $5
@@ -163,6 +164,8 @@ pub async fn lister(
 pub struct Fiche {
     id: i64,
     nom: String,
+    /// Code du fournisseur dans le logiciel de gestion du magasin.
+    code_gestion: Option<String>,
     siret: Option<String>,
     tva: Option<String>,
     domaines: Vec<String>,
@@ -208,7 +211,7 @@ pub async fn fiche(
     }
     let f = sqlx::query_as!(
         Fiche,
-        r#"select id, nom, siret, tva, domaines, statut, societe_defaut_id,
+        r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, fusionne_dans, cree_le
            from fournisseur where id = $1"#,
@@ -223,6 +226,8 @@ pub async fn fiche(
 #[derive(Deserialize, Serialize)]
 pub struct Entree {
     nom: String,
+    #[serde(default)]
+    code_gestion: Option<String>,
     #[serde(default)]
     siret: Option<String>,
     #[serde(default)]
@@ -286,7 +291,31 @@ impl Entree {
         self.domaines = domaines;
         self.format_bl = net(self.format_bl);
         self.notes = net(self.notes);
+        self.code_gestion = net(self.code_gestion);
         Ok(self)
+    }
+}
+
+/// Un code de gestion désigne un seul fournisseur : refusé s'il est déjà sur une autre fiche.
+async fn code_libre(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
+    let Some(code) = &e.code_gestion else {
+        return Ok(());
+    };
+    let autre = sqlx::query_scalar!(
+        "select nom from fournisseur
+         where fusionne_dans is null and lower(code_gestion) = lower($1)
+           and ($2::bigint is null or id <> $2)
+         limit 1",
+        code,
+        id
+    )
+    .fetch_optional(&etat.pool)
+    .await?;
+    match autre {
+        Some(nom) => Err(ErreurApi::Donnees(format!(
+            "le code fournisseur « {code} » est déjà celui de {nom}"
+        ))),
+        None => Ok(()),
     }
 }
 
@@ -296,13 +325,14 @@ pub async fn creer(
     Json(e): Json<Entree>,
 ) -> Resultat<Json<Fiche>> {
     let e = e.nettoyer()?;
+    code_libre(&etat, &e, None).await?;
     let mut tx = etat.pool.begin().await?;
     let f = sqlx::query_as!(
         Fiche,
         r#"insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
-                                    societe_defaut_id, format_bl, notes)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-           returning id, nom, siret, tva, domaines, statut, societe_defaut_id,
+                                    societe_defaut_id, format_bl, notes, code_gestion)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, fusionne_dans, cree_le"#,
         e.nom,
@@ -313,7 +343,8 @@ pub async fn creer(
         e.statut,
         e.societe_defaut_id,
         e.format_bl,
-        e.notes
+        e.notes,
+        e.code_gestion
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -355,6 +386,8 @@ pub struct Changements {
     #[serde(default)]
     nom: Option<String>,
     #[serde(default, deserialize_with = "present")]
+    code_gestion: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
     siret: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     tva: Option<Option<String>>,
@@ -379,7 +412,7 @@ pub async fn modifier_partiel(
     Json(c): Json<Changements>,
 ) -> Resultat<Json<Fiche>> {
     let f = sqlx::query!(
-        "select nom, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes
+        "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes
          from fournisseur where id = $1 and fusionne_dans is null",
         id
     )
@@ -388,6 +421,7 @@ pub async fn modifier_partiel(
     .ok_or(ErreurApi::Absent)?;
     let e = Entree {
         nom: c.nom.unwrap_or(f.nom),
+        code_gestion: c.code_gestion.unwrap_or(f.code_gestion),
         siret: c.siret.unwrap_or(f.siret),
         tva: c.tva.unwrap_or(f.tva),
         domaines: c.domaines.unwrap_or(f.domaines),
@@ -401,6 +435,7 @@ pub async fn modifier_partiel(
 
 async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Json<Fiche>> {
     let e = e.nettoyer()?;
+    code_libre(etat, &e, Some(id)).await?;
     if let Some(s) = e.societe_defaut_id {
         let existe = sqlx::query_scalar!(
             r#"select exists (select 1 from societe where id = $1) as "ok!""#,
@@ -416,9 +451,10 @@ async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Jso
     let f = sqlx::query_as!(
         Fiche,
         r#"update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,
-              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10
+              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,
+              code_gestion = $11
            where id = $1 and fusionne_dans is null
-           returning id, nom, siret, tva, domaines, statut, societe_defaut_id,
+           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, fusionne_dans, cree_le"#,
         id,
@@ -430,7 +466,8 @@ async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Jso
         e.statut,
         e.societe_defaut_id,
         e.format_bl,
-        e.notes
+        e.notes,
+        e.code_gestion
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -606,7 +643,7 @@ pub async fn fil(
     }
     let fiche = sqlx::query_as!(
         Fiche,
-        r#"select id, nom, siret, tva, domaines, statut, societe_defaut_id,
+        r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, fusionne_dans, cree_le
            from fournisseur where id = $1"#,

@@ -12,6 +12,7 @@
 
   let ed = $state<EditionFournisseur>({
     nom: '',
+    code_gestion: '',
     siret: '',
     tva: '',
     domaines: '',
@@ -43,6 +44,7 @@
 {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
 <form class="formulaire" onsubmit={creer}>
   <div class="plein"><Champ libelle="Nom" bind:valeur={ed.nom} requis /></div>
+  <div class="plein"><Champ libelle="Code fournisseur" bind:valeur={ed.code_gestion} mono aide="Le code de ce fournisseur dans le logiciel de gestion du magasin" /></div>
   <Champ libelle="SIRET" bind:valeur={ed.siret} mono inputmode="numeric" />
   <Champ libelle="N° TVA intracommunautaire" bind:valeur={ed.tva} mono />
   <div class="plein">
