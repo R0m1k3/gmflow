@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, etat, statut_depot from document\n         where mail_id = $1 and (societe_id is null or societe_id = any($2))\n           and etat in ('lu', 'erreur')\n           and coalesce(statut_depot, '') not in ('en_envoi', 'depose')\n         for update",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "5fcec26ad6bc446b5c130fb2280ba288766f590e8959ab6bdf806303c8583449"
+}

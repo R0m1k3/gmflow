@@ -75,7 +75,8 @@ async fn tache_lecture(tache: TacheLecture, ctx: Data<Contexte>) -> Result<(), B
         TacheLecture::LireDocument {
             document_id,
             forcer,
-        } => lecture::lire(&ctx, document_id, forcer).await?,
+            approfondie,
+        } => lecture::lire(&ctx, document_id, forcer, approfondie).await?,
     }
     Ok(())
 }

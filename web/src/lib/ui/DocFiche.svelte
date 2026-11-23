@@ -434,12 +434,14 @@
     }
   }
 
-  async function relire() {
+  async function relire(approfondie = false) {
     if (!d) return;
     erreur = '';
     try {
-      await api.post(`/api/admin/documents/${d.id}/relire`);
-      info = 'Relecture demandée : la fiche se met à jour toute seule.';
+      await api.post(`/api/admin/documents/${d.id}/relire`, { approfondie });
+      info = approfondie
+        ? 'Relecture en détail demandée (modèle plus fort, PDF entier) : la fiche se met à jour toute seule, compter une à deux minutes.'
+        : 'Relecture demandée : la fiche se met à jour toute seule.';
       await charger(d.id, false);
       suivre();
       onchange?.();
@@ -460,6 +462,13 @@
   let dlgEcarter = $state(false);
   let dlgForcer = $state(false);
   let dlgRelire = $state(false);
+  let dlgRelireDetail = $state(false);
+  /** Relisible par un admin : lu ou illisible, ni en lecture ni en envoi. */
+  let relisible = $derived(admin && !!d && d.etat !== 'a_lire' && d.etat !== 'en_cours' && d.etat !== 'ignore' && d.statut_depot !== 'en_envoi');
+  /** Facture ou avoir lus sans total : la lecture a manqué le pied de page. */
+  let montantsManquants = $derived(
+    !!d && d.etat === 'lu' && (d.type === 'facture' || d.type === 'avoir') && d.montant_ttc === null && d.statut_depot !== 'depose'
+  );
 
   // Plan de la barre d'action selon l'état du document.
   type Plan = { principal: Action; secondaires: Action[]; ecarter?: () => void };
@@ -597,8 +606,9 @@
     <span class="pos">{position.section} <span class="num">{position.n}</span> sur <span class="num">{position.total}</span></span>
   {/if}
   <span class="sp"></span>
-  {#if admin && d && d.etat !== 'a_lire' && d.etat !== 'en_cours' && d.etat !== 'ignore' && d.statut_depot !== 'en_envoi'}
+  {#if relisible}
     <button type="button" class="btn sm fantome large-seul" onclick={() => (dlgRelire = true)}><Icone nom="rafraichir" />Relire avec Claude</button>
+    <button type="button" class="btn sm fantome large-seul" onclick={() => (dlgRelireDetail = true)}><Icone nom="rafraichir" />Relire en détail</button>
     <span class="vsep"></span>
   {/if}
   {#if pleinEcran && d}
@@ -692,7 +702,15 @@
         </Bandeau>
       {/if}
       {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
-        <Bandeau titre="Lecture incomplète.">{phrase(d.message.replace(/^Lecture à vérifier : /, ''))} Vérifiez sur l’aperçu{admin ? ', ou relisez-le avec Claude' : ''}.</Bandeau>
+        <Bandeau titre="Lecture incomplète.">
+          {phrase(d.message.replace(/^Lecture à vérifier : /, ''))} Vérifiez sur l’aperçu{relisible ? ', ou faites-le relire en détail' : ''}.
+          {#snippet action()}{#if relisible}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/if}{/snippet}
+        </Bandeau>
+      {:else if montantsManquants && relisible}
+        <Bandeau titre="Montants non lus.">
+          Les totaux sont sur le document mais la lecture les a manqués. La relecture en détail lit le PDF entier avec un modèle plus fort.
+          {#snippet action()}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/snippet}
+        </Bandeau>
       {/if}
 
       {#if d.etat === 'lu'}
@@ -909,8 +927,14 @@
 <Confirmation bind:ouvert={dlgForcer} titre="Envoyer ce doublon quand même ?" libelle="Envoyer quand même" danger onconfirmer={() => valider(true)}>
   <p>{refus?.code === 'doublon' ? phrase(refus.message) : doublon ? phrase(doublon.message) : ''} La facture partira à {nomOutil(outil)} telle quelle.</p>
 </Confirmation>
-<Confirmation bind:ouvert={dlgRelire} titre="Relire avec Claude ?" libelle="Relire" onconfirmer={relire}>
+<Confirmation bind:ouvert={dlgRelire} titre="Relire avec Claude ?" libelle="Relire" onconfirmer={() => relire()}>
   <p>La lecture et la validation actuelles seront remplacées par une nouvelle lecture.</p>
+</Confirmation>
+<Confirmation bind:ouvert={dlgRelireDetail} titre="Relire en détail ?" libelle="Relire en détail" onconfirmer={() => relire(true)}>
+  <p>
+    Claude relit le fichier d’origine page par page, totaux de la dernière page compris, avec le modèle le plus fort (plus lent, compte dans le quota
+    du jour). La lecture et la validation actuelles seront remplacées.
+  </p>
 </Confirmation>
 
 <style>

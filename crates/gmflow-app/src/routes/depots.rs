@@ -80,7 +80,7 @@ pub async fn suivi(
            where d.statut_depot is not null
              and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $1::date
              and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) < $1::date + interval '1 month'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))
              and ($2::bigint is null or d.societe_id is null or d.societe_id = $2)
            group by d.societe_id, s.raison_sociale

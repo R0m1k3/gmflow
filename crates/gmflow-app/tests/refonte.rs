@@ -2088,3 +2088,118 @@ async fn fiches_document_et_mail() {
     );
     m.app.fermer().await;
 }
+
+#[tokio::test]
+async fn mail_hors_societe_et_apercu_tableur() {
+    let m = monde().await;
+    let app = &m.app;
+    let admin = Some(m.c_admin.as_str());
+    let resp = Some(m.c_resp_a.as_str());
+    let eml = gmflow_core::fixtures::eml(
+        "hors@test",
+        "Pas pour Frouard",
+        &[
+            ("bl.csv", "text/csv", "Réf;Qté\n12;3\n".as_bytes()),
+            ("facture.pdf", "application/pdf", b"%PDF-1.4 test"),
+        ],
+        false,
+    );
+    let mail = app.mail_vu(&eml, &[m.boite_a]).await;
+    let csv: i64 =
+        sqlx::query_scalar("select id from piece_jointe where mail_id = $1 and nom = 'bl.csv'")
+            .bind(mail)
+            .fetch_one(app.pool())
+            .await
+            .unwrap();
+    let pdf: i64 = sqlx::query_scalar(
+        "select id from piece_jointe where mail_id = $1 and nom = 'facture.pdf'",
+    )
+    .bind(mail)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    // Aperçu tableur : une feuille, deux lignes ; un PDF n'est pas un tableur.
+    let r = app
+        .requete("GET", &format!("/api/pieces/{csv}/tableau"), None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json[0]["lignes"][1], json!(["12", "3"]));
+    let r = app
+        .requete("GET", &format!("/api/pieces/{pdf}/tableau"), None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST);
+
+    // Une facture lue de ce mail, pas encore partie.
+    let doc: i64 = sqlx::query_scalar(
+        "insert into document (mail_id, piece_jointe_id, sha256, etat, type, societe_id, statut_depot)
+         select $1, $2, sha256, 'lu', 'facture', $3, 'pret' from piece_jointe where id = $2
+         returning id",
+    )
+    .bind(mail)
+    .bind(pdf)
+    .bind(m.sa)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+
+    // Le responsable de Frouard le masque : il disparaît, la facture est écartée.
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/mails/{mail}/hors-societe"),
+            Some(json!({})),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["documents"], 1);
+    assert_eq!(r.json["societes"], json!([m.sa]));
+    for c in [resp, admin] {
+        let r = app
+            .requete("GET", &format!("/api/mails/{mail}"), None, c)
+            .await;
+        assert_eq!(r.code, StatusCode::NOT_FOUND);
+        let r = app.requete("GET", "/api/mails?q=Pas%20pour", None, c).await;
+        assert_eq!(r.json["total"], 0, "{}", r.json);
+    }
+    let (etat, statut): (String, Option<String>) =
+        sqlx::query_as("select etat, statut_depot from document where id = $1")
+            .bind(doc)
+            .fetch_one(app.pool())
+            .await
+            .unwrap();
+    assert_eq!((etat.as_str(), statut), ("ignore", None));
+    // Société d'une autre boîte : refusé.
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/mails/{mail}/hors-societe"),
+            Some(json!({ "societe_id": m.sb })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+
+    // Annuler : le mail revient, la facture reprend son état.
+    let r = app
+        .requete(
+            "DELETE",
+            &format!("/api/mails/{mail}/hors-societe"),
+            Some(json!({})),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["documents"], 1);
+    let r = app
+        .requete("GET", &format!("/api/mails/{mail}"), None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK);
+    let etat: String = sqlx::query_scalar("select etat from document where id = $1")
+        .bind(doc)
+        .fetch_one(app.pool())
+        .await
+        .unwrap();
+    assert_eq!(etat, "lu");
+    m.app.fermer().await;
+}

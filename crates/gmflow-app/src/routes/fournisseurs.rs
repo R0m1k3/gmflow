@@ -73,17 +73,17 @@ pub async fn lister(
                   or exists (select 1 from document d
                              where d.fournisseur_id = f.id
                                and (d.societe_id is null or d.societe_id = $3)
-                               and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                               and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                            where mb.mail_id = d.mail_id and b.societe_id = $3)))
              and ($4::bigint is null or exists (
                    select 1 from document d
                    where d.fournisseur_id = f.id and d.etat = 'lu'
-                     and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                     and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                  where mb.mail_id = d.mail_id and ($3::bigint is null or b.societe_id = $3))
                      and ($3::bigint is null or d.societe_id is null or d.societe_id = $3)
                      and (d.societe_id = $4
                           or (d.societe_id is null
-                              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                              and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                           where mb.mail_id = d.mail_id and b.societe_id = $4)))))"#,
         statut,
         q,
@@ -100,13 +100,13 @@ pub async fn lister(
                   (select count(*) from document d where d.fournisseur_id = f.id
                      and ($5::bigint is null
                           or ((d.societe_id is null or d.societe_id = $5)
-                              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                              and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                           where mb.mail_id = d.mail_id and b.societe_id = $5)))) as "nb_documents!",
                   (select count(*) from document d where d.fournisseur_id = f.id
                      and d.statut_depot = 'a_verifier'
                      and ($5::bigint is null
                           or ((d.societe_id is null or d.societe_id = $5)
-                              and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                              and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                           where mb.mail_id = d.mail_id and b.societe_id = $5)))) as "a_verifier!",
                   e.factures_mois as "factures_mois!", e.a_valider as "a_valider!",
                   e.bl_sans_facture as "bl_sans_facture!", e.dernier as dernier_document
@@ -128,12 +128,12 @@ pub async fn lister(
                       count(*) as n
                from document d join mail m on m.id = d.mail_id
                where d.fournisseur_id = f.id and d.etat = 'lu'
-                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = d.mail_id and ($5::bigint is null or b.societe_id = $5))
                  and ($5::bigint is null or d.societe_id is null or d.societe_id = $5)
                  and ($6::bigint is null or d.societe_id = $6
                       or (d.societe_id is null
-                          and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                       where mb.mail_id = d.mail_id and b.societe_id = $6)))
            ) e
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
@@ -145,7 +145,7 @@ pub async fn lister(
                   or exists (select 1 from document d
                              where d.fournisseur_id = f.id
                                and (d.societe_id is null or d.societe_id = $5)
-                               and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                               and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                            where mb.mail_id = d.mail_id and b.societe_id = $5)))
            order by (f.statut = 'a_confirmer') desc, f.nom
            limit $3 offset $4"#,
@@ -207,7 +207,7 @@ pub(crate) async fn fournisseur_visible(etat: &Etat, acces: &Acces, id: i64) -> 
                     or exists (select 1 from document d
                                where d.fournisseur_id = f.id
                                  and (d.societe_id is null or d.societe_id = $2)
-                                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                              where mb.mail_id = d.mail_id and b.societe_id = $2)))) as "ok!""#,
         id,
         acces.societe_filtre()
@@ -808,12 +808,12 @@ pub async fn fil(
                                                      where r.bl_id = d.id and not r.rejete)) as "bl_sans_facture!"
            from document d join mail m on m.id = d.mail_id
            where d.fournisseur_id = $3 and d.etat = 'lu'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
              and ($2::bigint is null or d.societe_id = $2
                   or (d.societe_id is null
-                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))"#,
         perimetre,
         societe,
@@ -836,12 +836,12 @@ pub async fn fil(
            where d.fournisseur_id = $3 and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
              and coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date)
                  >= (date_trunc('month', now() at time zone 'Europe/Paris') - make_interval(months => $4 - 1))::date
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
              and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
              and ($2::bigint is null or d.societe_id = $2
                   or (d.societe_id is null
-                      and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))
            order by 6 desc, d.id desc
            limit 1000"#,
@@ -867,7 +867,7 @@ pub async fn fil(
              and coalesce(m.date_mail, m.recu_le)
                  >= (date_trunc('month', now() at time zone 'Europe/Paris') - make_interval(months => $4 - 1))
                     at time zone 'Europe/Paris'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
                            and ($1::bigint is null or b.societe_id = $1)
                            and ($2::bigint is null or b.societe_id = $2))

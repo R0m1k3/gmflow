@@ -1,6 +1,8 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
+use gmflow_core::journal;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
@@ -130,7 +132,7 @@ pub async fn lister(
 
     let total = sqlx::query_scalar!(
         r#"select count(*) as "n!" from mail m
-           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
                            and ($1::bigint is null or b.societe_id = $1)
                            and ($2::bigint is null or b.societe_id = $2)
@@ -157,12 +159,12 @@ pub async fn lister(
         LigneMail,
         r#"select m.id, m.expediteur, m.objet, m.date_mail,
                (select count(*) from piece_jointe p where p.mail_id = m.id) as "nb_pieces!",
-               array(select distinct b.libelle from mail_boite mb join boite_mail b on b.id = mb.boite_id
+               array(select distinct b.libelle from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                      where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)
                      order by b.libelle) as "boites!",
                m.categorie, m.statut_reponse
            from mail m
-           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
                            and ($1::bigint is null or b.societe_id = $1)
                            and ($2::bigint is null or b.societe_id = $2)
@@ -263,7 +265,7 @@ pub struct FicheMail {
 /// Vrai si le mail a au moins une ligne `mail_boite` visible par cet accès.
 pub async fn mail_visible(etat: &Etat, acces: &Acces, mail_id: i64) -> Resultat<bool> {
     Ok(sqlx::query_scalar!(
-        r#"select exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+        r#"select exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                           where mb.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)) as "ok!""#,
         mail_id,
         acces.societe_filtre()
@@ -322,10 +324,10 @@ pub async fn fiche(
     .await?;
     let boites = sqlx::query_as!(
         BoiteDuMail,
-        r#"select distinct b.id as boite_id, b.libelle, mb.dossier, b.identifiant as adresse,
+        r#"select distinct b.id as boite_id, b.libelle, mb.dossier as "dossier!", b.identifiant as adresse,
                   b.societe_id, s.raison_sociale as societe,
                   (b.smtp_serveur is not null) as "smtp!"
-           from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
            join societe s on s.id = b.societe_id
            where mb.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)
            order by b.libelle, mb.dossier"#,
@@ -354,5 +356,187 @@ pub async fn fiche(
         tri_etat: m.tri_etat,
         tri_message: m.tri_message,
         brouillons: super::reponses::brouillons_du_mail(&etat, &acces, id).await?,
+    }))
+}
+
+#[derive(Deserialize)]
+pub struct HorsSociete {
+    /// Société pour laquelle le mail ne compte pas ; absente : toutes les sociétés dont une
+    /// boîte l'a reçu (« ne concerne aucune de nos sociétés »). Un responsable : la sienne.
+    #[serde(default)]
+    societe_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct ResultatHorsSociete {
+    societes: Vec<i64>,
+    /// Documents écartés (masquer) ou rendus (annuler).
+    documents: usize,
+}
+
+/// Sociétés visées : celle du responsable, celle demandée, ou toutes celles des boîtes du mail.
+async fn societes_visees(
+    etat: &Etat,
+    acces: &Acces,
+    mail_id: i64,
+    demandee: Option<i64>,
+) -> Resultat<Vec<i64>> {
+    let toutes = sqlx::query_scalar!(
+        r#"select distinct b.societe_id as "id!" from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           where mb.mail_id = $1"#,
+        mail_id
+    )
+    .fetch_all(&etat.pool)
+    .await?;
+    let v: Vec<i64> = match (acces.societe_filtre(), demandee) {
+        (Some(s), _) => vec![s],
+        (None, Some(s)) => vec![s],
+        (None, None) => toutes.clone(),
+    };
+    if v.is_empty() || v.iter().any(|s| !toutes.contains(s)) {
+        return Err(ErreurApi::Absent);
+    }
+    Ok(v)
+}
+
+/// `POST /api/mails/{id}/hors-societe` : « Ce mail ne concerne pas cette société ». Il
+/// disparaît de ses listes ; ses pièces lues ou illisibles qui ne sont pas parties (rangées
+/// dans cette société ou dans aucune) sont écartées : jamais envoyées à Dext ou Yooz.
+pub async fn masquer(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+    Json(h): Json<HorsSociete>,
+) -> Resultat<Json<ResultatHorsSociete>> {
+    if !mail_visible(&etat, &acces, id).await? {
+        return Err(ErreurApi::Absent);
+    }
+    let societes = societes_visees(&etat, &acces, id, h.societe_id).await?;
+    let mut tx = etat.pool.begin().await?;
+    let docs = sqlx::query!(
+        "select id, etat, statut_depot from document
+         where mail_id = $1 and (societe_id is null or societe_id = any($2))
+           and etat in ('lu', 'erreur')
+           and coalesce(statut_depot, '') not in ('en_envoi', 'depose')
+         for update",
+        id,
+        &societes
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let ids: Vec<i64> = docs.iter().map(|d| d.id).collect();
+    let avant = serde_json::Value::Array(
+        docs.iter()
+            .map(|d| json!({ "id": d.id, "etat": d.etat, "statut_depot": d.statut_depot }))
+            .collect(),
+    );
+    sqlx::query!(
+        "update document set etat = 'ignore', verifie_le = now(), verifie_par = $2,
+            statut_depot = null, controles = '[]'
+         where id = any($1)",
+        &ids,
+        acces.utilisateur_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    for s in &societes {
+        sqlx::query!(
+            "insert into mail_hors_societe (mail_id, societe_id, par, documents)
+             values ($1, $2, $3, $4)
+             on conflict (mail_id, societe_id) do update set documents = mail_hors_societe.documents || $4",
+            id,
+            s,
+            acces.utilisateur_id,
+            avant
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    journal::ecrire(
+        &mut *tx,
+        Some(acces.utilisateur_id),
+        "mail_hors_societe",
+        "mail",
+        Some(id.to_string()),
+        json!({ "societes": societes, "documents": ids }),
+    )
+    .await?;
+    tx.commit().await?;
+    for d in &ids {
+        gmflow_core::rapprochement::recalculer(&etat.pool, *d)
+            .await
+            .map_err(ErreurApi::Interne)?;
+    }
+    Ok(Json(ResultatHorsSociete {
+        societes,
+        documents: ids.len(),
+    }))
+}
+
+/// `DELETE /api/mails/{id}/hors-societe` (même corps) : « Annuler ». Le mail revient dans les
+/// listes, ses documents écartés à ce moment reprennent leur état et repassent les contrôles.
+pub async fn demasquer(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+    Json(h): Json<HorsSociete>,
+) -> Resultat<Json<ResultatHorsSociete>> {
+    let societes = societes_visees(&etat, &acces, id, h.societe_id).await?;
+    let mut tx = etat.pool.begin().await?;
+    let lignes = sqlx::query_scalar!(
+        "delete from mail_hors_societe where mail_id = $1 and societe_id = any($2) returning documents",
+        id,
+        &societes
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if lignes.is_empty() {
+        return Err(ErreurApi::Absent);
+    }
+    let mut rendus = Vec::new();
+    for l in lignes {
+        for d in l.as_array().into_iter().flatten() {
+            let (Some(doc), Some(e)) = (d["id"].as_i64(), d["etat"].as_str()) else {
+                continue;
+            };
+            if rendus.contains(&doc) {
+                continue;
+            }
+            let n = sqlx::query!(
+                "update document set etat = $2, statut_depot = $3, verifie_le = null, verifie_par = null
+                 where id = $1 and etat = 'ignore'",
+                doc,
+                e,
+                d["statut_depot"].as_str()
+            )
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            if n > 0 {
+                rendus.push(doc);
+            }
+        }
+    }
+    journal::ecrire(
+        &mut *tx,
+        Some(acces.utilisateur_id),
+        "mail_hors_societe_annule",
+        "mail",
+        Some(id.to_string()),
+        json!({ "societes": societes, "documents": rendus }),
+    )
+    .await?;
+    tx.commit().await?;
+    for d in &rendus {
+        gmflow_core::depot::evaluer_et_deposer(&etat.pool, *d)
+            .await
+            .map_err(ErreurApi::Interne)?;
+        gmflow_core::rapprochement::recalculer(&etat.pool, *d)
+            .await
+            .map_err(ErreurApi::Interne)?;
+    }
+    Ok(Json(ResultatHorsSociete {
+        societes,
+        documents: rendus.len(),
     }))
 }

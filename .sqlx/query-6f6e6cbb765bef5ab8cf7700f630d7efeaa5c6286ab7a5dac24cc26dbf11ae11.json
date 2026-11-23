@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct b.societe_id as \"id!\" from mail_boite mb join boite_mail b on b.id = mb.boite_id\n           where mb.mail_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "societe_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6f6e6cbb765bef5ab8cf7700f630d7efeaa5c6286ab7a5dac24cc26dbf11ae11"
+}

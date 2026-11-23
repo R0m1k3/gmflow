@@ -75,6 +75,7 @@
     tonStatutReponse
   } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
+  import ApercuPiece from './ApercuPiece.svelte';
   import { societe } from '#lib/societe.svelte.ts';
   import type { Brouillon, Categorie, EtatFournisseur, FicheMail, MailARepondre } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
@@ -473,6 +474,58 @@
     )
   );
 
+  // ---------- Pièces jointes ----------
+  const apercable = (p: { nom: string; type_mime: string }) =>
+    /^(application\/(pdf|x-pdf)|image\/(png|jpe?g|gif|webp))$/i.test(p.type_mime) ||
+    /spreadsheet|excel|csv/i.test(p.type_mime) ||
+    /\.(pdf|xlsx|xlsm|xls|ods|csv)$/i.test(p.nom);
+  let pieceOuverte = $state<number | null>(null);
+  let pieceVue = $derived(m?.pieces.find((p) => p.id === pieceOuverte) ?? null);
+  // Un autre mail : la première pièce qui a un aperçu s'ouvre.
+  let dernierMail = 0;
+  $effect(() => {
+    if (!m || m.id === dernierMail) return;
+    dernierMail = m.id;
+    pieceOuverte = m.pieces.find(apercable)?.id ?? null;
+  });
+
+  // ---------- Ne concerne pas cette société ----------
+  /** Société pour laquelle masquer : celle du responsable, celle choisie en haut, sinon toutes. */
+  let societeMasque = $derived(admin ? societe.courante : (societe.liste.find((s) => s.id === session.moi?.societe_id) ?? null));
+  let libelleMasque = $derived(societeMasque ? `Ne concerne pas ${nomCourtSociete(societeMasque.raison_sociale)}` : 'Ne concerne aucune de nos sociétés');
+  let dlgMasquer = $state(false);
+  let masque = $state<{ documents: number } | null>(null);
+  const corpsMasque = () => ({ societe_id: admin ? (societeMasque?.id ?? null) : null });
+  async function masquer() {
+    if (!m) return;
+    erreur = '';
+    try {
+      masque = await api.post<{ documents: number }>(`/api/mails/${m.id}/hors-societe`, corpsMasque());
+      void rafraichirCompteurs();
+      await ouvrir?.(null);
+    } catch (e) {
+      erreur = message(e);
+      throw e;
+    }
+  }
+  async function annulerMasque() {
+    if (!m) return;
+    erreur = '';
+    try {
+      await api.del(`/api/mails/${m.id}/hors-societe`, corpsMasque());
+      masque = null;
+      info = 'Le mail est de retour dans les listes.';
+      void rafraichirCompteurs();
+      await ouvrir?.(null);
+    } catch (e) {
+      erreur = message(e);
+    }
+  }
+  $effect(() => {
+    void id;
+    masque = null;
+  });
+
   // ---------- Affichage ----------
 
   function etatPiece(p: FicheMail['pieces'][number]): { texte: string; ton: 'ok' | 'alerte' | 'erreur' | 'pale' | 'neutre' } {
@@ -559,7 +612,18 @@
       <div class="meta-fiche">
         {meta}
         {#if m.priorite === 'haute' && aRepondre}<span class="urgent">{libellePriorite(m.priorite)}</span>{/if}
+        {#if !masque}
+          <button type="button" class="btn sm fantome masquer" onclick={() => (dlgMasquer = true)}><Icone nom="fermer" />{libelleMasque}</button>
+        {/if}
       </div>
+      {#if masque}
+        <Bandeau titre="Mail masqué.">
+          Il n’apparaît plus dans les listes{societeMasque ? ` de ${nomCourtSociete(societeMasque.raison_sociale)}` : ''}{masque.documents
+            ? ` ; ${masque.documents} pièce${masque.documents > 1 ? 's' : ''} écartée${masque.documents > 1 ? 's' : ''}`
+            : ''}.
+          {#snippet action()}<button type="button" class="btn sm" onclick={annulerMasque}>Annuler</button>{/snippet}
+        </Bandeau>
+      {/if}
 
       {#if m.resume}
         <div class="resume"><div class="lab">En une phrase</div><p>{m.resume}</p></div>
@@ -609,6 +673,37 @@
         <span>Reçu</span><span>{adressesDuMail.join(', ')}{societesDuMail.length ? `, ${societesDuMail.join(', ')}` : ''}</span>
       </div>
 
+      {#if m.pieces.length}
+        <div class="pj">
+          <div class="pj-liste">
+            {#each m.pieces as p (p.id)}
+              {@const e = etatPiece(p)}
+              <button
+                type="button"
+                class="pj-carte"
+                aria-pressed={p.id === pieceOuverte}
+                title={apercable(p) ? 'Afficher l’aperçu' : 'Pas d’aperçu : téléchargez le fichier'}
+                onclick={() => (pieceOuverte = p.id === pieceOuverte ? null : p.id)}
+              >
+                <Icone nom={p.document_id ? 'fichier' : 'trombone'} />
+                <span class="pj-t">
+                  <span class="nom">{p.nom}</span>
+                  <span class="t2 etat-{e.ton}">{e.texte}</span>
+                </span>
+              </button>
+            {/each}
+          </div>
+          {#if pieceVue}
+            <div class="pj-apercu">
+              {#if pieceVue.document_id}
+                <a class="pj-fiche" href="/documents/{pieceVue.document_id}"><Icone nom="fichier" />Ouvrir la fiche du document</a>
+              {/if}
+              <ApercuPiece id={pieceVue.id} typeMime={pieceVue.type_mime} nom={pieceVue.nom} />
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       <div class="mailtext">
         {#each corps.paragraphes as p, i (i)}<p>{p}</p>{:else}<p class="muted">(corps vide)</p>{/each}
         {#if corps.cite}
@@ -618,29 +713,6 @@
           {#if citeOuverte}<div class="cite">{corps.cite}</div>{/if}
         {/if}
       </div>
-
-      {#each m.pieces as p (p.id)}
-        {@const e = etatPiece(p)}
-        {#if p.document_id}
-          <a class="att" href="/documents/{p.document_id}">
-            <Icone nom="fichier" />
-            <div class="att-t">
-              <div class="nom">{p.nom}</div>
-              <div class="t2 etat-{e.ton}">{e.texte}</div>
-            </div>
-            <span class="go">Ouvrir la fiche</span>
-          </a>
-        {:else}
-          <a class="att" href="/api/pieces/{p.id}" download>
-            <Icone nom="trombone" />
-            <div class="att-t">
-              <div class="nom">{p.nom}</div>
-              <div class="t2">{e.texte}</div>
-            </div>
-            <span class="go">Télécharger</span>
-          </a>
-        {/if}
-      {/each}
 
       {#if contexte}
         <div class="ctx">
@@ -806,6 +878,13 @@
   {#if demande?.genre === 'envoi'}<span class="large-seul petit muted"> <Kbd t={['Ctrl', 'Enter']} /> pour envoyer.</span>{/if}
 </Confirmation>
 
+<Confirmation bind:ouvert={dlgMasquer} titre="{libelleMasque} ?" libelle="Masquer le mail" onconfirmer={masquer}>
+  <p>
+    Le mail disparaît des listes{societeMasque ? ` de ${nomCourtSociete(societeMasque.raison_sociale)}` : ''}. Ses factures et BL qui ne sont pas encore
+    partis sont écartés : jamais envoyés à Dext ou Yooz. « Annuler » remet tout en place.
+  </p>
+</Confirmation>
+
 <style>
   .charge-erreur {
     padding: var(--e5) var(--e6);
@@ -913,49 +992,82 @@
     font-size: 12px;
     line-height: 18px;
   }
-  .att {
+  .masquer {
+    margin-left: auto;
+  }
+  .pj {
+    margin: var(--e4) 0;
+  }
+  .pj-liste {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e2);
+  }
+  .pj-carte {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
+    max-width: 100%;
+    min-width: 0;
     padding: var(--e2) var(--e3);
-    border: 1px solid var(--line);
+    border: 1px solid var(--line2);
     border-radius: var(--r2);
     background: var(--white);
-    margin-top: var(--e4);
-    text-decoration: none;
     color: var(--text);
+    text-align: left;
+    cursor: pointer;
   }
-  .att + .att {
-    margin-top: var(--e2);
+  .pj-carte:hover {
+    background: var(--pane);
   }
-  .att:hover {
-    border-color: var(--line2);
+  .pj-carte[aria-pressed='true'] {
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    background: var(--accent-weak);
   }
-  .att-t {
+  .pj-t {
+    display: grid;
     min-width: 0;
   }
-  .att .nom {
+  .pj-t .nom {
+    font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 320px;
   }
-  .att .t2 {
+  .pj-t .t2 {
     font-size: 12px;
   }
-  .att .etat-ok {
+  .pj-t .etat-ok {
     color: var(--ok);
   }
-  .att .etat-alerte {
+  .pj-t .etat-alerte {
     color: var(--warn);
   }
-  .att .etat-erreur {
+  .pj-t .etat-erreur {
     color: var(--err);
   }
-  .att .go {
-    margin-left: auto;
+  .pj-apercu {
+    display: flex;
+    flex-direction: column;
+    height: 70vh;
+    min-height: 420px;
+    margin-top: var(--e3);
+    border: 1px solid var(--line2);
+    border-radius: var(--r2);
+    overflow: hidden;
+    background: var(--pane);
+  }
+  .pj-fiche {
     flex: none;
-    color: var(--text2);
-    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: var(--e2) var(--e3);
+    border-bottom: 1px solid var(--line);
+    background: var(--white);
+    font-weight: 500;
   }
   .ctx {
     margin-top: var(--e4);
@@ -1035,25 +1147,6 @@
   }
   .note {
     margin: var(--e2) 0 0;
-  }
-  .attente {
-    display: flex;
-    align-items: center;
-    gap: var(--e3);
-    padding: 14px var(--e4);
-    margin-top: var(--e3);
-    border: 1px solid var(--line);
-    border-radius: var(--r2);
-    color: var(--text2);
-  }
-  .attente .roue {
-    flex: none;
-    width: 14px;
-    height: 14px;
-    border: 1.5px solid var(--line2);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: tourne 0.8s linear infinite;
   }
   .proposer {
     display: flex;

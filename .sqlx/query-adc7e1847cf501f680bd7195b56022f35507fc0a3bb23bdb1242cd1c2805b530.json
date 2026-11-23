@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from mail_hors_societe where mail_id = $1 and societe_id = any($2) returning documents",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "documents",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "mail_hors_societe",
+            "name": "documents"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "adc7e1847cf501f680bd7195b56022f35507fc0a3bb23bdb1242cd1c2805b530"
+}

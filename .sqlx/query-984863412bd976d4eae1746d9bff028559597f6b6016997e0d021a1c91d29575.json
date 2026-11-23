@@ -1,0 +1,132 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select case when d.statut_depot = 'erreur' then 'envoi_erreur'\n                       when d.statut_depot = 'doublon' then 'doublon'\n                       else 'illisible' end as \"genre!\",\n                  d.id as \"document_id?\", null::bigint as boite_id, p.nom as \"libelle?\",\n                  null::text as motif,\n                  case when d.statut_depot = 'erreur'\n                         then (select e.message from envoi_depot e where e.document_id = d.id\n                               order by e.quand desc limit 1)\n                       when d.statut_depot = 'doublon'\n                         then (select c->>'message' from jsonb_array_elements(d.controles) c\n                               where c->>'code' = 'doublon' limit 1)\n                       else d.message end as message,\n                  case when d.statut_depot = 'erreur'\n                         then (select max(e.quand) from envoi_depot e where e.document_id = d.id)\n                       when d.statut_depot = 'doublon' then d.lu_le\n                       else coalesce(d.pris_le, m.recu_le) end as depuis,\n                  d.type, coalesce(fo.nom, d.fournisseur_nom) as fournisseur, d.numero,\n                  d.societe_id, s.raison_sociale as \"societe?\"\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where ((d.statut_depot = 'erreur'\n                                   and not coalesce(d.valide_le > (select max(e.quand) from envoi_depot e\n                                                                   where e.document_id = d.id)\n                                                    and d.valide_le > now() - interval '30 minutes', false))\n                  or (d.statut_depot = 'doublon' and d.verifie_le is null)\n                  or d.etat = 'erreur')\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))\n           order by case when d.statut_depot = 'erreur' then 0\n                         when d.statut_depot = 'doublon' then 1 else 2 end,\n                    coalesce(m.date_mail, m.recu_le), d.id\n           limit $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "genre!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "boite_id",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "libelle?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "motif",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "message",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "depuis",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "fournisseur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      null,
+      false,
+      null,
+      null,
+      null,
+      true,
+      null,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "984863412bd976d4eae1746d9bff028559597f6b6016997e0d021a1c91d29575"
+}

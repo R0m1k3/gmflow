@@ -107,7 +107,7 @@ pub async fn a_repondre(
     let total = sqlx::query_scalar!(
         r#"select count(*) as "n!" from mail m
            where m.statut_reponse = 'a_repondre'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
                            and ($1::bigint is null or b.societe_id = $1)
                            and ($2::bigint is null or b.societe_id = $2))
@@ -121,11 +121,11 @@ pub async fn a_repondre(
     let elements = sqlx::query_as!(
         LigneARepondre,
         r#"select m.id, m.expediteur, m.objet, m.date_mail, m.resume, m.priorite, m.categorie_par,
-               array(select distinct s.raison_sociale from mail_boite mb
+               array(select distinct s.raison_sociale from mail_boite_vue mb
                      join boite_mail b on b.id = mb.boite_id join societe s on s.id = b.societe_id
                      where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)
                      order by s.raison_sociale) as "structures!",
-               array(select distinct b.libelle from mail_boite mb join boite_mail b on b.id = mb.boite_id
+               array(select distinct b.libelle from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                      where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)
                      order by b.libelle) as "boites!",
                (select br.statut from brouillon_reponse br
@@ -133,7 +133,7 @@ pub async fn a_repondre(
                 limit 1) as brouillon
            from mail m
            where m.statut_reponse = 'a_repondre'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
                            and ($1::bigint is null or b.societe_id = $1)
                            and ($2::bigint is null or b.societe_id = $2))
@@ -160,7 +160,7 @@ pub async fn compte_a_repondre(acces: &Acces, etat: &Etat) -> Resultat<i64> {
     Ok(sqlx::query_scalar!(
         r#"select count(*) as "n!" from mail m
            where m.statut_reponse = 'a_repondre'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))"#,
         acces.societe_filtre()
     )
@@ -212,7 +212,7 @@ pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<V
             r#"select m.categorie as cle, count(*) as "n!" from mail m
                where coalesce(m.date_mail, m.recu_le) >= ($1::date::timestamp at time zone 'Europe/Paris')
                  and coalesce(m.date_mail, m.recu_le) < (($1::date + 7)::timestamp at time zone 'Europe/Paris')
-                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = m.id and ($2::bigint is null or b.societe_id = $2))
                group by m.categorie order by count(*) desc"#,
             debut,
@@ -229,7 +229,7 @@ pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<V
                from mail m
                where coalesce(m.date_mail, m.recu_le) >= ($1::date::timestamp at time zone 'Europe/Paris')
                  and coalesce(m.date_mail, m.recu_le) < (($1::date + 7)::timestamp at time zone 'Europe/Paris')
-                 and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                              where mb.mail_id = m.id and ($2::bigint is null or b.societe_id = $2))"#,
             debut,
             acces.societe_filtre()

@@ -84,7 +84,7 @@ pub async fn lister(
     let sans_ignores = e.is_none();
     let total = sqlx::query_scalar!(
         r#"select count(*) as "n!" from document d join mail m on m.id = d.mail_id
-           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))
              and ($2::bigint is null or d.societe_id = $2)
              and ($3::text is null or d.type = $3)
@@ -124,7 +124,7 @@ pub async fn lister(
            join piece_jointe p on p.id = d.piece_jointe_id
            left join societe s on s.id = d.societe_id
            left join fournisseur fo on fo.id = d.fournisseur_id
-           where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))
              and ($2::bigint is null or d.societe_id = $2)
              and ($3::text is null or d.type = $3)
@@ -316,7 +316,7 @@ pub async fn fiche(
         BoiteReception,
         r#"select distinct b.id as boite_id, b.libelle, b.identifiant as adresse, b.societe_id,
                   s.raison_sociale as societe
-           from mail_boite mb join boite_mail b on b.id = mb.boite_id
+           from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
            join societe s on s.id = b.societe_id
            where mb.mail_id = $1 and ($2::bigint is null or b.societe_id = $2)
            order by b.libelle, b.id"#,
@@ -425,12 +425,21 @@ pub async fn verifier(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize, Default)]
+pub struct Relecture {
+    /// « Relire en détail » : modèle plus fort et fichier d'origine joint dès le premier appel.
+    #[serde(default)]
+    approfondie: bool,
+}
+
 /// Relecture forcée (administrateur) : nouvel appel, même si un document identique est lu.
 pub async fn relire(
     AccesAdmin(acces): AccesAdmin,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
+    corps: Option<Json<Relecture>>,
 ) -> Resultat<StatusCode> {
+    let r = corps.map(|Json(r)| r).unwrap_or_default();
     let n = sqlx::query!(
         "update document set etat = 'a_lire', planifie_le = now(), message = null,
             verifie_le = null, verifie_par = null, type_corrige = false, societe_corrigee = false
@@ -444,16 +453,19 @@ pub async fn relire(
         mail_du_document(&etat, id).await?;
         return Err(ErreurApi::Conflit("lecture ou dépôt en cours".into()));
     }
-    file::pousser_lecture(&etat.pool, id, true)
-        .await
-        .map_err(ErreurApi::Interne)?;
+    if r.approfondie {
+        file::pousser_relecture_approfondie(&etat.pool, id).await
+    } else {
+        file::pousser_lecture(&etat.pool, id, true).await
+    }
+    .map_err(ErreurApi::Interne)?;
     journal::ecrire(
         &etat.pool,
         Some(acces.utilisateur_id),
         "relecture",
         "document",
         Some(id.to_string()),
-        json!({}),
+        json!({ "approfondie": r.approfondie }),
     )
     .await?;
     Ok(StatusCode::ACCEPTED)
@@ -494,7 +506,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
         async move {
             sqlx::query_as::<_, (Option<String>, i64)>(sqlx::AssertSqlSafe(format!(
                 "select d.{colonne}, count(*) from document d
-                 where exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+                 where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
                  group by 1 order by 2 desc"
             )))
@@ -513,7 +525,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
                   count(*) filter (where not societe_corrigee) as "societe_justes!"
            from document d
            where verifie_le is not null
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))"#,
         s
     )
@@ -527,7 +539,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
                                      and not d.societe_corrigee) as "sans_correction!"
            from document d
            where coalesce(d.verifie_le, d.valide_le) > now() - interval '8 weeks'
-             and exists (select 1 from mail_boite mb join boite_mail b on b.id = mb.boite_id
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
            group by 1 order by 1"#,
         s

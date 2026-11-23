@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = $2, statut_depot = $3, verifie_le = null, verifie_par = null\n                 where id = $1 and etat = 'ignore'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e4df0b3ea6254681ba598adbca9a82a21bfea6463f3c907a123765df188f38f2"
+}

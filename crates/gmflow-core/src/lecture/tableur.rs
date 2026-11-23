@@ -48,6 +48,104 @@ pub fn texte_classeur(octets: &[u8]) -> Option<String> {
     Some(sortie)
 }
 
+/// Feuille d'un tableur pour l'aperçu à l'écran.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Feuille {
+    pub nom: String,
+    pub lignes: Vec<Vec<String>>,
+    /// Lignes ou colonnes coupées (aperçu limité).
+    pub tronque: bool,
+}
+
+const APERCU_LIGNES: usize = 500;
+const APERCU_COLONNES: usize = 40;
+
+fn rogner(lignes: Vec<Vec<String>>) -> Feuille {
+    let mut tronque = lignes.len() > APERCU_LIGNES;
+    let mut v: Vec<Vec<String>> = lignes.into_iter().take(APERCU_LIGNES).collect();
+    // Colonnes vides à droite retirées, au plus APERCU_COLONNES.
+    let largeur = v
+        .iter()
+        .map(|l| l.iter().rposition(|c| !c.is_empty()).map_or(0, |i| i + 1))
+        .max()
+        .unwrap_or(0);
+    if largeur > APERCU_COLONNES {
+        tronque = true;
+    }
+    let largeur = largeur.min(APERCU_COLONNES);
+    for l in &mut v {
+        l.resize(largeur, String::new());
+    }
+    // Lignes vides de fin retirées.
+    while v.last().is_some_and(|l| l.iter().all(String::is_empty)) {
+        v.pop();
+    }
+    Feuille {
+        nom: String::new(),
+        lignes: v,
+        tronque,
+    }
+}
+
+/// Feuilles d'un classeur (xlsx, xls, ods) pour l'aperçu, ou rien s'il ne s'ouvre pas.
+pub fn apercu_classeur(octets: &[u8]) -> Option<Vec<Feuille>> {
+    let mut classeur = open_workbook_auto_from_rs(Cursor::new(octets.to_vec())).ok()?;
+    let mut v = Vec::new();
+    for nom in classeur.sheet_names().into_iter().take(FEUILLES_MAX) {
+        let Ok(plage) = classeur.worksheet_range(&nom) else {
+            continue;
+        };
+        let mut f = rogner(
+            plage
+                .rows()
+                .take(APERCU_LIGNES + 1)
+                .map(|l| l.iter().map(cellule).collect())
+                .collect(),
+        );
+        f.nom = nom;
+        v.push(f);
+    }
+    Some(v)
+}
+
+/// Un CSV en une feuille : séparateur deviné (« ; », tabulation ou « , »), guillemets gérés.
+pub fn apercu_csv(octets: &[u8]) -> Feuille {
+    let texte = texte_csv(octets);
+    let premiere = texte.lines().next().unwrap_or("");
+    let sep = [';', '\t', ',']
+        .into_iter()
+        .max_by_key(|c| premiere.matches(*c).count())
+        .unwrap_or(';');
+    let lignes = texte
+        .lines()
+        .take(APERCU_LIGNES + 1)
+        .map(|l| decouper_csv(l, sep))
+        .collect();
+    let mut f = rogner(lignes);
+    f.nom = "CSV".into();
+    f
+}
+
+fn decouper_csv(ligne: &str, sep: char) -> Vec<String> {
+    let mut v = Vec::new();
+    let mut cur = String::new();
+    let mut guillemets = false;
+    let mut it = ligne.chars().peekable();
+    while let Some(c) = it.next() {
+        match c {
+            '"' if guillemets && it.peek() == Some(&'"') => {
+                cur.push('"');
+                it.next();
+            }
+            '"' => guillemets = !guillemets,
+            c if c == sep && !guillemets => v.push(std::mem::take(&mut cur).trim().to_string()),
+            c => cur.push(c),
+        }
+    }
+    v.push(cur.trim().to_string());
+    v
+}
+
 /// Texte d'un CSV : UTF-8, sinon Windows-1252 (exports de logiciels de caisse).
 pub fn texte_csv(octets: &[u8]) -> String {
     let texte = match std::str::from_utf8(octets) {
@@ -80,5 +178,19 @@ fn date_excel(serie: f64) -> String {
     match base.checked_add(time::Duration::days(serie.floor() as i64)) {
         Some(d) => format!("{:04}-{:02}-{:02}", d.year(), u8::from(d.month()), d.day()),
         None => format!("{serie}"),
+    }
+}
+
+#[cfg(test)]
+mod tests_apercu {
+    use super::*;
+
+    #[test]
+    fn csv() {
+        let f = apercu_csv("Réf;Désignation;Qté\n12;\"Bol; bleu\";3\n\n".as_bytes());
+        assert_eq!(f.lignes.len(), 2);
+        assert_eq!(f.lignes[1], vec!["12", "Bol; bleu", "3"]);
+        let f = apercu_csv(b"a,b\n1,2\n");
+        assert_eq!(f.lignes[1], vec!["1", "2"]);
     }
 }

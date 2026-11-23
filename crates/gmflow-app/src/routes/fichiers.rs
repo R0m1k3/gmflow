@@ -69,12 +69,13 @@ fn disposition_avec(mode: &str, nom: &str) -> String {
 
 /// Pièce jointe : téléchargement, ou aperçu dans la page avec `?inline=1` (PDF et images
 /// seulement ; tout autre type reste en téléchargement).
-pub async fn piece(
-    acces: Acces,
-    State(etat): State<Etat>,
-    Path(id): Path<i64>,
-    Query(o): Query<Options>,
-) -> Resultat<Response> {
+struct Piece {
+    nom: String,
+    type_mime: String,
+}
+
+/// Octets d'une pièce visible par cet accès, extraits du `.eml` et vérifiés (SHA-256).
+async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<(Piece, Vec<u8>)> {
     let p = sqlx::query!(
         "select p.mail_id, p.rang, p.nom, p.type_mime, p.sha256, m.chemin_eml
          from piece_jointe p join mail m on m.id = p.mail_id where p.id = $1",
@@ -83,7 +84,7 @@ pub async fn piece(
     .fetch_optional(&etat.pool)
     .await?
     .ok_or(ErreurApi::Absent)?;
-    if !mail_visible(&etat, &acces, p.mail_id).await? {
+    if !mail_visible(etat, acces, p.mail_id).await? {
         return Err(ErreurApi::Absent);
     }
     let chemin = gmflow_core::stockage::chemin_absolu(&etat.config.fichiers, &p.chemin_eml);
@@ -108,6 +109,39 @@ pub async fn piece(
             "SHA-256 de la pièce {id} différent de l'original"
         )));
     }
+    Ok((
+        Piece {
+            nom: p.nom,
+            type_mime: p.type_mime,
+        },
+        octets,
+    ))
+}
+
+/// `GET /api/pieces/{id}/tableau` : feuilles d'un tableur (xlsx, xls, ods, csv) pour l'aperçu.
+pub async fn tableau(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<axum::Json<Vec<gmflow_core::lecture::tableur::Feuille>>> {
+    let (p, octets) = charger(&etat, &acces, id).await?;
+    let feuilles = tokio::task::spawn_blocking(move || {
+        gmflow_core::lecture::apercu_tableur(&p.nom, &p.type_mime, &octets)
+    })
+    .await
+    .map_err(|e| ErreurApi::Interne(e.into()))?;
+    feuilles
+        .map(axum::Json)
+        .ok_or_else(|| ErreurApi::Donnees("ce fichier n'est pas un tableur lisible".into()))
+}
+
+pub async fn piece(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+    Query(o): Query<Options>,
+) -> Resultat<Response> {
+    let (p, octets) = charger(&etat, &acces, id).await?;
     let mut type_mime = type_sur(&p.type_mime.to_ascii_lowercase());
     let apercu = match gmflow_core::eml::type_reel(&octets) {
         Some(t) if matches!(o.inline.as_deref(), Some("1" | "true" | "oui")) => {

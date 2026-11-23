@@ -267,13 +267,20 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     ));
     match contenu {
         Contenu::Texte(t) => {
+            p.push_str(
+                "Les totaux (total HT, TVA, TTC ou net à payer) sont en général en bas de la \
+                 dernière page, parfois dans un tableau récapitulatif dont les chiffres sont \
+                 séparés de leurs libellés (Base hors taxe, Taux TVA, Montant TVA, Total HT, Total \
+                 TVA, Total à payer) ; sur une facture de plusieurs pages, ignore les « report » \
+                 et « à reporter » intermédiaires.\n",
+            );
             p.push_str("Contenu du document (texte extrait) :\n<<<\n");
             p.push_str(&debut_et_fin(t, TEXTE_MAX));
             p.push_str("\n>>>\n");
         }
         Contenu::Fichier { nom, pages } => {
-            let pages = if *pages > 10 {
-                format!(" Il a {pages} pages : lis les 10 premières.")
+            let pages = if *pages > 1 {
+                format!(" {}", lire_les_pages(*pages).trim_end())
             } else {
                 String::new()
             };
@@ -420,7 +427,11 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
 
 /// Consigne ajoutée au prompt du nouvel essai : ce que la première lecture a manqué, et le
 /// fichier d'origine quand il est joint (PDF texte relu sur pièce).
-pub fn consigne_nouvel_essai(anomalies: &[String], fichier: Option<&str>) -> String {
+pub fn consigne_nouvel_essai(
+    anomalies: &[String],
+    fichier: Option<&str>,
+    pages: Option<usize>,
+) -> String {
     let mut s = String::from(
         "\nUne première lecture de ce document a été jugée incomplète ou incohérente :\n",
     );
@@ -438,7 +449,28 @@ pub fn consigne_nouvel_essai(anomalies: &[String], fichier: Option<&str>) -> Str
              l'outil Read, le texte extrait ci-dessus peut mélanger les colonnes.\n"
         ));
     }
+    if let Some(n) = pages.filter(|n| *n > 1) {
+        s.push_str(&lire_les_pages(n));
+    }
     s
+}
+
+/// Consigne de lecture d'un fichier de `n` pages avec l'outil Read : les totaux sont en bas de
+/// la dernière page, et Read ne lit pas plus de 10 pages d'un PDF à la fois.
+pub fn lire_les_pages(n: usize) -> String {
+    if n <= 10 {
+        return format!(
+            "Le fichier a {n} pages : lis-les toutes, jusqu'au pied de la dernière (totaux).\n"
+        );
+    }
+    let debut_fin = n.saturating_sub(2).max(1);
+    format!(
+        "Le fichier a {n} pages. L'outil Read lit au plus 10 pages d'un PDF à la fois : passe-lui \
+         le paramètre pages. Lis d'abord les pages 1-2 (en-tête, numéro, date, émetteur), puis \
+         les pages {debut_fin}-{n} (le récapitulatif des totaux est en bas de la dernière page, \
+         souvent un tableau Base hors taxe / Taux TVA / Montant TVA / Total HT / Total TVA / Total \
+         à payer), puis les autres par lots de 10 si tu as besoin des lignes.\n"
+    )
 }
 
 /// Numéros non vides et distincts (au plus 50).
@@ -451,4 +483,19 @@ pub fn numeros_utiles(numeros: Vec<String>) -> Vec<String> {
         }
     }
     v
+}
+
+#[cfg(test)]
+mod tests_pages {
+    use super::*;
+
+    #[test]
+    fn pages_lues() {
+        let c = lire_les_pages(30);
+        assert!(c.contains("pages 28-30"), "{c}");
+        assert!(lire_les_pages(4).contains("4 pages"));
+        let c = consigne_nouvel_essai(&["x".into()], Some("document.pdf"), Some(30));
+        assert!(c.contains("document.pdf") && c.contains("pages 28-30"));
+        assert!(!consigne_nouvel_essai(&[], None, Some(1)).contains("pages"));
+    }
 }
