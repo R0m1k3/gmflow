@@ -175,6 +175,11 @@ pub struct Fiche {
     societe_defaut: Option<String>,
     format_bl: Option<String>,
     notes: Option<String>,
+    adresse: Option<String>,
+    telephone: Option<String>,
+    email: Option<String>,
+    interlocuteur: Option<String>,
+    conditions_paiement: Option<String>,
     fusionne_dans: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
     cree_le: time::OffsetDateTime,
@@ -213,7 +218,8 @@ pub async fn fiche(
         Fiche,
         r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
-                  format_bl, notes, fusionne_dans, cree_le
+                  format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
+                  fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
@@ -242,6 +248,16 @@ pub struct Entree {
     format_bl: Option<String>,
     #[serde(default)]
     notes: Option<String>,
+    #[serde(default)]
+    adresse: Option<String>,
+    #[serde(default)]
+    telephone: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    interlocuteur: Option<String>,
+    #[serde(default)]
+    conditions_paiement: Option<String>,
 }
 
 fn a_confirmer() -> String {
@@ -292,6 +308,16 @@ impl Entree {
         self.format_bl = net(self.format_bl);
         self.notes = net(self.notes);
         self.code_gestion = net(self.code_gestion);
+        self.adresse = net(self.adresse);
+        self.telephone = net(self.telephone);
+        self.email = net(self.email);
+        if let Some(m) = &self.email
+            && (m.contains(' ') || domaine(m).is_none())
+        {
+            return Err(ErreurApi::Donnees(format!("adresse mail « {m} » invalide")));
+        }
+        self.interlocuteur = net(self.interlocuteur);
+        self.conditions_paiement = net(self.conditions_paiement);
         Ok(self)
     }
 }
@@ -313,7 +339,7 @@ async fn code_libre(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
     .await?;
     match autre {
         Some(nom) => Err(ErreurApi::Donnees(format!(
-            "le code fournisseur « {code} » est déjà celui de {nom}"
+            "le code BO Phénix « {code} » est déjà celui de {nom}"
         ))),
         None => Ok(()),
     }
@@ -330,11 +356,13 @@ pub async fn creer(
     let f = sqlx::query_as!(
         Fiche,
         r#"insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
-                                    societe_defaut_id, format_bl, notes, code_gestion)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                    societe_defaut_id, format_bl, notes, code_gestion,
+                                    adresse, telephone, email, interlocuteur, conditions_paiement)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
-                     format_bl, notes, fusionne_dans, cree_le"#,
+                     format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
+                  fusionne_dans, cree_le"#,
         e.nom,
         normaliser(&e.nom),
         e.siret,
@@ -344,7 +372,12 @@ pub async fn creer(
         e.societe_defaut_id,
         e.format_bl,
         e.notes,
-        e.code_gestion
+        e.code_gestion,
+        e.adresse,
+        e.telephone,
+        e.email,
+        e.interlocuteur,
+        e.conditions_paiement
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -401,6 +434,16 @@ pub struct Changements {
     format_bl: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     notes: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    adresse: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    telephone: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    email: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    interlocuteur: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    conditions_paiement: Option<Option<String>>,
 }
 
 /// `PATCH /api/admin/fournisseurs/{id}` : « Confirmer la fiche » (`{"statut": "valide"}`),
@@ -412,7 +455,8 @@ pub async fn modifier_partiel(
     Json(c): Json<Changements>,
 ) -> Resultat<Json<Fiche>> {
     let f = sqlx::query!(
-        "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes
+        "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
+                adresse, telephone, email, interlocuteur, conditions_paiement
          from fournisseur where id = $1 and fusionne_dans is null",
         id
     )
@@ -429,6 +473,11 @@ pub async fn modifier_partiel(
         societe_defaut_id: c.societe_defaut_id.unwrap_or(f.societe_defaut_id),
         format_bl: c.format_bl.unwrap_or(f.format_bl),
         notes: c.notes.unwrap_or(f.notes),
+        adresse: c.adresse.unwrap_or(f.adresse),
+        telephone: c.telephone.unwrap_or(f.telephone),
+        email: c.email.unwrap_or(f.email),
+        interlocuteur: c.interlocuteur.unwrap_or(f.interlocuteur),
+        conditions_paiement: c.conditions_paiement.unwrap_or(f.conditions_paiement),
     };
     enregistrer(&etat, &a, id, e).await
 }
@@ -452,11 +501,13 @@ async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Jso
         Fiche,
         r#"update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,
               statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,
-              code_gestion = $11
+              code_gestion = $11, adresse = $12, telephone = $13, email = $14,
+              interlocuteur = $15, conditions_paiement = $16
            where id = $1 and fusionne_dans is null
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
-                     format_bl, notes, fusionne_dans, cree_le"#,
+                     format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
+                  fusionne_dans, cree_le"#,
         id,
         e.nom,
         normaliser(&e.nom),
@@ -467,7 +518,12 @@ async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Jso
         e.societe_defaut_id,
         e.format_bl,
         e.notes,
-        e.code_gestion
+        e.code_gestion,
+        e.adresse,
+        e.telephone,
+        e.email,
+        e.interlocuteur,
+        e.conditions_paiement
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -645,7 +701,8 @@ pub async fn fil(
         Fiche,
         r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
-                  format_bl, notes, fusionne_dans, cree_le
+                  format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
+                  fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
@@ -810,4 +867,108 @@ pub async fn fil(
             tronque: vue.tronque,
         },
     }))
+}
+
+#[derive(Serialize, Clone)]
+pub struct FicheCourte {
+    id: i64,
+    nom: String,
+    code_gestion: Option<String>,
+    siret: Option<String>,
+    tva: Option<String>,
+    domaines: Vec<String>,
+    statut: String,
+    nb_documents: i64,
+}
+
+#[derive(Serialize)]
+pub struct PaireDoublon {
+    raison: &'static str,
+    a: FicheCourte,
+    b: FicheCourte,
+}
+
+/// `GET /api/admin/fournisseurs/doublons` : paires de fiches qui désignent probablement le
+/// même fournisseur, à fusionner ou à marquer « pas un doublon ».
+pub async fn doublons(
+    AccesAdmin(_): AccesAdmin,
+    State(etat): State<Etat>,
+) -> Resultat<Json<Vec<PaireDoublon>>> {
+    let paires = gmflow_core::fournisseurs::doublons_probables(&etat.pool).await?;
+    let ids: Vec<i64> = paires.iter().flat_map(|p| [p.a, p.b]).collect();
+    let fiches = sqlx::query_as!(
+        FicheCourte,
+        r#"select f.id, f.nom, f.code_gestion, f.siret, f.tva, f.domaines, f.statut,
+                  (select count(*) from document d where d.fournisseur_id = f.id) as "nb_documents!"
+           from fournisseur f where f.id = any($1)"#,
+        &ids
+    )
+    .fetch_all(&etat.pool)
+    .await?;
+    let par_id: std::collections::HashMap<i64, FicheCourte> =
+        fiches.into_iter().map(|f| (f.id, f)).collect();
+    let v = paires
+        .into_iter()
+        .filter_map(|p| {
+            Some(PaireDoublon {
+                raison: p.raison,
+                a: par_id.get(&p.a)?.clone(),
+                b: par_id.get(&p.b)?.clone(),
+            })
+        })
+        .collect();
+    Ok(Json(v))
+}
+
+#[derive(Deserialize)]
+pub struct Distinct {
+    a: i64,
+    b: i64,
+}
+
+/// `POST /api/admin/fournisseurs/doublons/distinct` : « Pas un doublon », la paire n'est plus
+/// proposée.
+pub async fn distinct(
+    AccesAdmin(acces): AccesAdmin,
+    State(etat): State<Etat>,
+    Json(d): Json<Distinct>,
+) -> Resultat<Json<serde_json::Value>> {
+    if d.a == d.b {
+        return Err(ErreurApi::Donnees(
+            "deux fiches différentes attendues".into(),
+        ));
+    }
+    let (a, b) = (d.a.min(d.b), d.a.max(d.b));
+    let n = sqlx::query!(
+        "insert into fournisseur_distinct (a, b, par)
+         select $1, $2, $3 where (select count(*) from fournisseur where id in ($1, $2)) = 2
+         on conflict do nothing",
+        a,
+        b,
+        acces.utilisateur_id
+    )
+    .execute(&etat.pool)
+    .await?
+    .rows_affected();
+    if n == 0
+        && !sqlx::query_scalar!(
+            r#"select exists (select 1 from fournisseur_distinct where a = $1 and b = $2) as "ok!""#,
+            a,
+            b
+        )
+        .fetch_one(&etat.pool)
+        .await?
+    {
+        return Err(ErreurApi::Absent);
+    }
+    journal::ecrire(
+        &etat.pool,
+        Some(acces.utilisateur_id),
+        "pas_un_doublon",
+        "fournisseur",
+        Some(a.to_string()),
+        json!({ "autre": b }),
+    )
+    .await?;
+    Ok(Json(json!({ "ok": true })))
 }

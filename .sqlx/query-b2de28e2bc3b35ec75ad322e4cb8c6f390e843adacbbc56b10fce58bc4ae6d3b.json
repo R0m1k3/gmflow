@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, nom, nom_normalise, siret, tva, domaines from fournisseur\n         where fusionne_dans is null order by id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "nom_normalise",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom_normalise"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "siret",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "siret"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "tva",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "tva"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "domaines",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "domaines"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "b2de28e2bc3b35ec75ad322e4cb8c6f390e843adacbbc56b10fce58bc4ae6d3b"
+}

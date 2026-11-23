@@ -3,7 +3,7 @@
   // fiche ouverte à droite par `?fiche=ID` (même adresse que l'ancienne page). Plein écran : /fournisseurs/[id].
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { fournisseurs, message } from '#lib/api.ts';
+  import { api, fournisseurs, message } from '#lib/api.ts';
   import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
   import { nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
@@ -12,6 +12,7 @@
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import FournEtat, { texteEtat } from '#lib/ui/FournEtat.svelte';
+  import FournDoublons from '#lib/ui/FournDoublons.svelte';
   import FournFiche from '#lib/ui/FournFiche.svelte';
   import FournNouveau from '#lib/ui/FournNouveau.svelte';
   import Icone from '#lib/ui/Icone.svelte';
@@ -19,7 +20,7 @@
   import Vide from '#lib/ui/Vide.svelte';
   import Volets from '#lib/ui/Volets.svelte';
 
-  type Onglet = 'tous' | 'nouveaux';
+  type Onglet = 'tous' | 'nouveaux' | 'doublons';
   const PAR_PAGE = 50;
 
   let admin = $derived(session.moi?.role === 'admin');
@@ -31,7 +32,7 @@
   let onglet = $state<Onglet>('tous');
   let lignes = $state<LigneFournisseur[]>([]);
   let total = $state(0);
-  let totaux = $state<Record<Onglet, number>>({ tous: 0, nouveaux: 0 });
+  let totaux = $state<Record<Onglet, number>>({ tous: 0, nouveaux: 0, doublons: 0 });
   let numeroPage = $state(1);
   let charge = $state(false);
   let enCours = $state(false);
@@ -66,7 +67,10 @@
       total = courante.total;
       numeroPage = p;
       if (autre) {
-        totaux = onglet === 'tous' ? { tous: courante.total, nouveaux: autre.total } : { tous: autre.total, nouveaux: courante.total };
+        totaux =
+          onglet === 'nouveaux'
+            ? { ...totaux, tous: autre.total, nouveaux: courante.total }
+            : { ...totaux, tous: courante.total, nouveaux: autre.total };
       }
       erreur = '';
     } catch (e) {
@@ -85,6 +89,15 @@
     void societeChoisie;
     if (!session.moi) return;
     void charger();
+  });
+
+  // Nombre de doublons probables, pour l'onglet (admin).
+  $effect(() => {
+    if (!admin) return;
+    api
+      .get<unknown[]>('/api/admin/fournisseurs/doublons')
+      .then((v) => (totaux.doublons = v.length))
+      .catch(() => {});
   });
 
   function ouvrir(id: number | 'nouveau' | null, remplacer = true) {
@@ -151,18 +164,33 @@
       <label class="recherche">
         <span class="sr">Chercher un fournisseur</span>
         <Icone nom="chercher" />
-        <input type="search" placeholder="Nom, SIRET, TVA ou domaine" bind:value={q} autocomplete="off" />
+        <input type="search" placeholder="Nom, code BO, SIRET, TVA, domaine" bind:value={q} autocomplete="off" />
       </label>
       <div class="onglets" role="tablist" aria-label="Fournisseurs">
         <button type="button" role="tab" aria-selected={onglet === 'tous'} onclick={() => (onglet = 'tous')}>
           Tous {#if charge}<span class="num muted">{totaux.tous}</span>{/if}
         </button>
         <button type="button" role="tab" aria-selected={onglet === 'nouveaux'} onclick={() => (onglet = 'nouveaux')}>
-          Nouveaux (à confirmer) {#if totaux.nouveaux}<span class="compteur">{totaux.nouveaux}</span>{/if}
+          À confirmer {#if totaux.nouveaux}<span class="compteur">{totaux.nouveaux}</span>{/if}
         </button>
+        {#if admin}
+          <button type="button" role="tab" aria-selected={onglet === 'doublons'} onclick={() => (onglet = 'doublons')}>
+            Doublons {#if totaux.doublons}<span class="compteur">{totaux.doublons}</span>{/if}
+          </button>
+        {/if}
       </div>
     </div>
     <div class="liste-s" bind:this={conteneur} aria-busy={enCours}>
+      {#if onglet === 'doublons'}
+        <FournDoublons
+          ouvert={idOuvert}
+          onouvrir={(id) => ouvrir(id)}
+          onchange={(n) => {
+            totaux.doublons = n;
+            void charger();
+          }}
+        />
+      {:else}
       {#if erreur}
         <div class="marge">
           <Bandeau ton="erreur">
@@ -194,6 +222,7 @@
         <button type="button" class="plus" disabled={enCours} onclick={() => charger(true)}>
           Voir <span class="num">{Math.min(PAR_PAGE, total - lignes.length)}</span> de plus (<span class="num">{total - lignes.length}</span> restants)
         </button>
+      {/if}
       {/if}
     </div>
     <div class="liste-f">

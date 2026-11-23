@@ -341,7 +341,7 @@ export interface LigneFournisseur {
 export interface Fournisseur {
   id: number;
   nom: string;
-  /** Code du fournisseur dans le logiciel de gestion du magasin. */
+  /** Code BO Phénix : code interne du fournisseur dans le logiciel de gestion du magasin. */
   code_gestion: string | null;
   siret: string | null;
   tva: string | null;
@@ -352,8 +352,32 @@ export interface Fournisseur {
   societe_defaut: string | null;
   format_bl: string | null;
   notes: string | null;
+  adresse: string | null;
+  telephone: string | null;
+  email: string | null;
+  interlocuteur: string | null;
+  conditions_paiement: string | null;
   fusionne_dans: number | null;
   cree_le: string;
+}
+
+/** Fiche résumée d'une paire de `GET /api/admin/fournisseurs/doublons`. */
+export interface FicheCourte {
+  id: number;
+  nom: string;
+  code_gestion: string | null;
+  siret: string | null;
+  tva: string | null;
+  domaines: string[];
+  statut: StatutFournisseur;
+  nb_documents: number;
+}
+
+/** Deux fiches qui désignent sans doute le même fournisseur. */
+export interface PaireDoublon {
+  raison: string;
+  a: FicheCourte;
+  b: FicheCourte;
 }
 
 export interface Expedition {
@@ -792,7 +816,9 @@ export interface EntreeBoite {
 
 /** Corps de `PATCH /api/admin/fournisseurs/{id}` : seuls les champs présents changent. */
 export type ChangementsFournisseur = Partial<
-  Pick<Fournisseur, 'nom' | 'code_gestion' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'>
+  Pick<Fournisseur, 'nom' | 'code_gestion' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'
+  | 'adresse' | 'telephone' | 'email' | 'interlocuteur' | 'conditions_paiement'
+>
 >;
 
 // ---------- Onglets Factures, BL, À répondre (listes existantes) ----------

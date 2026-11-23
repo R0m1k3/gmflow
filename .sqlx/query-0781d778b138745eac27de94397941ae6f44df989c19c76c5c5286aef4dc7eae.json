@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update fournisseur set siret = coalesce(siret, $2), tva = coalesce(tva, $3),\n            domaines = case when $4::text is null or $4 = any(domaines) then domaines\n                            else array_append(domaines, $4) end,\n            nom = case when $5::text is not null and nom ~ '^[^ ]+\\.[a-zA-Z]{2,6}$' then $5 else nom end,\n            nom_normalise = case when $5::text is not null and nom ~ '^[^ ]+\\.[a-zA-Z]{2,6}$' then $6 else nom_normalise end\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0781d778b138745eac27de94397941ae6f44df989c19c76c5c5286aef4dc7eae"
+}

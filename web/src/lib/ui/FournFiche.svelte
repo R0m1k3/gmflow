@@ -13,6 +13,11 @@
     societe_defaut_id: string;
     format_bl: string;
     notes: string;
+    adresse: string;
+    telephone: string;
+    email: string;
+    interlocuteur: string;
+    conditions_paiement: string;
   }
 
   export function versEdition(f: Fournisseur): EditionFournisseur {
@@ -25,7 +30,12 @@
       statut: f.statut,
       societe_defaut_id: f.societe_defaut_id === null ? '' : String(f.societe_defaut_id),
       format_bl: f.format_bl ?? '',
-      notes: f.notes ?? ''
+      notes: f.notes ?? '',
+      adresse: f.adresse ?? '',
+      telephone: f.telephone ?? '',
+      email: f.email ?? '',
+      interlocuteur: f.interlocuteur ?? '',
+      conditions_paiement: f.conditions_paiement ?? ''
     };
   }
 
@@ -43,7 +53,12 @@
       statut,
       societe_defaut_id: x.societe_defaut_id === '' ? null : Number(x.societe_defaut_id),
       format_bl: x.format_bl,
-      notes: x.notes
+      notes: x.notes,
+      adresse: x.adresse,
+      telephone: x.telephone,
+      email: x.email,
+      interlocuteur: x.interlocuteur,
+      conditions_paiement: x.conditions_paiement
     };
   }
 </script>
@@ -104,7 +119,7 @@
   let introuvable = $state(false);
   let info = $state('');
   let enCours = $state(false);
-  let ficheOuverte = $state(false);
+  let ficheOuverte = $state(true);
 
   // Sociétés pour « rangé par défaut dans » (modifiable par un admin seulement, la barre du haut les charge).
   let societes = $derived(admin ? societe.liste : []);
@@ -135,7 +150,7 @@
     info = '';
     erreur = '';
     nbMois = 6;
-    ficheOuverte = false;
+    ficheOuverte = true;
   });
   $effect(() => {
     void id;
@@ -150,12 +165,13 @@
   let resumeFiche = $derived.by(() => {
     if (!f) return '';
     const m: string[] = [];
-    if (f.code_gestion) m.push(`Code ${f.code_gestion}`);
+    if (f.code_gestion) m.push(`BO Phénix ${f.code_gestion}`);
+    else m.push('Sans code BO Phénix');
     if (f.siret) m.push(`SIRET ${f.siret}`);
     else if (f.tva) m.push(`TVA ${f.tva}`);
     if (f.domaines.length) m.push(f.domaines.length > 1 ? `${f.domaines[0]} et ${f.domaines.length - 1} autre${f.domaines.length > 2 ? 's' : ''}` : f.domaines[0]);
     if (nomSocieteDefaut) m.push(nomCourtSociete(nomSocieteDefaut));
-    return m.join(' · ') || 'Ni SIRET ni domaine';
+    return m.join(' · ');
   });
 
   async function enregistrer(statut?: 'a_confirmer' | 'valide') {
@@ -341,12 +357,13 @@
         <Champ disposition="ligne" libelle="Nom" bind:valeur={ed.nom} modifiable={admin} onvalider={() => enregistrer()} />
         <Champ
           disposition="ligne"
-          libelle="Code fournisseur"
+          libelle="Code BO Phénix"
           bind:valeur={ed.code_gestion}
           mono
           modifiable={admin}
           onvalider={() => enregistrer()}
-          aide={admin ? 'Le code de ce fournisseur dans le logiciel de gestion du magasin ; repris dans les exports' : undefined}
+          placeholder="ex. 004512"
+          aide={admin ? 'Notre code interne de ce fournisseur dans Phénix ; repris dans les exports' : undefined}
         >
           {#snippet affichage()}{@render valeurOuTiret(ed?.code_gestion ?? '', true)}{/snippet}
         </Champ>
@@ -355,6 +372,21 @@
         </Champ>
         <Champ disposition="ligne" libelle="N° TVA" bind:valeur={ed.tva} mono modifiable={admin} onvalider={() => enregistrer()}>
           {#snippet affichage()}{@render valeurOuTiret(ed?.tva ?? '', true)}{/snippet}
+        </Champ>
+        <Champ disposition="ligne" type="textarea" libelle="Adresse" bind:valeur={ed.adresse} modifiable={admin} onvalider={() => enregistrer()} placeholder="N°, rue, code postal, ville">
+          {#snippet affichage()}{#if ed?.adresse}<span class="multi">{ed.adresse}</span>{:else}{@render valeurOuTiret('')}{/if}{/snippet}
+        </Champ>
+        <Champ disposition="ligne" libelle="Téléphone" bind:valeur={ed.telephone} modifiable={admin} onvalider={() => enregistrer()} placeholder="03 83 00 00 00">
+          {#snippet affichage()}{@render valeurOuTiret(ed?.telephone ?? '')}{/snippet}
+        </Champ>
+        <Champ disposition="ligne" libelle="E-mail de contact" bind:valeur={ed.email} modifiable={admin} onvalider={() => enregistrer()} placeholder="commandes@fournisseur.fr">
+          {#snippet affichage()}{@render valeurOuTiret(ed?.email ?? '')}{/snippet}
+        </Champ>
+        <Champ disposition="ligne" libelle="Interlocuteur" bind:valeur={ed.interlocuteur} modifiable={admin} onvalider={() => enregistrer()} placeholder="Nom du commercial ou du contact">
+          {#snippet affichage()}{@render valeurOuTiret(ed?.interlocuteur ?? '')}{/snippet}
+        </Champ>
+        <Champ disposition="ligne" libelle="Conditions de paiement" bind:valeur={ed.conditions_paiement} modifiable={admin} onvalider={() => enregistrer()} placeholder="ex. 30 jours fin de mois, LCR">
+          {#snippet affichage()}{@render valeurOuTiret(ed?.conditions_paiement ?? '')}{/snippet}
         </Champ>
         <Champ
           disposition="ligne"
@@ -571,5 +603,8 @@
   }
   .erreur-fusion {
     color: var(--err);
+  }
+  .multi {
+    white-space: pre-line;
   }
 </style>

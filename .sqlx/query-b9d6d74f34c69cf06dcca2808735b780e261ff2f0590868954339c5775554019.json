@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                  (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                  format_bl, notes, fusionne_dans, cree_le\n           from fournisseur where id = $1",
+  "query": "select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                  (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                  format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  fusionne_dans, cree_le\n           from fournisseur where id = $1",
   "describe": {
     "columns": [
       {
@@ -121,6 +121,61 @@
       },
       {
         "ordinal": 11,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "adresse"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "telephone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "telephone"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "interlocuteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "interlocuteur"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "conditions_paiement",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "conditions_paiement"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
         "name": "fusionne_dans",
         "type_info": "Int8",
         "origin": {
@@ -131,7 +186,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 17,
         "name": "cree_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -160,8 +215,13 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "9b7225b31c3f6d31515d14d35b37e65435f9b76417a166503c508d45848d037e"
+  "hash": "b9d6d74f34c69cf06dcca2808735b780e261ff2f0590868954339c5775554019"
 }

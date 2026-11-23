@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into fournisseur_distinct (a, b, par)\n         select $1, $2, $3 where (select count(*) from fournisseur where id in ($1, $2)) = 2\n         on conflict do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "74b5a82c2403f2128ae11cf527cdf94fc37c1b01cf63239b68404948b7cc422d"
+}

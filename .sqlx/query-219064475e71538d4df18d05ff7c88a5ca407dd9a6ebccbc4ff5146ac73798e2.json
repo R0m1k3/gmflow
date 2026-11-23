@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,\n              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,\n              code_gestion = $11\n           where id = $1 and fusionne_dans is null\n           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                     (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                     format_bl, notes, fusionne_dans, cree_le",
+  "query": "insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,\n                                    societe_defaut_id, format_bl, notes, code_gestion,\n                                    adresse, telephone, email, interlocuteur, conditions_paiement)\n           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)\n           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                     (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                     format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  fusionne_dans, cree_le",
   "describe": {
     "columns": [
       {
@@ -121,6 +121,61 @@
       },
       {
         "ordinal": 11,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "adresse"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "telephone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "telephone"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "interlocuteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "interlocuteur"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "conditions_paiement",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "conditions_paiement"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
         "name": "fusionne_dans",
         "type_info": "Int8",
         "origin": {
@@ -131,7 +186,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 17,
         "name": "cree_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -144,7 +199,6 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
         "Text",
         "Text",
         "Text",
@@ -152,6 +206,11 @@
         "TextArray",
         "Text",
         "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
         "Text",
         "Text",
         "Text"
@@ -170,8 +229,13 @@
       true,
       true,
       true,
+      true,
+      true,
+      true,
+      true,
+      true,
       false
     ]
   },
-  "hash": "77c47b6ea637d5e3046005f10f5245847933ac29078a6d200050d263d0586f5f"
+  "hash": "219064475e71538d4df18d05ff7c88a5ca407dd9a6ebccbc4ff5146ac73798e2"
 }

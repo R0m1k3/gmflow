@@ -1055,6 +1055,84 @@ async fn fournisseurs_par_societe_et_fil() {
         .await;
     assert_eq!(r.code, StatusCode::BAD_REQUEST);
     assert!(r.json.to_string().contains("Martin Frais"), "{}", r.json);
+    // Coordonnées de la fiche, e-mail vérifié.
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(
+                json!({ "telephone": " 03 83 00 00 00 ", "interlocuteur": "Mme Roy",
+                         "email": "commandes@martin.fr", "adresse": "1 rue X\n54390 Frouard" }),
+            ),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["telephone"], "03 83 00 00 00");
+    assert_eq!(r.json["code_gestion"], "MAR01");
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "email": "pas une adresse" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    // Doublon probable : même nom collé. « Pas un doublon » le retire de la liste.
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/fournisseurs",
+            Some(json!({ "nom": "martinfrais.fr" })),
+            admin,
+        )
+        .await;
+    let copie = r.json["id"].as_i64().unwrap();
+    let r = app
+        .requete("GET", "/api/admin/fournisseurs/doublons", None, admin)
+        .await;
+    assert!(
+        r.json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["a"]["id"] == m.martin && p["b"]["id"] == copie),
+        "{}",
+        r.json
+    );
+    let r = app
+        .requete("GET", "/api/admin/fournisseurs/doublons", None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::FORBIDDEN);
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/fournisseurs/doublons/distinct",
+            Some(json!({ "a": copie, "b": m.martin })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let r = app
+        .requete("GET", "/api/admin/fournisseurs/doublons", None, admin)
+        .await;
+    assert!(
+        !r.json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["b"]["id"] == copie)
+    );
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/admin/fournisseurs/{copie}/fusionner"),
+            Some(json!({ "cible_id": m.martin })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
     // Société par défaut = la sienne : le responsable voit la fiche (sans les documents de B).
     let r = app.requete("GET", "/api/fournisseurs", None, resp).await;
     assert_eq!(r.json["total"], 2);
