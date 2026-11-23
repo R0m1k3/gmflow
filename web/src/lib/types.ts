@@ -876,3 +876,12 @@ export interface LigneARepondre {
   boites: string[];
   brouillon: StatutBrouillon | null;
 }
+
+/** Réponse de `POST /api/admin/reinitialiser` : ce qui a été effacé. */
+export interface BilanReinitialisation {
+  mails: number;
+  documents: number;
+  fournisseurs: number;
+  taches: number;
+  boites_relancees: number;
+}

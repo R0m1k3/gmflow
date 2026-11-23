@@ -277,7 +277,8 @@ kbd {
 .btn[aria-disabled='true'],
 .btn.principal:disabled,
 .btn.principal[aria-disabled='true'],
-.btn.danger:disabled {
+.btn.danger:disabled,
+.btn.principal.danger:disabled {
   background: var(--desact-bg);
   border-color: var(--line);
   color: var(--desact);

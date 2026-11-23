@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select coalesce(bool_or(en_releve), false) as \"r!\"\n           from (select releve_jusqu_a is not null and releve_jusqu_a > now() as en_releve\n                 from boite_mail order by id for update) b",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "r!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "662c3c33253fa703a6f0e7eec4bfddce748382cd1b26545b79df0cc0ecbea117"
+}

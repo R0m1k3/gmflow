@@ -1,16 +1,20 @@
 <script lang="ts">
   // Avancé (replié) : modèles et effort par tâche, limites par jour, appels à Claude,
-  // expéditeurs publicitaires, historique (ex-journal).
-  import { api, message } from '#lib/api.ts';
+  // expéditeurs publicitaires, historique (ex-journal), puis la zone dangereuse
+  // (réinitialisation : données tirées des mails effacées, configuration gardée).
+  import { ErreurApi, api, message } from '#lib/api.ts';
+  import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { quand } from '#lib/format.ts';
   import { RUBRIQUES, libelleTache } from '#lib/libelles.ts';
-  import type { Appels, ExpediteurMarque, LigneJournal, Page, Reglages, ReglagesVue } from '#lib/types.ts';
+  import type { Appels, BilanReinitialisation, ExpediteurMarque, LigneJournal, Page, Reglages, ReglagesVue } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Confirmation from '#lib/ui/Confirmation.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
   import Repli from '#lib/ui/Repli.svelte';
   import { OBJETS_HISTORIQUE, duree, libelleAction, libelleObjet, n } from './outils.ts';
+
+  let { onchange }: { onchange?: () => void } = $props();
 
   let erreur = $state('');
   let info = $state('');
@@ -122,6 +126,41 @@
     return Object.entries(d)
       .map(([k, v]) => `${k.replace(/_/g, ' ')} : ${v !== null && typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
       .join(' · ');
+  }
+
+  // ---------- Zone dangereuse : réinitialisation ----------
+  const MOT = 'RÉINITIALISER';
+  let dlgReinit = $state(false);
+  let tape = $state('');
+  let reinitEnCours = $state(false);
+  let erreurReinit = $state('');
+  // Refus du serveur (400, 409) : la transaction n'a rien effacé. Sinon, on ne sait pas.
+  let refusReinit = $state(false);
+  let bilanReinit = $state<BilanReinitialisation | null>(null);
+  let motJuste = $derived(tape.trim() === MOT);
+  function ouvrirReinit() {
+    tape = '';
+    erreurReinit = '';
+    dlgReinit = true;
+  }
+  async function reinitialiser() {
+    erreurReinit = '';
+    bilanReinit = null;
+    reinitEnCours = true;
+    try {
+      bilanReinit = await api.post<BilanReinitialisation>('/api/admin/reinitialiser', { confirmation: tape.trim() });
+      appels = null;
+      historique = null;
+      if (ouvertAppels) void chargerAppels();
+      if (ouvertHistorique) void chargerHistorique();
+      void rafraichirCompteurs();
+      onchange?.();
+    } catch (e) {
+      erreurReinit = message(e);
+      refusReinit = e instanceof ErreurApi && e.code < 500;
+    } finally {
+      reinitEnCours = false;
+    }
   }
 
   let resumeModeles = $derived(
@@ -321,7 +360,65 @@
       {/if}
     </Repli>
   </div>
+
+  <section class="danger-zone" aria-labelledby="zone-dangereuse">
+    <h3 id="zone-dangereuse">Zone dangereuse</h3>
+    <div class="dz-ligne">
+      <div class="dz-texte">
+        <div class="dz-titre">Tout reprendre de zéro</div>
+        <p>
+          Efface tout ce qui vient des mails (mails, pièces jointes, factures et BL, fiches fournisseurs avec leurs codes
+          BO Phénix, réponses, historique) et relève à nouveau chaque boîte ; garde les sociétés, les boîtes mail, les
+          utilisateurs, la connexion à Claude et les réglages.
+        </p>
+      </div>
+      <button type="button" class="btn principal danger" class:en-cours={reinitEnCours} disabled={reinitEnCours} onclick={ouvrirReinit}>
+        {reinitEnCours ? 'Réinitialisation en cours' : 'Réinitialiser…'}
+      </button>
+    </div>
+    {#if reinitEnCours}
+      <Bandeau ton="info" role="status">Réinitialisation en cours, ne fermez pas la page.</Bandeau>
+    {:else if erreurReinit}
+      <Bandeau ton="erreur" titre={refusReinit ? 'Rien n’a été effacé.' : 'Réinitialisation pas confirmée.'}>{erreurReinit}</Bandeau>
+    {:else if bilanReinit}
+      <Bandeau ton="ok" role="status" titre="Tout est effacé, la relève a repris.">
+        <span class="num">{bilanReinit.mails}</span> mails, <span class="num">{bilanReinit.documents}</span> documents et
+        <span class="num">{bilanReinit.fournisseurs}</span> fournisseurs effacés ;
+        {n(bilanReinit.boites_relancees, 'boîte')} en cours de relève. Les mails reviennent dans quelques minutes.
+      </Bandeau>
+    {/if}
+  </section>
 </section>
+
+<Confirmation
+  bind:ouvert={dlgReinit}
+  titre="Tout effacer et reprendre de zéro ?"
+  libelle="Réinitialiser"
+  danger
+  desactive={!motJuste}
+  onconfirmer={reinitialiser}
+>
+  <p>
+    Les mails, documents, fournisseurs, liens, réponses et l’historique seront effacés pour de bon, puis les boîtes relevées
+    à nouveau. La configuration reste.
+  </p>
+  <label class="dz-mot" for="dz-mot">Tapez <strong class="num">{MOT}</strong> pour confirmer</label>
+  <input
+    id="dz-mot"
+    class="num"
+    type="text"
+    autocomplete="off"
+    spellcheck="false"
+    bind:value={tape}
+    onkeydown={(e) => {
+      if (e.key === 'Enter' && motJuste) {
+        e.preventDefault();
+        dlgReinit = false;
+        void reinitialiser();
+      }
+    }}
+  />
+</Confirmation>
 
 <Confirmation bind:ouvert={dlgRetirer} titre="Ne plus classer en publicité ?" libelle="Retirer" onconfirmer={retirer}>
   {aRetirer ? nomMarque(aRetirer) : ''} : ses prochains mails seront triés comme les autres.
@@ -367,5 +464,56 @@
   .details {
     word-break: break-word;
     max-width: 320px;
+  }
+  .danger-zone {
+    margin: var(--e10) 0;
+    border: 1px solid var(--err-line);
+    border-radius: var(--r2);
+    padding: var(--e4) var(--e5);
+    background: var(--white);
+  }
+  .danger-zone h3 {
+    margin: 0 0 var(--e3);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--err-ink);
+  }
+  .dz-ligne {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--e5);
+  }
+  .dz-texte {
+    flex: 1;
+    min-width: 0;
+  }
+  .dz-titre {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .dz-texte p {
+    margin: var(--e1) 0 0;
+    color: var(--text);
+    max-width: 64ch;
+  }
+  .dz-ligne .btn {
+    flex: none;
+  }
+  .danger-zone :global(.bandeau) {
+    margin: var(--e4) 0 0;
+  }
+  .dz-mot {
+    display: block;
+    margin: var(--e4) 0 var(--e2);
+    color: var(--text);
+  }
+  #dz-mot {
+    width: 100%;
+  }
+  @media (max-width: 760px) {
+    .dz-ligne {
+      flex-direction: column;
+      gap: var(--e3);
+    }
   }
 </style>
