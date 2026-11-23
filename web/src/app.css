@@ -69,7 +69,8 @@
   --vite: 0.12s;
   --moyen: 0.18s;
 
-  --haut-barre: 89px; /* barre (48) + onglets (40) + filet */
+  --haut-barre: 0px; /* ordinateur : pas de barre en haut, le menu est à gauche */
+  --larg-lateral: 232px;
   --larg-liste: 420px;
 
   /* anciens noms, gardés pour les pages pas encore refondues */
@@ -1403,16 +1404,23 @@ dialog.confirmation .dlg-pied {
   }
 }
 
-/* ---------- Tablette ---------- */
-@media (max-width: 1180px) {
+/* ---------- Écrans moyens ----------
+   Seuils en largeur de fenêtre, barre latérale (232 px) comprise au-dessus de 1024 px. */
+@media (max-width: 1023px) {
   :root {
-    --larg-liste: 340px;
+    --haut-barre: 48px; /* barre compacte, menu en tiroir */
+  }
+}
+@media (max-width: 1400px) {
+  /* min() : une page peut fixer sa propre largeur de liste (Volets, style en ligne). */
+  .volet-liste {
+    width: min(var(--larg-liste), 340px);
   }
   .apercu-zone {
     width: 360px;
   }
 }
-@media (max-width: 960px) {
+@media (max-width: 1200px) {
   .volet-b {
     flex-direction: column;
   }
@@ -1429,9 +1437,6 @@ dialog.confirmation .dlg-pied {
 
 /* ---------- Téléphone : les volets deviennent des pages ---------- */
 @media (max-width: 760px) {
-  :root {
-    --haut-barre: 48px;
-  }
   body {
     font-size: 14px;
   }

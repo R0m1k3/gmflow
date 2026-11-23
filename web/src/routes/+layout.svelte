@@ -50,12 +50,12 @@
     return () => clearInterval(minuteur);
   });
 
-  // Téléphone : libellés courts dans la barre compacte.
-  let tel = $state(false);
+  // Écran étroit (< 1024 px) : barre compacte en haut et menu en tiroir ; téléphone (≤ 760 px) : onglets en bas.
+  let etroit = $state(false);
   $effect(() => {
-    const mq = window.matchMedia('(max-width: 760px)');
-    tel = mq.matches;
-    const suivre = (e: MediaQueryListEvent) => (tel = e.matches);
+    const mq = window.matchMedia('(max-width: 1023px)');
+    etroit = mq.matches;
+    const suivre = (e: MediaQueryListEvent) => (etroit = e.matches);
     mq.addEventListener('change', suivre);
     return () => mq.removeEventListener('change', suivre);
   });
@@ -78,30 +78,35 @@
     if (!session.moi) return;
     return raccourcis({
       '/': () => {
-        // Champ masqué (téléphone, page Recherche) : celui de la page Recherche.
+        // Champ de la barre latérale masqué (écran étroit, page Recherche) : celui de la page Recherche.
         if (surRecherche) document.getElementById('champ-recherche')?.focus();
-        else if (champRecherche && champRecherche.offsetParent !== null) champRecherche.focus();
+        else if (!etroit && champRecherche) champRecherche.focus();
         else void goto('/recherche');
       }
     });
   });
 
-  // ---------- Menu utilisateur et menu téléphone ----------
+  // ---------- Menu du compte et tiroir (écran étroit) ----------
   let menuOuvert = $state(false);
-  let menuTel = $state(false);
+  let tiroir = $state(false);
   $effect(() => {
     void page.url.pathname;
     menuOuvert = false;
-    menuTel = false;
+    tiroir = false;
   });
   $effect(() => {
-    if (!menuOuvert && !menuTel) return;
+    if (!etroit) tiroir = false;
+  });
+  $effect(() => {
+    if (!menuOuvert && !tiroir) return;
     const fermer = (e: MouseEvent | KeyboardEvent) => {
       if (e instanceof KeyboardEvent) {
         if (e.key !== 'Escape') return;
-      } else if ((e.target as HTMLElement).closest('[data-menu]')) return;
-      menuOuvert = false;
-      menuTel = false;
+        menuOuvert = false;
+        tiroir = false;
+        return;
+      }
+      if (!(e.target as HTMLElement).closest('[data-menu]')) menuOuvert = false;
     };
     window.addEventListener('pointerdown', fermer);
     window.addEventListener('keydown', fermer);
@@ -126,19 +131,35 @@
   }
 
   // ---------- Menu ----------
-  // Un onglet par chose à voir : l'accueil (derniers mails), les mails, les factures, les BL,
-  // ce qui attend une réponse ou une validation. `tel` : présent dans les onglets du bas sur téléphone.
+  // Rangé par groupes : le courrier, les pièces, le suivi. `tel` : présent dans les onglets du bas sur téléphone.
   type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number };
-  const liens: Lien[] = [
-    { href: '/', texte: 'Accueil', court: 'Accueil', icone: 'boite', tel: true },
-    { href: '/mails', texte: 'Mails', court: 'Mails', icone: 'mail', tel: true },
-    { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true },
-    { href: '/bl', texte: 'BL', court: 'BL', icone: 'camion', tel: true },
-    { href: '/a-repondre', texte: 'À répondre', court: 'Répondre', icone: 'envoyer', tel: true, compteur: () => compteurs.aRepondre },
-    { href: '/a-traiter', texte: 'À valider', court: 'Valider', icone: 'coche', tel: false, compteur: () => compteurs.aValider },
-    { href: '/fournisseurs', texte: 'Fournisseurs', court: 'Fournisseurs', icone: 'batiment', tel: false },
-    { href: '/bilan', texte: 'Bilan du mois', court: 'Bilan', icone: 'graphique', tel: false }
+  type Groupe = { titre: string; liens: Lien[] };
+  const groupes: Groupe[] = [
+    { titre: '', liens: [{ href: '/', texte: 'Accueil', court: 'Accueil', icone: 'boite', tel: true }] },
+    {
+      titre: 'Courrier',
+      liens: [
+        { href: '/mails', texte: 'Mails', court: 'Mails', icone: 'mail', tel: true },
+        { href: '/a-repondre', texte: 'À répondre', court: 'Répondre', icone: 'envoyer', tel: true, compteur: () => compteurs.aRepondre }
+      ]
+    },
+    {
+      titre: 'Pièces',
+      liens: [
+        { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true },
+        { href: '/bl', texte: 'Bons de livraison', court: 'BL', icone: 'camion', tel: true },
+        { href: '/a-traiter', texte: 'À valider', court: 'Valider', icone: 'coche', tel: false, compteur: () => compteurs.aValider }
+      ]
+    },
+    {
+      titre: 'Suivi',
+      liens: [
+        { href: '/fournisseurs', texte: 'Fournisseurs', court: 'Fournisseurs', icone: 'batiment', tel: false },
+        { href: '/bilan', texte: 'Bilan du mois', court: 'Bilan', icone: 'graphique', tel: false }
+      ]
+    }
   ];
+  const onglets = groupes.flatMap((g) => g.liens).filter((l) => l.tel);
   function actif(href: string) {
     const p = page.url.pathname;
     if (href === '/') return p === '/';
@@ -155,102 +176,106 @@
 {#if publique}
   <main class="seul">{@render children()}</main>
 {:else if session.moi}
-  <header class="barre">
-   <div class="haut">
-    <a class="logo" href="/" aria-label="GMFlow, accueil"><span class="marque" aria-hidden="true"></span>GMFlow</a>
-
-    <span class="sp"></span>
-
-    <form class="recherche" class:cache={surRecherche} role="search" onsubmit={chercher}>
-      <Icone nom="chercher" />
-      <input
-        bind:this={champRecherche}
-        bind:value={recherche}
-        type="search"
-        placeholder="Fournisseur, n°, montant"
-        aria-label="Chercher un document ou un mail"
-        onkeydown={(e) => {
-          if (e.key === 'Escape') champRecherche?.blur();
-        }}
-      />
-      <Kbd t="/" />
-    </form>
-    <a class="btn-icone tel" href="/recherche" aria-label="Chercher"><Icone nom="chercher" /></a>
-
-    {#if admin && societe.liste.length > 0}
-      <label class="sel">
-        <span class="sr">Société</span>
-        <select value={societe.id === null ? '' : String(societe.id)} onchange={(e) => societe.choisir(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
-          <option value="">{tel ? 'Toutes' : 'Toutes les sociétés'}</option>
-          {#each societe.liste as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
-        </select>
-        <Icone nom="bas" />
-      </label>
-    {/if}
-
-    {#if etat}
-      <a class="etat" class:ok={etat.ok} href={etat.ok ? '/' : '/a-traiter#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'}>
-        <span class="point"></span>{etat.texte}
-      </a>
-    {/if}
-
-    {#if admin}
-      <a class="btn-icone large" href="/reglages" aria-label="Réglages" title="Réglages" aria-current={reglagesActif ? 'page' : undefined}><Icone nom="reglages" /></a>
-    {/if}
-
-    <div class="moi large" data-menu>
-      <button type="button" class="initiales" aria-haspopup="menu" aria-expanded={menuOuvert} aria-label="Compte {session.moi.identifiant}" onclick={() => (menuOuvert = !menuOuvert)}>
-        {initiales(session.moi.identifiant)}
+  <div class="cadre">
+    <!-- Écran étroit : barre compacte, le menu s'ouvre en tiroir. -->
+    <header class="barre">
+      <button type="button" class="btn-icone" aria-label="Ouvrir le menu" aria-expanded={tiroir} aria-controls="menu-lateral" onclick={() => (tiroir = true)}>
+        <Icone nom="menu" />
       </button>
-      {#if menuOuvert}
-        <div class="deroulant" role="menu">
-          <div class="qui">
-            <div class="ident">{session.moi.identifiant}</div>
-            <div class="muted petit">{libelleRole(session.moi.role)}</div>
-          </div>
-          <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
-        </div>
+      <a class="logo" href="/" aria-label="GMFlow, accueil"><span class="marque" aria-hidden="true"></span>GMFlow</a>
+      <span class="sp"></span>
+      {#if etat && !etat.ok}
+        <a class="etat-court" href="/a-traiter#bloque" title={etat.texte} aria-label={etat.texte}><span class="point"></span>{compteurs.problemes}</a>
       {/if}
-    </div>
+      <a class="btn-icone" href="/recherche" aria-label="Chercher"><Icone nom="chercher" /></a>
+    </header>
 
-    <div class="moi tel" data-menu>
-      <button type="button" class="btn-icone" aria-haspopup="menu" aria-expanded={menuTel} aria-label="Menu" onclick={() => (menuTel = !menuTel)}>
-        <Icone nom={menuTel ? 'fermer' : 'menu'} />
-      </button>
-      {#if menuTel}
-        <div class="deroulant" role="menu">
-          <div class="qui">
-            <div class="ident">{session.moi.identifiant}</div>
-            <div class="muted petit">{libelleRole(session.moi.role)}</div>
+    {#if tiroir}
+      <button type="button" class="voile" aria-label="Fermer le menu" onclick={() => (tiroir = false)}></button>
+    {/if}
+
+    <aside id="menu-lateral" class="lateral" class:ouvert={tiroir} aria-label="Menu principal">
+      <div class="lat-h">
+        <a class="logo" href="/" aria-label="GMFlow, accueil"><span class="marque" aria-hidden="true"></span>GMFlow</a>
+        <button type="button" class="btn-icone fermer-tiroir" aria-label="Fermer le menu" onclick={() => (tiroir = false)}><Icone nom="fermer" /></button>
+      </div>
+
+      {#if admin && societe.liste.length > 0}
+        <label class="sel">
+          <span class="sr">Société</span>
+          <select value={societe.id === null ? '' : String(societe.id)} onchange={(e) => societe.choisir(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
+            <option value="">Toutes les sociétés</option>
+            {#each societe.liste as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
+          </select>
+          <Icone nom="bas" />
+        </label>
+      {/if}
+
+      <form class="recherche" class:cache={surRecherche || etroit} role="search" onsubmit={chercher}>
+        <Icone nom="chercher" />
+        <input
+          bind:this={champRecherche}
+          bind:value={recherche}
+          type="search"
+          placeholder="Chercher"
+          aria-label="Chercher un document ou un mail (fournisseur, n°, montant)"
+          onkeydown={(e) => {
+            if (e.key === 'Escape') champRecherche?.blur();
+          }}
+        />
+        <Kbd t="/" />
+      </form>
+      {#if etroit}
+        <a class="lien" href="/recherche" class:cur={surRecherche}><Icone nom="chercher" /><span class="t">Chercher</span></a>
+      {/if}
+
+      <nav class="groupes">
+        {#each groupes as g (g.titre)}
+          <div class="groupe">
+            {#if g.titre}<div class="g-titre">{g.titre}</div>{/if}
+            {#each g.liens as l (l.href)}
+              {@const n = l.compteur?.() ?? 0}
+              <a class="lien" href={l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+                <Icone nom={l.icone} /><span class="t">{l.texte}</span>
+                {#if n > 0}<span class="compteur">{n}</span>{/if}
+              </a>
+            {/each}
           </div>
-          {#if etat}
-            <a class="item" class:rouge={!etat.ok} role="menuitem" href={etat.ok ? '/' : '/a-traiter#bloque'}><span class="point"></span>{etat.texte}</a>
+        {/each}
+      </nav>
+
+      <div class="lat-b">
+        {#if etat}
+          <a class="lien etat" class:ok={etat.ok} href={etat.ok ? '/' : '/a-traiter#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'}>
+            <span class="point"></span><span class="t">{etat.texte}</span>
+          </a>
+        {/if}
+        {#if admin}
+          <a class="lien" href="/reglages" class:cur={reglagesActif} aria-current={reglagesActif ? 'page' : undefined}><Icone nom="reglages" /><span class="t">Réglages</span></a>
+        {/if}
+        <div class="moi" data-menu>
+          <button type="button" class="compte" aria-haspopup="menu" aria-expanded={menuOuvert} onclick={() => (menuOuvert = !menuOuvert)}>
+            <span class="initiales">{initiales(session.moi.identifiant)}</span>
+            <span class="qui-c">
+              <span class="ident">{session.moi.identifiant}</span>
+              <span class="muted petit">{libelleRole(session.moi.role)}</span>
+            </span>
+            <Icone nom="haut" />
+          </button>
+          {#if menuOuvert}
+            <div class="deroulant" role="menu">
+              <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
+            </div>
           {/if}
-          {#each liens.filter((l) => !l.tel) as l (l.href)}
-            {@const n = l.compteur?.() ?? 0}
-            <a class="item" role="menuitem" href={l.href}><Icone nom={l.icone} />{l.texte}{#if n > 0}&nbsp;<span class="compteur">{n}</span>{/if}</a>
-          {/each}
-          {#if admin}<a class="item" role="menuitem" href="/reglages"><Icone nom="reglages" />Réglages</a>{/if}
-          <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
         </div>
-      {/if}
-    </div>
-   </div>
-    <nav class="menu" aria-label="Menu principal">
-      {#each liens as l (l.href)}
-        {@const n = l.compteur?.() ?? 0}
-        <a href={l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
-          {l.texte}
-          {#if n > 0}<span class="compteur">{n}</span>{/if}
-        </a>
-      {/each}
-    </nav>
-  </header>
+      </div>
+    </aside>
 
-  <main class="contenu">{@render children()}</main>
+    <main class="contenu">{@render children()}</main>
+  </div>
 
-  <nav class="onglets" aria-label="Menu principal">
-    {#each liens.filter((l) => l.tel) as l (l.href)}
+  <nav class="onglets" aria-label="Raccourcis">
+    {#each onglets as l (l.href)}
       {@const n = l.compteur?.() ?? 0}
       <a href={l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
         <Icone nom={l.icone} />
@@ -261,95 +286,101 @@
 {/if}
 
 <style>
+  /* Ordinateur (≥ 1024 px) : barre latérale fixe à gauche, contenu à droite. */
+  .cadre {
+    display: grid;
+    grid-template-columns: var(--larg-lateral) minmax(0, 1fr);
+    min-height: 100dvh;
+  }
   .barre {
+    display: none;
+  }
+  .lateral {
     position: sticky;
     top: 0;
-    z-index: 20;
-    height: var(--haut-barre);
-    border-bottom: 1px solid var(--line);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    gap: var(--e2);
+    padding: var(--e3) var(--e3) var(--e2);
+    border-right: 1px solid var(--line);
     background: var(--white);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
-  .haut {
-    height: 48px;
+  .lat-h {
     display: flex;
     align-items: center;
-    gap: var(--e2);
-    padding: 0 var(--e4);
+    height: 36px;
+    padding: 0 var(--e2);
+  }
+  .fermer-tiroir {
+    display: none;
+    margin-left: auto;
   }
   .logo {
     display: flex;
     align-items: center;
     gap: var(--e2);
-    margin-right: var(--e5);
     font-weight: 600;
     font-size: 15px;
     color: var(--black);
     text-decoration: none;
     border-radius: var(--r1);
   }
-  .menu {
-    display: flex;
-    gap: var(--e1);
-    height: 40px;
-    padding: 0 var(--e4);
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .menu a {
-    display: flex;
-    align-items: center;
-    gap: var(--e2);
-    height: 40px;
-    padding: 0 var(--e3);
-    border-bottom: 2px solid transparent;
-    color: var(--text2);
-    font-size: 14px;
-    text-decoration: none;
-    font-weight: 500;
-    white-space: nowrap;
-    transition:
-      background-color var(--vite) var(--ease),
-      color var(--vite) var(--ease);
-  }
-  .menu a:hover {
-    color: var(--text);
-    border-bottom-color: var(--line);
-  }
-  .menu a.cur {
-    color: var(--black);
-    border-bottom-color: var(--accent);
-    font-weight: 600;
-  }
 
-  .recherche {
+  .sel {
     position: relative;
     display: flex;
     align-items: center;
+    color: var(--muted);
+  }
+  .sel select {
+    width: 100%;
+    height: 34px;
+    padding: 0 30px 0 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r2);
+    background: var(--white);
+    color: var(--text);
+    font-weight: 500;
+    cursor: pointer;
+    text-overflow: ellipsis;
+  }
+  .sel select:hover {
+    border-color: var(--line2);
+  }
+  .sel :global(svg) {
+    position: absolute;
+    right: 9px;
+    pointer-events: none;
+  }
+
+  .recherche {
+    display: flex;
+    align-items: center;
     gap: var(--e2);
-    width: 340px;
-    height: 32px;
+    height: 34px;
     padding: 0 var(--e2) 0 10px;
     border: 1px solid var(--line);
     border-radius: var(--r2);
-    background: var(--bg);
+    background: var(--white);
     color: var(--muted);
     transition:
       border-color var(--vite) var(--ease),
-      box-shadow var(--vite) var(--ease),
-      background-color var(--vite) var(--ease);
+      box-shadow var(--vite) var(--ease);
   }
   .recherche.cache {
-    visibility: hidden;
+    display: none;
   }
   .recherche:focus-within {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-weak);
-    background: var(--white);
   }
   .recherche input {
     flex: 1;
     min-width: 0;
-    height: 30px;
+    height: 32px;
     padding: 0;
     border: 0;
     background: none;
@@ -366,50 +397,79 @@
     visibility: hidden;
   }
 
-  .sel {
-    position: relative;
+  .groupes {
     display: flex;
-    align-items: center;
-    height: 32px;
+    flex-direction: column;
+    gap: var(--e4);
+    margin-top: var(--e2);
+  }
+  .groupe {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .g-titre {
+    padding: 0 10px var(--e1);
+    font-size: 12px;
+    font-weight: 500;
     color: var(--muted);
   }
-  .sel select {
-    height: 32px;
-    width: auto;
-    max-width: 220px;
-    padding: 0 30px 0 10px;
-    border: 1px solid var(--line);
-    border-radius: var(--r2);
-    background: var(--white);
-    color: var(--text);
-    cursor: pointer;
-    text-overflow: ellipsis;
-    field-sizing: content;
-  }
-  .sel select:hover {
-    border-color: var(--line2);
-  }
-  .sel :global(svg) {
-    position: absolute;
-    right: 8px;
-    pointer-events: none;
-  }
-
-  .etat {
+  .lien {
     display: flex;
     align-items: center;
-    gap: var(--e2);
-    height: 32px;
+    gap: 10px;
+    height: 34px;
     padding: 0 10px;
     border-radius: var(--r2);
-    color: var(--err);
+    color: var(--text2);
+    font-size: 14px;
     font-weight: 500;
     text-decoration: none;
     white-space: nowrap;
-    transition: background-color var(--vite) var(--ease);
+    transition:
+      background-color var(--vite) var(--ease),
+      color var(--vite) var(--ease);
+  }
+  .lien :global(svg) {
+    flex: none;
+    color: var(--muted);
+  }
+  .lien .t {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lien:hover {
+    background: var(--pane);
+    color: var(--text);
+  }
+  .lien.cur {
+    background: var(--sunk);
+    color: var(--black);
+    font-weight: 600;
+  }
+  .lien.cur :global(svg) {
+    color: var(--accent);
+  }
+
+  .lat-b {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: var(--e2);
+    border-top: 1px solid var(--line);
+  }
+  .etat {
+    color: var(--err);
+  }
+  .etat .point {
+    margin: 0 4px;
   }
   .etat:hover {
     background: var(--err-bg);
+    color: var(--err);
   }
   .etat.ok {
     color: var(--text2);
@@ -425,31 +485,55 @@
   .moi {
     position: relative;
   }
+  .compte {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    height: 44px;
+    padding: 0 var(--e2) 0 6px;
+    border: 0;
+    border-radius: var(--r2);
+    background: none;
+    text-align: left;
+    color: var(--muted);
+    transition: background-color var(--vite) var(--ease);
+  }
+  .compte:hover,
+  .compte[aria-expanded='true'] {
+    background: var(--pane);
+  }
   .initiales {
+    flex: none;
     width: 28px;
     height: 28px;
-    margin-left: var(--e1);
     border-radius: 50%;
-    border: 0;
-    padding: 0;
     background: var(--sunk);
     display: grid;
     place-items: center;
     font-size: 11px;
     font-weight: 600;
     color: var(--text2);
-    transition: background-color var(--vite) var(--ease);
   }
-  .initiales:hover,
-  .initiales[aria-expanded='true'] {
-    background: var(--line);
+  .qui-c {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 16px;
+  }
+  .ident {
     color: var(--text);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .deroulant {
     position: absolute;
+    left: 0;
     right: 0;
-    top: calc(100% + 8px);
-    min-width: 240px;
+    bottom: calc(100% + 6px);
     padding: var(--e1);
     border: 1px solid var(--line);
     border-radius: var(--r3);
@@ -462,31 +546,20 @@
   @keyframes menu-entre {
     from {
       opacity: 0;
-      transform: translateY(-4px);
+      transform: translateY(4px);
     }
-  }
-  .qui {
-    padding: var(--e2) 10px 10px;
-    border-bottom: 1px solid var(--line);
-    margin-bottom: var(--e1);
-  }
-  .ident {
-    font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .item {
     display: flex;
     align-items: center;
     gap: 10px;
     width: 100%;
-    height: 32px;
+    height: 34px;
     padding: 0 10px;
     border: 0;
     border-radius: var(--r2);
     background: none;
     color: var(--text);
-    text-decoration: none;
     text-align: left;
   }
   .item:hover {
@@ -495,15 +568,9 @@
   .item :global(svg) {
     color: var(--text2);
   }
-  .item.rouge {
-    color: var(--err);
-    font-weight: 500;
-  }
-  .item .point {
-    margin: 0 5px;
-  }
 
   .contenu {
+    min-width: 0;
     min-height: calc(100dvh - var(--haut-barre));
   }
   main.seul {
@@ -511,59 +578,96 @@
     max-width: 400px;
     padding: 0 var(--e4);
   }
-
-  .tel,
-  .onglets {
+  .onglets,
+  .voile {
     display: none;
   }
 
-  @media (max-width: 1180px) {
-    .recherche {
-      width: 240px;
+  /* Tablette et téléphone : barre compacte en haut, la barre latérale devient un tiroir. */
+  @media (max-width: 1023px) {
+    .cadre {
+      display: block;
     }
-  }
-  @media (max-width: 960px) {
-    .recherche {
-      width: 180px;
+    .barre {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: var(--e2);
+      height: var(--haut-barre);
+      padding: 0 var(--e3);
+      border-bottom: 1px solid var(--line);
+      background: var(--white);
     }
-    .logo {
-      margin-right: var(--e2);
+    .barre .logo {
+      margin-left: var(--e1);
     }
-    .sel select {
-      max-width: 160px;
+    .sp {
+      flex: 1;
+    }
+    .etat-court {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 32px;
+      padding: 0 10px;
+      border-radius: var(--r2);
+      background: var(--err-bg);
+      color: var(--err);
+      font-weight: 600;
+      text-decoration: none;
+    }
+    .lateral {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      z-index: 40;
+      width: min(300px, 86vw);
+      height: auto;
+      padding-bottom: calc(var(--e2) + env(safe-area-inset-bottom));
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
+      transform: translateX(-104%);
+      visibility: hidden;
+      transition:
+        transform var(--moyen) var(--ease),
+        visibility 0s linear var(--moyen);
+    }
+    .lateral.ouvert {
+      transform: none;
+      visibility: visible;
+      transition: transform var(--moyen) var(--ease);
+    }
+    .fermer-tiroir {
+      display: inline-grid;
+    }
+    .voile {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: 35;
+      border: 0;
+      padding: 0;
+      background: rgba(0, 0, 0, 0.28);
+      animation: voile-entre var(--moyen) var(--ease);
+    }
+    @keyframes voile-entre {
+      from {
+        opacity: 0;
+      }
+    }
+    .lien,
+    .item {
+      height: 40px;
     }
   }
 
-  /* Téléphone : barre compacte, menu, onglets en bas */
+  /* Téléphone : onglets en bas pour les pages de tous les jours. */
   @media (max-width: 760px) {
-    .haut {
-      padding: 0 var(--e3) 0 var(--e4);
-    }
-    .logo {
-      margin-right: auto;
-    }
-    .menu,
-    .recherche,
-    .etat,
-    .large {
-      display: none;
-    }
-    .sp {
-      display: none;
-    }
-    .tel {
-      display: inline-grid;
-    }
-    .moi.tel {
-      display: block;
-    }
     .sel select {
-      max-width: 150px;
-      font-size: 14px;
-      height: 32px;
-    }
-    .item {
-      height: 44px;
+      font-size: 16px;
+      height: 40px;
     }
     .onglets {
       position: fixed;
@@ -608,6 +712,13 @@
     :global(body:has(.barre-action)) .contenu,
     :global(body:has(.volets.ouvert)) .contenu {
       padding-bottom: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .lateral,
+    .lateral.ouvert {
+      transition: none;
     }
   }
 </style>
