@@ -148,13 +148,16 @@
     {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
     {#if marques.length}
       <p class="petit t2">
-        Les factures et BL de {fiche.nom} vont à la marque dont le nom figure dans le document ; sinon Claude tranche, et dans le doute ils restent
-        ici.
+        Les factures et BL de {fiche.nom} vont à la marque dont le nom figure dans le document (par exemple « Dép. : L3C ») ; une marque inconnue
+        est ajoutée toute seule, à confirmer ; sinon Claude tranche, et dans le doute ils restent ici.
       </p>
       <div class="filets">
         {#each marques as m (m.id)}
           <a class="ligne" href="/fournisseurs?fiche={m.id}" data-sveltekit-reset="false">
-            <div class="a">{m.nom}{#if m.code_gestion}{' '}<span class="code num">BO {m.code_gestion}</span>{/if}</div>
+            <div class="a">
+              {m.nom}{#if m.code_gestion}{' '}<span class="code num">BO {m.code_gestion}</span>{/if}
+              {#if m.statut === 'a_confirmer'}<span class="flag w">À confirmer</span>{/if}
+            </div>
             <div class="r num petit muted">{m.nb_documents} doc.</div>
             <div class="b petit muted">
               {m.noms_documents.length ? `Repéré aussi par : ${m.noms_documents.join(', ')}` : 'Repéré par son nom'}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set fournisseur_id = $2 where id = $1 and fournisseur_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc5b2f3a348bfa6f1743312b5e4e209caefd4b6692447f84af6abe4da0d7db47"
+}

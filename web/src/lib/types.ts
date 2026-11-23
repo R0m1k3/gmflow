@@ -415,11 +415,18 @@ export interface FicheCourte {
   domaines: string[];
   statut: StatutFournisseur;
   nb_documents: number;
+  /** Groupe dont la fiche fait partie, et son nom. */
+  groupe_id: number | null;
+  groupe: string | null;
+  /** Marques de la fiche (> 0 : c'est un groupe). */
+  nb_marques: number;
 }
 
-/** Deux fiches qui désignent sans doute le même fournisseur. */
+/** Deux fiches qui désignent sans doute le même fournisseur, ou deux marques d'un même groupe. */
 export interface PaireDoublon {
   raison: string;
+  /** Identifiant, domaine ou adresse en commun, noms sans rapport : à regrouper, pas à fusionner. */
+  meme_groupe: boolean;
   a: FicheCourte;
   b: FicheCourte;
 }

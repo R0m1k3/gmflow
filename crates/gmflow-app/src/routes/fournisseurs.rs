@@ -1047,17 +1047,25 @@ pub struct FicheCourte {
     domaines: Vec<String>,
     statut: String,
     nb_documents: i64,
+    /// Groupe dont la fiche fait partie, et son nom.
+    groupe_id: Option<i64>,
+    groupe: Option<String>,
+    /// Marques de la fiche (> 0 : c'est un groupe).
+    nb_marques: i64,
 }
 
 #[derive(Serialize)]
 pub struct PaireDoublon {
     raison: &'static str,
+    /// Deux marques d'un même groupe probable : à regrouper, pas à fusionner.
+    meme_groupe: bool,
     a: FicheCourte,
     b: FicheCourte,
 }
 
 /// `GET /api/admin/fournisseurs/doublons` : paires de fiches qui désignent probablement le
-/// même fournisseur, à fusionner ou à marquer « pas un doublon ».
+/// même fournisseur, à fusionner ou à marquer « pas un doublon » ; `meme_groupe` : deux
+/// marques d'un même groupe, à regrouper (`PATCH` de `groupe_id`).
 pub async fn doublons(
     AccesAdmin(_): AccesAdmin,
     State(etat): State<Etat>,
@@ -1067,7 +1075,9 @@ pub async fn doublons(
     let fiches = sqlx::query_as!(
         FicheCourte,
         r#"select f.id, f.nom, f.code_gestion, f.siret, f.tva, f.domaines, f.statut,
-                  (select count(*) from document d where d.fournisseur_id = f.id) as "nb_documents!"
+                  (select count(*) from document d where d.fournisseur_id = f.id) as "nb_documents!",
+                  f.groupe_id, (select g.nom from fournisseur g where g.id = f.groupe_id) as "groupe?",
+                  (select count(*) from fournisseur m where m.groupe_id = f.id and m.fusionne_dans is null) as "nb_marques!"
            from fournisseur f where f.id = any($1)"#,
         &ids
     )
@@ -1080,6 +1090,7 @@ pub async fn doublons(
         .filter_map(|p| {
             Some(PaireDoublon {
                 raison: p.raison,
+                meme_groupe: p.meme_groupe,
                 a: par_id.get(&p.a)?.clone(),
                 b: par_id.get(&p.b)?.clone(),
             })
@@ -1180,44 +1191,24 @@ pub struct Repartition {
 }
 
 /// `POST /api/admin/fournisseurs/{id}/repartir` : les documents restés sur le groupe vont à
-/// la marque dont un nom figure seul dans leur texte (sans Claude) ; les autres restent.
+/// leur marque sans Claude (entité lue, mention « Dép. : X », ou seule marque nommée dans le
+/// texte) ; les autres restent.
 pub async fn repartir(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
 ) -> Resultat<Json<Repartition>> {
-    let marques = gmflow_core::fournisseurs::marques(&etat.pool, id).await?;
-    if marques.is_empty() {
+    if gmflow_core::fournisseurs::marques(&etat.pool, id)
+        .await?
+        .is_empty()
+    {
         return Err(ErreurApi::Donnees(
             "cette fiche n'a pas de fournisseurs dans son groupe".into(),
         ));
     }
-    let docs = sqlx::query!(
-        r#"select d.id, coalesce(d.fournisseur_nom, '') || E'\n' || m.objet || E'\n' || coalesce(d.texte, '') as "texte!"
-           from document d join mail m on m.id = d.mail_id
-           where d.fournisseur_id = $1 and not (d.corrections ? 'fournisseur_id')"#,
-        id
-    )
-    .fetch_all(&etat.pool)
-    .await?;
-    let mut deplaces = Vec::new();
-    for d in &docs {
-        if let [m] = gmflow_core::fournisseurs::marques_nommees(&marques, &d.texte).as_slice() {
-            deplaces.push((d.id, m.id));
-        }
-    }
-    let mut tx = etat.pool.begin().await?;
-    for (doc, marque) in &deplaces {
-        sqlx::query!(
-            "update document set fournisseur_id = $2 where id = $1",
-            doc,
-            marque
-        )
-        .execute(&mut *tx)
-        .await?;
-    }
+    let (deplaces, examines) = gmflow_core::fournisseurs::repartir(&etat.pool, id).await?;
     journal::ecrire(
-        &mut *tx,
+        &etat.pool,
         Some(a.utilisateur_id),
         "repartition",
         "fournisseur",
@@ -1225,7 +1216,6 @@ pub async fn repartir(
         json!({ "documents": deplaces.len() }),
     )
     .await?;
-    tx.commit().await?;
     // Contrôles et rapprochements des fiches touchées seulement.
     let mut touchees: Vec<i64> = deplaces.iter().map(|(_, m)| *m).collect();
     touchees.sort_unstable();
@@ -1243,6 +1233,6 @@ pub async fn repartir(
     }
     Ok(Json(Repartition {
         deplaces: deplaces.len() as i64,
-        restants: (docs.len() - deplaces.len()) as i64,
+        restants: (examines - deplaces.len()) as i64,
     }))
 }

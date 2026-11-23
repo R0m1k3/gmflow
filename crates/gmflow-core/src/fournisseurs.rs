@@ -609,20 +609,341 @@ pub fn marques_nommees<'a>(marques: &'a [Marque], texte: &str) -> Vec<&'a Marque
         .collect()
 }
 
+/// Vrai si deux noms désignent la même fiche : mêmes lettres et chiffres une fois collés
+/// (« L3C » et « L 3 C », « Decor10 » et « DECOR 10 ») ou même nom normalisé (« SAS U10 » et
+/// « U10 »).
+pub fn meme_nom(a: &str, b: &str) -> bool {
+    let (a, b) = (nom_propre(a), nom_propre(b));
+    let cle = |n: &str| normaliser(n).replace(' ', "");
+    let (ca, cb) = (compact(&a), compact(&b));
+    (!ca.is_empty() && ca == cb) || {
+        let (na, nb) = (cle(&a), cle(&b));
+        !na.is_empty() && na == nb
+    }
+}
+
+/// Vrai si `entite` est une autre fiche que `groupe` : ni le même nom, ni le groupe suivi
+/// d'une ville ou d'un complément (« U10 THIZY » est encore U10).
+pub fn entite_distincte(groupe: &str, entite: &str) -> bool {
+    if meme_nom(groupe, entite) {
+        return false;
+    }
+    let (g, e) = (
+        normaliser(&nom_propre(groupe)),
+        normaliser(&nom_propre(entite)),
+    );
+    !(e.is_empty() || e.starts_with(&format!("{g} ")) || g.starts_with(&format!("{e} ")))
+}
+
+/// Groupe et entité lus sur un document, nettoyés, s'ils désignent deux fiches distinctes.
+pub fn groupe_et_entite(groupe: Option<&str>, entite: Option<&str>) -> Option<(String, String)> {
+    let net = |s: Option<&str>| {
+        s.map(nom_propre)
+            .filter(|n| compact(n).chars().count() >= 2)
+    };
+    let (g, e) = (net(groupe)?, net(entite)?);
+    entite_distincte(&g, &e).then_some((g, e))
+}
+
+/// Mots qui suivent souvent le nom dans un bloc d'en-tête de BL : le nom s'arrête avant.
+const FIN_DE_MENTION: &[&str] = &[
+    "expedie",
+    "expediteur",
+    "expedition",
+    "livre",
+    "livraison",
+    "adresse",
+    "tel",
+    "telephone",
+    "fax",
+    "date",
+    "n",
+    "no",
+    "num",
+    "siret",
+    "tva",
+    "eori",
+    "client",
+    "commande",
+    "page",
+];
+
+/// Société, marque ou département nommé dans le texte d'un document par « Dép. : X »,
+/// « Dép : X », « Département X », « Division X » ou « Marque : X » (premier trouvé). X
+/// s'arrête au bout de la ligne, à « / », « , », « ; », « | », « ( » ou à deux espaces, et
+/// compte au plus 4 mots ; il doit contenir une lettre (« Dép. : 54 » est un département
+/// administratif).
+pub fn mention_entite(texte: &str) -> Option<String> {
+    let orig: Vec<char> = texte.chars().collect();
+    let bas: Vec<char> = orig
+        .iter()
+        .map(|c| sans_accent(c.to_lowercase().next().unwrap_or(*c)))
+        .collect();
+    // (repère, deux-points obligatoire)
+    const REPERES: &[(&str, bool)] = &[
+        ("departement", false),
+        ("division", false),
+        ("dep", true),
+        ("marque", true),
+    ];
+    let commence = |i: usize, mot: &str| {
+        let m: Vec<char> = mot.chars().collect();
+        bas.len() >= i + m.len() && bas[i..i + m.len()] == m[..]
+    };
+    for i in 0..bas.len() {
+        if i > 0 && bas[i - 1].is_alphanumeric() {
+            continue;
+        }
+        for (mot, deux_points) in REPERES {
+            if !commence(i, mot) {
+                continue;
+            }
+            let mut j = i + mot.chars().count();
+            if bas.get(j).is_some_and(|c| c.is_alphanumeric()) {
+                continue;
+            }
+            let mut vu_deux_points = false;
+            while let Some(c) = bas.get(j) {
+                match c {
+                    ' ' | '\t' | '.' => {}
+                    ':' if !vu_deux_points => vu_deux_points = true,
+                    _ => break,
+                }
+                j += 1;
+            }
+            if *deux_points && !vu_deux_points {
+                continue;
+            }
+            let mut fin = j;
+            while let Some(c) = orig.get(fin) {
+                let double_espace = *c == ' ' && orig.get(fin + 1) == Some(&' ');
+                if matches!(c, '\n' | '\r' | '\t' | '/' | ',' | ';' | '|' | '(' | ':')
+                    || double_espace
+                {
+                    break;
+                }
+                fin += 1;
+            }
+            let brut: String = orig[j..fin].iter().collect();
+            let mut mots = Vec::new();
+            for m in brut.split_whitespace() {
+                let cle = normaliser(m);
+                if FIN_DE_MENTION.contains(&cle.as_str()) || mots.len() == 4 {
+                    break;
+                }
+                mots.push(m);
+            }
+            let x = mots
+                .join(" ")
+                .trim_matches(|c: char| !c.is_alphanumeric() && c != ')' && c != '&')
+                .to_string();
+            if x.chars().any(char::is_alphabetic) && (2..=40).contains(&x.chars().count()) {
+                return Some(x);
+            }
+        }
+    }
+    None
+}
+
+/// Marque désignée par un nom (nom de la fiche ou un de ses noms sur les documents).
+fn marque_de_nom<'a>(marques: &'a [Marque], nom: &str) -> Option<&'a Marque> {
+    marques.iter().find(|m| {
+        std::iter::once(&m.nom)
+            .chain(m.noms_documents.iter())
+            .any(|n| meme_nom(n, nom))
+    })
+}
+
+/// Marque d'un document d'un groupe, sans Claude : l'entité lue sur le document, sinon la
+/// mention « Dép. : X » du texte, sinon la seule marque dont un nom figure dans le texte.
+pub fn marque_du_document<'a>(
+    marques: &'a [Marque],
+    texte: &str,
+    entite_lue: Option<&str>,
+) -> Option<&'a Marque> {
+    if let Some(m) = entite_lue.and_then(|e| marque_de_nom(marques, e)) {
+        return Some(m);
+    }
+    if let Some(m) = mention_entite(texte).and_then(|x| marque_de_nom(marques, &x)) {
+        return Some(m);
+    }
+    match marques_nommees(marques, texte).as_slice() {
+        [m] => Some(m),
+        _ => None,
+    }
+}
+
+/// Verrou des créations de fiches de groupe et de marque (deux lectures en parallèle ne
+/// créent pas deux fois U10) : tenu jusqu'à la fin de la transaction rendue.
+pub async fn verrouiller(
+    pool: &PgPool,
+) -> sqlx::Result<sqlx::Transaction<'static, sqlx::Postgres>> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("select pg_advisory_xact_lock(7426010013)")
+        .execute(&mut *tx)
+        .await?;
+    Ok(tx)
+}
+
+/// Fiche du groupe lu sur un document (`ind.nom` = nom du groupe) : une fiche hors groupe de
+/// même nom, sinon celle de son SIREN ou n° de TVA (ou son groupe), sinon une nouvelle fiche
+/// « à confirmer ». Rend aussi vrai si elle a été trouvée par un identifiant. Appeler sous
+/// `verrouiller`.
+pub async fn groupe_lu(pool: &PgPool, ind: &Indices, entite: &str) -> sqlx::Result<(i64, bool)> {
+    let groupe = ind.nom.as_deref().unwrap_or_default();
+    let fiches = sqlx::query!(
+        "select id, nom, groupe_id from fournisseur where fusionne_dans is null order by id"
+    )
+    .fetch_all(pool)
+    .await?;
+    if let Some(f) = fiches
+        .iter()
+        .find(|f| f.groupe_id.is_none() && meme_nom(&f.nom, groupe))
+    {
+        return Ok((f.id, false));
+    }
+    let par_identifiant = Indices {
+        nom: None,
+        domaine: None,
+        ..ind.clone()
+    };
+    if (!par_identifiant.sirens().is_empty() || par_identifiant.tva_nette().is_some())
+        && let Identification::Trouve { id, .. } = identifier(pool, &par_identifiant).await?
+        && let Some(f) = fiches.iter().find(|f| f.id == id)
+    {
+        if let Some(g) = f.groupe_id {
+            return Ok((g, true));
+        }
+        // La fiche du SIREN est l'entité elle-même (créée avant de connaître le groupe) :
+        // elle ira dans le groupe, qui reste à créer.
+        if !meme_nom(&f.nom, entite) {
+            return Ok((f.id, true));
+        }
+    }
+    let id = creer(pool, ind).await?.expect("nom du groupe non vide");
+    Ok((id, false))
+}
+
+/// Ajoute `nom` aux noms sur les documents de la fiche s'il est écrit autrement que son nom.
+async fn retenir_nom(pool: &PgPool, id: i64, nom: &str) -> sqlx::Result<()> {
+    sqlx::query!(
+        "update fournisseur set noms_documents = array_append(noms_documents, $2)
+         where id = $1 and nom <> $2 and not ($2 = any(noms_documents))
+           and cardinality(noms_documents) < 20",
+        id,
+        nom.trim()
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Fiche de l'entité `entite` dans le groupe `groupe` : une marque du groupe de ce nom, sinon
+/// une fiche hors groupe de ce nom (rattachée au groupe, sauf si elle est elle-même un
+/// groupe), sinon une nouvelle marque « à confirmer ». Rend aussi vrai si le groupe a gagné
+/// une marque (les documents restés sur le groupe sont alors à répartir). Appeler sous
+/// `verrouiller`.
+pub async fn marque_lue(pool: &PgPool, groupe: i64, entite: &str) -> sqlx::Result<(i64, bool)> {
+    let entite = nom_propre(entite);
+    let marques = marques(pool, groupe).await?;
+    if let Some(m) = marque_de_nom(&marques, &entite) {
+        retenir_nom(pool, m.id, &entite).await?;
+        return Ok((m.id, false));
+    }
+    let fiches = sqlx::query!(
+        r#"select f.id, f.nom, f.noms_documents, f.groupe_id,
+                  exists (select 1 from fournisseur m where m.groupe_id = f.id and m.fusionne_dans is null) as "est_groupe!"
+           from fournisseur f where f.fusionne_dans is null and f.id <> $1 order by f.id"#,
+        groupe
+    )
+    .fetch_all(pool)
+    .await?;
+    if let Some(f) = fiches.iter().find(|f| {
+        std::iter::once(&f.nom)
+            .chain(f.noms_documents.iter())
+            .any(|n| meme_nom(n, &entite))
+    }) {
+        if f.groupe_id.is_none() && !f.est_groupe {
+            sqlx::query!(
+                "update fournisseur set groupe_id = $2 where id = $1",
+                f.id,
+                groupe
+            )
+            .execute(pool)
+            .await?;
+            retenir_nom(pool, f.id, &entite).await?;
+            return Ok((f.id, true));
+        }
+        return Ok((f.id, false));
+    }
+    let id = sqlx::query_scalar!(
+        "insert into fournisseur (nom, nom_normalise, groupe_id) values ($1, $2, $3) returning id",
+        entite,
+        normaliser(&entite),
+        groupe
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok((id, true))
+}
+
+/// Range chez leur marque les documents restés sur le groupe `groupe` (sans Claude, voir
+/// `marque_du_document`), sauf ceux dont le fournisseur a été choisi à la main. Rend les
+/// (document, marque) déplacés et le nombre de documents examinés.
+pub async fn repartir(pool: &PgPool, groupe: i64) -> sqlx::Result<(Vec<(i64, i64)>, usize)> {
+    let marques = marques(pool, groupe).await?;
+    if marques.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+    let docs = sqlx::query!(
+        r#"select d.id, d.fournisseur_entite,
+                  coalesce(d.fournisseur_nom, '') || E'\n' || m.objet || E'\n' || coalesce(d.texte, '') as "texte!"
+           from document d join mail m on m.id = d.mail_id
+           where d.fournisseur_id = $1 and not (d.corrections ? 'fournisseur_id')"#,
+        groupe
+    )
+    .fetch_all(pool)
+    .await?;
+    let deplaces: Vec<(i64, i64)> = docs
+        .iter()
+        .filter_map(|d| {
+            marque_du_document(&marques, &d.texte, d.fournisseur_entite.as_deref())
+                .map(|m| (d.id, m.id))
+        })
+        .collect();
+    let mut tx = pool.begin().await?;
+    for (doc, marque) in &deplaces {
+        sqlx::query!(
+            "update document set fournisseur_id = $2 where id = $1 and fournisseur_id = $3",
+            doc,
+            marque,
+            groupe
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok((deplaces, docs.len()))
+}
+
 /// Deux fiches qui désignent probablement le même fournisseur, et pourquoi.
 #[derive(Debug, Clone, Serialize)]
 pub struct Doublon {
     pub a: i64,
     pub b: i64,
     pub raison: &'static str,
+    /// Identifiant, domaine ou adresse en commun mais noms clairement différents : deux
+    /// marques d'un même groupe (ou une marque et son groupe), à regrouper, pas à fusionner.
+    pub meme_groupe: bool,
 }
 
 /// Paires de fiches actives qui se ressemblent (même SIREN, domaine commun, même nom collé,
 /// nom de l'une = domaine de l'autre, noms très proches), hors paires marquées « pas un
-/// doublon ». La plus ancienne d'abord dans chaque paire.
+/// doublon ». Même SIREN, domaine ou adresse avec des noms clairement différents : « même
+/// groupe probable » (L3C et Homea au SIREN de U10). La plus ancienne d'abord dans chaque paire.
 pub async fn doublons_probables(pool: &PgPool) -> sqlx::Result<Vec<Doublon>> {
     let fiches = sqlx::query!(
-        "select id, nom, nom_normalise, siret, tva, domaines, groupe_id from fournisseur
+        "select id, nom, nom_normalise, siret, tva, domaines, groupe_id, adresse from fournisseur
          where fusionne_dans is null order by id"
     )
     .fetch_all(pool)
@@ -649,12 +970,17 @@ pub async fn doublons_probables(pool: &PgPool) -> sqlx::Result<Vec<Doublon>> {
                 .chain(f.domaines.iter().map(|d| compact(d)))
                 .filter(|c| c.len() >= 3)
                 .collect();
-            (f, sirens(&f.siret, &f.tva), colles)
+            let adresse = f
+                .adresse
+                .as_deref()
+                .map(normaliser)
+                .filter(|a| a.len() >= 10);
+            (f, sirens(&f.siret, &f.tva), colles, adresse)
         })
         .collect();
     let mut v = Vec::new();
-    for (i, (fa, sa, ca)) in prep.iter().enumerate() {
-        for (fb, sb, cb) in &prep[i + 1..] {
+    for (i, (fa, sa, ca, ada)) in prep.iter().enumerate() {
+        for (fb, sb, cb, adb) in &prep[i + 1..] {
             // Une marque et son groupe (ou deux marques du même groupe) partagent le SIREN.
             let meme_groupe = fa.groupe_id == Some(fb.id)
                 || fb.groupe_id == Some(fa.id)
@@ -662,9 +988,28 @@ pub async fn doublons_probables(pool: &PgPool) -> sqlx::Result<Vec<Doublon>> {
             if meme_groupe || distincts.contains(&(fa.id, fb.id)) {
                 continue;
             }
-            let raison = if sa.iter().any(|s| sb.contains(s)) {
+            let meme_siren = sa.iter().any(|s| sb.contains(s));
+            let meme_domaine = fa.domaines.iter().any(|d| fb.domaines.contains(d));
+            let meme_adresse = ada.is_some() && ada == adb;
+            // Noms seuls (sans les domaines, que deux marques d'un groupe partagent).
+            let (na, nb) = (compact(&fa.nom), compact(&fb.nom));
+            let noms_differents = fa.nom_normalise != fb.nom_normalise
+                && na != nb
+                && fa.nom_normalise.replace(' ', "") != fb.nom_normalise.replace(' ', "")
+                && ressemblance(&fa.nom_normalise, &fb.nom_normalise) < SCORE_CANDIDAT
+                && trigrammes(&na, &nb) < TRIGRAMMES_CANDIDAT;
+            if (meme_siren || meme_domaine || meme_adresse) && noms_differents {
+                v.push(Doublon {
+                    a: fa.id,
+                    b: fb.id,
+                    raison: "même groupe probable",
+                    meme_groupe: true,
+                });
+                continue;
+            }
+            let raison = if meme_siren {
                 "même SIREN"
-            } else if fa.domaines.iter().any(|d| fb.domaines.contains(d)) {
+            } else if meme_domaine {
                 "même domaine mail"
             } else if !fa.nom_normalise.is_empty() && fa.nom_normalise == fb.nom_normalise
                 || ca.intersection(cb).next().is_some()
@@ -679,6 +1024,7 @@ pub async fn doublons_probables(pool: &PgPool) -> sqlx::Result<Vec<Doublon>> {
                 a: fa.id,
                 b: fb.id,
                 raison,
+                meme_groupe: false,
             });
         }
     }
@@ -761,6 +1107,61 @@ mod tests {
         assert_eq!(ids("Bon de livraison L3C n° 44"), vec![1]);
         assert_eq!(ids("Homeland L3CX"), Vec::<i64>::new());
         assert_eq!(ids("Homea et L3C"), vec![1, 2]);
+    }
+
+    #[test]
+    fn mention_dans_le_texte() {
+        let m = |t: &str| mention_entite(t);
+        // L'en-tête réel du BL U10.
+        assert_eq!(
+            m("U10\nDép. : L3C / EXPEDIE PAR : U10 THIZY, 124 Av. des Granges 69240 THIZY LES BOURGS, N° EORI : FR451341465").as_deref(),
+            Some("L3C")
+        );
+        assert_eq!(m("DEP : HOMEA\nBL 12").as_deref(), Some("HOMEA"));
+        assert_eq!(m("Dép.: Decor 10  Tél 04 74").as_deref(), Some("Decor 10"));
+        assert_eq!(m("Dep. : L3C EXPEDIE PAR U10").as_deref(), Some("L3C"));
+        assert_eq!(
+            m("Département Maison & Jardin\n").as_deref(),
+            Some("Maison & Jardin")
+        );
+        assert_eq!(m("DIVISION : Textile, Lyon").as_deref(), Some("Textile"));
+        assert_eq!(m("Marque : Homea").as_deref(), Some("Homea"));
+        // Pas des mentions d'entité.
+        assert_eq!(m("Dépôt : Thizy"), None);
+        assert_eq!(m("Dép. : 54"), None);
+        assert_eq!(m("Dép Lorraine"), None, "deux-points obligatoire après Dép");
+        assert_eq!(m("Marque déposée"), None);
+        assert_eq!(m("Les marques : toutes"), None);
+        assert_eq!(m("Remarque : livrer le matin"), None);
+        assert_eq!(m("Aucune mention ici"), None);
+    }
+
+    #[test]
+    fn groupe_entite_et_noms() {
+        assert!(meme_nom("L3C", "L 3 C"));
+        assert!(meme_nom("l3c", "L3C (Thizy)"));
+        assert!(meme_nom("SAS U10", "U10"));
+        assert!(meme_nom("Decor10", "DECOR 10"));
+        assert!(!meme_nom("L3C", "U10"));
+        assert_eq!(
+            groupe_et_entite(Some("U10"), Some("L3C")),
+            Some(("U10".into(), "L3C".into()))
+        );
+        assert_eq!(groupe_et_entite(Some("U10"), Some("U 10")), None);
+        assert_eq!(groupe_et_entite(Some("U10"), Some("U10 THIZY")), None);
+        assert_eq!(groupe_et_entite(Some("U10"), None), None);
+        assert_eq!(groupe_et_entite(None, Some("L3C")), None);
+        let m = |id, nom: &str, autres: &[&str]| Marque {
+            id,
+            nom: nom.into(),
+            noms_documents: autres.iter().map(|s| s.to_string()).collect(),
+        };
+        let l = [m(1, "L3C", &[]), m(2, "Homea", &["HOMEA DECO"])];
+        let id = |t: &str, e: Option<&str>| marque_du_document(&l, t, e).map(|m| m.id);
+        assert_eq!(id("BL 44", Some("L 3 C")), Some(1));
+        assert_eq!(id("Dép. : HOMEA DECO / EXPEDIE PAR U10", None), Some(2));
+        assert_eq!(id("Homea et L3C", None), None);
+        assert_eq!(id("Dép. : L3C\nRéassort Homea", None), Some(1));
     }
 
     #[test]

@@ -181,21 +181,39 @@ dis de quelle marque il s'agit (logo, en-tête, mention « marque », gamme, adr
 marque). Tu réponds uniquement avec la sortie structurée demandée : fournisseur_id est l'id de \
 la marque, ou null si le document en concerne plusieurs ou si rien ne permet de trancher.";
 
-/// Fiche de la marque d'un document dont le fournisseur est (ou fait partie d') un groupe :
-/// celle dont un nom figure seul dans le texte, sinon celle que Claude désigne. Rien si la
-/// fiche n'est pas un groupe ou si rien ne tranche (le document reste sur sa fiche).
+/// Fiche de la marque d'un document dont le fournisseur est (ou fait partie d') un groupe
+/// qui a déjà des marques : sans Claude, l'entité lue, la mention « Dép. : X » ou la seule
+/// marque nommée dans le texte ; sinon une entité lue ou mentionnée inconnue devient une
+/// nouvelle marque « à confirmer » ; sinon celle que Claude désigne. Rien si la fiche n'est
+/// pas un groupe ou si rien ne tranche (le document reste sur sa fiche). Le booléen dit si le
+/// groupe a gagné une marque.
 async fn vers_marque(
     ctx: &Contexte,
     document_id: i64,
     groupe: i64,
     texte: &str,
-) -> anyhow::Result<Option<(i64, &'static str)>> {
-    let marques = fournisseurs::marques(&ctx.pool, groupe).await?;
+    entite_lue: Option<&str>,
+) -> anyhow::Result<Option<(i64, &'static str, bool)>> {
+    let pool = &ctx.pool;
+    let marques = fournisseurs::marques(pool, groupe).await?;
     if marques.is_empty() {
         return Ok(None);
     }
-    if let [m] = fournisseurs::marques_nommees(&marques, texte).as_slice() {
-        return Ok(Some((m.id, "marque nommée")));
+    if let Some(m) = fournisseurs::marque_du_document(&marques, texte, entite_lue) {
+        return Ok(Some((m.id, "marque nommée", false)));
+    }
+    let nom_groupe = sqlx::query_scalar!("select nom from fournisseur where id = $1", groupe)
+        .fetch_one(pool)
+        .await?;
+    let entite = entite_lue
+        .map(fournisseurs::nom_propre)
+        .or_else(|| fournisseurs::mention_entite(texte))
+        .filter(|e| fournisseurs::entite_distincte(&nom_groupe, e));
+    if let Some(e) = entite {
+        let verrou = fournisseurs::verrouiller(pool).await?;
+        let (id, nouvelle) = fournisseurs::marque_lue(pool, groupe, &e).await?;
+        verrou.commit().await?;
+        return Ok(Some((id, "entité nommée", nouvelle)));
     }
     let mut prompt = String::from("Marques de la société :\n");
     for m in &marques {
@@ -210,15 +228,44 @@ async fn vers_marque(
     let ids: Vec<i64> = marques.iter().map(|m| m.id).collect();
     Ok(demander(ctx, document_id, PROMPT_MARQUE, &prompt, &ids)
         .await?
-        .map(|id| (id, "marque par claude")))
+        .map(|id| (id, "marque par claude", false)))
+}
+
+/// Le groupe vient de gagner une marque : ses documents déjà reçus vont à leur marque (sans
+/// Claude), puis contrôles et rapprochements des fiches touchées sont recalculés.
+async fn rattraper(pool: &PgPool, groupe: i64) -> anyhow::Result<()> {
+    let (deplaces, _) = fournisseurs::repartir(pool, groupe).await?;
+    if deplaces.is_empty() {
+        return Ok(());
+    }
+    journal::ecrire(
+        pool,
+        None,
+        "repartition",
+        "fournisseur",
+        Some(groupe.to_string()),
+        json!({ "documents": deplaces.len(), "automatique": true }),
+    )
+    .await?;
+    let mut touchees: Vec<i64> = deplaces.iter().map(|(_, m)| *m).collect();
+    touchees.push(groupe);
+    touchees.sort_unstable();
+    touchees.dedup();
+    for f in touchees {
+        gmflow_core::depot::reevaluer(pool, None, Some(f)).await?;
+        gmflow_core::rapprochement::recalculer_fournisseur(pool, f).await?;
+    }
+    Ok(())
 }
 
 /// Rattache un document lu à une fiche fournisseur (trouvée, choisie par Claude ou créée « à
-/// confirmer »). Applique la structure par défaut du fournisseur si aucune n'est reconnue.
+/// confirmer »). Groupe et entité lus et distincts (« U10 », « Dép. : L3C ») : le document va
+/// à la fiche de l'entité dans la fiche du groupe, créées au besoin « à confirmer ».
 pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
     let pool = &ctx.pool;
     let Some(d) = sqlx::query!(
         r#"select d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva, d.societe_id,
+                  d.fournisseur_groupe, d.fournisseur_entite,
                   d.corrections ? 'fournisseur_id' as "fixe!", m.expediteur, m.objet,
                   coalesce(d.texte, '') as "texte!"
            from document d join mail m on m.id = d.mail_id
@@ -241,45 +288,71 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
         domaine: fournisseurs::domaine_utile(&d.expediteur, &exclus),
     };
     ind.sans_identifiants_de(&fournisseurs::sirens_societes(pool).await?);
-    // (fiche, comment, avec le domaine) ; les identifiants appris vont au groupe.
-    let (id, comment, apprendre) = match fournisseurs::identifier(pool, &ind).await? {
-        Identification::Trouve { id, par } => (Some(id), par, Some(par == "identifiant")),
-        Identification::Candidats(c) => {
-            match choisir(ctx, document_id, &ind, &d.expediteur, &c).await? {
-                Some(id) => (Some(id), "claude", Some(false)),
-                None => (
-                    fournisseurs::creer(pool, &ind).await?,
-                    "nouvelle fiche",
-                    None,
-                ),
-            }
-        }
-        Identification::Aucun => (
-            fournisseurs::creer(pool, &ind).await?,
-            "nouvelle fiche",
-            None,
-        ),
-    };
-    let Some(trouvee) = id else {
-        return Ok(());
-    };
-    let fiche_creee = comment == "nouvelle fiche";
-    let groupe = sqlx::query_scalar!("select groupe_id from fournisseur where id = $1", trouvee)
-        .fetch_one(pool)
-        .await?
-        .unwrap_or(trouvee);
-    if let Some(avec_domaine) = apprendre {
-        fournisseurs::apprendre(pool, groupe, &ind, avec_domaine).await?;
-    }
     let texte = format!(
         "{}\n{}\n{}",
         d.fournisseur_nom.as_deref().unwrap_or(""),
         d.objet,
         d.texte
     );
-    let (id, comment) = match vers_marque(ctx, document_id, groupe, &texte).await? {
-        Some((m, par)) => (m, par),
-        None => (trouvee, comment),
+    // (fiche du document, comment, groupe qui a gagné une marque)
+    let (id, comment, nouvelle_marque) = if let Some((g, e)) = fournisseurs::groupe_et_entite(
+        d.fournisseur_groupe.as_deref(),
+        d.fournisseur_entite.as_deref(),
+    ) {
+        // Les identifiants lus sont ceux du groupe (U10 facture pour L3C) : appris au groupe.
+        let ind_groupe = Indices {
+            nom: Some(g),
+            ..ind.clone()
+        };
+        let verrou = fournisseurs::verrouiller(pool).await?;
+        let (groupe, par_identifiant) = fournisseurs::groupe_lu(pool, &ind_groupe, &e).await?;
+        fournisseurs::apprendre(pool, groupe, &ind_groupe, par_identifiant).await?;
+        let (marque, nouvelle) = fournisseurs::marque_lue(pool, groupe, &e).await?;
+        verrou.commit().await?;
+        (marque, "groupe et entité lus", nouvelle.then_some(groupe))
+    } else {
+        // (fiche, comment, avec le domaine) ; les identifiants appris vont au groupe.
+        let (id, comment, apprendre) = match fournisseurs::identifier(pool, &ind).await? {
+            Identification::Trouve { id, par } => (Some(id), par, Some(par == "identifiant")),
+            Identification::Candidats(c) => {
+                match choisir(ctx, document_id, &ind, &d.expediteur, &c).await? {
+                    Some(id) => (Some(id), "claude", Some(false)),
+                    None => (
+                        fournisseurs::creer(pool, &ind).await?,
+                        "nouvelle fiche",
+                        None,
+                    ),
+                }
+            }
+            Identification::Aucun => (
+                fournisseurs::creer(pool, &ind).await?,
+                "nouvelle fiche",
+                None,
+            ),
+        };
+        let Some(trouvee) = id else {
+            return Ok(());
+        };
+        let groupe =
+            sqlx::query_scalar!("select groupe_id from fournisseur where id = $1", trouvee)
+                .fetch_one(pool)
+                .await?
+                .unwrap_or(trouvee);
+        if let Some(avec_domaine) = apprendre {
+            fournisseurs::apprendre(pool, groupe, &ind, avec_domaine).await?;
+        }
+        match vers_marque(
+            ctx,
+            document_id,
+            groupe,
+            &texte,
+            d.fournisseur_entite.as_deref(),
+        )
+        .await?
+        {
+            Some((m, par, nouvelle)) => (m, par, nouvelle.then_some(groupe)),
+            None => (trouvee, comment, None),
+        }
     };
     let defaut = sqlx::query_scalar!(
         "select societe_defaut_id from fournisseur where id = $1",
@@ -302,14 +375,18 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
     .execute(pool)
     .await?;
     if maj.rows_affected() == 0 {
-        // Document effacé pendant le rattachement (réinitialisation) : la fiche créée pour lui
-        // ne doit pas rester seule.
-        if fiche_creee {
+        // Document effacé pendant le rattachement (la réinitialisation vide aussi les
+        // fournisseurs) : la fiche, la marque ou le groupe créés pour lui ne restent pas seuls.
+        let groupe = sqlx::query_scalar!("select groupe_id from fournisseur where id = $1", id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+        for f in std::iter::once(id).chain(groupe) {
             sqlx::query!(
                 "delete from fournisseur f where f.id = $1
                  and not exists (select 1 from document d where d.fournisseur_id = f.id)
                  and not exists (select 1 from fournisseur g where g.groupe_id = f.id)",
-                trouvee
+                f
             )
             .execute(pool)
             .await?;
@@ -325,5 +402,8 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
         json!({ "fournisseur_id": id, "par": comment, "societe_par_regle": societe_regle }),
     )
     .await?;
+    if let Some(g) = nouvelle_marque {
+        rattraper(pool, g).await?;
+    }
     Ok(())
 }

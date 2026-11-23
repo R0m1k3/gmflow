@@ -1,0 +1,71 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select f.id, f.nom, f.noms_documents, f.groupe_id,\n                  exists (select 1 from fournisseur m where m.groupe_id = f.id and m.fusionne_dans is null) as \"est_groupe!\"\n           from fournisseur f where f.fusionne_dans is null and f.id <> $1 order by f.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "noms_documents",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "noms_documents"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "groupe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "groupe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "est_groupe!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "af3597ab20c606b08e65cda396a488932ee2d7cf4a7e0b1f05e418940a4ac8b3"
+}

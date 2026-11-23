@@ -175,7 +175,8 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
             date_document = $11, numero_commande = $12,
             montant_ht = $13::float8::numeric(14, 2), montant_tva = $14::float8::numeric(14, 2),
             montant_ttc = $15::float8::numeric(14, 2), confiance = $16, texte = $17,
-            resultat = $18, modele = $19, effort = $20, copie_de = null, pris_le = null,
+            resultat = $18, modele = $19, effort = $20, fournisseur_groupe = $21,
+            fournisseur_entite = $22, copie_de = null, pris_le = null,
             lu_le = case when $2 in ('lu', 'ignore', 'erreur') then now() else lu_le end
          where id = $1",
         id,
@@ -197,7 +198,9 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
         lu.texte.map(|t| tronquer(t, TEXTE_CONSERVE)),
         lu.resultat,
         lu.modele,
-        lu.effort
+        lu.effort,
+        lu.fournisseur.groupe,
+        lu.fournisseur.entite
     )
     .execute(&mut *tx)
     .await?;
@@ -237,11 +240,12 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
         "update document d set (etat, voie, message, type, societe_id, fournisseur_nom,
             fournisseur_siret, fournisseur_tva, numero, date_document, numero_commande, montant_ht,
             montant_tva, montant_ttc, confiance, texte, resultat, modele, effort, numeros_bl,
-            lignes_lues) =
+            lignes_lues, fournisseur_groupe, fournisseur_entite) =
           (select s.etat, s.voie, s.message, s.type, s.societe_id, s.fournisseur_nom,
             s.fournisseur_siret, s.fournisseur_tva, s.numero, s.date_document, s.numero_commande,
             s.montant_ht, s.montant_tva, s.montant_ttc, s.confiance, s.texte, s.resultat, s.modele,
-            s.effort, s.numeros_bl, s.lignes_lues from document s where s.id = $2),
+            s.effort, s.numeros_bl, s.lignes_lues, s.fournisseur_groupe, s.fournisseur_entite
+            from document s where s.id = $2),
           copie_de = $2, pris_le = null, lu_le = now()
          where d.id = $1",
         id,
@@ -290,6 +294,7 @@ fn lu_depuis_xml(
             nom: d.vendeur.nom.clone(),
             siret: d.vendeur.siret.clone(),
             tva: d.vendeur.tva.clone(),
+            ..Default::default()
         },
         numero: d.numero.clone(),
         date: d.date.as_deref().and_then(extraction::date),

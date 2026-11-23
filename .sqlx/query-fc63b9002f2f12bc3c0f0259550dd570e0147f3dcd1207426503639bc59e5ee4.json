@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select nom from fournisseur where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fc63b9002f2f12bc3c0f0259550dd570e0147f3dcd1207426503639bc59e5ee4"
+}
