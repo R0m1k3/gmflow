@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct (convert_from(job, 'UTF8')::jsonb #>> '{LireDocument,document_id}')::bigint as \"id!\"\n           from apalis.jobs\n           where job_type = $1\n             and (status in ('Pending', 'Queued')\n                  or (status = 'Running' and lock_at > now() - make_interval(mins => $2)))\n             and convert_from(job, 'UTF8')::jsonb #>> '{LireDocument,document_id}' is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6d8ad1c28eba09a46f55d0eb100a8b6ed69c90e3e3688c5a12f052f4fe9c7f92"
+}

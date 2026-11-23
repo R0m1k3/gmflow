@@ -121,17 +121,29 @@ async fn claude_bloque(etat: &Etat) -> Resultat<Option<Bloque>> {
     let depuis = v.get("teste_le").and_then(Value::as_str).and_then(|t| {
         time::OffsetDateTime::parse(t, &time::format_description::well_known::Rfc3339).ok()
     });
+    // Refus noté pendant une lecture ou un tri (limite d'usage, jeton refusé) : la phrase
+    // complète, heure de reprise comprise.
+    let refus = v.get("refus").and_then(Value::as_str).map(str::to_string);
+    let message = match &refus {
+        Some(_) => Some(
+            gmflow_core::attente::refus_en_vigueur(&v, time::OffsetDateTime::now_utc())
+                .unwrap_or_else(|| {
+                    "Claude refusait les appels : nouvel essai au prochain document".into()
+                }),
+        ),
+        None => v
+            .get("message")
+            .and_then(Value::as_str)
+            .filter(|m| !m.is_empty())
+            .map(str::to_string),
+    };
     Ok(Some(Bloque {
         genre: "claude".into(),
         document_id: None,
         boite_id: None,
         libelle: None,
-        motif: Some(e.to_string()),
-        message: v
-            .get("message")
-            .and_then(Value::as_str)
-            .filter(|m| !m.is_empty())
-            .map(str::to_string),
+        motif: Some(refus.unwrap_or_else(|| e.to_string())),
+        message,
         depuis,
         r#type: None,
         fournisseur: None,

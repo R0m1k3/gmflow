@@ -284,6 +284,18 @@ async fn sante_et_battement() {
     let banc = Banc::new().await;
     assert!(!sante::controle(banc.pool()).await);
     planif::tour(banc.pool()).await.unwrap();
+    // Les six files battent (sinon /health est rouge, voir tests/orchestre.rs).
+    for f in gmflow_core::traitements::FILES {
+        sqlx::query(
+            "insert into apalis.workers (id, worker_type, storage_name, layers, last_seen)
+             values ($1, $2, 'PgStorage', '', now())",
+        )
+        .bind(format!("gmflow-{f}"))
+        .bind(f)
+        .execute(banc.pool())
+        .await
+        .unwrap();
+    }
     assert!(sante::controle(banc.pool()).await);
     let vieux = (time::OffsetDateTime::now_utc() - time::Duration::minutes(11))
         .format(&time::format_description::well_known::Rfc3339)

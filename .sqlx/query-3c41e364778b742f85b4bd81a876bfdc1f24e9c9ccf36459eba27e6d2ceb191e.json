@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\", min(d.lu_le) as plus_vieux\n           from document d\n           where d.type = 'bl' and d.etat = 'lu' and not d.rapprochement_ignore\n             and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "plus_vieux",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "3c41e364778b742f85b4bd81a876bfdc1f24e9c9ccf36459eba27e6d2ceb191e"
+}

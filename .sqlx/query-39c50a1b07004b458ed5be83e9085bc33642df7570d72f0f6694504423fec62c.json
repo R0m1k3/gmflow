@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select etat, voie, message, pris_le,\n                  greatest(cree_le, coalesce(lu_le, cree_le)) as \"depuis!\",\n                  coalesce(pris_le < now() - interval '30 minutes', false) as \"bloque!\",\n                  case when planifie_le > now() - interval '30 minutes'\n                       then planifie_le + interval '30 minutes' end as prochain\n           from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "voie",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "voie"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "message"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "pris_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "pris_le"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "depuis!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "bloque!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "prochain",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "39c50a1b07004b458ed5be83e9085bc33642df7570d72f0f6694504423fec62c"
+}

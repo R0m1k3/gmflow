@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail set tri_etat = 'a_trier', tri_pris_le = null, tri_planifie_le = null\n         where tri_etat = 'en_cours' and tri_pris_le < now() - interval '30 minutes'\n         returning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aa79d6191111bea08ebf761fb0e63c0182d048a9bf61eec10ba85f4e5faf841f"
+}

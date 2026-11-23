@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select case ($1::timestamptz at time zone 'Europe/Paris')::date\n                         - (now() at time zone 'Europe/Paris')::date\n                    when 0 then 'vers ' || to_char($1 at time zone 'Europe/Paris', 'HH24:MI')\n                    when 1 then 'demain vers ' || to_char($1 at time zone 'Europe/Paris', 'HH24:MI')\n                    else 'le ' || to_char($1 at time zone 'Europe/Paris', 'DD/MM')\n                         || ' vers ' || to_char($1 at time zone 'Europe/Paris', 'HH24:MI')\n                  end as \"q!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "q!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "12bd87c90a9b736dd417153cbd15c567099062e1c57eac24456dd656efc411f1"
+}

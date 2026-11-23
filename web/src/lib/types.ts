@@ -305,6 +305,33 @@ export interface FicheDocument {
   envois: Envoi[];
   /** Boîtes de réception du mail d'origine (visibles). */
   boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
+  /** Document pas encore lu : pourquoi il attend. */
+  attente: Attente | null;
+}
+
+export type GenreAttente =
+  | 'en_cours'
+  | 'en_file'
+  | 'bloque'
+  | 'file_arretee'
+  | 'jeton_absent'
+  | 'claude_refuse'
+  | 'quota'
+  | 'lecture_coupee'
+  | 'a_relancer';
+
+/** Pourquoi un document n'est pas encore lu. */
+export interface Attente {
+  genre: GenreAttente;
+  /** Phrase principale, sans point final. */
+  raison: string;
+  /** En attente depuis. */
+  depuis: string;
+  /** Documents qui passeront avant lui dans la file de lecture. */
+  devant: number | null;
+  lecture_auto: boolean;
+  /** Raison notée au dernier essai, si autre. */
+  dernier_essai: string | null;
 }
 
 export interface Envoi {
@@ -884,4 +911,31 @@ export interface BilanReinitialisation {
   fournisseurs: number;
   taches: number;
   boites_relancees: number;
+}
+
+// ---------- Réglages > Traitements ----------
+
+export type CleEtapeTraitement = 'releve' | 'lecture' | 'tri' | 'rapprochement' | 'depot';
+
+export interface EtapeTraitement {
+  cle: CleEtapeTraitement;
+  nom: string;
+  /** `bloque` : elle ne peut pas avancer et du travail attend ; `arrete` : sa file ne bat plus. */
+  etat: 'ok' | 'en_retard' | 'bloque' | 'arrete';
+  resume: string;
+  /** Pourquoi elle ne peut pas avancer (étape bloquée). */
+  blocage: string | null;
+  en_attente: number;
+  plus_vieille: { depuis: string; raison: string } | null;
+  dernier_passage: string | null;
+  file: { nom: string; battement: string | null; vivante: boolean };
+  /** Relance demandée, pas encore prise par le worker. */
+  relance_demandee: boolean;
+}
+
+export interface Traitements {
+  service: { en_marche: boolean; vu_le: string | null; autres_arretees: string[] };
+  /** Pourquoi Claude ne lit pas en ce moment, sinon null. */
+  claude: string | null;
+  etapes: EtapeTraitement[];
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select count(*) as \"n!\" from appel_claude\n           where quand >= date_trunc('day', now(), 'UTC') and tache = any($1)",
+  "query": "select count(*) as \"n!\" from appel_claude\n           where quand >= date_trunc('day', now(), 'UTC') and tache = any($1) and succes",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "7b3dfb98bc978684eb62529fcfc3e06afd7369dc7e32afc4175a2736045ac2f9"
+  "hash": "d9e5b2d446cc69e93762ac97730775363576f230905da42866b33aa929f6941e"
 }

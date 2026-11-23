@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set message = $2\n             where id = $1 and etat = 'a_lire' and message is distinct from $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "261f599bf387051ec87be5305593ad5560cd280b06b445a88519bc4fa4e41212"
+}

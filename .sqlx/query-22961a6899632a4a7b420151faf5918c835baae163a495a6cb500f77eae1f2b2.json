@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update apalis.jobs set status = 'Pending', done_at = null, lock_by = null, lock_at = null,\n            attempts = attempts + case when id = any($2) then 1 else 0 end\n         where id = any($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "22961a6899632a4a7b420151faf5918c835baae163a495a6cb500f77eae1f2b2"
+}

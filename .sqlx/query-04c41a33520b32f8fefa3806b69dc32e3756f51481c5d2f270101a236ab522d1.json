@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from parametre where cle = $1 returning valeur",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "valeur",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "parametre",
+            "name": "valeur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "04c41a33520b32f8fefa3806b69dc32e3756f51481c5d2f270101a236ab522d1"
+}

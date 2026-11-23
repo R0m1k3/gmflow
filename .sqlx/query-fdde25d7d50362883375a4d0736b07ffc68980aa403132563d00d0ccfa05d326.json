@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update mail set tri_planifie_le = null where tri_etat = 'a_trier'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "fdde25d7d50362883375a4d0736b07ffc68980aa403132563d00d0ccfa05d326"
+}
