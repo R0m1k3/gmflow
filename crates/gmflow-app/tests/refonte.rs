@@ -2296,3 +2296,60 @@ async fn fiche_fournisseur_modification_partielle() {
     assert_eq!(r.code, StatusCode::FORBIDDEN);
     m.app.fermer().await;
 }
+
+/// Durand et Martin partagent un SIRET mais n'ont rien de commun dans le nom : « même groupe
+/// probable », à regrouper (PATCH de `groupe_id`), puis répartition des documents.
+#[tokio::test]
+async fn doublons_meme_groupe_et_regroupement() {
+    let m = monde().await;
+    let app = &m.app;
+    let admin = Some(m.c_admin.as_str());
+    let r = app
+        .requete("GET", "/api/admin/fournisseurs/doublons", None, admin)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let paire = r
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["a"]["id"] == m.durand && p["b"]["id"] == m.martin)
+        .unwrap_or_else(|| panic!("{}", r.json))
+        .clone();
+    assert_eq!(paire["meme_groupe"], true);
+    assert_eq!(paire["raison"], "même groupe probable");
+    assert_eq!(paire["a"]["nb_marques"], 0);
+    // Regrouper : Martin dans le groupe Durand ; la paire n'est plus proposée.
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "groupe_id": m.durand })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let r = app
+        .requete("GET", "/api/admin/fournisseurs/doublons", None, admin)
+        .await;
+    assert!(
+        !r.json
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["b"]["id"] == m.martin),
+        "{}",
+        r.json
+    );
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/admin/fournisseurs/{}/repartir", m.durand),
+            Some(json!({})),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert!(r.json["deplaces"].is_number());
+    m.app.fermer().await;
+}

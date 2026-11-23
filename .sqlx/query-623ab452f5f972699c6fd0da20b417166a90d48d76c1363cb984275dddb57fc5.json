@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, nom, nom_normalise, siret, tva, domaines, groupe_id from fournisseur\n         where fusionne_dans is null order by id",
+  "query": "select f.id, f.nom, f.code_gestion, f.siret, f.tva, f.domaines, f.statut,\n                  (select count(*) from document d where d.fournisseur_id = f.id) as \"nb_documents!\",\n                  f.groupe_id, (select g.nom from fournisseur g where g.id = f.groupe_id) as \"groupe?\",\n                  (select count(*) from fournisseur m where m.groupe_id = f.id and m.fusionne_dans is null) as \"nb_marques!\"\n           from fournisseur f where f.id = any($1)",
   "describe": {
     "columns": [
       {
@@ -27,12 +27,12 @@
       },
       {
         "ordinal": 2,
-        "name": "nom_normalise",
+        "name": "code_gestion",
         "type_info": "Text",
         "origin": {
           "Table": {
             "table": "fournisseur",
-            "name": "nom_normalise"
+            "name": "code_gestion"
           }
         }
       },
@@ -71,6 +71,23 @@
       },
       {
         "ordinal": 6,
+        "name": "statut",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "statut"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "nb_documents!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
         "name": "groupe_id",
         "type_info": "Int8",
         "origin": {
@@ -79,20 +96,38 @@
             "name": "groupe_id"
           }
         }
+      },
+      {
+        "ordinal": 9,
+        "name": "groupe?",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "nb_marques!",
+        "type_info": "Int8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Int8Array"
+      ]
     },
     "nullable": [
       false,
       false,
-      false,
       true,
       true,
+      true,
       false,
-      true
+      false,
+      null,
+      true,
+      null,
+      null
     ]
   },
-  "hash": "f39059957204d438e7eea15990cf3d737fca36b107bfd558a2dcc95c28ecdc02"
+  "hash": "623ab452f5f972699c6fd0da20b417166a90d48d76c1363cb984275dddb57fc5"
 }

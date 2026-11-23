@@ -26,6 +26,14 @@ pub struct Fournisseur {
     pub nom: Option<String>,
     pub siret: Option<String>,
     pub tva: Option<String>,
+    /// Enseigne ou maison mère vue en en-tête ou en logo (« U10 »). Absent des anciennes
+    /// réponses : null.
+    #[serde(default)]
+    pub groupe: Option<String>,
+    /// Société, marque, département ou division qui a réellement vendu ou livré, quand le
+    /// document la distingue du groupe (« Dép. : L3C »).
+    #[serde(default)]
+    pub entite: Option<String>,
 }
 
 /// Ligne article d'un BL ou d'une facture.
@@ -117,8 +125,11 @@ pub fn schema(avec_texte: bool) -> Value {
         "societe_id": { "type": ["integer", "null"] },
         "fournisseur": {
             "type": "object",
-            "properties": { "nom": chaine_ou_null(), "siret": chaine_ou_null(), "tva": chaine_ou_null() },
-            "required": ["nom", "siret", "tva"],
+            "properties": {
+                "nom": chaine_ou_null(), "siret": chaine_ou_null(), "tva": chaine_ou_null(),
+                "groupe": chaine_ou_null(), "entite": chaine_ou_null()
+            },
+            "required": ["nom", "siret", "tva", "groupe", "entite"],
             "additionalProperties": false
         },
         "numero": chaine_ou_null(),
@@ -250,6 +261,16 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
          conditions de vente, dernière page. Ils servent à reconnaître ce fournisseur sur ses \
          documents suivants : recopie-les chiffre par chiffre, sans espaces. Jamais ceux d'une \
          structure destinataire listée plus haut ; null si l'émetteur n'en donne pas.\n",
+    );
+    p.push_str(
+        "fournisseur.groupe = l'enseigne ou la maison mère de l'émetteur vue en en-tête ou en \
+         logo, null sinon. fournisseur.entite = la société, la marque, le département ou la \
+         division qui a réellement vendu ou livré, quand le document la distingue du groupe \
+         (« Dép. : X », « Département X », « Division X », « Marque : X », « expédié par X » \
+         si X n'est pas le groupe) ; null sinon. Exemple : un BL avec le logo « U10 » et le bloc \
+         « Dép. : L3C / EXPEDIE PAR : U10 THIZY, 124 Av. des Granges 69240 THIZY LES BOURGS » \
+         donne groupe « U10 » et entite « L3C ». Recopie les noms tels qu'écrits, sans forme \
+         juridique ni ville.\n",
     );
     p.push_str(&format!(
         "lignes = les lignes articles (référence, désignation, quantité, unité, prix unitaire HT, \

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva, d.societe_id,\n                  d.corrections ? 'fournisseur_id' as \"fixe!\", m.expediteur, m.objet,\n                  coalesce(d.texte, '') as \"texte!\"\n           from document d join mail m on m.id = d.mail_id\n           where d.id = $1 and d.etat = 'lu'",
+  "query": "select d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva, d.societe_id,\n                  d.fournisseur_groupe, d.fournisseur_entite,\n                  d.corrections ? 'fournisseur_id' as \"fixe!\", m.expediteur, m.objet,\n                  coalesce(d.texte, '') as \"texte!\"\n           from document d join mail m on m.id = d.mail_id\n           where d.id = $1 and d.etat = 'lu'",
   "describe": {
     "columns": [
       {
@@ -49,12 +49,34 @@
       },
       {
         "ordinal": 4,
+        "name": "fournisseur_groupe",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_groupe"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "fournisseur_entite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_entite"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "fixe!",
         "type_info": "Bool",
         "origin": "Expression"
       },
       {
-        "ordinal": 5,
+        "ordinal": 7,
         "name": "expediteur",
         "type_info": "Text",
         "origin": {
@@ -65,7 +87,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 8,
         "name": "objet",
         "type_info": "Text",
         "origin": {
@@ -76,7 +98,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 9,
         "name": "texte!",
         "type_info": "Text",
         "origin": "Expression"
@@ -92,11 +114,13 @@
       true,
       true,
       true,
+      true,
+      true,
       null,
       false,
       false,
       null
     ]
   },
-  "hash": "954c863cee84330ecf403a10238d1df38c061f0f33ccd83e8389671505ed0782"
+  "hash": "5ae46ef63c50f05b16ffc07a64371977b18059d8ae88b4203ca5ea3a7478d257"
 }

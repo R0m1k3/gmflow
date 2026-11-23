@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update document set fournisseur_id = $2 where id = $1",
+  "query": "update fournisseur set groupe_id = $2 where id = $1",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "90f9afa1d034e173ebc058b65a28fc2882b63bdf397c226dbddad5700d5d0a69"
+  "hash": "14930a09b6dead605b93254cd43c9b09bcb8f44de1d2147d9337aaae9570ccfe"
 }
