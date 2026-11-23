@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update fournisseur set groupe_id = case when id = $2 then null else $2 end\n         where groupe_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98b0e60136eac494c26abf9a9c93308dc395aa1d06f4eddb35361af7d50a8c8d"
+}

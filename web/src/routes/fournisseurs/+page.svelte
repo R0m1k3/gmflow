@@ -210,7 +210,9 @@
           aria-current={l.id === idOuvert ? 'true' : undefined}
           title={texteEtat(l)}
         >
-          <div class="a">{l.nom}{#if l.code_gestion}{' '}<span class="code num">{l.code_gestion}</span>{/if}</div>
+          <div class="a">
+            {l.nom}{#if l.code_gestion}{' '}<span class="code num">{l.code_gestion}</span>{/if}{#if l.groupe}{' '}<span class="code">· {l.groupe}</span>{/if}
+          </div>
           <div class="r">{#if l.statut === 'a_confirmer'}<span class="flag w">Nouveau</span>{/if}</div>
           <div class="b"><FournEtat etat={l} /></div>
           <div class="r2 num">{dateCourte(l.dernier_document)}</div>

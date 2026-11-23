@@ -1266,6 +1266,66 @@ async fn fournisseurs_par_societe_et_fil() {
         )
         .await;
     assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    // Groupe : Martin Frais facture pour la marque « Frais Express » ; un seul niveau.
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/fournisseurs",
+            Some(
+                json!({ "nom": "Frais Express", "code_gestion": "FEX01", "statut": "valide",
+                         "groupe_id": m.martin, "noms_documents": ["F. EXPRESS", " "] }),
+            ),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["groupe"], "Martin Frais");
+    assert_eq!(r.json["noms_documents"], json!(["F. EXPRESS"]));
+    let marque = r.json["id"].as_i64().unwrap();
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "groupe_id": marque })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST, "{}", r.json);
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/fournisseurs/{}/marques", m.martin),
+            None,
+            admin,
+        )
+        .await;
+    assert_eq!(r.json[0]["nom"], "Frais Express");
+    // Répartition : un document de Martin Frais qui nomme la marque passe chez elle.
+    let doc: i64 = sqlx::query_scalar(
+        "update document set fournisseur_id = $1, texte = 'Bon de livraison F. Express n° 12'
+         where id = (select id from document where fournisseur_id = $1 order by id limit 1)
+         returning id",
+    )
+    .bind(m.martin)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/admin/fournisseurs/{}/repartir", m.martin),
+            None,
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["deplaces"], 1, "{}", r.json);
+    let rangee: i64 = sqlx::query_scalar("select fournisseur_id from document where id = $1")
+        .bind(doc)
+        .fetch_one(app.pool())
+        .await
+        .unwrap();
+    assert_eq!(rangee, marque);
     m.app.fermer().await;
 }
 

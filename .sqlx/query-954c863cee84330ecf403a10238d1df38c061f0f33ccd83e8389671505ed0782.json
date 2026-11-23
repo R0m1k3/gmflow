@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva, d.societe_id,\n                  d.corrections ? 'fournisseur_id' as \"fixe!\", m.expediteur\n           from document d join mail m on m.id = d.mail_id\n           where d.id = $1 and d.etat = 'lu'",
+  "query": "select d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva, d.societe_id,\n                  d.corrections ? 'fournisseur_id' as \"fixe!\", m.expediteur, m.objet,\n                  coalesce(d.texte, '') as \"texte!\"\n           from document d join mail m on m.id = d.mail_id\n           where d.id = $1 and d.etat = 'lu'",
   "describe": {
     "columns": [
       {
@@ -63,6 +63,23 @@
             "name": "expediteur"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "texte!",
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -76,8 +93,10 @@
       true,
       true,
       null,
-      false
+      false,
+      false,
+      null
     ]
   },
-  "hash": "a8dde1a1792b3369c1c01df0ad45ab456148083091f930c369d7400b255ef026"
+  "hash": "954c863cee84330ecf403a10238d1df38c061f0f33ccd83e8389671505ed0782"
 }

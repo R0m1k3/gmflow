@@ -24,7 +24,9 @@
     telephone: '',
     email: '',
     interlocuteur: '',
-    conditions_paiement: ''
+    conditions_paiement: '',
+    noms_documents: '',
+    groupe_id: null
   });
   let erreur = $state('');
   let enCours = $state(false);

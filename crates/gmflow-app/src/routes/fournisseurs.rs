@@ -36,6 +36,8 @@ pub struct LigneFournisseur {
     statut: String,
     societe_defaut_id: Option<i64>,
     societe_defaut: Option<String>,
+    /// Nom du groupe dont ce fournisseur fait partie.
+    groupe: Option<String>,
     nb_documents: i64,
     a_verifier: i64,
     /// Ligne d'état, sur les documents lus visibles (et de la société choisie) :
@@ -65,7 +67,8 @@ pub async fn lister(
         r#"select count(*) as "n!" from fournisseur f
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
              and ($2::text is null or f.nom ilike $2 or f.code_gestion ilike $2 or f.siret ilike $2 or f.tva ilike $2
-                  or array_to_string(f.domaines, ' ') ilike $2)
+                  or array_to_string(f.domaines, ' ') ilike $2
+                  or array_to_string(f.noms_documents, ' ') ilike $2)
              and ($3::bigint is null or f.societe_defaut_id = $3
                   or exists (select 1 from document d
                              where d.fournisseur_id = f.id
@@ -93,6 +96,7 @@ pub async fn lister(
         LigneFournisseur,
         r#"select f.id, f.nom, f.code_gestion, f.siret, f.tva, f.domaines, f.statut, f.societe_defaut_id,
                   s.raison_sociale as "societe_defaut?",
+                  (select g.nom from fournisseur g where g.id = f.groupe_id) as "groupe?",
                   (select count(*) from document d where d.fournisseur_id = f.id
                      and ($5::bigint is null
                           or ((d.societe_id is null or d.societe_id = $5)
@@ -134,7 +138,8 @@ pub async fn lister(
            ) e
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
              and ($2::text is null or f.nom ilike $2 or f.code_gestion ilike $2 or f.siret ilike $2 or f.tva ilike $2
-                  or array_to_string(f.domaines, ' ') ilike $2)
+                  or array_to_string(f.domaines, ' ') ilike $2
+                  or array_to_string(f.noms_documents, ' ') ilike $2)
              and ($6::bigint is null or e.n > 0)
              and ($5::bigint is null or f.societe_defaut_id = $5
                   or exists (select 1 from document d
@@ -180,6 +185,11 @@ pub struct Fiche {
     email: Option<String>,
     interlocuteur: Option<String>,
     conditions_paiement: Option<String>,
+    /// Fiche du groupe (société qui facture pour plusieurs marques), et son nom.
+    groupe_id: Option<i64>,
+    groupe: Option<String>,
+    /// Noms à chercher dans le texte des documents du groupe pour reconnaître cette marque.
+    noms_documents: Vec<String>,
     fusionne_dans: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
     cree_le: time::OffsetDateTime,
@@ -219,7 +229,8 @@ pub async fn fiche(
         r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
-                  fusionne_dans, cree_le
+                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
+                  noms_documents, fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
@@ -258,6 +269,10 @@ pub struct Entree {
     interlocuteur: Option<String>,
     #[serde(default)]
     conditions_paiement: Option<String>,
+    #[serde(default)]
+    groupe_id: Option<i64>,
+    #[serde(default)]
+    noms_documents: Vec<String>,
 }
 
 fn a_confirmer() -> String {
@@ -318,6 +333,14 @@ impl Entree {
         }
         self.interlocuteur = net(self.interlocuteur);
         self.conditions_paiement = net(self.conditions_paiement);
+        let mut noms = Vec::new();
+        for n in &self.noms_documents {
+            let n = n.trim().to_string();
+            if !n.is_empty() && !noms.contains(&n) {
+                noms.push(n);
+            }
+        }
+        self.noms_documents = noms;
         Ok(self)
     }
 }
@@ -345,6 +368,44 @@ async fn code_libre(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
     }
 }
 
+/// Un seul niveau : le groupe existe, n'est pas lui-même dans un groupe, et une fiche qui a
+/// des marques n'entre pas dans un groupe.
+async fn groupe_valide(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
+    let Some(g) = e.groupe_id else {
+        return Ok(());
+    };
+    if Some(g) == id {
+        return Err(ErreurApi::Donnees(
+            "une fiche ne fait pas partie d'elle-même".into(),
+        ));
+    }
+    let groupe = sqlx::query!(
+        "select groupe_id from fournisseur where id = $1 and fusionne_dans is null",
+        g
+    )
+    .fetch_optional(&etat.pool)
+    .await?
+    .ok_or_else(|| ErreurApi::Donnees("groupe inconnu".into()))?;
+    if groupe.groupe_id.is_some() {
+        return Err(ErreurApi::Donnees(
+            "ce groupe fait lui-même partie d'un groupe".into(),
+        ));
+    }
+    if let Some(id) = id
+        && sqlx::query_scalar!(
+            r#"select exists (select 1 from fournisseur where groupe_id = $1 and fusionne_dans is null) as "ok!""#,
+            id
+        )
+        .fetch_one(&etat.pool)
+        .await?
+    {
+        return Err(ErreurApi::Donnees(
+            "cette fiche est un groupe : elle ne peut pas entrer dans un autre".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn creer(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
@@ -352,17 +413,20 @@ pub async fn creer(
 ) -> Resultat<Json<Fiche>> {
     let e = e.nettoyer()?;
     code_libre(&etat, &e, None).await?;
+    groupe_valide(&etat, &e, None).await?;
     let mut tx = etat.pool.begin().await?;
     let f = sqlx::query_as!(
         Fiche,
         r#"insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
                                     societe_defaut_id, format_bl, notes, code_gestion,
-                                    adresse, telephone, email, interlocuteur, conditions_paiement)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                                    adresse, telephone, email, interlocuteur, conditions_paiement,
+                                    groupe_id, noms_documents)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
-                  fusionne_dans, cree_le"#,
+                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
+                  noms_documents, fusionne_dans, cree_le"#,
         e.nom,
         normaliser(&e.nom),
         e.siret,
@@ -377,7 +441,9 @@ pub async fn creer(
         e.telephone,
         e.email,
         e.interlocuteur,
-        e.conditions_paiement
+        e.conditions_paiement,
+        e.groupe_id,
+        &e.noms_documents
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -444,6 +510,10 @@ pub struct Changements {
     interlocuteur: Option<Option<String>>,
     #[serde(default, deserialize_with = "present")]
     conditions_paiement: Option<Option<String>>,
+    #[serde(default, deserialize_with = "present")]
+    groupe_id: Option<Option<i64>>,
+    #[serde(default)]
+    noms_documents: Option<Vec<String>>,
 }
 
 /// `PATCH /api/admin/fournisseurs/{id}` : « Confirmer la fiche » (`{"statut": "valide"}`),
@@ -456,7 +526,7 @@ pub async fn modifier_partiel(
 ) -> Resultat<Json<Fiche>> {
     let f = sqlx::query!(
         "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
-                adresse, telephone, email, interlocuteur, conditions_paiement
+                adresse, telephone, email, interlocuteur, conditions_paiement, groupe_id, noms_documents
          from fournisseur where id = $1 and fusionne_dans is null",
         id
     )
@@ -478,6 +548,8 @@ pub async fn modifier_partiel(
         email: c.email.unwrap_or(f.email),
         interlocuteur: c.interlocuteur.unwrap_or(f.interlocuteur),
         conditions_paiement: c.conditions_paiement.unwrap_or(f.conditions_paiement),
+        groupe_id: c.groupe_id.unwrap_or(f.groupe_id),
+        noms_documents: c.noms_documents.unwrap_or(f.noms_documents),
     };
     enregistrer(&etat, &a, id, e).await
 }
@@ -485,6 +557,7 @@ pub async fn modifier_partiel(
 async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Json<Fiche>> {
     let e = e.nettoyer()?;
     code_libre(etat, &e, Some(id)).await?;
+    groupe_valide(etat, &e, Some(id)).await?;
     if let Some(s) = e.societe_defaut_id {
         let existe = sqlx::query_scalar!(
             r#"select exists (select 1 from societe where id = $1) as "ok!""#,
@@ -502,12 +575,14 @@ async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Jso
         r#"update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,
               statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,
               code_gestion = $11, adresse = $12, telephone = $13, email = $14,
-              interlocuteur = $15, conditions_paiement = $16
+              interlocuteur = $15, conditions_paiement = $16, groupe_id = $17,
+              noms_documents = $18
            where id = $1 and fusionne_dans is null
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
-                  fusionne_dans, cree_le"#,
+                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
+                  noms_documents, fusionne_dans, cree_le"#,
         id,
         e.nom,
         normaliser(&e.nom),
@@ -523,7 +598,9 @@ async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Jso
         e.telephone,
         e.email,
         e.interlocuteur,
-        e.conditions_paiement
+        e.conditions_paiement,
+        e.groupe_id,
+        &e.noms_documents
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -702,7 +779,8 @@ pub async fn fil(
         r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
-                  fusionne_dans, cree_le
+                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
+                  noms_documents, fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
@@ -971,4 +1049,110 @@ pub async fn distinct(
     )
     .await?;
     Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Serialize)]
+pub struct LigneMarque {
+    id: i64,
+    nom: String,
+    code_gestion: Option<String>,
+    noms_documents: Vec<String>,
+    statut: String,
+    nb_documents: i64,
+}
+
+/// `GET /api/fournisseurs/{id}/marques` : fournisseurs du groupe `id`.
+pub async fn marques(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<Json<Vec<LigneMarque>>> {
+    if !fournisseur_visible(&etat, &acces, id).await? {
+        return Err(ErreurApi::Absent);
+    }
+    Ok(Json(
+        sqlx::query_as!(
+            LigneMarque,
+            r#"select f.id, f.nom, f.code_gestion, f.noms_documents, f.statut,
+                      (select count(*) from document d where d.fournisseur_id = f.id) as "nb_documents!"
+               from fournisseur f where f.groupe_id = $1 and f.fusionne_dans is null order by f.nom"#,
+            id
+        )
+        .fetch_all(&etat.pool)
+        .await?,
+    ))
+}
+
+#[derive(Serialize)]
+pub struct Repartition {
+    deplaces: i64,
+    restants: i64,
+}
+
+/// `POST /api/admin/fournisseurs/{id}/repartir` : les documents restés sur le groupe vont à
+/// la marque dont un nom figure seul dans leur texte (sans Claude) ; les autres restent.
+pub async fn repartir(
+    AccesAdmin(a): AccesAdmin,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<Json<Repartition>> {
+    let marques = gmflow_core::fournisseurs::marques(&etat.pool, id).await?;
+    if marques.is_empty() {
+        return Err(ErreurApi::Donnees(
+            "cette fiche n'a pas de fournisseurs dans son groupe".into(),
+        ));
+    }
+    let docs = sqlx::query!(
+        r#"select d.id, coalesce(d.fournisseur_nom, '') || E'\n' || m.objet || E'\n' || coalesce(d.texte, '') as "texte!"
+           from document d join mail m on m.id = d.mail_id
+           where d.fournisseur_id = $1 and not (d.corrections ? 'fournisseur_id')"#,
+        id
+    )
+    .fetch_all(&etat.pool)
+    .await?;
+    let mut deplaces = Vec::new();
+    for d in &docs {
+        if let [m] = gmflow_core::fournisseurs::marques_nommees(&marques, &d.texte).as_slice() {
+            deplaces.push((d.id, m.id));
+        }
+    }
+    let mut tx = etat.pool.begin().await?;
+    for (doc, marque) in &deplaces {
+        sqlx::query!(
+            "update document set fournisseur_id = $2 where id = $1",
+            doc,
+            marque
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    journal::ecrire(
+        &mut *tx,
+        Some(a.utilisateur_id),
+        "repartition",
+        "fournisseur",
+        Some(id.to_string()),
+        json!({ "documents": deplaces.len() }),
+    )
+    .await?;
+    tx.commit().await?;
+    // Contrôles et rapprochements des fiches touchées seulement.
+    let mut touchees: Vec<i64> = deplaces.iter().map(|(_, m)| *m).collect();
+    touchees.sort_unstable();
+    touchees.dedup();
+    if !touchees.is_empty() {
+        touchees.push(id);
+    }
+    for f in touchees {
+        depot::reevaluer(&etat.pool, None, Some(f))
+            .await
+            .map_err(ErreurApi::Interne)?;
+        gmflow_core::rapprochement::recalculer_fournisseur(&etat.pool, f)
+            .await
+            .map_err(ErreurApi::Interne)?;
+    }
+    Ok(Json(Repartition {
+        deplaces: deplaces.len() as i64,
+        restants: (docs.len() - deplaces.len()) as i64,
+    }))
 }

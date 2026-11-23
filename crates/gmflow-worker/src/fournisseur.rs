@@ -90,17 +90,6 @@ async fn choisir(
     expediteur: &str,
     candidats: &[Candidat],
 ) -> anyhow::Result<Option<i64>> {
-    let pool = &ctx.pool;
-    let r = reglages::lire(pool).await?;
-    if crate::lecture::claude_indisponible(pool, &r)
-        .await?
-        .is_some()
-    {
-        return Ok(None);
-    }
-    let Some(acces) = gmflow_core::claude::acces(pool, &ctx.chiffreur).await? else {
-        return Ok(None);
-    };
     let mut prompt = format!(
         "Fournisseur du document : nom {} ; SIRET {} ; TVA {} ; expéditeur du mail : {}\n\nFiches existantes :\n",
         ind.nom.as_deref().unwrap_or("?"),
@@ -122,13 +111,37 @@ async fn choisir(
             }
         ));
     }
+    let ids: Vec<i64> = candidats.iter().map(|c| c.id).collect();
+    demander(ctx, document_id, PROMPT_SYSTEME, &prompt, &ids).await
+}
+
+/// Pose la question à Claude (sortie structurée `fournisseur_id`) : l'id choisi s'il est
+/// parmi `ids`, sinon rien (Claude indisponible, en échec ou qui hésite).
+async fn demander(
+    ctx: &Contexte,
+    document_id: i64,
+    systeme: &str,
+    prompt: &str,
+    ids: &[i64],
+) -> anyhow::Result<Option<i64>> {
+    let pool = &ctx.pool;
+    let r = reglages::lire(pool).await?;
+    if crate::lecture::claude_indisponible(pool, &r)
+        .await?
+        .is_some()
+    {
+        return Ok(None);
+    }
+    let Some(acces) = gmflow_core::claude::acces(pool, &ctx.chiffreur).await? else {
+        return Ok(None);
+    };
     let reglage = r.pour(reglages::IDENTIFICATION_FOURNISSEUR).clone();
     let schema = schema().to_string();
     let args = [
         "--json-schema",
         &schema,
         "--system-prompt",
-        PROMPT_SYSTEME,
+        systeme,
         "--strict-mcp-config",
         "--disable-slash-commands",
         "--tools",
@@ -137,7 +150,7 @@ async fn choisir(
     let mut a = Appel::avec_acces(
         reglages::IDENTIFICATION_FOURNISSEUR,
         &reglage.modele,
-        &prompt,
+        prompt,
         &acces,
     );
     a.effort = Some(&reglage.effort);
@@ -159,7 +172,45 @@ async fn choisir(
             .unwrap_or(Value::Null),
     };
     let choisi = valeur.get("fournisseur_id").and_then(Value::as_i64);
-    Ok(choisi.filter(|id| candidats.iter().any(|c| c.id == *id)))
+    Ok(choisi.filter(|id| ids.contains(id)))
+}
+
+const PROMPT_MARQUE: &str = "Une même société facture pour plusieurs marques, chacune avec sa \
+fiche fournisseur. Tu lis le texte d'une facture ou d'un bon de livraison de cette société et tu \
+dis de quelle marque il s'agit (logo, en-tête, mention « marque », gamme, adresse ou site de la \
+marque). Tu réponds uniquement avec la sortie structurée demandée : fournisseur_id est l'id de \
+la marque, ou null si le document en concerne plusieurs ou si rien ne permet de trancher.";
+
+/// Fiche de la marque d'un document dont le fournisseur est (ou fait partie d') un groupe :
+/// celle dont un nom figure seul dans le texte, sinon celle que Claude désigne. Rien si la
+/// fiche n'est pas un groupe ou si rien ne tranche (le document reste sur sa fiche).
+async fn vers_marque(
+    ctx: &Contexte,
+    document_id: i64,
+    groupe: i64,
+    texte: &str,
+) -> anyhow::Result<Option<(i64, &'static str)>> {
+    let marques = fournisseurs::marques(&ctx.pool, groupe).await?;
+    if marques.is_empty() {
+        return Ok(None);
+    }
+    if let [m] = fournisseurs::marques_nommees(&marques, texte).as_slice() {
+        return Ok(Some((m.id, "marque nommée")));
+    }
+    let mut prompt = String::from("Marques de la société :\n");
+    for m in &marques {
+        prompt.push_str(&format!("- {} : {}", m.id, m.nom));
+        if !m.noms_documents.is_empty() {
+            prompt.push_str(&format!(" (aussi écrit {})", m.noms_documents.join(", ")));
+        }
+        prompt.push('\n');
+    }
+    prompt.push_str("\nTexte du document :\n");
+    prompt.push_str(&gmflow_core::lecture::extraction::debut_et_fin(texte, 6000));
+    let ids: Vec<i64> = marques.iter().map(|m| m.id).collect();
+    Ok(demander(ctx, document_id, PROMPT_MARQUE, &prompt, &ids)
+        .await?
+        .map(|id| (id, "marque par claude")))
 }
 
 /// Rattache un document lu à une fiche fournisseur (trouvée, choisie par Claude ou créée « à
@@ -168,7 +219,8 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
     let pool = &ctx.pool;
     let Some(d) = sqlx::query!(
         r#"select d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva, d.societe_id,
-                  d.corrections ? 'fournisseur_id' as "fixe!", m.expediteur
+                  d.corrections ? 'fournisseur_id' as "fixe!", m.expediteur, m.objet,
+                  coalesce(d.texte, '') as "texte!"
            from document d join mail m on m.id = d.mail_id
            where d.id = $1 and d.etat = 'lu'"#,
         document_id
@@ -189,24 +241,44 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
         domaine: fournisseurs::domaine_utile(&d.expediteur, &exclus),
     };
     ind.sans_identifiants_de(&fournisseurs::sirens_societes(pool).await?);
-    let (id, comment) = match fournisseurs::identifier(pool, &ind).await? {
-        Identification::Trouve { id, par } => {
-            fournisseurs::apprendre(pool, id, &ind, par == "identifiant").await?;
-            (Some(id), par)
-        }
+    // (fiche, comment, avec le domaine) ; les identifiants appris vont au groupe.
+    let (id, comment, apprendre) = match fournisseurs::identifier(pool, &ind).await? {
+        Identification::Trouve { id, par } => (Some(id), par, Some(par == "identifiant")),
         Identification::Candidats(c) => {
             match choisir(ctx, document_id, &ind, &d.expediteur, &c).await? {
-                Some(id) => {
-                    fournisseurs::apprendre(pool, id, &ind, false).await?;
-                    (Some(id), "claude")
-                }
-                None => (fournisseurs::creer(pool, &ind).await?, "nouvelle fiche"),
+                Some(id) => (Some(id), "claude", Some(false)),
+                None => (
+                    fournisseurs::creer(pool, &ind).await?,
+                    "nouvelle fiche",
+                    None,
+                ),
             }
         }
-        Identification::Aucun => (fournisseurs::creer(pool, &ind).await?, "nouvelle fiche"),
+        Identification::Aucun => (
+            fournisseurs::creer(pool, &ind).await?,
+            "nouvelle fiche",
+            None,
+        ),
     };
-    let Some(id) = id else {
+    let Some(trouvee) = id else {
         return Ok(());
+    };
+    let groupe = sqlx::query_scalar!("select groupe_id from fournisseur where id = $1", trouvee)
+        .fetch_one(pool)
+        .await?
+        .unwrap_or(trouvee);
+    if let Some(avec_domaine) = apprendre {
+        fournisseurs::apprendre(pool, groupe, &ind, avec_domaine).await?;
+    }
+    let texte = format!(
+        "{}\n{}\n{}",
+        d.fournisseur_nom.as_deref().unwrap_or(""),
+        d.objet,
+        d.texte
+    );
+    let (id, comment) = match vers_marque(ctx, document_id, groupe, &texte).await? {
+        Some((m, par)) => (m, par),
+        None => (trouvee, comment),
     };
     let defaut = sqlx::query_scalar!(
         "select societe_defaut_id from fournisseur where id = $1",

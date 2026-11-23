@@ -18,6 +18,9 @@
     email: string;
     interlocuteur: string;
     conditions_paiement: string;
+    /** Séparés par des virgules (un nom peut contenir des espaces). */
+    noms_documents: string;
+    groupe_id: number | null;
   }
 
   export function versEdition(f: Fournisseur): EditionFournisseur {
@@ -35,7 +38,9 @@
       telephone: f.telephone ?? '',
       email: f.email ?? '',
       interlocuteur: f.interlocuteur ?? '',
-      conditions_paiement: f.conditions_paiement ?? ''
+      conditions_paiement: f.conditions_paiement ?? '',
+      noms_documents: f.noms_documents.join(', '),
+      groupe_id: f.groupe_id
     };
   }
 
@@ -58,7 +63,12 @@
       telephone: x.telephone,
       email: x.email,
       interlocuteur: x.interlocuteur,
-      conditions_paiement: x.conditions_paiement
+      conditions_paiement: x.conditions_paiement,
+      noms_documents: x.noms_documents
+        .split(/[\n,;]+/)
+        .map((n) => n.trim())
+        .filter(Boolean),
+      groupe_id: x.groupe_id
     };
   }
 </script>
@@ -91,6 +101,7 @@
   import Confirmation from './Confirmation.svelte';
   import Etiquette from './Etiquette.svelte';
   import FournEtat from './FournEtat.svelte';
+  import FournGroupe from './FournGroupe.svelte';
   import Icone from './Icone.svelte';
   import Montant from './Montant.svelte';
   import Repli from './Repli.svelte';
@@ -199,6 +210,11 @@
     } finally {
       enCours = false;
     }
+  }
+
+  function apresGroupe() {
+    void charger();
+    onmodifie?.();
   }
 
   // ---------- Fusion ----------
@@ -337,6 +353,9 @@
     {#if aConfirmer}<Etiquette ton="alerte">{libelleStatutFournisseur(f.statut)}</Etiquette>{/if}
   </div>
   <div class="meta-fiche"><FournEtat etat={fil.etat} /></div>
+  {#if f.groupe_id !== null}
+    <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
+  {/if}
 
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
@@ -367,6 +386,19 @@
         >
           {#snippet affichage()}{@render valeurOuTiret(ed?.code_gestion ?? '', true)}{/snippet}
         </Champ>
+        {#if f.groupe_id !== null}
+          <Champ
+            disposition="ligne"
+            libelle="Noms sur les documents"
+            bind:valeur={ed.noms_documents}
+            modifiable={admin}
+            onvalider={() => enregistrer()}
+            placeholder="ex. HOMEA DECO, homea.fr"
+            aide={admin ? `Autres écritures de cette marque dans les factures et BL de ${f.groupe} ; son nom est toujours cherché` : undefined}
+          >
+            {#snippet affichage()}{@render valeurOuTiret(ed?.noms_documents ?? '')}{/snippet}
+          </Champ>
+        {/if}
         <Champ disposition="ligne" libelle="SIRET" bind:valeur={ed.siret} mono modifiable={admin} onvalider={() => enregistrer()}>
           {#snippet affichage()}{@render valeurOuTiret(ed?.siret ?? '', true)}{/snippet}
         </Champ>
@@ -446,6 +478,10 @@
       </div>
     </Repli>
   </div>
+
+  {#if f.groupe_id === null}
+    <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
+  {/if}
 
   <section class="bloc-fil" aria-labelledby="ar-{id}">
     <h2 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}</h2>

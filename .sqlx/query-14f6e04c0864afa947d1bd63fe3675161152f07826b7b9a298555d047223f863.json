@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select f.id, f.nom, f.code_gestion, f.noms_documents, f.statut,\n                      (select count(*) from document d where d.fournisseur_id = f.id) as \"nb_documents!\"\n               from fournisseur f where f.groupe_id = $1 and f.fusionne_dans is null order by f.nom",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "code_gestion",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "code_gestion"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "noms_documents",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "noms_documents"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "statut",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "statut"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "nb_documents!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "14f6e04c0864afa947d1bd63fe3675161152f07826b7b9a298555d047223f863"
+}

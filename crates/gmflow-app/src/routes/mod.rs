@@ -135,6 +135,11 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/fournisseurs", get(fournisseurs::lister))
         .route("/fournisseurs/{id}", get(fournisseurs::fiche))
         .route("/fournisseurs/{id}/fil", get(fournisseurs::fil))
+        .route("/fournisseurs/{id}/marques", get(fournisseurs::marques))
+        .route(
+            "/admin/fournisseurs/{id}/repartir",
+            post(fournisseurs::repartir),
+        )
         .route("/admin/fournisseurs", post(fournisseurs::creer))
         .route("/admin/fournisseurs/doublons", get(fournisseurs::doublons))
         .route(

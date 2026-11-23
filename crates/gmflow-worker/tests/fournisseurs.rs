@@ -117,3 +117,44 @@ async fn meme_entreprise_autre_ecriture() {
     assert!(!d.iter().any(|p| p.a == lff && p.b == lff2));
     b.fermer().await;
 }
+
+#[tokio::test]
+async fn groupe_et_marques() {
+    let b = BaseTest::nouvelle().await;
+    let pool = &b.pool;
+    // Une marque créée avant le groupe (id plus petit) ne prend pas le SIREN du groupe.
+    let homea = fiche(pool, "Homea", &[]).await;
+    let u10 = fiche(pool, "U10", &["u10.fr"]).await;
+    sqlx::query("update fournisseur set siret = '55210055400013' where id = $1")
+        .bind(u10)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("update fournisseur set groupe_id = $1, siret = '55210055400013' where id = $2")
+        .bind(u10)
+        .bind(homea)
+        .execute(pool)
+        .await
+        .unwrap();
+    let ind = Indices {
+        siret: Some("552 100 554 00013".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        fournisseurs::identifier(pool, &ind).await.unwrap(),
+        Identification::Trouve {
+            id: u10,
+            par: "identifiant"
+        }
+    );
+    // Marque et groupe partagent le SIREN : pas un doublon.
+    let d = fournisseurs::doublons_probables(pool).await.unwrap();
+    assert!(d.is_empty(), "{d:?}");
+    let m = fournisseurs::marques(pool, u10).await.unwrap();
+    assert_eq!(m.len(), 1);
+    assert_eq!(
+        fournisseurs::marques_nommees(&m, "FACTURE U10 - HOMEA - Lingolsheim")[0].id,
+        homea
+    );
+    b.fermer().await;
+}

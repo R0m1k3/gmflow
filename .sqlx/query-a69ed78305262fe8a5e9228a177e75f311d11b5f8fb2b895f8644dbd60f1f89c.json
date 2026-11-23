@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update fournisseur c set\n            siret = coalesce(c.siret, s.siret), tva = coalesce(c.tva, s.tva),\n            societe_defaut_id = coalesce(c.societe_defaut_id, s.societe_defaut_id),\n            format_bl = coalesce(c.format_bl, s.format_bl),\n            code_gestion = coalesce(c.code_gestion, s.code_gestion),\n            adresse = coalesce(c.adresse, s.adresse), telephone = coalesce(c.telephone, s.telephone),\n            email = coalesce(c.email, s.email), interlocuteur = coalesce(c.interlocuteur, s.interlocuteur),\n            conditions_paiement = coalesce(c.conditions_paiement, s.conditions_paiement),\n            notes = case when s.notes is null then c.notes when c.notes is null then s.notes\n                         else c.notes || E'\n' || s.notes end,\n            domaines = array(select distinct unnest(c.domaines || s.domaines) order by 1),\n            noms_documents = array(select distinct unnest(c.noms_documents || s.noms_documents) order by 1),\n            groupe_id = case when c.groupe_id = s.id then s.groupe_id else coalesce(c.groupe_id, s.groupe_id) end\n         from fournisseur s where c.id = $2 and s.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a69ed78305262fe8a5e9228a177e75f311d11b5f8fb2b895f8644dbd60f1f89c"
+}
