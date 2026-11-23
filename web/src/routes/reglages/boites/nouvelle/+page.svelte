@@ -409,7 +409,7 @@
   .sub i {
     font-style: normal;
     font-family: var(--mono);
-    font-size: 11px;
+    font-size: 12px;
   }
   .form {
     display: grid;
@@ -439,7 +439,7 @@
     font-weight: 500;
   }
   .detect .num {
-    font-size: 11px;
+    font-size: 12px;
   }
   .discret {
     color: var(--text2);
