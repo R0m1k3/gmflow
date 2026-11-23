@@ -288,8 +288,9 @@
     padding: 0 var(--e2) 0 var(--e4);
     border-bottom: 1px solid var(--line);
   }
-  .bloc .ligne + .ligne {
-    border-top: 1px solid var(--line-soft, var(--line));
+  /* filet entre lignes : porté par .ligne (app.css) ; pas de filet sous la dernière */
+  .bloc .ligne:last-child {
+    border-bottom: 0;
   }
   .rien {
     margin: 0;

@@ -326,7 +326,7 @@
     gap: var(--e2);
     padding: 0 var(--e3) var(--e2);
     border-right: 1px solid var(--line);
-    background: var(--white);
+    background: var(--pane);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -364,7 +364,7 @@
     width: 100%;
     height: 34px;
     padding: 0 30px 0 10px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--line2);
     border-radius: var(--r2);
     background: var(--white);
     color: var(--text);
@@ -373,7 +373,7 @@
     text-overflow: ellipsis;
   }
   .sel select:hover {
-    border-color: var(--line2);
+    border-color: var(--champ);
   }
   .sel :global(svg) {
     position: absolute;
@@ -388,7 +388,7 @@
     width: min(400px, 100%);
     height: 34px;
     padding: 0 var(--e2) 0 10px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--line2);
     border-radius: var(--r2);
     background: var(--bg);
     color: var(--muted);
@@ -438,7 +438,7 @@
   .g-titre {
     padding: 0 10px var(--e1);
     font-size: 12px;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--muted);
   }
   .lien {
@@ -448,7 +448,7 @@
     height: 34px;
     padding: 0 10px;
     border-radius: var(--r2);
-    color: var(--text2);
+    color: var(--text);
     font-size: 14px;
     font-weight: 500;
     text-decoration: none;
@@ -459,7 +459,7 @@
   }
   .lien :global(svg) {
     flex: none;
-    color: var(--muted);
+    color: var(--text2);
   }
   .lien .t {
     flex: 1;
@@ -468,13 +468,15 @@
     text-overflow: ellipsis;
   }
   .lien:hover {
-    background: var(--pane);
+    background: var(--sunk);
     color: var(--text);
   }
+  /* page ouverte : fond bleu pâle + filet bleu à gauche, impossible à manquer */
   .lien.cur {
-    background: var(--sunk);
-    color: var(--black);
+    background: var(--accent-weak);
+    color: var(--accent-ink);
     font-weight: 600;
+    box-shadow: inset 3px 0 0 var(--accent);
   }
   .lien.cur :global(svg) {
     color: var(--accent);
@@ -510,8 +512,8 @@
     display: none;
   }
   .reglages[aria-current='page'] {
-    background: var(--sunk);
-    color: var(--black);
+    background: var(--accent-weak);
+    color: var(--accent-ink);
   }
 
   .moi {
@@ -527,15 +529,15 @@
     background: var(--sunk);
     display: grid;
     place-items: center;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    color: var(--text2);
+    color: var(--text);
     transition: background-color var(--vite) var(--ease);
   }
   .initiales:hover,
   .initiales[aria-expanded='true'] {
     background: var(--line);
-    color: var(--text);
+    color: var(--black);
   }
   .qui {
     padding: var(--e2) 10px 10px;
@@ -711,17 +713,19 @@
       align-items: center;
       justify-content: center;
       gap: 2px;
-      font-size: 11px;
-      color: var(--muted);
+      font-size: 12px;
+      color: var(--text2);
       text-decoration: none;
     }
     .onglets a.cur {
-      color: var(--black);
-      font-weight: 500;
+      color: var(--accent-ink);
+      font-weight: 600;
+      background: var(--accent-weak);
+      box-shadow: inset 0 3px 0 var(--accent);
     }
     .onglets .compteur {
-      font-size: 10px;
-      line-height: 14px;
+      font-size: 12px;
+      line-height: 16px;
       padding: 0 4px;
     }
     .contenu {

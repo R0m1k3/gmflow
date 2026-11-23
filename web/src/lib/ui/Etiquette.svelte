@@ -1,5 +1,5 @@
 <script lang="ts">
-  // État en texte coloré (pas de pastille) : <Etiquette ton="erreur">Envoi échoué</Etiquette>.
+  // État : pastille saturée et texte foncé pour les tons de sens, texte seul pour le neutre : <Etiquette ton="erreur">Envoi échoué</Etiquette>.
   import type { Snippet } from 'svelte';
   import type { Ton } from '#lib/libelles.ts';
 

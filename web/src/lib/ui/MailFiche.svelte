@@ -893,7 +893,7 @@
   .mailtext {
     font-size: 13px;
     line-height: 21px;
-    color: #2a2a28;
+    color: var(--text);
     max-width: 62ch;
     overflow-wrap: anywhere;
   }
