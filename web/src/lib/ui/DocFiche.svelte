@@ -69,6 +69,7 @@
     nomCourtDocument,
     nomExpediteur,
     phrase,
+    quandCourt,
     tauxTva,
     type CleChamp
   } from './DocOutils.ts';
@@ -459,6 +460,37 @@
     void rafraichirCompteurs();
   }
 
+  /** « Lire maintenant » (admins) : la lecture passe devant toute la file, hors quota du jour. */
+  async function lireMaintenant() {
+    if (!d) return;
+    erreur = '';
+    occupe = 'relire';
+    try {
+      await api.post(`/api/admin/documents/${d.id}/relire`, {});
+      info = 'Lecture demandée : ce document passe devant les autres. La fiche se met à jour toute seule.';
+      await charger(d.id, false);
+      suivre();
+      onchange?.();
+    } catch (e) {
+      erreur = message(e);
+    } finally {
+      occupe = null;
+    }
+  }
+
+  /** Bandeau d'un document pas encore lu : pourquoi il attend, depuis quand. */
+  const GENRES_BLOQUANTS = ['jeton_absent', 'claude_refuse', 'quota', 'lecture_coupee', 'bloque'];
+  let attenteBloquee = $derived(!!d?.attente && GENRES_BLOQUANTS.includes(d.attente.genre));
+  let depuisAttente = $derived.by(() => {
+    const q = quandCourt(d?.attente?.depuis);
+    if (!q) return '';
+    return /^\d\d:\d\d$/.test(q) || q === 'hier' ? `En attente depuis ${q}.` : `En attente depuis le ${q}.`;
+  });
+  /** Lisible tout de suite : en attente, et Claude n'est ni absent ni en refus. */
+  let lisibleMaintenant = $derived(
+    admin && !!d && d.etat === 'a_lire' && !['jeton_absent', 'claude_refuse', 'en_cours'].includes(d.attente?.genre ?? '')
+  );
+
   let dlgEcarter = $state(false);
   let dlgForcer = $state(false);
   let dlgRelire = $state(false);
@@ -676,7 +708,19 @@
         {/if}
       {/if}
       {#if d.etat === 'a_lire' || d.etat === 'en_cours'}
-        <Bandeau ton="info" titre="{libelleEtat(d.etat)}.">La fiche se met à jour toute seule.</Bandeau>
+        <Bandeau ton={attenteBloquee ? 'attention' : 'info'} titre="{libelleEtat(d.etat)}.">
+          {#if d.attente}{phrase(d.attente.raison)}{/if}
+          {#if d.etat === 'a_lire'}{depuisAttente}{/if}
+          {#if d.attente?.dernier_essai}<span class="dernier-essai">Dernier essai : {phrase(d.attente.dernier_essai)}</span>{/if}
+          <span class="dernier-essai">La fiche se met à jour toute seule.</span>
+          {#snippet action()}
+            {#if lisibleMaintenant}
+              <button type="button" class="btn sm principal" onclick={lireMaintenant} disabled={occupe !== null}>
+                {occupe === 'relire' ? 'Demande…' : 'Lire maintenant'}
+              </button>
+            {/if}
+          {/snippet}
+        </Bandeau>
       {:else if d.etat === 'erreur'}
         <Bandeau ton="erreur" titre="Illisible.">{d.message ? phrase(d.message) : 'La lecture a échoué.'}{admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}</Bandeau>
       {:else if d.etat === 'ignore'}
@@ -938,6 +982,11 @@
 </Confirmation>
 
 <style>
+  .dernier-essai {
+    display: block;
+    margin-top: 2px;
+    color: var(--text2);
+  }
   .doc-proposer {
     margin-left: auto;
   }

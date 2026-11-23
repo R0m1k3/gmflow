@@ -24,6 +24,7 @@ mail-parser.workspace = true
 pdf-extract.workspace = true
 quick-xml.workspace = true
 rand.workspace = true
+regex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

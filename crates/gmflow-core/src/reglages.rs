@@ -30,6 +30,13 @@ pub const TACHES_TRI: &[&str] = &[TRI_MAIL];
 /// Brouillon de réponse, à la demande seulement (pas de quota : chaque appel suit un clic).
 pub const BROUILLON_REPONSE: &str = "brouillon_reponse";
 
+/// Quota de lecture par défaut (appels réussis par jour). L'ancien défaut (100) bloquait une
+/// journée chargée : `passer_quota_a_1000` le relève une fois sur les installations existantes.
+pub const QUOTA_LECTURE_DEFAUT: i64 = 1000;
+const ANCIEN_QUOTA_LECTURE: i64 = 100;
+/// Drapeau de `parametre` : la bascule 100 → 1000 est faite (ou n'avait pas lieu d'être).
+pub const DRAPEAU_QUOTA_1000: &str = "migration_quota_lecture_1000";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Reglage {
     pub modele: String,
@@ -103,7 +110,7 @@ impl Default for Reglages {
             tri_mail: defaut_tri(),
             brouillon_reponse: defaut_brouillon(),
             lecture_auto: true,
-            quota_lecture_jour: 100,
+            quota_lecture_jour: QUOTA_LECTURE_DEFAUT,
             tri_auto: true,
             quota_tri_jour: defaut_quota_tri(),
             tri_depuis_jours: defaut_tri_depuis(),
@@ -180,24 +187,57 @@ pub async fn ecrire<'e>(db: impl PgExecutor<'e>, r: &Reglages) -> sqlx::Result<(
     parametre::ecrire(db, CLE, &serde_json::to_value(r).unwrap_or_default()).await
 }
 
-/// Appels de lecture faits aujourd'hui (UTC), comptés dans le quota.
+/// Une seule fois par installation : un quota de lecture resté à l'ancien défaut (100) passe à
+/// 1000. Un quota choisi autrement est gardé. Rend vrai si le quota a été relevé.
+pub async fn passer_quota_a_1000(pool: &sqlx::PgPool) -> sqlx::Result<bool> {
+    let mut tx = pool.begin().await?;
+    let premiere_fois = sqlx::query!(
+        "insert into parametre (cle, valeur) values ($1, 'true'::jsonb) on conflict (cle) do nothing",
+        DRAPEAU_QUOTA_1000
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected()
+        == 1;
+    if !premiere_fois {
+        return Ok(false);
+    }
+    let releve = sqlx::query!(
+        "update parametre set valeur = jsonb_set(valeur, '{quota_lecture_jour}', to_jsonb($2::bigint)),
+                              modifie_le = now()
+         where cle = $1 and jsonb_typeof(valeur) = 'object'
+           and valeur -> 'quota_lecture_jour' = to_jsonb($3::bigint)",
+        CLE,
+        QUOTA_LECTURE_DEFAUT,
+        ANCIEN_QUOTA_LECTURE
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected()
+        == 1;
+    tx.commit().await?;
+    Ok(releve)
+}
+
+/// Appels de lecture réussis aujourd'hui (UTC), comptés dans le quota : un refus ou une panne
+/// de Claude ne mange pas le quota.
 pub async fn appels_lecture_du_jour<'e>(db: impl PgExecutor<'e>) -> sqlx::Result<i64> {
     let taches: Vec<String> = TACHES_LECTURE.iter().map(|t| t.to_string()).collect();
     sqlx::query_scalar!(
         r#"select count(*) as "n!" from appel_claude
-           where quand >= date_trunc('day', now(), 'UTC') and tache = any($1)"#,
+           where quand >= date_trunc('day', now(), 'UTC') and tache = any($1) and succes"#,
         &taches
     )
     .fetch_one(db)
     .await
 }
 
-/// Appels de tri faits aujourd'hui (UTC), comptés dans le quota de tri.
+/// Appels de tri réussis aujourd'hui (UTC), comptés dans le quota de tri.
 pub async fn appels_tri_du_jour<'e>(db: impl PgExecutor<'e>) -> sqlx::Result<i64> {
     let taches: Vec<String> = TACHES_TRI.iter().map(|t| t.to_string()).collect();
     sqlx::query_scalar!(
         r#"select count(*) as "n!" from appel_claude
-           where quand >= date_trunc('day', now(), 'UTC') and tache = any($1)"#,
+           where quand >= date_trunc('day', now(), 'UTC') and tache = any($1) and succes"#,
         &taches
     )
     .fetch_one(db)
