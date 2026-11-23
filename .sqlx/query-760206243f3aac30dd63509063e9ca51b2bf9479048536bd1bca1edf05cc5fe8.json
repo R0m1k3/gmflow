@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select siret, tva from societe",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "siret",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "siret"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "tva",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "tva"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "760206243f3aac30dd63509063e9ca51b2bf9479048536bd1bca1edf05cc5fe8"
+}

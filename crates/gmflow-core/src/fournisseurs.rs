@@ -119,33 +119,55 @@ pub struct Indices {
 }
 
 impl Indices {
+    /// SIRET (14 chiffres) ou SIREN (9) dont la clé est juste : un chiffre mal lu sur un scan
+    /// ne devient pas l'identifiant d'une fiche.
     fn siret_net(&self) -> Option<String> {
-        self.siret
-            .as_deref()
-            .map(chiffres)
-            .filter(|c| c.len() == 14 || c.len() == 9)
+        self.siret.as_deref().map(chiffres).filter(|c| {
+            (c.len() == 14 && crate::controles::siret_valide(c))
+                || (c.len() == 9 && crate::controles::siren_valide(c))
+        })
     }
 
-    fn tva_nette(&self) -> Option<String> {
+    /// N° de TVA lu, s'il est valide (clé vérifiée pour un numéro français).
+    fn tva_lue(&self) -> Option<String> {
         self.tva
             .as_deref()
             .map(tva_compacte)
-            .filter(|t| t.len() >= 4)
+            .filter(|t| crate::controles::tva_valide(t))
+    }
+
+    /// N° de TVA lu, sinon celui déduit du SIREN (FR + clé + SIREN) : une fiche dont la
+    /// facture ne donnait que le SIREN (« RCS Nancy 123 456 789 ») garde un identifiant.
+    fn tva_nette(&self) -> Option<String> {
+        self.tva_lue().or_else(|| {
+            let siren = self.siret_net()?[..9].to_string();
+            let cle = crate::controles::cle_tva_fr(&siren)?;
+            Some(format!("FR{cle:02}{siren}"))
+        })
     }
 
     /// SIREN connus (du SIRET, ou d'un n° de TVA français).
-    fn sirens(&self) -> Vec<String> {
+    pub fn sirens(&self) -> Vec<String> {
         let mut v = Vec::new();
         if let Some(s) = self.siret_net() {
             v.push(s[..9].to_string());
         }
-        if let Some(t) = self.tva_nette()
+        if let Some(t) = self.tva_lue()
             && t.starts_with("FR")
             && t.len() == 13
         {
             v.push(t[4..].to_string());
         }
         v
+    }
+
+    /// Oublie SIRET et TVA quand ce sont ceux d'une de nos sociétés (Claude a pris
+    /// l'acheteur pour l'émetteur) : sinon toutes ses factures iraient à ce fournisseur.
+    pub fn sans_identifiants_de(&mut self, sirens_societes: &[String]) {
+        if self.sirens().iter().any(|s| sirens_societes.contains(s)) {
+            self.siret = None;
+            self.tva = None;
+        }
     }
 
     fn nom_normalise(&self) -> Option<String> {
@@ -288,6 +310,23 @@ pub async fn candidats(pool: &PgPool, ids: &[i64]) -> sqlx::Result<Vec<Candidat>
 
 /// Nouvelle fiche « à confirmer » avec ce qu'on sait. Rend son id, ou rien sans nom ni
 /// identifiant.
+/// SIREN de nos sociétés (SIRET ou n° de TVA français) : jamais ceux d'un fournisseur.
+pub async fn sirens_societes(pool: &PgPool) -> sqlx::Result<Vec<String>> {
+    let lignes = sqlx::query!("select siret, tva from societe")
+        .fetch_all(pool)
+        .await?;
+    let mut v = Vec::new();
+    for l in lignes {
+        let ind = Indices {
+            siret: l.siret,
+            tva: l.tva,
+            ..Default::default()
+        };
+        v.extend(ind.sirens());
+    }
+    Ok(v)
+}
+
 pub async fn creer(pool: &PgPool, ind: &Indices) -> sqlx::Result<Option<i64>> {
     let nom = ind
         .nom
@@ -393,9 +432,10 @@ pub async fn dans_texte(pool: &PgPool, texte: &str) -> sqlx::Result<Option<i64>>
             f.siret
                 .as_deref()
                 .is_some_and(|s| s.len() >= 9 && t.contains(&s[..9]))
-                || f.tva
-                    .as_deref()
-                    .is_some_and(|v| v.len() >= 8 && t.contains(v))
+                || f.tva.as_deref().is_some_and(|v| {
+                    v.len() >= 8 && t.contains(v)
+                        || (v.starts_with("FR") && v.len() == 13 && t.contains(&v[4..]))
+                })
         })
         .map(|f| f.id)
         .collect();
@@ -439,6 +479,35 @@ mod tests {
         assert!(ressemblance(&normaliser("METRO"), &normaliser("Metro Cash & Carry")) < SCORE_SUR);
         assert_eq!(ressemblance("durand", "martin"), 0.0);
         assert!(ressemblance("grossiste durand fils", "grossiste durand fils") > 0.99);
+    }
+
+    #[test]
+    fn identifiants_lus() {
+        let ind = |siret: Option<&str>, tva: Option<&str>| Indices {
+            siret: siret.map(str::to_string),
+            tva: tva.map(str::to_string),
+            ..Default::default()
+        };
+        // SIREN seul (« RCS Nancy 552 100 554 ») : gardé, n° de TVA déduit.
+        let i = ind(Some("552 100 554"), None);
+        assert_eq!(i.sirens(), vec!["552100554"]);
+        assert_eq!(i.tva_nette().as_deref(), Some("FR96552100554"));
+        // Un chiffre mal lu : ni SIREN ni TVA.
+        let i = ind(Some("552 100 555"), Some("FR96552100555"));
+        assert!(i.sirens().is_empty());
+        assert_eq!(i.tva_nette(), None);
+        // TVA étrangère gardée telle quelle.
+        assert_eq!(
+            ind(None, Some("DE 123456789")).tva_nette().as_deref(),
+            Some("DE123456789")
+        );
+        // SIRET ou TVA d'une de nos sociétés : oubliés.
+        let mut i = ind(Some("55210055400013"), Some("FR96552100554"));
+        i.sans_identifiants_de(&["552100554".to_string()]);
+        assert_eq!((i.siret, i.tva), (None, None));
+        let mut i = ind(None, Some("FR96552100554"));
+        i.sans_identifiants_de(&["123456789".to_string()]);
+        assert!(i.tva.is_some());
     }
 
     #[test]

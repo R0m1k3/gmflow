@@ -179,12 +179,13 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
         return Ok(());
     }
     let exclus = fournisseurs::domaines_exclus(pool).await?;
-    let ind = Indices {
+    let mut ind = Indices {
         nom: d.fournisseur_nom.clone(),
         siret: d.fournisseur_siret.clone(),
         tva: d.fournisseur_tva.clone(),
         domaine: fournisseurs::domaine_utile(&d.expediteur, &exclus),
     };
+    ind.sans_identifiants_de(&fournisseurs::sirens_societes(pool).await?);
     let (id, comment) = match fournisseurs::identifier(pool, &ind).await? {
         Identification::Trouve { id, par } => {
             fournisseurs::apprendre(pool, id, &ind, par == "identifiant").await?;
