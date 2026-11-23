@@ -5,7 +5,7 @@ Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md
 ## Règles communes
 
 - Session obligatoire (cookie `gmflow`), sinon `401 {"erreur": "non connecté"}`. Toute mutation exige l'en-tête `X-GMFlow: 1` (`api.ts` le pose), sinon `403`.
-- Erreurs : `{"erreur": "phrase"}` avec `400` (entrée invalide), `403` (droit manquant), `404` (absent ou hors périmètre), `409` (refus métier). Certains `409` ajoutent un `code` stable : `{"erreur": "...", "code": "doublon"}`. Dans le front, `ErreurApi.raison` porte ce code.
+- Erreurs : `{"erreur": "phrase"}` avec `400` (entrée invalide), `403` (droit manquant), `404` (absent ou hors périmètre), `409` (refus métier). Certains `409` ajoutent un `code` stable : `{"erreur": "...", "code": "doublon"}`. Dans le front, `ErreurApi.raison` porte ce code. Certains `400` disent le champ en faute : `{"erreur": "...", "champ": "siret"}` (`ErreurApi.champ`), le formulaire affiche le message sous ce champ.
 - Dates : `AAAA-MM-JJ` ; instants : RFC 3339 (UTC). Montants : nombres en euros (2 décimales).
 - **Périmètre d'un responsable** (rôle non admin) : il voit les documents et mails reçus par une boîte de sa société. Pour les documents, s'y ajoute : rangés dans sa société ou pas encore rangés (`societe_id` nul). Un document de sa boîte rangé dans une autre société ne lui apparaît pas dans À traiter, la recherche, le fil fournisseur ni le bilan, et `valider` ou `ecarter` lui répondent `403`. Les fiches existantes (`GET /api/documents/{id}`, pièces) suivent toujours la règle du mail : visibles si le mail est visible. Fournisseurs : voir §4.
 - **`?societe=ID`** (filtre « société choisie ») : un document compte pour la société où il est rangé ; s'il n'est pas encore rangé, il compte pour la société d'une boîte qui l'a reçu. Un mail compte pour la société de ses boîtes. Pour un responsable, ce filtre s'ajoute à son périmètre : une autre société ne rend rien (pas d'erreur), comme les endpoints existants.
@@ -229,7 +229,7 @@ Choix : un endpoint `fil` dédié plutôt que `GET /api/mails?fournisseur=` : la
 
 ### `PATCH /api/admin/fournisseurs/{id}` (admins)
 
-Modification partielle : seuls les champs présents changent (`null` efface un champ facultatif) ; mêmes contrôles, même journal et même nouveau calcul des contrôles que `PUT`. Pour « Confirmer la fiche » : `{"statut": "valide"}` ; « Toujours ranger dans X » : `{"societe_defaut_id": 1}`. Réponse : la fiche (`Fournisseur`, avec `societe_defaut`). `400` (statut, SIRET, TVA, domaine invalides, société inconnue), `404` (absent ou fusionné).
+Modification partielle : seuls les champs présents changent (`null` efface un champ facultatif) et **seuls eux sont vérifiés** : une ancienne valeur invalide déjà enregistrée (SIRET, TVA, e-mail) ne bloque pas l'enregistrement d'un autre champ. Même journal et même nouveau calcul des contrôles que `PUT` (qui, lui, vérifie toute la fiche). Pour « Confirmer la fiche » : `{"statut": "valide"}` ; « Toujours ranger dans X » : `{"societe_defaut_id": 1}`. Réponse : la fiche (`Fournisseur`, avec `societe_defaut`). `400` avec `champ` (`statut`, `siret`, `tva`, `domaines`, `email`, `code_gestion` déjà pris, `groupe_id`, `societe_defaut_id` inconnue…), `404` (absent ou fusionné).
 
 ## 5. Recherche unique
 

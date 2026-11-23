@@ -5,6 +5,7 @@
   //   Avec `modifiable`, la valeur se lit, et un clic (ou Entrée) ouvre la saisie :
   //   Entrée valide (`onvalider`), Échap annule.
   // `aControler` surligne le champ en ambre (valeur douteuse) ; une chaîne sert d'explication.
+  // `erreur` (disposition « bloc ») : valeur refusée, message en rouge sous la saisie.
   import type { Snippet } from 'svelte';
   import { tick } from 'svelte';
   import type { HTMLInputAttributes } from 'svelte/elements';
@@ -18,6 +19,7 @@
     options = [],
     aide,
     aControler = false,
+    erreur,
     modifiable = false,
     mono = false,
     indice,
@@ -39,6 +41,7 @@
     options?: Option[];
     aide?: string;
     aControler?: boolean | string;
+    erreur?: string;
     modifiable?: boolean;
     mono?: boolean;
     indice?: string;
@@ -97,7 +100,15 @@
 {#snippet controle(lie: 'valeur' | 'brouillon')}
   {#if type === 'select'}
     {#if lie === 'valeur'}
-      <select {id} bind:value={valeur} required={requis} disabled={desactive} class:num-saisie={mono}>
+      <select
+        {id}
+        bind:value={valeur}
+        required={requis}
+        disabled={desactive}
+        class:num-saisie={mono}
+        aria-describedby={erreur ? `${id}-erreur` : undefined}
+        aria-invalid={erreur ? 'true' : undefined}
+      >
         {#each options as o (o.valeur)}<option value={o.valeur}>{o.libelle}</option>{/each}
       </select>
     {:else}
@@ -107,7 +118,15 @@
     {/if}
   {:else if type === 'textarea'}
     {#if lie === 'valeur'}
-      <textarea {id} bind:value={valeur} {placeholder} required={requis} disabled={desactive}></textarea>
+      <textarea
+        {id}
+        bind:value={valeur}
+        {placeholder}
+        required={requis}
+        disabled={desactive}
+        aria-describedby={erreur ? `${id}-erreur` : undefined}
+        aria-invalid={erreur ? 'true' : undefined}
+      ></textarea>
     {:else}
       <textarea {id} bind:this={saisie} bind:value={brouillon} onkeydown={touche} onblur={valider}></textarea>
     {/if}
@@ -122,8 +141,8 @@
       required={requis}
       disabled={desactive}
       class:num-saisie={mono}
-      aria-describedby={explication ? `${id}-aide` : undefined}
-      aria-invalid={aControler ? 'true' : undefined}
+      aria-describedby={erreur ? `${id}-erreur` : explication ? `${id}-aide` : undefined}
+      aria-invalid={aControler || erreur ? 'true' : undefined}
     />
   {:else}
     <input
@@ -141,9 +160,10 @@
 {/snippet}
 
 {#if disposition === 'bloc'}
-  <div class="champ" class:a-controler={!!aControler}>
+  <div class="champ" class:a-controler={!!aControler} class:en-faute={!!erreur}>
     <label for={id}>{libelle}</label>
     {@render controle('valeur')}
+    {#if erreur}<div class="erreur-champ" id="{id}-erreur" role="alert">{erreur}</div>{/if}
     {#if explication}<div class="aide" class:alerte={!!aControler} id="{id}-aide">{explication}</div>{/if}
   </div>
 {:else}

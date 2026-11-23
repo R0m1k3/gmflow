@@ -7,6 +7,13 @@ use serde_json::json;
 pub enum ErreurApi {
     #[error("{0}")]
     Donnees(String),
+    /// Donnée refusée, avec le champ en faute (`{"erreur": "...", "champ": "siret"}`) : le
+    /// formulaire affiche le message sous ce champ.
+    #[error("{message}")]
+    Champ {
+        champ: &'static str,
+        message: String,
+    },
     #[error("non connecté")]
     NonConnecte,
     #[error("accès refusé")]
@@ -55,7 +62,7 @@ impl From<tower_sessions::session::Error> for ErreurApi {
 impl IntoResponse for ErreurApi {
     fn into_response(self) -> Response {
         let code = match &self {
-            ErreurApi::Donnees(_) => StatusCode::BAD_REQUEST,
+            ErreurApi::Donnees(_) | ErreurApi::Champ { .. } => StatusCode::BAD_REQUEST,
             ErreurApi::NonConnecte => StatusCode::UNAUTHORIZED,
             ErreurApi::Interdit => StatusCode::FORBIDDEN,
             ErreurApi::Absent => StatusCode::NOT_FOUND,
@@ -68,6 +75,7 @@ impl IntoResponse for ErreurApi {
         };
         let corps = match &self {
             ErreurApi::ConflitCode { code, message } => json!({ "erreur": message, "code": code }),
+            ErreurApi::Champ { champ, message } => json!({ "erreur": message, "champ": champ }),
             _ => json!({ "erreur": self.to_string() }),
         };
         (code, Json(corps)).into_response()

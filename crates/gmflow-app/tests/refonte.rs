@@ -2203,3 +2203,96 @@ async fn mail_hors_societe_et_apercu_tableur() {
     assert_eq!(etat, "lu");
     m.app.fermer().await;
 }
+
+/// Fiche avec un ancien SIRET invalide : un PATCH d'un autre champ passe sans le revalider ;
+/// un champ refusé est nommé dans l'erreur ; un responsable ne modifie pas.
+#[tokio::test]
+async fn fiche_fournisseur_modification_partielle() {
+    let m = monde().await;
+    let app = &m.app;
+    let admin = Some(m.c_admin.as_str());
+    sqlx::query(
+        "update fournisseur set siret = '12345678900000', tva = 'FR00XX', email = 'pas une adresse'
+         where id = $1",
+    )
+    .bind(m.martin)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "code_gestion": "PH-0042" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["code_gestion"], "PH-0042");
+    assert_eq!(r.json["siret"], "12345678900000", "valeur stockée intacte");
+    assert_eq!(r.json["email"], "pas une adresse");
+    // Le champ envoyé reste vérifié, et l'erreur dit lequel.
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "siret": "123", "notes": "x" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    assert_eq!(r.json["champ"], "siret", "{}", r.json);
+    assert!(r.json["erreur"].as_str().unwrap().contains("SIRET"));
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "email": "pas une adresse non plus" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.json["champ"], "email", "{}", r.json);
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.durand),
+            Some(json!({ "code_gestion": "ph-0042" })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST);
+    assert_eq!(r.json["champ"], "code_gestion", "{}", r.json);
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "nom": "  " })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.json["champ"], "nom", "{}", r.json);
+    // Corriger le SIRET : accepté.
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "siret": "552 100 554 00013", "email": null })),
+            admin,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["siret"], "55210055400013");
+    assert_eq!(r.json["email"], Value::Null);
+    assert_eq!(r.json["tva"], "FR00XX");
+    // Responsable : lecture seule.
+    let r = app
+        .requete(
+            "PATCH",
+            &format!("/api/admin/fournisseurs/{}", m.martin),
+            Some(json!({ "code_gestion": "AUTRE" })),
+            Some(m.c_resp_a.as_str()),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::FORBIDDEN);
+    m.app.fermer().await;
+}
