@@ -78,7 +78,7 @@
     if (!session.moi) return;
     return raccourcis({
       '/': () => {
-        // Champ de la barre latérale masqué (écran étroit, page Recherche) : celui de la page Recherche.
+        // Champ de la barre du haut masqué (écran étroit, page Recherche) : celui de la page Recherche.
         if (surRecherche) document.getElementById('champ-recherche')?.focus();
         else if (!etroit && champRecherche) champRecherche.focus();
         else void goto('/recherche');
@@ -177,17 +177,54 @@
   <main class="seul">{@render children()}</main>
 {:else if session.moi}
   <div class="cadre">
-    <!-- Écran étroit : barre compacte, le menu s'ouvre en tiroir. -->
+    <!-- Barre du haut : recherche à gauche ; état, réglages et compte à droite.
+         Écran étroit : bouton du menu (tiroir) et logo en plus, loupe à la place du champ. -->
     <header class="barre">
-      <button type="button" class="btn-icone" aria-label="Ouvrir le menu" aria-expanded={tiroir} aria-controls="menu-lateral" onclick={() => (tiroir = true)}>
+      <button type="button" class="btn-icone etroit-seul" aria-label="Ouvrir le menu" aria-expanded={tiroir} aria-controls="menu-lateral" onclick={() => (tiroir = true)}>
         <Icone nom="menu" />
       </button>
-      <a class="logo" href="/" aria-label="GMFlow, accueil"><span class="marque" aria-hidden="true"></span>GMFlow</a>
+      <a class="logo etroit-seul" href="/" aria-label="GMFlow, accueil"><span class="marque" aria-hidden="true"></span>GMFlow</a>
+
+      <form class="recherche" class:cache={surRecherche} role="search" onsubmit={chercher}>
+        <Icone nom="chercher" />
+        <input
+          bind:this={champRecherche}
+          bind:value={recherche}
+          type="search"
+          placeholder="Fournisseur, n°, montant"
+          aria-label="Chercher un document ou un mail"
+          onkeydown={(e) => {
+            if (e.key === 'Escape') champRecherche?.blur();
+          }}
+        />
+        <Kbd t="/" />
+      </form>
       <span class="sp"></span>
-      {#if etat && !etat.ok}
-        <a class="etat-court" href="/a-traiter#bloque" title={etat.texte} aria-label={etat.texte}><span class="point"></span>{compteurs.problemes}</a>
+      <a class="btn-icone etroit-seul" href="/recherche" aria-label="Chercher"><Icone nom="chercher" /></a>
+
+      {#if etat}
+        <a class="etat" class:ok={etat.ok} href={etat.ok ? '/' : '/a-traiter#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'} aria-label={etat.texte}>
+          <span class="point"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok}<span class="etat-n">{compteurs.problemes}</span>{/if}
+        </a>
       {/if}
-      <a class="btn-icone" href="/recherche" aria-label="Chercher"><Icone nom="chercher" /></a>
+      {#if admin}
+        <a class="btn-icone reglages" href="/reglages" aria-label="Réglages" title="Réglages" aria-current={reglagesActif ? 'page' : undefined}><Icone nom="reglages" /></a>
+      {/if}
+      <div class="moi" data-menu>
+        <button type="button" class="initiales" aria-haspopup="menu" aria-expanded={menuOuvert} aria-label="Compte {session.moi.identifiant}" title={session.moi.identifiant} onclick={() => (menuOuvert = !menuOuvert)}>
+          {initiales(session.moi.identifiant)}
+        </button>
+        {#if menuOuvert}
+          <div class="deroulant" role="menu">
+            <div class="qui">
+              <div class="ident">{session.moi.identifiant}</div>
+              <div class="muted petit">{libelleRole(session.moi.role)}</div>
+            </div>
+            {#if admin}<a class="item" role="menuitem" href="/reglages"><Icone nom="reglages" />Réglages</a>{/if}
+            <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
+          </div>
+        {/if}
+      </div>
     </header>
 
     {#if tiroir}
@@ -211,20 +248,6 @@
         </label>
       {/if}
 
-      <form class="recherche" class:cache={surRecherche || etroit} role="search" onsubmit={chercher}>
-        <Icone nom="chercher" />
-        <input
-          bind:this={champRecherche}
-          bind:value={recherche}
-          type="search"
-          placeholder="Chercher"
-          aria-label="Chercher un document ou un mail (fournisseur, n°, montant)"
-          onkeydown={(e) => {
-            if (e.key === 'Escape') champRecherche?.blur();
-          }}
-        />
-        <Kbd t="/" />
-      </form>
       {#if etroit}
         <a class="lien" href="/recherche" class:cur={surRecherche}><Icone nom="chercher" /><span class="t">Chercher</span></a>
       {/if}
@@ -244,31 +267,6 @@
         {/each}
       </nav>
 
-      <div class="lat-b">
-        {#if etat}
-          <a class="lien etat" class:ok={etat.ok} href={etat.ok ? '/' : '/a-traiter#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'}>
-            <span class="point"></span><span class="t">{etat.texte}</span>
-          </a>
-        {/if}
-        {#if admin}
-          <a class="lien" href="/reglages" class:cur={reglagesActif} aria-current={reglagesActif ? 'page' : undefined}><Icone nom="reglages" /><span class="t">Réglages</span></a>
-        {/if}
-        <div class="moi" data-menu>
-          <button type="button" class="compte" aria-haspopup="menu" aria-expanded={menuOuvert} onclick={() => (menuOuvert = !menuOuvert)}>
-            <span class="initiales">{initiales(session.moi.identifiant)}</span>
-            <span class="qui-c">
-              <span class="ident">{session.moi.identifiant}</span>
-              <span class="muted petit">{libelleRole(session.moi.role)}</span>
-            </span>
-            <Icone nom="haut" />
-          </button>
-          {#if menuOuvert}
-            <div class="deroulant" role="menu">
-              <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
-            </div>
-          {/if}
-        </div>
-      </div>
     </aside>
 
     <main class="contenu">{@render children()}</main>
@@ -290,29 +288,56 @@
   .cadre {
     display: grid;
     grid-template-columns: var(--larg-lateral) minmax(0, 1fr);
+    grid-template-rows: var(--haut-barre) minmax(0, 1fr);
     min-height: 100dvh;
   }
   .barre {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    height: var(--haut-barre);
+    padding: 0 var(--e4) 0 var(--e6);
+    border-bottom: 1px solid var(--line);
+    background: var(--white);
+  }
+  .barre > .etroit-seul {
     display: none;
   }
+  .sp {
+    flex: 1;
+  }
+  .contenu {
+    grid-column: 2;
+    grid-row: 2;
+  }
   .lateral {
+    grid-column: 1;
+    grid-row: 1 / 3;
     position: sticky;
     top: 0;
     height: 100dvh;
     display: flex;
     flex-direction: column;
     gap: var(--e2);
-    padding: var(--e3) var(--e3) var(--e2);
+    padding: 0 var(--e3) var(--e2);
     border-right: 1px solid var(--line);
     background: var(--white);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
   .lat-h {
+    flex: none;
     display: flex;
     align-items: center;
-    height: 36px;
-    padding: 0 var(--e2);
+    height: var(--haut-barre);
+    margin: 0 calc(-1 * var(--e3)) var(--e1);
+    padding: 0 var(--e5);
+    border-bottom: 1px solid var(--line);
   }
   .fermer-tiroir {
     display: none;
@@ -360,20 +385,22 @@
     display: flex;
     align-items: center;
     gap: var(--e2);
+    width: min(400px, 100%);
     height: 34px;
     padding: 0 var(--e2) 0 10px;
     border: 1px solid var(--line);
     border-radius: var(--r2);
-    background: var(--white);
+    background: var(--bg);
     color: var(--muted);
     transition:
       border-color var(--vite) var(--ease),
       box-shadow var(--vite) var(--ease);
   }
   .recherche.cache {
-    display: none;
+    visibility: hidden;
   }
   .recherche:focus-within {
+    background: var(--white);
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-weak);
   }
@@ -453,23 +480,21 @@
     color: var(--accent);
   }
 
-  .lat-b {
-    margin-top: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding-top: var(--e2);
-    border-top: 1px solid var(--line);
-  }
   .etat {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    height: 32px;
+    padding: 0 10px;
+    border-radius: var(--r2);
     color: var(--err);
-  }
-  .etat .point {
-    margin: 0 4px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color var(--vite) var(--ease);
   }
   .etat:hover {
     background: var(--err-bg);
-    color: var(--err);
   }
   .etat.ok {
     color: var(--text2);
@@ -481,59 +506,52 @@
   .etat.ok:hover {
     background: var(--pane);
   }
+  .etat-n {
+    display: none;
+  }
+  .reglages[aria-current='page'] {
+    background: var(--sunk);
+    color: var(--black);
+  }
 
   .moi {
     position: relative;
   }
-  .compte {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    height: 44px;
-    padding: 0 var(--e2) 0 6px;
-    border: 0;
-    border-radius: var(--r2);
-    background: none;
-    text-align: left;
-    color: var(--muted);
-    transition: background-color var(--vite) var(--ease);
-  }
-  .compte:hover,
-  .compte[aria-expanded='true'] {
-    background: var(--pane);
-  }
   .initiales {
-    flex: none;
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
+    margin-left: var(--e1);
     border-radius: 50%;
+    border: 0;
+    padding: 0;
     background: var(--sunk);
     display: grid;
     place-items: center;
     font-size: 11px;
     font-weight: 600;
     color: var(--text2);
+    transition: background-color var(--vite) var(--ease);
   }
-  .qui-c {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    line-height: 16px;
+  .initiales:hover,
+  .initiales[aria-expanded='true'] {
+    background: var(--line);
+    color: var(--text);
+  }
+  .qui {
+    padding: var(--e2) 10px 10px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: var(--e1);
   }
   .ident {
-    color: var(--text);
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .deroulant {
     position: absolute;
-    left: 0;
     right: 0;
-    bottom: calc(100% + 6px);
+    top: calc(100% + 8px);
+    min-width: 240px;
     padding: var(--e1);
     border: 1px solid var(--line);
     border-radius: var(--r3);
@@ -546,7 +564,7 @@
   @keyframes menu-entre {
     from {
       opacity: 0;
-      transform: translateY(4px);
+      transform: translateY(-4px);
     }
   }
   .item {
@@ -561,6 +579,7 @@
     background: none;
     color: var(--text);
     text-align: left;
+    text-decoration: none;
   }
   .item:hover {
     background: var(--pane);
@@ -589,34 +608,32 @@
       display: block;
     }
     .barre {
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      display: flex;
-      align-items: center;
-      gap: var(--e2);
-      height: var(--haut-barre);
+      gap: var(--e1);
       padding: 0 var(--e3);
-      border-bottom: 1px solid var(--line);
-      background: var(--white);
     }
-    .barre .logo {
+    .barre > .etroit-seul {
+      display: inline-grid;
+    }
+    .barre > .logo {
+      display: flex;
       margin-left: var(--e1);
     }
-    .sp {
-      flex: 1;
+    .recherche {
+      display: none;
     }
-    .etat-court {
-      display: flex;
-      align-items: center;
+    .etat.ok {
+      display: none;
+    }
+    .etat {
       gap: 6px;
-      height: 32px;
-      padding: 0 10px;
-      border-radius: var(--r2);
       background: var(--err-bg);
-      color: var(--err);
       font-weight: 600;
-      text-decoration: none;
+    }
+    .etat-t {
+      display: none;
+    }
+    .etat-n {
+      display: inline;
     }
     .lateral {
       position: fixed;
@@ -665,6 +682,12 @@
 
   /* Téléphone : onglets en bas pour les pages de tous les jours. */
   @media (max-width: 760px) {
+    .reglages {
+      display: none; /* dans le menu du compte */
+    }
+    .item {
+      height: 44px;
+    }
     .sel select {
       font-size: 16px;
       height: 40px;
