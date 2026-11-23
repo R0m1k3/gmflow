@@ -251,6 +251,7 @@ export const RUBRIQUES = {
   claude: 'Connexion à Claude',
   envoi: 'Envoi vers Dext / Yooz',
   utilisateurs: 'Utilisateurs',
+  traitements: 'Traitements',
   avance: 'Avancé',
   expediteursPub: 'Expéditeurs publicitaires',
   historique: 'Historique',

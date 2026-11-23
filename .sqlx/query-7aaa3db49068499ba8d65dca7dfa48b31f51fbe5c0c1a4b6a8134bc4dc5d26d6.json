@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct fournisseur_id as \"id!\" from document\n                 where fournisseur_id is not null and etat = 'lu' and type in ('facture', 'avoir', 'bl')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "7aaa3db49068499ba8d65dca7dfa48b31f51fbe5c0c1a4b6a8134bc4dc5d26d6"
+}

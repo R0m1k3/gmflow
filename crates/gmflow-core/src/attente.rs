@@ -257,8 +257,8 @@ fn absent(quoi: &str) -> Indispo {
 /// Explication d'un document qui attend sa lecture (`a_lire` ou `en_cours`).
 #[derive(Debug, Clone, Serialize)]
 pub struct Attente {
-    /// `en_cours`, `en_file`, `bloque`, `jeton_absent`, `claude_refuse`, `quota`,
-    /// `lecture_coupee` ou `a_relancer`.
+    /// `en_cours`, `en_file`, `bloque`, `file_arretee`, `jeton_absent`, `claude_refuse`,
+    /// `quota`, `lecture_coupee` ou `a_relancer`.
     pub genre: &'static str,
     /// Phrase principale, sans point final.
     pub raison: String,
@@ -312,6 +312,15 @@ pub async fn expliquer(pool: &PgPool, document_id: i64) -> anyhow::Result<Option
                 None => "Lecture en cours".into(),
             };
         }
+        return Ok(Some(a));
+    }
+    if let Some(t) = crate::traitements::file_arretee(pool, file::FILE_LECTURE).await? {
+        a.genre = "file_arretee";
+        a.raison = format!(
+            "La lecture est à l’arrêt depuis {} : elle redémarre toute seule ; si rien ne bouge, voir Réglages > Traitements",
+            quand_paris(pool, t).await?.trim_start_matches("vers ")
+        );
+        a.dernier_essai = d.message.filter(|m| !m.is_empty());
         return Ok(Some(a));
     }
     let par_claude = d.voie.as_deref().is_none_or(|v| VOIES_CLAUDE.contains(&v));

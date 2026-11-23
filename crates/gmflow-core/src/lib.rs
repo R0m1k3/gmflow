@@ -25,6 +25,7 @@ pub mod reponse;
 pub mod stockage;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
+pub mod traitements;
 pub mod tri;
 
 /// Logs JSON sur la sortie standard (consultables dans Portainer).

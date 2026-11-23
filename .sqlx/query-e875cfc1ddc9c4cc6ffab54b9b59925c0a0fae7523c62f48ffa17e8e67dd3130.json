@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where etat = 'a_lire') as \"a_lire!\",\n                  count(*) filter (where etat = 'en_cours') as \"en_cours!\",\n                  max(lu_le) as dernier\n           from document",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "a_lire!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "en_cours!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "dernier",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e875cfc1ddc9c4cc6ffab54b9b59925c0a0fae7523c62f48ffa17e8e67dd3130"
+}

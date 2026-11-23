@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id from document\n         where etat = 'a_lire'\n           and greatest(cree_le, coalesce(lu_le, cree_le)) < now() - make_interval(mins => $1)\n         order by greatest(cree_le, coalesce(lu_le, cree_le)), id\n         limit $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ab19f67b209f244de859e0af861e01f5261e8708f95f812e58ee55cfef99cfeb"
+}

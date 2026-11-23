@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select max(last_seen) from apalis.workers where worker_type = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c6831d70e75d37dc4581550a816fac633c9aad8d58cd971ceaf7adccc0629fb1"
+}
