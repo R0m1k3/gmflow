@@ -479,16 +479,19 @@
   }
 
   /** Bandeau d'un document pas encore lu : pourquoi il attend, depuis quand. */
-  const GENRES_BLOQUANTS = ['jeton_absent', 'claude_refuse', 'quota', 'lecture_coupee', 'bloque'];
+  const GENRES_BLOQUANTS = ['jeton_absent', 'claude_refuse', 'quota', 'lecture_coupee', 'bloque', 'file_arretee'];
   let attenteBloquee = $derived(!!d?.attente && GENRES_BLOQUANTS.includes(d.attente.genre));
   let depuisAttente = $derived.by(() => {
     const q = quandCourt(d?.attente?.depuis);
     if (!q) return '';
     return /^\d\d:\d\d$/.test(q) || q === 'hier' ? `En attente depuis ${q}.` : `En attente depuis le ${q}.`;
   });
-  /** Lisible tout de suite : en attente, et Claude n'est ni absent ni en refus. */
+  /** Lisible tout de suite : en attente, Claude ni absent ni en refus, file de lecture en marche. */
   let lisibleMaintenant = $derived(
-    admin && !!d && d.etat === 'a_lire' && !['jeton_absent', 'claude_refuse', 'en_cours'].includes(d.attente?.genre ?? '')
+    admin &&
+      !!d &&
+      d.etat === 'a_lire' &&
+      !['jeton_absent', 'claude_refuse', 'en_cours', 'file_arretee'].includes(d.attente?.genre ?? '')
   );
 
   let dlgEcarter = $state(false);

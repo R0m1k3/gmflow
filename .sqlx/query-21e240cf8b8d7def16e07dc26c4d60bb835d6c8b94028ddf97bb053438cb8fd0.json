@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = 'a_lire', pris_le = null, planifie_le = null\n         where etat = 'en_cours' and pris_le < now() - interval '30 minutes'\n         returning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "21e240cf8b8d7def16e07dc26c4d60bb835d6c8b94028ddf97bb053438cb8fd0"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update apalis.jobs set status = 'Failed', done_at = now(), attempts = attempts + 1,\n              last_result = '{\"Err\": \"échec pendant une panne de la file\"}'\n           where id = any($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "149f6fd2a8eab21e9b058f82c0919974ad497e9cd20a50498d7cce62cde89d17"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where tri_etat in ('a_trier', 'en_cours')) as \"en_attente!\",\n                  max(trie_le) as dernier\n           from mail",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "en_attente!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "dernier",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "043f89ca076d48548f39064325f03c2237dcc91b8ec1f99a90c11a62895b00e0"
+}

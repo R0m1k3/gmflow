@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, greatest(cree_le, coalesce(lu_le, cree_le)) as \"depuis!\" from document\n           where etat = 'a_lire' order by 2, id limit 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "depuis!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "a617bb7ebba7a42b9c14bf461ee1bf8fc65d3fb771738ed3bc16e90fe0e0c199"
+}

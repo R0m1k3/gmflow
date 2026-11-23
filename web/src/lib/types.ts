@@ -313,6 +313,7 @@ export type GenreAttente =
   | 'en_cours'
   | 'en_file'
   | 'bloque'
+  | 'file_arretee'
   | 'jeton_absent'
   | 'claude_refuse'
   | 'quota'
@@ -901,4 +902,31 @@ export interface LigneARepondre {
   structures: string[];
   boites: string[];
   brouillon: StatutBrouillon | null;
+}
+
+// ---------- Réglages > Traitements ----------
+
+export type CleEtapeTraitement = 'releve' | 'lecture' | 'tri' | 'rapprochement' | 'depot';
+
+export interface EtapeTraitement {
+  cle: CleEtapeTraitement;
+  nom: string;
+  /** `bloque` : elle ne peut pas avancer et du travail attend ; `arrete` : sa file ne bat plus. */
+  etat: 'ok' | 'en_retard' | 'bloque' | 'arrete';
+  resume: string;
+  /** Pourquoi elle ne peut pas avancer (étape bloquée). */
+  blocage: string | null;
+  en_attente: number;
+  plus_vieille: { depuis: string; raison: string } | null;
+  dernier_passage: string | null;
+  file: { nom: string; battement: string | null; vivante: boolean };
+  /** Relance demandée, pas encore prise par le worker. */
+  relance_demandee: boolean;
+}
+
+export interface Traitements {
+  service: { en_marche: boolean; vu_le: string | null; autres_arretees: string[] };
+  /** Pourquoi Claude ne lit pas en ce moment, sinon null. */
+  claude: string | null;
+  etapes: EtapeTraitement[];
 }
