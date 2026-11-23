@@ -364,7 +364,7 @@
     width: 100%;
     height: 34px;
     padding: 0 30px 0 10px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--line2);
     border-radius: var(--r2);
     background: var(--white);
     color: var(--text);
@@ -373,7 +373,7 @@
     text-overflow: ellipsis;
   }
   .sel select:hover {
-    border-color: var(--line2);
+    border-color: var(--champ);
   }
   .sel :global(svg) {
     position: absolute;
@@ -388,7 +388,7 @@
     width: min(400px, 100%);
     height: 34px;
     padding: 0 var(--e2) 0 10px;
-    border: 1px solid var(--line);
+    border: 1px solid var(--line2);
     border-radius: var(--r2);
     background: var(--bg);
     color: var(--muted);
