@@ -130,6 +130,8 @@ export interface FicheMail {
 export interface Societe {
   id: number;
   raison_sociale: string;
+  /** Autres noms employés par les fournisseurs (nom complet, enseigne et ville...). */
+  autres_noms: string[];
   siret: string | null;
   tva: string | null;
   adresses: string[];

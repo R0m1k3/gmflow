@@ -11,6 +11,7 @@ use crate::etat::Etat;
 pub struct Societe {
     id: i64,
     raison_sociale: String,
+    autres_noms: Vec<String>,
     siret: Option<String>,
     tva: Option<String>,
     adresses: Value,
@@ -23,6 +24,8 @@ pub struct Societe {
 #[derive(Deserialize, Serialize)]
 pub struct Entree {
     raison_sociale: String,
+    #[serde(default)]
+    autres_noms: Vec<String>,
     #[serde(default)]
     siret: Option<String>,
     #[serde(default)]
@@ -53,6 +56,13 @@ impl Entree {
         if self.raison_sociale.is_empty() {
             return Err(ErreurApi::Donnees("raison sociale obligatoire".into()));
         }
+        let mut vus = std::collections::HashSet::new();
+        self.autres_noms = std::mem::take(&mut self.autres_noms)
+            .into_iter()
+            .map(|n| n.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|n| !n.is_empty() && *n != self.raison_sociale)
+            .filter(|n| vus.insert(n.to_lowercase()))
+            .collect();
         self.siret = vide_en_null(self.siret);
         self.tva = vide_en_null(self.tva);
         self.outil_depot = vide_en_null(self.outil_depot);
@@ -80,7 +90,7 @@ impl Entree {
 pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vec<Societe>>> {
     let v = sqlx::query_as!(
         Societe,
-        "select id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto from societe order by raison_sociale"
+        "select id, raison_sociale, autres_noms, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto from societe order by raison_sociale"
     )
     .fetch_all(&etat.pool)
     .await?;
@@ -96,9 +106,9 @@ pub async fn creer(
     let mut tx = etat.pool.begin().await?;
     let s = sqlx::query_as!(
         Societe,
-        "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)
-         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
+        "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto, autres_noms)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         returning id, raison_sociale, autres_noms, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
         e.raison_sociale,
         e.siret,
         e.tva,
@@ -106,7 +116,8 @@ pub async fn creer(
         e.outil_depot,
         e.adresse_depot,
         e.archivee,
-        e.depot_auto
+        e.depot_auto,
+        &e.autres_noms
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -138,9 +149,9 @@ pub async fn modifier(
     let s = sqlx::query_as!(
         Societe,
         "update societe set raison_sociale = $2, siret = $3, tva = $4, adresses = $5, outil_depot = $6,
-             adresse_depot = $7, archivee = $8, depot_auto = $9
+             adresse_depot = $7, archivee = $8, depot_auto = $9, autres_noms = $10
          where id = $1
-         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
+         returning id, raison_sociale, autres_noms, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
         id,
         e.raison_sociale,
         e.siret,
@@ -149,7 +160,8 @@ pub async fn modifier(
         e.outil_depot,
         e.adresse_depot,
         e.archivee,
-        e.depot_auto
+        e.depot_auto,
+        &e.autres_noms
     )
     .fetch_optional(&mut *tx)
     .await?

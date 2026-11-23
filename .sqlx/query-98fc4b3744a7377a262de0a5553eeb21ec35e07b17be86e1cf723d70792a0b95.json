@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto from societe order by raison_sociale",
+  "query": "insert into societe (raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto, autres_noms)\n         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n         returning id, raison_sociale, autres_noms, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "autres_noms",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "autres_noms"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "siret",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "tva",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "adresses",
         "type_info": "Jsonb",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "outil_depot",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "adresse_depot",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "archivee",
         "type_info": "Bool",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "depot_auto",
         "type_info": "Bool",
         "origin": {
@@ -104,9 +115,20 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "TextArray"
+      ]
     },
     "nullable": [
+      false,
       false,
       false,
       true,
@@ -118,5 +140,5 @@
       false
     ]
   },
-  "hash": "1af91025cc1fb7aaac56c654040e62283d4d3ecc531dbdd525dc378698b3abf6"
+  "hash": "98fc4b3744a7377a262de0a5553eeb21ec35e07b17be86e1cf723d70792a0b95"
 }

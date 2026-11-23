@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update societe set raison_sociale = $2, siret = $3, tva = $4, adresses = $5, outil_depot = $6,\n             adresse_depot = $7, archivee = $8, depot_auto = $9\n         where id = $1\n         returning id, raison_sociale, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
+  "query": "update societe set raison_sociale = $2, siret = $3, tva = $4, adresses = $5, outil_depot = $6,\n             adresse_depot = $7, archivee = $8, depot_auto = $9, autres_noms = $10\n         where id = $1\n         returning id, raison_sociale, autres_noms, siret, tva, adresses, outil_depot, adresse_depot, archivee, depot_auto",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "autres_noms",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "autres_noms"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "siret",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "tva",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "adresses",
         "type_info": "Jsonb",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "outil_depot",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "adresse_depot",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "archivee",
         "type_info": "Bool",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "depot_auto",
         "type_info": "Bool",
         "origin": {
@@ -113,10 +124,12 @@
         "Text",
         "Text",
         "Bool",
-        "Bool"
+        "Bool",
+        "TextArray"
       ]
     },
     "nullable": [
+      false,
       false,
       false,
       true,
@@ -128,5 +141,5 @@
       false
     ]
   },
-  "hash": "1ac66a60fde59502bc35d54e85c23c9e1266f637d7bafcad5d9643eaa5389b91"
+  "hash": "32968c64270f760223fa889f23fab65f4377c0d17c99eb6b88436ffab9358178"
 }
