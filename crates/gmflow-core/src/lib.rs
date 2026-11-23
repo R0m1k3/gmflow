@@ -21,6 +21,7 @@ pub mod lecture;
 pub mod parametre;
 pub mod rapprochement;
 pub mod reglages;
+pub mod reinitialisation;
 pub mod reponse;
 pub mod stockage;
 #[cfg(feature = "test-utils")]

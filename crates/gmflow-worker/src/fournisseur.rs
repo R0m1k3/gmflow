@@ -263,6 +263,7 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
     let Some(trouvee) = id else {
         return Ok(());
     };
+    let fiche_creee = comment == "nouvelle fiche";
     let groupe = sqlx::query_scalar!("select groupe_id from fournisseur where id = $1", trouvee)
         .fetch_one(pool)
         .await?
@@ -287,7 +288,7 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
     .fetch_one(pool)
     .await?;
     let societe_regle = d.societe_id.is_none() && defaut.is_some();
-    sqlx::query!(
+    let maj = sqlx::query!(
         "update document set fournisseur_id = $2,
             societe_id = case when $3 then $4 else societe_id end,
             confiance = case when $3 then confiance || '{\"societe\": 0.9, \"societe_par_regle\": true}'::jsonb
@@ -300,6 +301,21 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await?;
+    if maj.rows_affected() == 0 {
+        // Document effacé pendant le rattachement (réinitialisation) : la fiche créée pour lui
+        // ne doit pas rester seule.
+        if fiche_creee {
+            sqlx::query!(
+                "delete from fournisseur f where f.id = $1
+                 and not exists (select 1 from document d where d.fournisseur_id = f.id)
+                 and not exists (select 1 from fournisseur g where g.groupe_id = f.id)",
+                trouvee
+            )
+            .execute(pool)
+            .await?;
+        }
+        return Ok(());
+    }
     journal::ecrire(
         pool,
         None,

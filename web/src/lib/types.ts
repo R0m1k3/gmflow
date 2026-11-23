@@ -904,6 +904,15 @@ export interface LigneARepondre {
   brouillon: StatutBrouillon | null;
 }
 
+/** Réponse de `POST /api/admin/reinitialiser` : ce qui a été effacé. */
+export interface BilanReinitialisation {
+  mails: number;
+  documents: number;
+  fournisseurs: number;
+  taches: number;
+  boites_relancees: number;
+}
+
 // ---------- Réglages > Traitements ----------
 
 export type CleEtapeTraitement = 'releve' | 'lecture' | 'tri' | 'rapprochement' | 'depot';

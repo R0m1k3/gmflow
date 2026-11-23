@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_mail set releve_jusqu_a = null, derniere_releve = null, derniere_erreur = null,\n             erreur_depuis = null, alerte_le = null, echecs_auth = 0, pause_auto = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "008f2b7bab05dedb33082db144a32a36dfe1c911d006dcdb6deaf7e6cbe8e575"
+}

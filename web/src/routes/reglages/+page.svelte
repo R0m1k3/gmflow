@@ -190,7 +190,7 @@
             <Envoi bind:this={refEnvoi} {societes} {modifierSociete} onchange={() => rafraichir()} />
             <Utilisateurs bind:this={refUtilisateurs} {utilisateurs} {societes} onchange={() => rafraichir()} />
             <Traitements />
-            <Avance />
+            <Avance onchange={() => rafraichir()} />
           {/if}
         </div>
       </div>
