@@ -199,6 +199,24 @@ fn tronquer(s: &str, n: usize) -> &str {
     }
 }
 
+/// Texte d'au plus `max` caractères : le début et la fin du document (les totaux sont en bas
+/// de la dernière page), le milieu (lignes articles) est coupé s'il le faut.
+pub fn debut_et_fin(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max {
+        return s.to_string();
+    }
+    let fin = max / 3;
+    let debut = max - fin;
+    let coupe_fin = s.char_indices().nth(n - fin).map_or(s.len(), |(i, _)| i);
+    format!(
+        "{}\n[... {} caractères du milieu coupés ...]\n{}",
+        tronquer(s, debut),
+        n - max,
+        &s[coupe_fin..]
+    )
+}
+
 pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Contenu<'_>) -> String {
     let mut p = String::new();
     p.push_str("Structures destinataires possibles (societe_id) :\n");
@@ -250,7 +268,7 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     match contenu {
         Contenu::Texte(t) => {
             p.push_str("Contenu du document (texte extrait) :\n<<<\n");
-            p.push_str(tronquer(t, TEXTE_MAX));
+            p.push_str(&debut_et_fin(t, TEXTE_MAX));
             p.push_str("\n>>>\n");
         }
         Contenu::Fichier { nom, pages } => {
@@ -348,6 +366,79 @@ pub fn date(s: &str) -> Option<time::Date> {
         time::macros::format_description!("[year]-[month]-[day]"),
     )
     .ok()
+}
+
+/// Chiffres seuls d'un montant au centime (1535.4 -> « 153540 »).
+fn chiffres_montant(m: f64) -> String {
+    format!("{:.2}", m.abs()).replace('.', "")
+}
+
+/// Ce qui manque ou ne tient pas debout dans une lecture de facture, d'avoir ou de BL (vide si
+/// rien). `texte` : texte lu par le code dans le fichier, pour vérifier que le montant TTC y
+/// figure bien. Une anomalie déclenche un nouvel essai avec un modèle plus fort.
+pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
+    let mut a = Vec::new();
+    match e.r#type.as_str() {
+        "facture" | "avoir" => {
+            if e.numero.as_deref().is_none_or(|n| n.trim().is_empty()) {
+                a.push("le numéro du document manque".to_string());
+            }
+            if e.date.is_none() {
+                a.push("la date du document manque".to_string());
+            }
+            match (e.montant_ht, e.montant_tva, e.montant_ttc) {
+                (_, _, None) => a.push("le montant TTC manque".to_string()),
+                (Some(ht), Some(tva), Some(ttc)) if (ht + tva - ttc).abs() > 0.05 => a.push(
+                    format!("HT + TVA ({ht:.2} + {tva:.2}) ne donne pas le TTC ({ttc:.2})"),
+                ),
+                _ => {}
+            }
+            if let (Some(ttc), Some(t)) = (e.montant_ttc, texte) {
+                // Chiffres seuls des deux côtés : 1 535,40 / 1.535,40 / 1535.40 se retrouvent.
+                let chiffres: String = t.chars().filter(char::is_ascii_digit).collect();
+                // Tableurs : 1535.4 sans le zéro final.
+                let court: String = ttc
+                    .abs()
+                    .to_string()
+                    .chars()
+                    .filter(char::is_ascii_digit)
+                    .collect();
+                if !chiffres.contains(&chiffres_montant(ttc)) && !chiffres.contains(&court) {
+                    a.push(format!(
+                        "le montant TTC {ttc:.2} n'apparaît pas dans le texte du document"
+                    ));
+                }
+            }
+        }
+        "bl" if e.lignes.is_empty() => {
+            a.push("aucune ligne article lue sur le bon de livraison".to_string());
+        }
+        _ => {}
+    }
+    a
+}
+
+/// Consigne ajoutée au prompt du nouvel essai : ce que la première lecture a manqué, et le
+/// fichier d'origine quand il est joint (PDF texte relu sur pièce).
+pub fn consigne_nouvel_essai(anomalies: &[String], fichier: Option<&str>) -> String {
+    let mut s = String::from(
+        "\nUne première lecture de ce document a été jugée incomplète ou incohérente :\n",
+    );
+    for a in anomalies {
+        s.push_str(&format!("- {a}\n"));
+    }
+    s.push_str(
+        "Relis tout le document avec attention, en particulier le pied de la dernière page \
+         (total HT, TVA, net à payer TTC). Recopie les montants tels qu'ils sont imprimés ; \
+         null seulement si le document ne les donne vraiment pas.\n",
+    );
+    if let Some(f) = fichier {
+        s.push_str(&format!(
+            "Le fichier d'origine est aussi le fichier {f} du dossier courant : lis-le avec \
+             l'outil Read, le texte extrait ci-dessus peut mélanger les colonnes.\n"
+        ));
+    }
+    s
 }
 
 /// Numéros non vides et distincts (au plus 50).

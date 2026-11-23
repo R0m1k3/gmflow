@@ -14,7 +14,7 @@ pub const TYPES_DEPOSES: &[&str] = &["facture", "avoir"];
 pub const STATUTS_FIGES: &[&str] = &["en_envoi", "depose"];
 
 /// Autre document qui fait de celui-ci un doublon : même fichier, ou même fournisseur, même
-/// numéro et même montant TTC. Un document déjà déposé (ou en cours d'envoi) l'emporte
+/// numéro et même montant TTC (ou TTC manquant d'un côté : lecture incomplète). Un document déjà déposé (ou en cours d'envoi) l'emporte
 /// toujours ; sinon, le plus ancien.
 pub async fn doublon_de<'e>(
     db: impl PgExecutor<'e>,
@@ -28,7 +28,8 @@ pub async fn doublon_de<'e>(
              and (o.sha256 = d.sha256
                   or (d.fournisseur_id is not null and o.fournisseur_id = d.fournisseur_id
                       and d.numero is not null and lower(trim(o.numero)) = lower(trim(d.numero))
-                      and d.montant_ttc is not null and o.montant_ttc = d.montant_ttc))
+                      and (o.montant_ttc is null or d.montant_ttc is null
+                           or o.montant_ttc = d.montant_ttc)))
            order by (o.statut_depot in ('en_envoi', 'depose')) desc, o.id
            limit 1"#,
         id
@@ -70,7 +71,8 @@ async fn identiques_plus_recents<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::
              and (o.sha256 = d.sha256
                   or (d.fournisseur_id is not null and o.fournisseur_id = d.fournisseur_id
                       and d.numero is not null and lower(trim(o.numero)) = lower(trim(d.numero))
-                      and d.montant_ttc is not null and o.montant_ttc = d.montant_ttc))
+                      and (o.montant_ttc is null or d.montant_ttc is null
+                           or o.montant_ttc = d.montant_ttc)))
            order by o.id"#,
         id
     )
