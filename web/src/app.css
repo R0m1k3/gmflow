@@ -493,6 +493,20 @@ input.num {
 .champ .aide.alerte {
   color: var(--warn);
 }
+.champ.en-faute :where(input, select, textarea) {
+  border-color: var(--err);
+  box-shadow: 0 0 0 1px var(--err);
+}
+.champ.en-faute > label,
+.champ .erreur-champ {
+  color: var(--err-ink);
+}
+.champ .erreur-champ {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+}
 .formulaire {
   display: grid;
   grid-template-columns: 1fr 1fr;

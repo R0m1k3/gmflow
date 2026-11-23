@@ -283,64 +283,108 @@ fn net(v: Option<String>) -> Option<String> {
     v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
+fn faute(champ: &'static str, message: impl Into<String>) -> ErreurApi {
+    ErreurApi::Champ {
+        champ,
+        message: message.into(),
+    }
+}
+
 impl Entree {
-    fn nettoyer(mut self) -> Resultat<Self> {
-        self.nom = self.nom.trim().to_string();
-        if self.nom.is_empty() {
-            return Err(ErreurApi::Donnees("nom obligatoire".into()));
-        }
-        if !["a_confirmer", "valide"].contains(&self.statut.as_str()) {
-            return Err(ErreurApi::Donnees("statut : a_confirmer ou valide".into()));
-        }
-        self.siret = net(self.siret).map(|s| chiffres(&s));
-        if let Some(s) = &self.siret
-            && !siret_valide(s)
-        {
-            return Err(ErreurApi::Donnees(format!("SIRET « {s} » invalide")));
-        }
-        self.tva = net(self.tva).map(|t| tva_compacte(&t));
-        if let Some(t) = &self.tva
-            && !tva_valide(t)
-        {
-            return Err(ErreurApi::Donnees(format!("n° de TVA « {t} » invalide")));
-        }
-        let mut domaines = Vec::new();
-        for d in &self.domaines {
-            let d = d.trim().trim_start_matches('@').to_lowercase();
-            if d.is_empty() {
-                continue;
-            }
-            // « factures@durand.fr » est accepté et réduit à son domaine.
-            let d = domaine(&d).unwrap_or(d);
-            if !d.contains('.') || d.contains(' ') {
-                return Err(ErreurApi::Donnees(format!("domaine « {d} » invalide")));
-            }
-            if !domaines.contains(&d) {
-                domaines.push(d);
+    /// Nettoie et vérifie les champs pour lesquels `verifier(champ)` est vrai. Les autres
+    /// (modification partielle : valeurs déjà enregistrées et non touchées) restent tels quels,
+    /// pour qu'une ancienne valeur douteuse ne bloque pas la saisie d'un autre champ.
+    fn nettoyer(mut self, verifier: impl Fn(&str) -> bool) -> Resultat<Self> {
+        if verifier("nom") {
+            self.nom = self.nom.trim().to_string();
+            if self.nom.is_empty() {
+                return Err(faute("nom", "le nom est obligatoire"));
             }
         }
-        self.domaines = domaines;
-        self.format_bl = net(self.format_bl);
-        self.notes = net(self.notes);
-        self.code_gestion = net(self.code_gestion);
-        self.adresse = net(self.adresse);
-        self.telephone = net(self.telephone);
-        self.email = net(self.email);
-        if let Some(m) = &self.email
-            && (m.contains(' ') || domaine(m).is_none())
-        {
-            return Err(ErreurApi::Donnees(format!("adresse mail « {m} » invalide")));
+        if verifier("statut") && !["a_confirmer", "valide"].contains(&self.statut.as_str()) {
+            return Err(faute("statut", "statut : a_confirmer ou valide"));
         }
-        self.interlocuteur = net(self.interlocuteur);
-        self.conditions_paiement = net(self.conditions_paiement);
-        let mut noms = Vec::new();
-        for n in &self.noms_documents {
-            let n = n.trim().to_string();
-            if !n.is_empty() && !noms.contains(&n) {
-                noms.push(n);
+        if verifier("siret") {
+            self.siret = net(self.siret).map(|s| chiffres(&s));
+            if let Some(s) = &self.siret
+                && !siret_valide(s)
+            {
+                let pourquoi = if s.len() == 14 {
+                    "un chiffre est faux (clé de contrôle)"
+                } else {
+                    "14 chiffres attendus"
+                };
+                return Err(faute(
+                    "siret",
+                    format!("SIRET « {s} » invalide : {pourquoi}"),
+                ));
             }
         }
-        self.noms_documents = noms;
+        if verifier("tva") {
+            self.tva = net(self.tva).map(|t| tva_compacte(&t));
+            if let Some(t) = &self.tva
+                && !tva_valide(t)
+            {
+                return Err(faute("tva", format!("n° de TVA « {t} » invalide")));
+            }
+        }
+        if verifier("domaines") {
+            let mut domaines = Vec::new();
+            for d in &self.domaines {
+                let d = d.trim().trim_start_matches('@').to_lowercase();
+                if d.is_empty() {
+                    continue;
+                }
+                // « factures@durand.fr » est accepté et réduit à son domaine.
+                let d = domaine(&d).unwrap_or(d);
+                if !d.contains('.') || d.contains(' ') {
+                    return Err(faute("domaines", format!("domaine « {d} » invalide")));
+                }
+                if !domaines.contains(&d) {
+                    domaines.push(d);
+                }
+            }
+            self.domaines = domaines;
+        }
+        if verifier("format_bl") {
+            self.format_bl = net(self.format_bl);
+        }
+        if verifier("notes") {
+            self.notes = net(self.notes);
+        }
+        if verifier("code_gestion") {
+            self.code_gestion = net(self.code_gestion);
+        }
+        if verifier("adresse") {
+            self.adresse = net(self.adresse);
+        }
+        if verifier("telephone") {
+            self.telephone = net(self.telephone);
+        }
+        if verifier("email") {
+            self.email = net(self.email);
+            if let Some(m) = &self.email
+                && (m.contains(' ') || domaine(m).is_none())
+            {
+                return Err(faute("email", format!("adresse mail « {m} » invalide")));
+            }
+        }
+        if verifier("interlocuteur") {
+            self.interlocuteur = net(self.interlocuteur);
+        }
+        if verifier("conditions_paiement") {
+            self.conditions_paiement = net(self.conditions_paiement);
+        }
+        if verifier("noms_documents") {
+            let mut noms = Vec::new();
+            for n in &self.noms_documents {
+                let n = n.trim().to_string();
+                if !n.is_empty() && !noms.contains(&n) {
+                    noms.push(n);
+                }
+            }
+            self.noms_documents = noms;
+        }
         Ok(self)
     }
 }
@@ -361,9 +405,10 @@ async fn code_libre(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
     .fetch_optional(&etat.pool)
     .await?;
     match autre {
-        Some(nom) => Err(ErreurApi::Donnees(format!(
-            "le code BO Phénix « {code} » est déjà celui de {nom}"
-        ))),
+        Some(nom) => Err(faute(
+            "code_gestion",
+            format!("le code BO Phénix « {code} » est déjà celui de {nom}"),
+        )),
         None => Ok(()),
     }
 }
@@ -375,8 +420,9 @@ async fn groupe_valide(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()>
         return Ok(());
     };
     if Some(g) == id {
-        return Err(ErreurApi::Donnees(
-            "une fiche ne fait pas partie d'elle-même".into(),
+        return Err(faute(
+            "groupe_id",
+            "une fiche ne fait pas partie d'elle-même",
         ));
     }
     let groupe = sqlx::query!(
@@ -385,10 +431,11 @@ async fn groupe_valide(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()>
     )
     .fetch_optional(&etat.pool)
     .await?
-    .ok_or_else(|| ErreurApi::Donnees("groupe inconnu".into()))?;
+    .ok_or_else(|| faute("groupe_id", "groupe inconnu"))?;
     if groupe.groupe_id.is_some() {
-        return Err(ErreurApi::Donnees(
-            "ce groupe fait lui-même partie d'un groupe".into(),
+        return Err(faute(
+            "groupe_id",
+            "ce groupe fait lui-même partie d'un groupe",
         ));
     }
     if let Some(id) = id
@@ -399,8 +446,9 @@ async fn groupe_valide(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()>
         .fetch_one(&etat.pool)
         .await?
     {
-        return Err(ErreurApi::Donnees(
-            "cette fiche est un groupe : elle ne peut pas entrer dans un autre".into(),
+        return Err(faute(
+            "groupe_id",
+            "cette fiche est un groupe : elle ne peut pas entrer dans un autre",
         ));
     }
     Ok(())
@@ -411,7 +459,7 @@ pub async fn creer(
     State(etat): State<Etat>,
     Json(e): Json<Entree>,
 ) -> Resultat<Json<Fiche>> {
-    let e = e.nettoyer()?;
+    let e = e.nettoyer(|_| true)?;
     code_libre(&etat, &e, None).await?;
     groupe_valide(&etat, &e, None).await?;
     let mut tx = etat.pool.begin().await?;
@@ -466,7 +514,7 @@ pub async fn modifier(
     Path(id): Path<i64>,
     Json(e): Json<Entree>,
 ) -> Resultat<Json<Fiche>> {
-    enregistrer(&etat, &a, id, e).await
+    enregistrer(&etat, &a, id, e, |_| true).await
 }
 
 /// Champ présent dans le corps, même à `null` (`Some(None)`) ; absent : `None`.
@@ -516,6 +564,33 @@ pub struct Changements {
     noms_documents: Option<Vec<String>>,
 }
 
+impl Changements {
+    /// Noms des champs présents dans le corps.
+    fn envoyes(&self) -> Vec<&'static str> {
+        [
+            ("nom", self.nom.is_some()),
+            ("code_gestion", self.code_gestion.is_some()),
+            ("siret", self.siret.is_some()),
+            ("tva", self.tva.is_some()),
+            ("domaines", self.domaines.is_some()),
+            ("statut", self.statut.is_some()),
+            ("societe_defaut_id", self.societe_defaut_id.is_some()),
+            ("format_bl", self.format_bl.is_some()),
+            ("notes", self.notes.is_some()),
+            ("adresse", self.adresse.is_some()),
+            ("telephone", self.telephone.is_some()),
+            ("email", self.email.is_some()),
+            ("interlocuteur", self.interlocuteur.is_some()),
+            ("conditions_paiement", self.conditions_paiement.is_some()),
+            ("groupe_id", self.groupe_id.is_some()),
+            ("noms_documents", self.noms_documents.is_some()),
+        ]
+        .into_iter()
+        .filter_map(|(c, present)| present.then_some(c))
+        .collect()
+    }
+}
+
 /// `PATCH /api/admin/fournisseurs/{id}` : « Confirmer la fiche » (`{"statut": "valide"}`),
 /// « Toujours ranger dans X » (`{"societe_defaut_id": 1}`), sans renvoyer toute la fiche.
 pub async fn modifier_partiel(
@@ -533,6 +608,7 @@ pub async fn modifier_partiel(
     .fetch_optional(&etat.pool)
     .await?
     .ok_or(ErreurApi::Absent)?;
+    let envoyes = c.envoyes();
     let e = Entree {
         nom: c.nom.unwrap_or(f.nom),
         code_gestion: c.code_gestion.unwrap_or(f.code_gestion),
@@ -551,14 +627,28 @@ pub async fn modifier_partiel(
         groupe_id: c.groupe_id.unwrap_or(f.groupe_id),
         noms_documents: c.noms_documents.unwrap_or(f.noms_documents),
     };
-    enregistrer(&etat, &a, id, e).await
+    enregistrer(&etat, &a, id, e, |c| envoyes.contains(&c)).await
 }
 
-async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Json<Fiche>> {
-    let e = e.nettoyer()?;
-    code_libre(etat, &e, Some(id)).await?;
-    groupe_valide(etat, &e, Some(id)).await?;
-    if let Some(s) = e.societe_defaut_id {
+/// Enregistre la fiche ; seuls les champs pour lesquels `verifier(champ)` est vrai sont
+/// nettoyés et vérifiés (tous pour `PUT`, ceux du corps pour `PATCH`).
+async fn enregistrer(
+    etat: &Etat,
+    a: &Acces,
+    id: i64,
+    e: Entree,
+    verifier: impl Fn(&str) -> bool,
+) -> Resultat<Json<Fiche>> {
+    let e = e.nettoyer(&verifier)?;
+    if verifier("code_gestion") {
+        code_libre(etat, &e, Some(id)).await?;
+    }
+    if verifier("groupe_id") {
+        groupe_valide(etat, &e, Some(id)).await?;
+    }
+    if verifier("societe_defaut_id")
+        && let Some(s) = e.societe_defaut_id
+    {
         let existe = sqlx::query_scalar!(
             r#"select exists (select 1 from societe where id = $1) as "ok!""#,
             s
@@ -566,7 +656,7 @@ async fn enregistrer(etat: &Etat, a: &Acces, id: i64, e: Entree) -> Resultat<Jso
         .fetch_one(&etat.pool)
         .await?;
         if !existe {
-            return Err(ErreurApi::Donnees("société inconnue".into()));
+            return Err(faute("societe_defaut_id", "société inconnue"));
         }
     }
     let mut tx = etat.pool.begin().await?;

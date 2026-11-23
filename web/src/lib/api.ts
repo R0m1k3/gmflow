@@ -24,7 +24,9 @@ export class ErreurApi extends Error {
     public code: number,
     message: string,
     /** Code stable de certains refus (409), par exemple `doublon` : voir docs/api-refonte.md. */
-    public raison?: CodeRefus
+    public raison?: CodeRefus,
+    /** Champ en faute d'une donnée refusée (400), par exemple `siret` : le message va sous ce champ. */
+    public champ?: string
   ) {
     super(message);
   }
@@ -47,14 +49,16 @@ async function appel<T>(methode: string, chemin: string, corps?: unknown): Promi
   if (!rep.ok) {
     let message = `Erreur ${rep.status}`;
     let raison: CodeRefus | undefined;
+    let champ: string | undefined;
     try {
       const j = await rep.json();
       if (j?.erreur) message = j.erreur;
       if (typeof j?.code === 'string') raison = j.code;
+      if (typeof j?.champ === 'string') champ = j.champ;
     } catch {
       /* corps vide */
     }
-    throw new ErreurApi(rep.status, message, raison);
+    throw new ErreurApi(rep.status, message, raison, champ);
   }
   // 202 sans corps (tâche lancée) : rien ; 202 avec corps (essai de boîte) : son JSON.
   if (rep.status === 204 || rep.headers.get('content-length') === '0') {

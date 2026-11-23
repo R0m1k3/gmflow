@@ -74,8 +74,9 @@
 </script>
 
 <script lang="ts">
-  // Fiche d'un fournisseur : identité (admin : modifier, confirmer, fusionner), encadré « À rapprocher »,
-  // puis le fil par mois (factures, avoirs, BL, mails). Sert au volet de /fournisseurs et à /fournisseurs/[id].
+  // Fiche d'un fournisseur : identité en lecture (admin : bouton « Modifier » qui ouvre le formulaire
+  // complet, confirmer, fusionner), encadré « À rapprocher », puis le fil par mois (factures, avoirs,
+  // BL, mails). Sert au volet de /fournisseurs et à /fournisseurs/[id].
   import type { Snippet } from 'svelte';
   import { api, ErreurApi, filFournisseur, fournisseurs as listerFournisseurs, message, modifierFournisseur } from '#lib/api.ts';
   import { dateSimple } from '#lib/format.ts';
@@ -94,7 +95,7 @@
   } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { DocRap, ElementFil, FilFournisseur, LigneFournisseur, Rapproche, ChangementsFournisseur } from '#lib/types.ts';
+  import type { DocRap, ElementFil, FilFournisseur, LigneFournisseur, LigneMarque, Rapproche, ChangementsFournisseur } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Champ from './Champ.svelte';
   import Chargement from './Chargement.svelte';
@@ -142,7 +143,6 @@
       const v = await filFournisseur(id, { societe: societeChoisie, mois: nbMois });
       if (moi !== jeton) return;
       fil = v;
-      ed = versEdition(v.fournisseur);
       erreur = '';
       introuvable = false;
     } catch (e) {
@@ -158,6 +158,7 @@
     void societeChoisie;
     fil = null;
     ed = null;
+    fautes = {};
     info = '';
     erreur = '';
     nbMois = 6;
@@ -171,6 +172,7 @@
   });
 
   let f = $derived(fil?.fournisseur ?? null);
+
   let aConfirmer = $derived(f?.statut === 'a_confirmer');
   let nomSocieteDefaut = $derived(f?.societe_defaut ?? '');
   let resumeFiche = $derived.by(() => {
@@ -185,28 +187,98 @@
     return m.join(' · ');
   });
 
-  async function enregistrer(statut?: 'a_confirmer' | 'valide') {
+  // ---------- Modification (admin) ----------
+  /** Message d'erreur de l'API sous le champ en faute (`siret`, `email`…). */
+  let fautes = $state<Record<string, string>>({});
+  /** La fiche a des marques : c'est un groupe, elle n'entre pas dans un autre. */
+  let estGroupe = $state(false);
+  let groupeQ = $state('');
+  let groupesPossibles = $state<LigneFournisseur[]>([]);
+
+  async function ouvrirEdition() {
+    if (!f) return;
+    ed = versEdition(f);
+    fautes = {};
+    erreur = '';
+    info = '';
+    groupeQ = '';
+    ficheOuverte = true;
+    estGroupe = false;
+    if (f.groupe_id === null) {
+      try {
+        estGroupe = (await api.get<LigneMarque[]>(`/api/fournisseurs/${f.id}/marques`)).length > 0;
+      } catch {
+        /* sans la liste, le choix du groupe reste proposé ; l'API refuse un groupe dans un groupe */
+      }
+    }
+  }
+  function fermerEdition() {
+    ed = null;
+    fautes = {};
+  }
+  // Groupes proposés : fiches qui ne sont pas elles-mêmes dans un groupe.
+  $effect(() => {
+    if (!ed || estGroupe) return;
+    const q = groupeQ.trim();
+    const t = setTimeout(() => {
+      listerFournisseurs({ q: q || undefined })
+        .then((p) => (groupesPossibles = p.elements.filter((l) => l.id !== id && l.groupe === null)))
+        .catch(() => (groupesPossibles = []));
+    }, 200);
+    return () => clearTimeout(t);
+  });
+  let optionsGroupe = $derived.by(() => {
+    const o = [{ valeur: '', libelle: 'Aucun groupe' }];
+    if (f?.groupe_id != null && f.groupe && !groupesPossibles.some((g) => g.id === f?.groupe_id)) {
+      o.push({ valeur: String(f.groupe_id), libelle: f.groupe });
+    }
+    for (const g of groupesPossibles) o.push({ valeur: String(g.id), libelle: g.nom });
+    return o;
+  });
+
+  /** PATCH des seuls champs changés : une ancienne valeur non touchée ne bloque pas l'enregistrement. */
+  async function enregistrer(e?: SubmitEvent) {
+    e?.preventDefault();
     if (!ed || !f) return;
+    erreur = '';
+    info = '';
+    fautes = {};
+    enCours = true;
+    try {
+      const avant = corpsFournisseur(versEdition(f));
+      const apres = corpsFournisseur(ed);
+      const changements = Object.fromEntries(
+        Object.entries(apres).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(avant[k as keyof typeof avant]))
+      ) as ChangementsFournisseur;
+      if (Object.keys(changements).length) {
+        await modifierFournisseur(f.id, changements);
+        info = 'Fiche enregistrée : ses factures ont repassé les contrôles';
+      } else {
+        info = 'Rien n’a changé';
+      }
+      ed = null;
+      await charger();
+      onmodifie?.();
+    } catch (err) {
+      if (err instanceof ErreurApi && err.champ) fautes = { [err.champ]: err.message };
+      else erreur = message(err);
+    } finally {
+      enCours = false;
+    }
+  }
+
+  async function confirmer() {
+    if (!f) return;
     erreur = '';
     info = '';
     enCours = true;
     try {
-      // PATCH des seuls champs changés : « Confirmer » n'envoie que le statut.
-      const avant = corpsFournisseur(versEdition(f));
-      const apres = corpsFournisseur(ed, statut);
-      const changements = Object.fromEntries(
-        Object.entries(apres).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(avant[k as keyof typeof avant]))
-      ) as ChangementsFournisseur;
-      if (Object.keys(changements).length) await modifierFournisseur(f.id, changements);
-      info =
-        statut === 'valide'
-          ? 'Fournisseur confirmé : ses factures ont repassé les contrôles'
-          : 'Fiche enregistrée : ses factures ont repassé les contrôles';
+      await modifierFournisseur(f.id, { statut: 'valide' });
+      info = 'Fournisseur confirmé : ses factures ont repassé les contrôles';
       await charger();
       onmodifie?.();
-    } catch (e) {
-      erreur = message(e);
-      await charger();
+    } catch (err) {
+      erreur = message(err);
     } finally {
       enCours = false;
     }
@@ -347,10 +419,18 @@
   {:else}
     <Chargement />
   {/if}
-{:else if f && ed}
+{:else if f}
   <div class="titre-fiche">
     <h1>{f.nom}</h1>
     {#if aConfirmer}<Etiquette ton="alerte">{libelleStatutFournisseur(f.statut)}</Etiquette>{/if}
+    <span class="sp"></span>
+    {#if admin}
+      {#if !ed}
+        <button type="button" class="btn modifier" onclick={ouvrirEdition}><Icone nom="crayon" />Modifier</button>
+      {/if}
+    {:else}
+      <span class="lecture-seule petit">Modifiable par l’administrateur</span>
+    {/if}
   </div>
   <div class="meta-fiche"><FournEtat etat={fil.etat} /></div>
   {#if f.groupe_id !== null}
@@ -359,125 +439,164 @@
 
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
-  {#if aConfirmer && admin}
+  {#if aConfirmer && admin && !ed}
     <Bandeau titre="Nouveau fournisseur.">
       Ses factures ne partent pas seules vers Dext ou Yooz tant que la fiche n'est pas confirmée : vérifiez le nom et le SIRET.
       {#snippet action()}
-        <button type="button" class="btn sm principal" class:en-cours={enCours} disabled={enCours} onclick={() => enregistrer('valide')}
-          >Confirmer</button
-        >
+        <button type="button" class="btn sm principal" class:en-cours={enCours} disabled={enCours} onclick={confirmer}>Confirmer</button>
       {/snippet}
     </Bandeau>
   {/if}
 
-  <div class="replis">
-    <Repli icone="batiment" titre="Fiche du fournisseur" resume={resumeFiche} bind:ouvert={ficheOuverte}>
-      <div class="lignes-champs">
-        <Champ disposition="ligne" libelle="Nom" bind:valeur={ed.nom} modifiable={admin} onvalider={() => enregistrer()} />
+  {#if ed}
+    <div class="cadre-form">
+    <form class="form-fiche" onsubmit={enregistrer} aria-label="Modifier la fiche de {f.nom}">
+      <h2 class="plein">Modifier la fiche</h2>
+      <div class="plein">
         <Champ
-          disposition="ligne"
           libelle="Code BO Phénix"
           bind:valeur={ed.code_gestion}
           mono
-          modifiable={admin}
-          onvalider={() => enregistrer()}
           placeholder="ex. 004512"
-          aide={admin ? 'Notre code interne de ce fournisseur dans Phénix ; repris dans les exports' : undefined}
-        >
-          {#snippet affichage()}{@render valeurOuTiret(ed?.code_gestion ?? '', true)}{/snippet}
-        </Champ>
-        {#if f.groupe_id !== null}
-          <Champ
-            disposition="ligne"
-            libelle="Noms sur les documents"
-            bind:valeur={ed.noms_documents}
-            modifiable={admin}
-            onvalider={() => enregistrer()}
-            placeholder="ex. HOMEA DECO, homea.fr"
-            aide={admin ? `Autres écritures de cette marque dans les factures et BL de ${f.groupe} ; son nom est toujours cherché` : undefined}
-          >
-            {#snippet affichage()}{@render valeurOuTiret(ed?.noms_documents ?? '')}{/snippet}
-          </Champ>
-        {/if}
-        <Champ disposition="ligne" libelle="SIRET" bind:valeur={ed.siret} mono modifiable={admin} onvalider={() => enregistrer()}>
-          {#snippet affichage()}{@render valeurOuTiret(ed?.siret ?? '', true)}{/snippet}
-        </Champ>
-        <Champ disposition="ligne" libelle="N° TVA" bind:valeur={ed.tva} mono modifiable={admin} onvalider={() => enregistrer()}>
-          {#snippet affichage()}{@render valeurOuTiret(ed?.tva ?? '', true)}{/snippet}
-        </Champ>
-        <Champ disposition="ligne" type="textarea" libelle="Adresse" bind:valeur={ed.adresse} modifiable={admin} onvalider={() => enregistrer()} placeholder="N°, rue, code postal, ville">
-          {#snippet affichage()}{#if ed?.adresse}<span class="multi">{ed.adresse}</span>{:else}{@render valeurOuTiret('')}{/if}{/snippet}
-        </Champ>
-        <Champ disposition="ligne" libelle="Téléphone" bind:valeur={ed.telephone} modifiable={admin} onvalider={() => enregistrer()} placeholder="03 83 00 00 00">
-          {#snippet affichage()}{@render valeurOuTiret(ed?.telephone ?? '')}{/snippet}
-        </Champ>
-        <Champ disposition="ligne" libelle="E-mail de contact" bind:valeur={ed.email} modifiable={admin} onvalider={() => enregistrer()} placeholder="commandes@fournisseur.fr">
-          {#snippet affichage()}{@render valeurOuTiret(ed?.email ?? '')}{/snippet}
-        </Champ>
-        <Champ disposition="ligne" libelle="Interlocuteur" bind:valeur={ed.interlocuteur} modifiable={admin} onvalider={() => enregistrer()} placeholder="Nom du commercial ou du contact">
-          {#snippet affichage()}{@render valeurOuTiret(ed?.interlocuteur ?? '')}{/snippet}
-        </Champ>
-        <Champ disposition="ligne" libelle="Conditions de paiement" bind:valeur={ed.conditions_paiement} modifiable={admin} onvalider={() => enregistrer()} placeholder="ex. 30 jours fin de mois, LCR">
-          {#snippet affichage()}{@render valeurOuTiret(ed?.conditions_paiement ?? '')}{/snippet}
-        </Champ>
+          erreur={fautes.code_gestion}
+          aide="Notre code interne de ce fournisseur dans Phénix ; repris dans les exports"
+        />
+      </div>
+      <div class="plein"><Champ libelle="Nom" bind:valeur={ed.nom} requis erreur={fautes.nom} /></div>
+      <Champ libelle="SIRET" bind:valeur={ed.siret} mono inputmode="numeric" placeholder="14 chiffres" erreur={fautes.siret} />
+      <Champ libelle="N° TVA intracommunautaire" bind:valeur={ed.tva} mono placeholder="FR..." erreur={fautes.tva} />
+      <div class="plein">
         <Champ
-          disposition="ligne"
           libelle="Domaines mail"
           bind:valeur={ed.domaines}
-          modifiable={admin}
-          onvalider={() => enregistrer()}
-          aide={admin ? 'Séparés par des virgules ; appris tout seul quand une facture est reconnue par son SIRET ou son n° de TVA' : undefined}
-        >
-          {#snippet affichage()}{@render valeurOuTiret(ed?.domaines ?? '')}{/snippet}
-        </Champ>
-        <Champ
-          disposition="ligne"
-          type="select"
-          libelle="Société par défaut"
-          bind:valeur={ed.societe_defaut_id}
-          options={[{ valeur: '', libelle: 'Aucune société' }, ...societes.map((s) => ({ valeur: String(s.id), libelle: s.raison_sociale }))]}
-          modifiable={admin}
-          onvalider={() => enregistrer()}
-        >
-          {#snippet affichage()}{@render valeurOuTiret(nomSocieteDefaut)}{/snippet}
-        </Champ>
-        <Champ
-          disposition="ligne"
-          libelle="Format des BL"
-          bind:valeur={ed.format_bl}
-          modifiable={admin}
-          onvalider={() => enregistrer()}
-          placeholder="ex. Excel, colonnes réf. / qté"
-        >
-          {#snippet affichage()}{@render valeurOuTiret(ed?.format_bl ?? '')}{/snippet}
-        </Champ>
-        <Champ disposition="ligne" type="textarea" libelle="Notes" bind:valeur={ed.notes} modifiable={admin} onvalider={() => enregistrer()}>
-          {#snippet affichage()}{@render valeurOuTiret(ed?.notes ?? '')}{/snippet}
-        </Champ>
-        {#if admin}
-          <Champ
-            disposition="ligne"
-            type="select"
-            libelle="Statut"
-            bind:valeur={ed.statut}
-            options={[
-              { valeur: 'valide', libelle: 'Confirmé' },
-              { valeur: 'a_confirmer', libelle: 'À confirmer' }
-            ]}
-            modifiable
-            onvalider={() => enregistrer()}
-          />
-        {/if}
+          placeholder="durand.fr"
+          erreur={fautes.domaines}
+          aide="Séparés par des virgules ; appris tout seul quand une facture est reconnue par son SIRET ou son n° de TVA"
+        />
       </div>
-      <div class="pied-fiche petit muted">
-        <span>Fiche créée le <span class="num">{dateSimple(f.cree_le.slice(0, 10))}</span></span>
-        {#if admin}
-          <span class="sp"></span>
-          <button type="button" class="btn sm fantome" onclick={ouvrirFusion}><Icone nom="lien" />Fusionner avec une autre fiche</button>
-        {/if}
+      <div class="plein">
+        <Champ libelle="Adresse" type="textarea" bind:valeur={ed.adresse} placeholder="N°, rue, code postal, ville" erreur={fautes.adresse} />
       </div>
-    </Repli>
-  </div>
+      <Champ libelle="Téléphone" bind:valeur={ed.telephone} inputmode="tel" placeholder="03 83 00 00 00" erreur={fautes.telephone} />
+      <Champ libelle="E-mail de contact" bind:valeur={ed.email} inputmode="email" placeholder="commandes@fournisseur.fr" erreur={fautes.email} />
+      <Champ libelle="Interlocuteur" bind:valeur={ed.interlocuteur} placeholder="Nom du commercial ou du contact" erreur={fautes.interlocuteur} />
+      <Champ
+        libelle="Conditions de paiement"
+        bind:valeur={ed.conditions_paiement}
+        placeholder="ex. 30 jours fin de mois, LCR"
+        erreur={fautes.conditions_paiement}
+      />
+      <Champ
+        libelle="Société par défaut"
+        type="select"
+        bind:valeur={ed.societe_defaut_id}
+        options={[{ valeur: '', libelle: 'Aucune société' }, ...societes.map((s) => ({ valeur: String(s.id), libelle: s.raison_sociale }))]}
+        erreur={fautes.societe_defaut_id}
+      />
+      <Champ libelle="Format des BL" bind:valeur={ed.format_bl} placeholder="ex. Excel, colonnes réf. / qté" erreur={fautes.format_bl} />
+      <div class="plein"><Champ libelle="Notes" type="textarea" bind:valeur={ed.notes} erreur={fautes.notes} /></div>
+      <Champ
+        libelle="Statut"
+        type="select"
+        bind:valeur={ed.statut}
+        options={[
+          { valeur: 'valide', libelle: 'Confirmé' },
+          { valeur: 'a_confirmer', libelle: 'À confirmer' }
+        ]}
+        erreur={fautes.statut}
+        aide="Une fiche à confirmer bloque l'envoi automatique de ses factures"
+      />
+      {#if !estGroupe}
+        <div class="champ" class:en-faute={!!fautes.groupe_id}>
+          <label for="groupe-{id}">Fait partie du groupe</label>
+          <input type="search" class="groupe-q" placeholder="Chercher un groupe (ex. U10)" bind:value={groupeQ} autocomplete="off" aria-label="Chercher un groupe" />
+          <select
+            id="groupe-{id}"
+            bind:value={() => (ed?.groupe_id == null ? '' : String(ed.groupe_id)), (v) => ed && (ed.groupe_id = v === '' ? null : Number(v))}
+            aria-invalid={fautes.groupe_id ? 'true' : undefined}
+          >
+            {#each optionsGroupe as o (o.valeur)}<option value={o.valeur}>{o.libelle}</option>{/each}
+          </select>
+          {#if fautes.groupe_id}<div class="erreur-champ" role="alert">{fautes.groupe_id}</div>{/if}
+          <div class="aide">Pour une marque d'un groupe qui facture pour plusieurs marques (U10 pour L3C, Homea, Decor10)</div>
+        </div>
+        {#if ed.groupe_id !== null}
+          <div class="plein">
+            <Champ
+              libelle="Noms sur les documents"
+              bind:valeur={ed.noms_documents}
+              placeholder="ex. HOMEA DECO, homea.fr"
+              erreur={fautes.noms_documents}
+              aide="Autres écritures de cette marque dans les factures et BL du groupe, séparées par des virgules ; son nom est toujours cherché"
+            />
+          </div>
+        {/if}
+      {:else}
+        <p class="petit t2 groupe-note">Cette fiche est un groupe : ses marques sont listées plus bas.</p>
+      {/if}
+      <div class="plein boutons">
+        <button type="submit" class="btn principal" class:en-cours={enCours} disabled={enCours}>Enregistrer</button>
+        <button type="button" class="btn" onclick={fermerEdition} disabled={enCours}>Annuler</button>
+      </div>
+    </form>
+    </div>
+  {:else}
+    <div class="replis">
+      <Repli icone="batiment" titre="Fiche du fournisseur" resume={resumeFiche} bind:ouvert={ficheOuverte}>
+        <div class="lignes-champs">
+          <Champ disposition="ligne" libelle="Code BO Phénix" valeur={f.code_gestion ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.code_gestion ?? '', true)}{/snippet}
+          </Champ>
+          {#if f.groupe_id !== null}
+            <Champ disposition="ligne" libelle="Noms sur les documents" valeur={f.noms_documents.join(', ')}>
+              {#snippet affichage()}{@render valeurOuTiret(f?.noms_documents.join(', ') ?? '')}{/snippet}
+            </Champ>
+          {/if}
+          <Champ disposition="ligne" libelle="SIRET" valeur={f.siret ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.siret ?? '', true)}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="N° TVA" valeur={f.tva ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.tva ?? '', true)}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Adresse" valeur={f.adresse ?? ''}>
+            {#snippet affichage()}{#if f?.adresse}<span class="multi">{f.adresse}</span>{:else}{@render valeurOuTiret('')}{/if}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Téléphone" valeur={f.telephone ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.telephone ?? '')}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="E-mail de contact" valeur={f.email ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.email ?? '')}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Interlocuteur" valeur={f.interlocuteur ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.interlocuteur ?? '')}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Conditions de paiement" valeur={f.conditions_paiement ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.conditions_paiement ?? '')}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Domaines mail" valeur={f.domaines.join(', ')}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.domaines.join(', ') ?? '')}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Société par défaut" valeur={nomSocieteDefaut}>
+            {#snippet affichage()}{@render valeurOuTiret(nomSocieteDefaut)}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Format des BL" valeur={f.format_bl ?? ''}>
+            {#snippet affichage()}{@render valeurOuTiret(f?.format_bl ?? '')}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Notes" valeur={f.notes ?? ''}>
+            {#snippet affichage()}{#if f?.notes}<span class="multi">{f.notes}</span>{:else}{@render valeurOuTiret('')}{/if}{/snippet}
+          </Champ>
+          <Champ disposition="ligne" libelle="Statut" valeur={f.statut === 'valide' ? 'Confirmé' : 'À confirmer'} />
+        </div>
+        <div class="pied-fiche petit muted">
+          <span>Fiche créée le <span class="num">{dateSimple(f.cree_le.slice(0, 10))}</span></span>
+          {#if admin}
+            <span class="sp"></span>
+            <button type="button" class="btn sm fantome" onclick={ouvrirFusion}><Icone nom="lien" />Fusionner avec une autre fiche</button>
+          {/if}
+        </div>
+      </Repli>
+    </div>
+  {/if}
 
   {#if f.groupe_id === null}
     <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
@@ -642,5 +761,49 @@
   }
   .multi {
     white-space: pre-line;
+  }
+  .titre-fiche .modifier {
+    flex: none;
+    align-self: center;
+  }
+  .lecture-seule {
+    flex: none;
+    color: var(--text2);
+  }
+  .cadre-form {
+    container-type: inline-size;
+  }
+  .form-fiche {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--e4) var(--e5);
+    margin-top: var(--e4);
+    padding: var(--e4);
+    border: 1px solid var(--line2);
+    border-radius: var(--r2);
+    background: var(--white);
+  }
+  .form-fiche > h2 {
+    font-size: 14px;
+  }
+  .form-fiche .plein {
+    grid-column: 1 / -1;
+  }
+  .form-fiche .boutons {
+    display: flex;
+    gap: var(--e2);
+  }
+  .groupe-q {
+    margin-bottom: var(--e1);
+  }
+  .groupe-note {
+    align-self: end;
+  }
+  /* Volet étroit ou téléphone : une colonne. */
+  @container (max-width: 520px) {
+    .form-fiche {
+      grid-template-columns: 1fr;
+      padding: var(--e3);
+    }
   }
 </style>
