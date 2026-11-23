@@ -348,6 +348,14 @@ fn lu_depuis_extraction(
     }
 }
 
+/// Lecture gardée malgré des anomalies : elles sont notées dans le message du document.
+fn avec_anomalies(mut lu: Lu, anomalies: Vec<String>) -> Lu {
+    if lu.etat == "lu" && !anomalies.is_empty() {
+        lu.message = Some(format!("Lecture à vérifier : {}.", anomalies.join(" ; ")));
+    }
+    lu
+}
+
 /// Un appel de lecture. `Ok(Err(..))` : réponse reçue mais non conforme.
 async fn appel_lecture(
     ctx: &Contexte,
@@ -355,9 +363,10 @@ async fn appel_lecture(
     reglage: &reglages::Reglage,
     prompt: &str,
     avec_fichier: Option<&std::path::Path>,
+    transcription: bool,
     acces: &claude::Acces,
 ) -> Result<Result<Extraction, ErreurExtraction>, ErreurClaude> {
-    let schema = extraction::schema(avec_fichier.is_some()).to_string();
+    let schema = extraction::schema(transcription).to_string();
     let mut args: Vec<&str> = vec![
         "--json-schema",
         &schema,
@@ -530,9 +539,15 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
             };
             let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(&texte));
             prompt.push_str(&exemples_pour(pool, &e.expediteur, Some(&texte)).await);
-            match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, None).await? {
-                Lecture::Faite(ex, reglage) => {
-                    lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage)
+            let src = Source {
+                dossier: None,
+                texte: Some(&texte),
+                pdf: (voie == Voie::PdfTexte).then_some(contenu.as_slice()),
+            };
+            match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, src).await? {
+                Lecture::Faite(ex, reglage, an) => {
+                    let lu = lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
+                    avec_anomalies(lu, an)
                 }
                 Lecture::Reportee => return Ok(()),
                 Lecture::Echec(lu) => lu,
@@ -563,16 +578,21 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
                 Voie::Scan,
                 reglages::OCR_SCAN,
                 &prompt,
-                Some(&dossier.0),
+                Source {
+                    dossier: Some(&dossier.0),
+                    texte: None,
+                    pdf: None,
+                },
             )
             .await?
             {
-                Lecture::Faite(ex, reglage) => {
+                Lecture::Faite(ex, reglage, an) => {
                     let societe_code = ex
                         .texte
                         .as_deref()
                         .and_then(|t| societe::dans_texte(t, &soc));
-                    lu_depuis_extraction(Voie::Scan, ex, societe_code, None, &reglage)
+                    let lu = lu_depuis_extraction(Voie::Scan, ex, societe_code, None, &reglage);
+                    avec_anomalies(lu, an)
                 }
                 Lecture::Reportee => return Ok(()),
                 Lecture::Echec(lu) => lu,
@@ -595,20 +615,35 @@ async fn lire_pris(ctx: &Contexte, id: i64, forcer: bool, e: Entree) -> anyhow::
 }
 
 enum Lecture {
-    Faite(Extraction, reglages::Reglage),
+    /// Lecture faite ; les anomalies restantes (vide si aucune) vont dans le message.
+    Faite(Extraction, reglages::Reglage, Vec<String>),
     /// Claude indisponible : le document attend (état `a_lire`).
     Reportee,
     /// Réponse non conforme même après le nouvel essai.
     Echec(Lu),
 }
 
+/// Ce que l'appel de lecture a sous la main, en plus du prompt.
+struct Source<'a> {
+    /// Dossier du fichier à lire par Claude (scans), transcription demandée.
+    dossier: Option<&'a std::path::Path>,
+    /// Texte lu par le code, pour vérifier les montants.
+    texte: Option<&'a str>,
+    /// PDF d'origine d'un PDF texte, joint au nouvel essai.
+    pdf: Option<&'a [u8]>,
+}
+
+/// Lecture par Claude en deux temps au plus : le réglage de la tâche, puis le nouvel essai
+/// (modèle plus fort) si la réponse est non conforme ou incomplète (`extraction::anomalies` :
+/// TTC absent, HT + TVA ≠ TTC, TTC absent du texte, BL sans lignes). Le nouvel essai d'un PDF
+/// texte reçoit aussi le fichier ; on garde la lecture qui a le moins d'anomalies.
 async fn lire_par_claude(
     ctx: &Contexte,
     id: i64,
     voie: Voie,
     tache: &str,
     prompt: &str,
-    dossier: Option<&std::path::Path>,
+    src: Source<'_>,
 ) -> anyhow::Result<Lecture> {
     let pool = &ctx.pool;
     let r = reglages::lire(pool).await?;
@@ -620,27 +655,111 @@ async fn lire_par_claude(
         remettre(pool, id, voie, "jeton Claude absent").await?;
         return Ok(Lecture::Reportee);
     };
-    let mut derniere_erreur = String::new();
-    for (essai, tache) in [tache, reglages::NOUVEL_ESSAI].into_iter().enumerate() {
-        let reglage = r.pour(tache).clone();
-        match appel_lecture(ctx, tache, &reglage, prompt, dossier, &acces).await {
-            Ok(Ok(ex)) => {
-                noter_utilisation(pool).await;
-                return Ok(Lecture::Faite(ex, reglage));
+    let transcription = src.dossier.is_some();
+
+    // Premier essai.
+    let reglage = r.pour(tache).clone();
+    let premiere = match appel_lecture(
+        ctx,
+        tache,
+        &reglage,
+        prompt,
+        src.dossier,
+        transcription,
+        &acces,
+    )
+    .await
+    {
+        Ok(Ok(ex)) => {
+            noter_utilisation(pool).await;
+            let an = extraction::anomalies(&ex, src.texte);
+            if an.is_empty() {
+                return Ok(Lecture::Faite(ex, reglage, an));
             }
-            Ok(Err(e)) => {
-                tracing::warn!(document = id, essai, erreur = %e, "réponse de lecture non conforme");
-                derniere_erreur = e.to_string();
+            tracing::info!(document = id, anomalies = ?an, "lecture incomplète, nouvel essai");
+            Some((ex, reglage, an))
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(document = id, erreur = %e, "réponse de lecture non conforme");
+            None
+        }
+        Err(ErreurClaude::JsonInvalide) => {
+            tracing::warn!(document = id, "réponse de lecture : JSON invalide");
+            None
+        }
+        Err(e) => {
+            // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
+            remettre(pool, id, voie, &format!("Claude : {e}")).await?;
+            return Ok(Lecture::Reportee);
+        }
+    };
+
+    // Nouvel essai : réglage plus fort, ce qui manquait, et le PDF d'un PDF texte.
+    if let Some(raison) = claude_indisponible(pool, &r).await? {
+        if let Some((ex, reglage, an)) = premiere {
+            return Ok(Lecture::Faite(ex, reglage, an));
+        }
+        remettre(pool, id, voie, &raison).await?;
+        return Ok(Lecture::Reportee);
+    }
+    let mut _garde = None;
+    let (dossier, fichier) = match (src.dossier, src.pdf) {
+        (Some(d), _) => (Some(d.to_path_buf()), None),
+        (None, Some(pdf)) => {
+            let d = DossierTemp::creer("gmflow-lecture")?;
+            tokio::fs::write(d.0.join("document.pdf"), pdf).await?;
+            let chemin = d.0.clone();
+            _garde = Some(d);
+            (Some(chemin), Some("document.pdf"))
+        }
+        (None, None) => (None, None),
+    };
+    let mut prompt2 = prompt.to_string();
+    match &premiere {
+        Some((_, _, an)) => prompt2.push_str(&extraction::consigne_nouvel_essai(an, fichier)),
+        None => {
+            if let Some(f) = fichier {
+                prompt2.push_str(&extraction::consigne_nouvel_essai(&[], Some(f)));
             }
-            Err(ErreurClaude::JsonInvalide) => {
-                derniere_erreur = ErreurClaude::JsonInvalide.to_string();
+        }
+    }
+    let reglage2 = r.pour(reglages::NOUVEL_ESSAI).clone();
+    let seconde = appel_lecture(
+        ctx,
+        reglages::NOUVEL_ESSAI,
+        &reglage2,
+        &prompt2,
+        dossier.as_deref(),
+        transcription,
+        &acces,
+    )
+    .await;
+    let derniere_erreur = match seconde {
+        Ok(Ok(ex)) => {
+            noter_utilisation(pool).await;
+            let an = extraction::anomalies(&ex, src.texte);
+            if let Some((ex1, reglage1, an1)) = premiere
+                && an1.len() < an.len()
+            {
+                return Ok(Lecture::Faite(ex1, reglage1, an1));
             }
-            Err(e) => {
-                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
+            return Ok(Lecture::Faite(ex, reglage2, an));
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(document = id, erreur = %e, "réponse de lecture non conforme au nouvel essai");
+            e.to_string()
+        }
+        Err(e) => {
+            tracing::warn!(document = id, erreur = %e, "nouvel essai de lecture impossible");
+            if premiere.is_none() && !matches!(e, ErreurClaude::JsonInvalide) {
                 remettre(pool, id, voie, &format!("Claude : {e}")).await?;
                 return Ok(Lecture::Reportee);
             }
+            e.to_string()
         }
+    };
+    if let Some((ex, reglage, an)) = premiere {
+        return Ok(Lecture::Faite(ex, reglage, an));
     }
     // Le détail technique va au journal ; la file À traiter montre une phrase lisible.
     tracing::warn!(document = id, erreur = %derniere_erreur, "lecture abandonnée après deux essais");

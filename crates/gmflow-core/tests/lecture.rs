@@ -294,3 +294,56 @@ fn liste_de_diffusion() {
     assert!(gmflow_core::eml::liste_diffusion(&avec));
     assert!(!gmflow_core::eml::liste_diffusion(&sans));
 }
+
+fn lecture_facture(ht: Option<f64>, tva: Option<f64>, ttc: Option<f64>) -> extraction::Extraction {
+    serde_json::from_value(json!({
+        "type": "facture", "societe_id": null,
+        "fournisseur": { "nom": "Access Deco", "siret": null, "tva": null },
+        "numero": "FA00066497", "date": "2026-11-12", "numero_commande": null,
+        "montant_ht": ht, "montant_tva": tva, "montant_ttc": ttc,
+        "confiance": { "type": 1, "societe": 1, "fournisseur": 1, "numero": 1, "date": 1, "montants": 1 }
+    }))
+    .unwrap()
+}
+
+#[test]
+fn anomalies_de_lecture() {
+    let texte = "FACTURE FA00066497\nTotal HT 1 279,50\nTVA 255,90\nNet à payer 1 535,40 €";
+    let bonne = lecture_facture(Some(1279.5), Some(255.9), Some(1535.4));
+    assert!(extraction::anomalies(&bonne, Some(texte)).is_empty());
+    // Formats 1.535,40 et 1535.40 reconnus aussi.
+    assert!(extraction::anomalies(&bonne, Some("Total 1.535,40")).is_empty());
+    assert!(extraction::anomalies(&bonne, Some("total;1535.4")).is_empty());
+
+    let sans_ttc = lecture_facture(Some(1279.5), Some(255.9), None);
+    assert_eq!(
+        extraction::anomalies(&sans_ttc, Some(texte)),
+        vec!["le montant TTC manque".to_string()]
+    );
+    let incoherente = lecture_facture(Some(1279.5), Some(255.9), Some(1555.4));
+    let a = extraction::anomalies(&incoherente, Some(texte));
+    assert_eq!(a.len(), 2, "{a:?}");
+    assert!(a[0].starts_with("HT + TVA"));
+    assert!(a[1].contains("n'apparaît pas"));
+
+    let mut bl = bonne.clone();
+    bl.r#type = "bl".into();
+    assert_eq!(extraction::anomalies(&bl, None).len(), 1);
+    let mut autre = sans_ttc.clone();
+    autre.r#type = "autre".into();
+    assert!(extraction::anomalies(&autre, None).is_empty());
+}
+
+#[test]
+fn texte_long_garde_le_debut_et_la_fin() {
+    let texte = format!(
+        "ENTETE {} TOTAL TTC 1 535,40",
+        "ligne article\n".repeat(5_000)
+    );
+    let t = extraction::debut_et_fin(&texte, 3_000);
+    assert!(t.starts_with("ENTETE"));
+    assert!(t.ends_with("TOTAL TTC 1 535,40"));
+    assert!(t.contains("caractères du milieu coupés"));
+    assert!(t.chars().count() < 3_100);
+    assert_eq!(extraction::debut_et_fin("court", 3_000), "court");
+}

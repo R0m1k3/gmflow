@@ -321,6 +321,98 @@ async fn reponse_non_conforme_nouvel_essai_puis_erreur() {
 }
 
 #[tokio::test]
+async fn facture_sans_ttc_relue_par_sonnet_avec_le_pdf() {
+    // haiku oublie le TTC ; sonnet, qui reçoit aussi le PDF, le lit.
+    let mut incomplete = extraction("facture", None, false);
+    incomplete["montant_ttc"] = Value::Null;
+    let faux = FauxClaude::new(
+        &reponse(&incomplete),
+        &reponse(&extraction("facture", None, false)),
+    );
+    let b = banc(&faux).await;
+    let a = societe(&b, "Magasin Frouard", SIRET_A).await;
+    jeton(&b).await;
+    let pdf = fixtures::pdf_texte(&[
+        "FACTURE F-1 du 12 novembre 2026",
+        "Client Magasin Frouard, livraison du 10 novembre",
+        "Bougies parfumees 24 unites",
+        "Total HT 50,00 TVA 10,00 Net a payer TTC 60,00",
+    ]);
+    let m = mail(
+        &b,
+        a,
+        &fixtures::eml(
+            "t@test",
+            "Facture",
+            &[("f.pdf", "application/pdf", &pdf)],
+            false,
+        ),
+    )
+    .await;
+    let w = WorkersTest::demarrer(b.ctx.clone());
+    lire_tout(&b, &[m]).await;
+    w.arreter();
+    let d = &docs(&b, m).await[0];
+    assert_eq!(
+        (d.etat.as_str(), d.modele.as_deref()),
+        ("lu", Some("sonnet"))
+    );
+    assert_eq!(d.message, None);
+    let appels = faux.appels();
+    assert_eq!(appels.len(), 2);
+    assert!(!appels[0].contains("document.pdf"), "{}", appels[0]);
+    let second = &appels[1];
+    assert!(second.contains("le montant TTC manque"), "{second}");
+    assert!(second.contains("--tools\nRead\n"), "{second}");
+    assert!(
+        second.contains("document.pdf"),
+        "PDF joint au nouvel essai : {second}"
+    );
+    b.fermer().await;
+}
+
+#[tokio::test]
+async fn deux_lectures_incompletes_la_meilleure_est_gardee_et_signalee() {
+    let mut sans_ttc = extraction("facture", None, false);
+    sans_ttc["montant_ttc"] = Value::Null;
+    let mut sans_rien = sans_ttc.clone();
+    sans_rien["numero"] = Value::Null;
+    let faux = FauxClaude::new(&reponse(&sans_ttc), &reponse(&sans_rien));
+    let b = banc(&faux).await;
+    let a = societe(&b, "Magasin Frouard", SIRET_A).await;
+    jeton(&b).await;
+    let pdf = fixtures::pdf_texte(&[
+        "FACTURE F-1 du 12 novembre 2026",
+        "Quelques articles livres",
+    ]);
+    let m = mail(
+        &b,
+        a,
+        &fixtures::eml(
+            "t@test",
+            "Facture",
+            &[("f.pdf", "application/pdf", &pdf)],
+            false,
+        ),
+    )
+    .await;
+    let w = WorkersTest::demarrer(b.ctx.clone());
+    lire_tout(&b, &[m]).await;
+    w.arreter();
+    let d = &docs(&b, m).await[0];
+    // La première (une anomalie) l'emporte sur la seconde (deux).
+    assert_eq!(
+        (d.etat.as_str(), d.modele.as_deref()),
+        ("lu", Some("haiku"))
+    );
+    assert_eq!(
+        d.message.as_deref(),
+        Some("Lecture à vérifier : le montant TTC manque.")
+    );
+    b.fermer().await;
+}
+
+#[tokio::test]
 async fn quota_atteint_ou_jeton_absent_le_document_attend() {
     let faux = FauxClaude::new(&reponse(&extraction("facture", None, false)), INVALIDE);
     let b = banc(&faux).await;

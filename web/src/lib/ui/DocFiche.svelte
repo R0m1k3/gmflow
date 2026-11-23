@@ -691,6 +691,9 @@
             {' '}{alertes.length - 1 === 1 ? 'Une autre alerte' : `${alertes.length - 1} autres alertes`}, surlignée{alertes.length > 2 ? 's' : ''} dans les champs.{/if}
         </Bandeau>
       {/if}
+      {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
+        <Bandeau titre="Lecture incomplète.">{phrase(d.message.replace(/^Lecture à vérifier : /, ''))} Vérifiez sur l’aperçu{admin ? ', ou relisez-le avec Claude' : ''}.</Bandeau>
+      {/if}
 
       {#if d.etat === 'lu'}
         {@const ctrlF = aControler('fournisseur')}
