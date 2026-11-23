@@ -225,6 +225,14 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
         "societe_id = la structure destinataire du document (acheteur, client, adresse de \
          livraison), null si aucune ne correspond. Le fournisseur est l'émetteur du document.\n",
     );
+    p.push_str(
+        "fournisseur.siret = le SIRET (14 chiffres) de l'émetteur, ou à défaut son SIREN (9 \
+         chiffres, souvent après « RCS <ville> » ou « SIREN ») ; fournisseur.tva = son n° de TVA \
+         intracommunautaire. Cherche-les partout : en-tête, pied de page, mentions légales, \
+         conditions de vente, dernière page. Ils servent à reconnaître ce fournisseur sur ses \
+         documents suivants : recopie-les chiffre par chiffre, sans espaces. Jamais ceux d'une \
+         structure destinataire listée plus haut ; null si l'émetteur n'en donne pas.\n",
+    );
     p.push_str(&format!(
         "lignes = les lignes articles (référence, désignation, quantité, unité, prix unitaire HT, \
          montant HT de la ligne) : toutes pour un bon de livraison, et pour une facture ou un avoir \
