@@ -30,3 +30,4 @@ uuid.workspace = true
 
 [dev-dependencies]
 gmflow-core = { workspace = true, features = ["test-utils"] }
+calamine.workspace = true

@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select f.code_gestion as \"code?\", g.code_gestion as \"code_groupe?\",\n                  coalesce(array(select m.code_gestion from fournisseur m\n                                 where m.groupe_id = f.id and m.code_gestion is not null\n                                 order by m.nom), '{}') as \"marques!\"\n           from document d\n           left join fournisseur f on f.id = d.fournisseur_id\n           left join fournisseur g on g.id = f.groupe_id\n           where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "code_gestion"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "code_groupe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "code_gestion"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "marques!",
+        "type_info": "TextArray",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "ac2b0f38a92a69f2fb239eed0672a66742922302b1981815fb80eee20bd6e020"
+}

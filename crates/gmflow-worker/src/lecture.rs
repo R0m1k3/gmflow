@@ -165,7 +165,9 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
     gmflow_core::rapprochement::ecrire_lignes(&mut tx, id, &lu.lignes).await?;
     sqlx::query!(
-        "update document set numeros_bl = $2, lignes_lues = $3 where id = $1",
+        "update document set numeros_bl = $2, lignes_lues = $3, magasin_verifie_le = null,
+                             magasin_erreur = null
+         where id = $1",
         id,
         &lu.numeros_bl,
         lu.lignes_lues
@@ -249,12 +251,12 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
             fournisseur_siret, fournisseur_tva, numero, date_document, numero_commande, montant_ht,
             montant_tva, montant_ttc, confiance, texte, resultat, modele, effort, numeros_bl,
             lignes_lues, fournisseur_groupe, fournisseur_entite, remise_ht, remise_taux,
-            annexes_ht) =
+            annexes_ht, magasin_verifie_le, magasin_erreur) =
           (select s.etat, s.voie, s.message, s.type, s.societe_id, s.fournisseur_nom,
             s.fournisseur_siret, s.fournisseur_tva, s.numero, s.date_document, s.numero_commande,
             s.montant_ht, s.montant_tva, s.montant_ttc, s.confiance, s.texte, s.resultat, s.modele,
             s.effort, s.numeros_bl, s.lignes_lues, s.fournisseur_groupe, s.fournisseur_entite,
-            s.remise_ht, s.remise_taux, s.annexes_ht
+            s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur
             from document s where s.id = $2),
           copie_de = $2, pris_le = null, lu_le = now()
          where d.id = $1",
@@ -268,8 +270,10 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
         .await?;
     sqlx::query!(
         "insert into ligne_document (document_id, rang, reference, designation, quantite, unite,
-                                     prix_unitaire_ht, montant_ht)
-         select $1, rang, reference, designation, quantite, unite, prix_unitaire_ht, montant_ht
+                                     prix_unitaire_ht, montant_ht, gencod, colis, pcb, remise_taux,
+                                     taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin)
+         select $1, rang, reference, designation, quantite, unite, prix_unitaire_ht, montant_ht,
+                gencod, colis, pcb, remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin
          from ligne_document where document_id = $2",
         id,
         source
@@ -492,6 +496,9 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
     }
     if let Err(e) = gmflow_core::rapprochement::recalculer(&ctx.pool, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "rapprochement impossible");
+    }
+    if let Err(e) = crate::serveur_api::demander_verification_bl(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "recherche des articles au magasin impossible");
     }
 }
 
