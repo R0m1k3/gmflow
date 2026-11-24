@@ -2,6 +2,9 @@
   // Aperçu d'une pièce jointe : PDF dans une iframe, image en <img>, tableur (xlsx, xls, ods,
   // csv) en tableau lu par le serveur (/api/pieces/{id}/tableau), sinon une phrase et le lien de
   // téléchargement. Source : /api/pieces/{id}?inline=1.
+  // `carte` (fiche document) : la page posée en carte blanche ombrée sur le fond sauge, sans la barre
+  // du lecteur PDF du navigateur ; `zoom` agrandit la carte, `pages` (lu dans le PDF quand c'est
+  // possible) et `zoomable` renseignent la barre de la fiche.
   import { api, message } from '#lib/api.ts';
   import Chargement from './Chargement.svelte';
   import Icone from './Icone.svelte';
@@ -16,10 +19,25 @@
     id,
     typeMime,
     nom,
-    outils = true
-  }: { id: number; typeMime: string | null | undefined; nom?: string | null; outils?: boolean } = $props();
+    outils = true,
+    carte = false,
+    zoom = 1,
+    pages = $bindable(null),
+    zoomable = $bindable(false)
+  }: {
+    id: number;
+    typeMime: string | null | undefined;
+    nom?: string | null;
+    outils?: boolean;
+    carte?: boolean;
+    zoom?: number;
+    pages?: number | null;
+    zoomable?: boolean;
+  } = $props();
 
   let src = $derived(`/api/pieces/${id}?inline=1`);
+  /** Lecteur PDF du navigateur sans sa barre, page à la largeur du cadre (Chrome, Edge ; ignoré ailleurs). */
+  let srcCarte = $derived(`${src}#toolbar=0&navpanes=0&view=FitH`);
   let telecharger = $derived(`/api/pieces/${id}`);
   let genre = $derived.by(() => {
     const t = (typeMime ?? '').toLowerCase();
@@ -28,6 +46,27 @@
     if (/^image\/(png|jpe?g|gif|webp)$/.test(t)) return 'image';
     if (['xlsx', 'xlsm', 'xls', 'ods', 'csv'].includes(ext) || /spreadsheet|excel|csv/.test(t)) return 'tableur';
     return 'autre';
+  });
+  $effect(() => {
+    zoomable = carte && (genre === 'pdf' || genre === 'image');
+  });
+  // Nombre de pages : le /Count de l'arbre des pages, quand il est lisible en clair (sinon rien).
+  $effect(() => {
+    const moi = id;
+    pages = null;
+    if (!carte || genre !== 'pdf') return;
+    fetch(src, { credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+      .then((b) => {
+        if (moi !== id) return;
+        const t = new TextDecoder('latin1').decode(b);
+        let n = 0;
+        for (const m of t.matchAll(/\/Type\s*\/Pages\b[^>]*?\/Count\s+(\d+)|\/Count\s+(\d+)[^>]*?\/Type\s*\/Pages\b/g)) {
+          n = Math.max(n, Number(m[1] ?? m[2]));
+        }
+        pages = n > 0 ? n : null;
+      })
+      .catch(() => {});
   });
   let echec = $state(false);
   let feuilles = $state<Feuille[] | null>(null);
@@ -63,7 +102,11 @@
       <a class="btn sm fantome" href={telecharger} download={nom ?? true}><Icone nom="telecharger" />Télécharger</a>
     </div>
   {/if}
-  {#if genre === 'pdf' && !echec}
+  {#if genre === 'pdf' && !echec && carte}
+    <div class="apercu-cadre en-carte">
+      <iframe class="page-carte" src={srcCarte} title="Aperçu de {nom ?? 'la pièce'}" style:--zoom={zoom} onerror={() => (echec = true)}></iframe>
+    </div>
+  {:else if genre === 'pdf' && !echec}
     <div class="apercu-cadre sans-marge">
       <iframe {src} title="Aperçu de {nom ?? 'la pièce'}" onerror={() => (echec = true)}></iframe>
     </div>
@@ -98,8 +141,8 @@
       {/if}
     {/if}
   {:else if genre === 'image' && !echec}
-    <div class="apercu-cadre">
-      <img {src} alt="Aperçu de {nom ?? 'la pièce'}" onerror={() => (echec = true)} />
+    <div class="apercu-cadre" class:en-carte={carte}>
+      <img class:page-carte={carte} style:--zoom={carte ? zoom : undefined} {src} alt="Aperçu de {nom ?? 'la pièce'}" onerror={() => (echec = true)} />
     </div>
   {:else}
     <div class="vide">

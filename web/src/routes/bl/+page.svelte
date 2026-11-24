@@ -9,4 +9,14 @@
   ];
 </script>
 
-<ListeDocuments titre="BL" chemin="/bl" {filtres} rechercheType="bl" videTitre="Aucun BL" singulier="un BL" />
+<ListeDocuments
+  titre="Bons de livraison"
+  chemin="/bl"
+  {filtres}
+  rechercheType="bl"
+  videTitre="Aucun BL"
+  singulier="un BL"
+  section="BL"
+  sansSuite="Aucun autre BL à valider"
+  pied="valider"
+/>

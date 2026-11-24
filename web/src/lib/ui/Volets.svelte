@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Deux volets : la file à gauche (420 px), l'élément ouvert à droite.
+  // Deux volets : la file à gauche (300 px), l'élément ouvert à droite (aperçu et fiche pour une pièce).
   // Sur téléphone, un seul volet à la fois : la liste, ou le détail quand `ouvert`.
   //   <Volets ouvert={!!courant}>
   //     {#snippet liste()} <div class="liste-h">…</div><div class="liste-s">…</div><div class="liste-f">…</div> {/snippet}
@@ -17,7 +17,7 @@
     vide
   }: {
     ouvert?: boolean;
-    /** Largeur du volet liste, en px (420 par défaut). */
+    /** Largeur du volet liste, en px (300 par défaut). */
     largeur?: number;
     libelleListe?: string;
     liste: Snippet;

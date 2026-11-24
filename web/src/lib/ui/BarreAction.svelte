@@ -13,7 +13,8 @@
 
 <script lang="ts">
   // Barre du bas d'un volet ou d'une fiche : une action principale, une ou deux secondaires,
-  // et « Ensuite : … » (l'élément qui s'ouvrira). Fixée en bas de l'écran sur téléphone :
+  // et « Ensuite : … » (l'élément qui s'ouvrira, ou `sansSuite` quand rien ne suit). Le bouton
+  // principal prend toute la largeur, les secondaires et « Ensuite » dessous. Fixée en bas de l'écran sur téléphone :
   // donner la classe .avec-barre au contenu qui défile pour qu'elle ne le cache pas.
   import type { Snippet } from 'svelte';
   import Kbd from './Kbd.svelte';
@@ -22,6 +23,7 @@
     principal,
     secondaires = [],
     ensuite,
+    sansSuite,
     toucheEnsuite,
     aligne = false,
     children
@@ -29,6 +31,8 @@
     principal: Action;
     secondaires?: Action[];
     ensuite?: string;
+    /** « Aucune autre facture dans cette liste » : affiché quand `ensuite` est vide. */
+    sansSuite?: string;
     toucheEnsuite?: string;
     /** Fiche plein écran : aligne les boutons sur la colonne des champs. */
     aligne?: boolean;
@@ -62,6 +66,8 @@
   {#each secondaires as a (a.libelle)}{@render bouton(a, false)}{/each}
   {#if children}{@render children()}{/if}
   {#if ensuite}
-    <div class="ensuite">Ensuite <b>{ensuite}</b>{#if toucheEnsuite}<Kbd t={toucheEnsuite} />{/if}</div>
+    <div class="ensuite">Ensuite : {ensuite}{#if toucheEnsuite}{' '}<Kbd t={toucheEnsuite} />{/if}</div>
+  {:else if sansSuite}
+    <div class="ensuite">{sansSuite}</div>
   {/if}
 </div>
