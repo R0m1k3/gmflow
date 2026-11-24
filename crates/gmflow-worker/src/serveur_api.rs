@@ -1,6 +1,6 @@
 //! Serveur du magasin (Apiflow) : essai de connexion et copie des fournisseurs.
 
-use gmflow_core::{parametre, serveur_api};
+use gmflow_core::{articles_magasin, parametre, serveur_api};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -68,4 +68,44 @@ pub async fn synchro_due(pool: &PgPool) -> sqlx::Result<bool> {
     )
     .fetch_one(pool)
     .await
+}
+
+/// Pousse la recherche des articles d'un BL lu, si le serveur du magasin est configuré.
+pub async fn demander_verification_bl(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
+    let bl = sqlx::query_scalar!(
+        r#"select exists (select 1 from document d
+                          where d.id = $1 and d.type = 'bl' and d.etat = 'lu'
+                            and exists (select 1 from ligne_document l where l.document_id = d.id))
+              and exists (select 1 from parametre where cle = $2) as "ok!""#,
+        document_id,
+        serveur_api::CLE
+    )
+    .fetch_one(pool)
+    .await?;
+    if bl {
+        articles_magasin::demander(pool, document_id).await?;
+    }
+    Ok(())
+}
+
+/// Cherche les articles du BL au magasin ; une erreur (serveur absent, clé refusée) est notée
+/// sur le document et affichée sur sa fiche.
+pub async fn verifier_bl(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
+    match serveur_api::lire(&ctx.pool, &ctx.chiffreur).await? {
+        None => {
+            sqlx::query!(
+                "update document set magasin_verifie_le = now(),
+                        magasin_erreur = 'adresse du serveur du magasin non configurée'
+                 where id = $1",
+                document_id
+            )
+            .execute(&ctx.pool)
+            .await?;
+            Ok(())
+        }
+        Some((s, jeton)) => {
+            let source = articles_magasin::Http::new(&s.adresse, jeton);
+            articles_magasin::verifier_document(&ctx.pool, &source, document_id).await
+        }
+    }
 }

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into ligne_document (document_id, rang, reference, designation, quantite, unite,\n                                       prix_unitaire_ht, montant_ht, gencod, colis, pcb,\n                                       remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille)\n           select $1, r, re, de, q::numeric(14, 3), u, p::numeric(14, 4), m::numeric(14, 2), g,\n                  c::numeric(14, 3), pc::numeric(14, 3), rt::numeric(8, 4), tv::numeric(6, 3),\n                  dh::numeric(14, 4), eh::numeric(14, 4), pv::numeric(14, 4)\n           from unnest($2::int[], $3::text[], $4::text[], $5::float8[], $6::text[], $7::float8[],\n                       $8::float8[], $9::text[], $10::float8[], $11::float8[], $12::float8[],\n                       $13::float8[], $14::float8[], $15::float8[], $16::float8[])\n                as t(r, re, de, q, u, p, m, g, c, pc, rt, tv, dh, eh, pv)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4Array",
+        "TextArray",
+        "TextArray",
+        "Float8Array",
+        "TextArray",
+        "Float8Array",
+        "Float8Array",
+        "TextArray",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4b410e21b9f500b7b814b69c89b382204d870af2a9f428bd1593c9668be1505b"
+}

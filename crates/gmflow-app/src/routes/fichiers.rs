@@ -33,7 +33,7 @@ fn type_sur(t: &str) -> String {
 const CSP_PDF: &str = "default-src 'none'; object-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'";
 const CSP_IMAGE: &str = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox";
 /// Téléchargement : rien ne doit s'exécuter si le navigateur l'ouvrait quand même.
-const CSP_TELECHARGEMENT: &str = "default-src 'none'; frame-ancestors 'none'; sandbox";
+pub(crate) const CSP_TELECHARGEMENT: &str = "default-src 'none'; frame-ancestors 'none'; sandbox";
 
 #[derive(Deserialize)]
 pub struct Options {
@@ -41,7 +41,7 @@ pub struct Options {
 }
 
 /// `Content-Disposition` avec un nom ASCII de secours et le nom UTF-8 (RFC 5987).
-fn disposition(nom: &str) -> String {
+pub(crate) fn disposition(nom: &str) -> String {
     disposition_avec("attachment", nom)
 }
 

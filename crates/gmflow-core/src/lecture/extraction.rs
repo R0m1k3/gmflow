@@ -51,6 +51,30 @@ pub struct Ligne {
     pub prix_unitaire_ht: Option<f64>,
     #[serde(default)]
     pub montant_ht: Option<f64>,
+    /// Code-barres EAN / GTIN de l'article (8, 12, 13 ou 14 chiffres).
+    #[serde(default)]
+    pub gencod: Option<String>,
+    /// Nombre de colis (cartons) livrés.
+    #[serde(default)]
+    pub colis: Option<f64>,
+    /// Unités par colis (PCB, colisage).
+    #[serde(default)]
+    pub pcb: Option<f64>,
+    /// Remise de la ligne en % (« 5 » pour 5 %).
+    #[serde(default)]
+    pub remise_taux: Option<f64>,
+    /// Taux de TVA de la ligne en % quand le document le précise.
+    #[serde(default)]
+    pub taux_tva: Option<f64>,
+    /// Éco-participation DEEE (équipements électriques) HT, par unité.
+    #[serde(default)]
+    pub deee_ht: Option<f64>,
+    /// Éco-mobilier (Ecomaison, éco-participation meubles) HT, par unité.
+    #[serde(default)]
+    pub ecomob_ht: Option<f64>,
+    /// Prix de vente conseillé TTC imprimé par le fournisseur.
+    #[serde(default)]
+    pub pv_conseille: Option<f64>,
 }
 
 impl Ligne {
@@ -151,6 +175,20 @@ const REMISES: &str = "remise_ht = le total HT des remises déduites sur le docu
      Total HT net 1 161,29 donne montant_ht 1161.29, remise_ht 280.16, remise_taux 20, \
      annexes_ht 40.65.\n";
 
+/// Détail des lignes, surtout pour les BL (fiches produits et commande dans le logiciel du magasin).
+const DETAIL_LIGNES: &str = "Pour chaque ligne, recopie aussi ce que le document imprime, \
+     null sinon : gencod = le code-barres EAN/GTIN de l'article (8, 12, 13 ou 14 chiffres, \
+     colonne EAN, Gencod, Code barre ; jamais la référence fournisseur) ; colis = le nombre de \
+     colis ou cartons livrés ; pcb = le nombre d'unités par colis (PCB, colisage, « par », \
+     « x 6 ») ; quantite = la quantité imprimée dans la colonne quantité ; prix_unitaire_ht = le \
+     prix unitaire brut HT avant remise, tel qu'imprimé ; remise_taux = la remise de la ligne en % \
+     (5 pour 5 %) ; taux_tva = le taux de TVA de la ligne en % s'il est précisé ; deee_ht = \
+     l'éco-participation DEEE (équipements électriques et électroniques, éco-contribution DEEE) \
+     HT par unité ; ecomob_ht = l'éco-mobilier (Ecomaison, éco-participation mobilier) HT par \
+     unité ; une éco-participation sans précision va dans ecomob_ht pour un meuble ou de la \
+     décoration, dans deee_ht pour un appareil électrique ; si seul le montant TTC est donné, \
+     divise-le par 1,2 ; pv_conseille = le prix de vente conseillé TTC.\n";
+
 /// Schéma JSON de la réponse. `avec_texte` : demande aussi la transcription (scans).
 pub fn schema(avec_texte: bool) -> Value {
     let mut proprietes = json!({
@@ -181,9 +219,15 @@ pub fn schema(avec_texte: bool) -> Value {
                 "properties": {
                     "reference": chaine_ou_null(), "designation": chaine_ou_null(),
                     "quantite": nombre_ou_null(), "unite": chaine_ou_null(),
-                    "prix_unitaire_ht": nombre_ou_null(), "montant_ht": nombre_ou_null()
+                    "prix_unitaire_ht": nombre_ou_null(), "montant_ht": nombre_ou_null(),
+                    "gencod": chaine_ou_null(), "colis": nombre_ou_null(), "pcb": nombre_ou_null(),
+                    "remise_taux": nombre_ou_null(), "taux_tva": nombre_ou_null(),
+                    "deee_ht": nombre_ou_null(), "ecomob_ht": nombre_ou_null(),
+                    "pv_conseille": nombre_ou_null()
                 },
-                "required": ["reference", "designation", "quantite", "unite", "prix_unitaire_ht", "montant_ht"],
+                "required": ["reference", "designation", "quantite", "unite", "prix_unitaire_ht",
+                             "montant_ht", "gencod", "colis", "pcb", "remise_taux", "taux_tva",
+                             "deee_ht", "ecomob_ht", "pv_conseille"],
                 "additionalProperties": false
             }
         },
@@ -318,6 +362,7 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
          port ; liste vide sinon. numeros_bl = les numéros de bons de livraison cités par une \
          facture (liste vide sinon).\n"
     ));
+    p.push_str(DETAIL_LIGNES);
     p.push_str(MONTANTS_ANNEXES);
     p.push_str(REMISES);
     p.push('\n');
