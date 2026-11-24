@@ -450,3 +450,35 @@ async fn vrai_serveur() {
         );
     }
 }
+
+#[test]
+fn hors_lot_ni_codein_ni_donnees_du_magasin() {
+    // Article retrouvé au magasin, mais le BL n'imprime pas son gencod : rien du magasin.
+    let l = LigneBl {
+        rang: 0,
+        reference: Some("AB123".into()),
+        designation: Some("SEAU".into()),
+        quantite: Some(4.0),
+        prix_unitaire_ht: Some(5.2),
+        magasin: Some(ArticleMagasin {
+            par: "reference".into(),
+            no_id: "1".into(),
+            codein: Some("565000".into()),
+            libelle: Some("SEAU 10 L".into()),
+            gencod: Some("3532156987412".into()),
+            composants: Vec::new(),
+        }),
+        ..Default::default()
+    };
+    let m = export_phenix::matrice(std::slice::from_ref(&l));
+    let r = &m.rangees[0];
+    assert_eq!(txt(r, "CODEIN"), None);
+    assert_eq!(txt(r, "GENCOD"), None);
+    assert_eq!(txt(r, "REFERENCE"), Some("AB123"));
+    assert!(m.alertes.is_empty(), "{:?}", m.alertes);
+    let t = export_phenix::trame(&[l], Some("R0041"));
+    let r = &t.rangees[0];
+    assert_eq!(txt(r, "Codein"), None);
+    assert_eq!(txt(r, "Gencod"), None);
+    assert_eq!(txt(r, "LIBELLE"), Some("SEAU"));
+}

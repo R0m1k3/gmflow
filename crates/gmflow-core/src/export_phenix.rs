@@ -328,20 +328,16 @@ pub fn matrice(lignes: &[LigneBl]) -> Export {
             }
             continue;
         }
-        let codein = l.magasin.as_ref().and_then(|a| a.codein.as_deref());
-        let gencod = l
-            .gencod
-            .as_deref()
-            .or_else(|| l.magasin.as_ref().and_then(|a| a.gencod.as_deref()));
-        if codein.is_none() && gencod.is_none() {
+        // Hors lot : gencod et référence du BL seulement, pas de code article.
+        let gencod = l.gencod.as_deref();
+        if gencod.is_none() && l.reference.is_none() {
             alerte(
                 &mut e.alertes,
                 l,
-                "ni gencod ni code article : à saisir dans Phénix",
+                "ni gencod ni référence sur le BL : à saisir dans Phénix",
             );
         }
         let mut r = Rangee::new();
-        pousser(&mut r, "CODEIN", texte(codein));
         pousser(&mut r, "GENCOD", texte(gencod));
         pousser(&mut r, "REFERENCE", texte(l.reference.as_deref()));
         pousser(&mut r, "QTECDE", nombre(u));
@@ -384,10 +380,12 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
         numero += 1;
         let mut r = Rangee::new();
         pousser(&mut r, "NUMERO LIGNE", nombre(Some(numero as f64)));
+        // Codein et données du magasin pour un lot seulement ; sinon tout vient du BL.
+        let mere = lot(l);
         pousser(
             &mut r,
             "Codein",
-            texte(l.magasin.as_ref().and_then(|a| a.codein.as_deref())),
+            texte(mere.and_then(|a| a.codein.as_deref())),
         );
         pousser(&mut r, "Fournisseur", fou());
         pousser(&mut r, "Ref Fournisseur", texte(l.reference.as_deref()));
@@ -397,7 +395,7 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             texte(
                 l.gencod
                     .as_deref()
-                    .or_else(|| l.magasin.as_ref().and_then(|a| a.gencod.as_deref())),
+                    .or_else(|| mere.and_then(|a| a.gencod.as_deref())),
             ),
         );
         pousser(
@@ -406,13 +404,13 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             texte(
                 l.designation
                     .as_deref()
-                    .or_else(|| l.magasin.as_ref().and_then(|a| a.libelle.as_deref())),
+                    .or_else(|| mere.and_then(|a| a.libelle.as_deref())),
             ),
         );
         pousser(&mut r, "Colisage", nombre(l.pcb.filter(|p| *p > 0.0)));
         pousser(&mut r, "TauxTva", tva.clone());
         pousser(&mut r, "PV_Conseille", nombre(l.pv_conseille));
-        let Some(a) = lot(l) else {
+        let Some(a) = mere else {
             if l.magasin.is_none() {
                 alerte(
                     &mut e.alertes,
@@ -431,7 +429,7 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             continue;
         };
         // Lot de vente : ligne mère, puis ses composants.
-        let mere = numero;
+        let num_mere = numero;
         e.rangees.push(r);
         let eco = colonne_eco(l);
         if eco.is_none() && a.composants.iter().any(|c| c.eco_ht.is_some()) {
@@ -445,7 +443,7 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             numero += 1;
             let mut r = Rangee::new();
             pousser(&mut r, "NUMERO LIGNE", nombre(Some(numero as f64)));
-            pousser(&mut r, "NUM LOT VENTE", nombre(Some(mere as f64)));
+            pousser(&mut r, "NUM LOT VENTE", nombre(Some(num_mere as f64)));
             pousser(&mut r, "Codein", texte(c.codein.as_deref()));
             pousser(&mut r, "Fournisseur", fou());
             pousser(&mut r, "Ref Fournisseur", texte(c.reference.as_deref()));

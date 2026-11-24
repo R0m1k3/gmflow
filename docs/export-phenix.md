@@ -10,6 +10,9 @@ modèles du magasin :
 
 ## Règles
 
+- **Pas de code article (Codein) hors lot** : seuls le gencod et la référence imprimés sur le BL
+  identifient l'article. Le Codein n'est écrit que pour un lot et ses composants (Phénix n'écrase
+  rien sur une fiche existante).
 - **Tout vient du BL** : prix d'achat brut HT, remise de ligne, quantités, TVA (20 % si le BL ne
   dit rien), DEEE / Ecomob (selon ce que le BL imprime), PV conseillé. Le prix de vente et la
   famille d'un nouveau produit restent vides : le magasin les fixe.
