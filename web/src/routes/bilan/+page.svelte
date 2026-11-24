@@ -163,7 +163,7 @@
   {#if n > 0}<a class="num lien-reste {ton}" {href} {onclick}>{n}</a>{:else}<span class="num muted">0</span>{/if}
 {/snippet}
 
-<div class="page">
+<div class="page bilan">
   <div class="page-h">
     <h1>Bilan du mois</h1>
     <span class="sp"></span>
@@ -207,7 +207,7 @@
             {#each restes as r, i (r.texte)}{i > 0 ? ', ' : ''}<span class="num">{r.n}</span> {r.texte}{/each}.
           </p>
         {/if}
-        <div class="defile">
+        <div class="defile boite">
           <table>
             <thead>
               <tr>
@@ -259,7 +259,7 @@
       {#if blEnAttente.length === 0}
         <p class="muted">Aucun BL du mois sans sa facture.</p>
       {:else}
-        <div class="filets">
+        <div class="boite liste-bl">
           {#each blEnAttente as b (`${b.societe_id}-${b.fournisseur_id}-${b.fournisseur}`)}
             {#if b.fournisseur_id !== null}
               <a class="ligne" href="/fournisseurs?fiche={b.fournisseur_id}">
@@ -280,7 +280,7 @@
     </section>
 
     {#if lecture}
-      <div class="replis bloc">
+      <div class="replis bloc boite qualite-b">
         <Repli icone="graphique" titre="Qualité de la lecture et du tri" resume={resumeQualite} bind:ouvert={qualiteOuverte}>
           <p class="petit muted">Sur tout l'historique{admin ? ', toutes sociétés' : ''}, quel que soit le mois choisi.</p>
 
@@ -385,16 +385,29 @@
 </div>
 
 <style>
+  /* Bilan dans le langage Sauge (comme Réglages) : titre 26 px, sections à titre 22 px,
+     tableaux et listes dans un encadré blanc à anneau #DDE2DA (rayon 12). */
+  .bilan {
+    max-width: 1120px;
+  }
   .page-h {
     flex-wrap: wrap;
+    margin-bottom: var(--e8);
   }
   .page-h h1 {
     white-space: nowrap;
+    font-size: 26px;
+    font-weight: 500;
   }
   .choix-mois {
     display: flex;
     align-items: center;
     gap: var(--e1);
+    height: 44px;
+    padding: 0 var(--e1);
+    border-radius: var(--r2);
+    box-shadow: 0 0 0 1px var(--line);
+    background: var(--white);
   }
   .mois-l {
     min-width: 136px;
@@ -404,27 +417,59 @@
   .touches-mois {
     display: inline-flex;
     gap: 2px;
-    margin-left: var(--e2);
+    margin: 0 var(--e2);
   }
   .bloc {
-    margin-top: var(--e8);
+    margin-top: var(--e10);
   }
   .bloc:first-of-type {
     margin-top: 0;
   }
   .bloc h2 {
-    font-size: 14px;
-    margin-bottom: var(--e3);
+    font-size: 22px;
+    font-weight: 500;
+    margin-bottom: var(--e2);
+  }
+  .bloc h2 .num {
+    font-size: 18px;
+    font-weight: 400;
   }
   .bloc .lead {
-    margin-bottom: var(--e3);
+    margin: 0 0 var(--e4);
+    font-size: 16px;
+  }
+  .boite {
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+    background: var(--white);
   }
   .defile {
     overflow-x: auto;
+    margin-top: var(--e4);
+  }
+  .defile :global(th) {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+  .defile :global(td) {
+    height: 52px;
+    font-size: 16px;
+  }
+  .defile :global(td:first-child),
+  .defile :global(th:first-child) {
+    padding-left: var(--e5);
+  }
+  .defile :global(td:last-child),
+  .defile :global(th:last-child) {
+    padding-right: var(--e5);
+  }
+  .defile :global(tbody tr:last-child td) {
+    border-bottom: 0;
   }
   tfoot td {
     font-weight: 500;
     border-bottom: 0;
+    border-top: 1px solid var(--line);
   }
   .lien-reste {
     text-decoration: none;
@@ -440,16 +485,40 @@
     color: var(--err);
   }
   .note {
-    margin-top: var(--e2);
+    margin-top: var(--e3);
+  }
+  .liste-bl {
+    margin-top: var(--e4);
+    overflow: hidden;
+  }
+  .liste-bl > :global(.ligne) {
+    padding: 14px var(--e5);
+    border-radius: 0;
+    border-bottom: 1px solid var(--line-faint);
+  }
+  .liste-bl > :global(.ligne:last-child) {
+    border-bottom: 0;
+  }
+  .liste-bl :global(.ligne .b) {
+    font-size: 15px;
   }
   .sans-lien {
     cursor: default;
   }
+  .qualite-b {
+    padding: 0 var(--e5);
+  }
+  .qualite-b :global(.repli) {
+    border-bottom: 0;
+  }
+  .qualite-b :global(.repli > summary) {
+    min-height: 56px;
+  }
   .replis :global(h3) {
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--text2);
-    margin: var(--e5) 0 var(--e1);
+    margin: var(--e6) 0 var(--e2);
   }
   .qualite {
     margin-bottom: var(--e3);
@@ -462,5 +531,22 @@
   }
   .voies {
     margin: var(--e2) 0 var(--e3);
+  }
+  @media (max-width: 760px) {
+    .page-h {
+      margin-bottom: var(--e6);
+    }
+    .bloc {
+      margin-top: var(--e8);
+    }
+    .bloc h2 {
+      font-size: 20px;
+    }
+    .qualite-b {
+      padding: 0 var(--e3);
+    }
+    .liste-bl > :global(.ligne) {
+      padding: 12px var(--e4);
+    }
   }
 </style>
