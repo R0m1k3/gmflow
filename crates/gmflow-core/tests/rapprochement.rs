@@ -193,3 +193,19 @@ fn ecart_de_montant_et_controle_des_lignes_d_un_bl() {
     assert_eq!(c.len(), 1);
     assert_eq!(c[0]["code"], "lignes");
 }
+
+#[test]
+fn ecart_explique_par_remise_et_eco_participation() {
+    use gmflow_core::rapprochement::ecart_explique;
+    // Facture Tendance Bain : HT net 1 161,29 = 1 400,80 + 40,65 (Ecomaison) − 280,16 (remise 20 %),
+    // BL valorisé 1 400,80 avant remise : écart −239,51.
+    assert!(ecart_explique(-239.51, Some(280.16), Some(40.65)));
+    // Remise seule, ou éco-participation seule.
+    assert!(ecart_explique(-280.16, Some(280.16), None));
+    assert!(ecart_explique(12.47, None, Some(12.47)));
+    // BL déjà valorisé après remise : seule l'éco-participation reste.
+    assert!(ecart_explique(40.65, Some(280.16), Some(40.65)));
+    // Rien sur la facture, ou un écart qui reste : pas expliqué.
+    assert!(!ecart_explique(-239.51, None, None));
+    assert!(!ecart_explique(-200.0, Some(280.16), Some(40.65)));
+}

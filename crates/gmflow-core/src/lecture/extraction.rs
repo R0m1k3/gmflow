@@ -94,6 +94,15 @@ pub struct Extraction {
     pub montant_ht: Option<f64>,
     pub montant_tva: Option<f64>,
     pub montant_ttc: Option<f64>,
+    /// Total HT des remises déduites sur le document, en positif (déjà retiré du HT).
+    #[serde(default)]
+    pub remise_ht: Option<f64>,
+    /// Taux de la remise en %, quand il est imprimé.
+    #[serde(default)]
+    pub remise_taux: Option<f64>,
+    /// Total HT des montants annexes compris dans le HT (éco-participation, port…).
+    #[serde(default)]
+    pub annexes_ht: Option<f64>,
     pub confiance: Confiance,
     /// Lignes articles (obligatoires pour un BL, si lisibles pour une facture).
     #[serde(default)]
@@ -129,6 +138,19 @@ const MONTANTS_ANNEXES: &str = "montant_ht, montant_tva et montant_ttc décriven
      TVA Ecomaison 2,49, Total TTC 2 028,25 donne montant_ht 1690.21, montant_tva 338.04, \
      montant_ttc 2028.25.\n";
 
+/// Remises : le HT reste le net imprimé, la remise est notée à part pour expliquer l'écart
+/// avec les bons de livraison (valorisés avant remise).
+const REMISES: &str = "remise_ht = le total HT des remises déduites sur le document (remise \
+     globale, remise commerciale, remise de pied, rabais, ristourne, escompte), en nombre \
+     positif, null s'il n'y en a pas ; remise_taux = son pourcentage s'il est imprimé (20 pour \
+     « remise globale 20 % »), null sinon. annexes_ht = le total HT des montants annexes compris \
+     dans montant_ht (éco-participation, Éco-mobilier, Ecomaison, DEEE, éco-contribution, frais \
+     de port, emballage), qu'ils soient imprimés avant ou après le « Total HT », null s'il n'y en \
+     a pas. Les montants restent nets : montant_ht est le total HT après remise, annexes \
+     comprises. Exemple : Marchandise HT 1 400,80, Ecomaison 40,65, Remise globale 20 % -280,16, \
+     Total HT net 1 161,29 donne montant_ht 1161.29, remise_ht 280.16, remise_taux 20, \
+     annexes_ht 40.65.\n";
+
 /// Schéma JSON de la réponse. `avec_texte` : demande aussi la transcription (scans).
 pub fn schema(avec_texte: bool) -> Value {
     let mut proprietes = json!({
@@ -149,6 +171,9 @@ pub fn schema(avec_texte: bool) -> Value {
         "montant_ht": nombre_ou_null(),
         "montant_tva": nombre_ou_null(),
         "montant_ttc": nombre_ou_null(),
+        "remise_ht": nombre_ou_null(),
+        "remise_taux": nombre_ou_null(),
+        "annexes_ht": nombre_ou_null(),
         "lignes": {
             "type": "array",
             "items": {
@@ -183,6 +208,9 @@ pub fn schema(avec_texte: bool) -> Value {
         "montant_ht",
         "montant_tva",
         "montant_ttc",
+        "remise_ht",
+        "remise_taux",
+        "annexes_ht",
         "lignes",
         "numeros_bl",
         "confiance",
@@ -291,6 +319,7 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
          facture (liste vide sinon).\n"
     ));
     p.push_str(MONTANTS_ANNEXES);
+    p.push_str(REMISES);
     p.push('\n');
     p.push_str(&format!(
         "Mail qui accompagne le document :\nDe : {}\nObjet : {}\n{}\n\nFichier : {}\n\n",
@@ -478,6 +507,7 @@ pub fn consigne_nouvel_essai(
          null seulement si le document ne les donne vraiment pas.\n",
     );
     s.push_str(MONTANTS_ANNEXES);
+    s.push_str(REMISES);
     if let Some(f) = fichier {
         s.push_str(&format!(
             "Le fichier d'origine est aussi le fichier {f} du dossier courant : lis-le avec \

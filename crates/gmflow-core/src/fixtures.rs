@@ -154,6 +154,7 @@ pub fn xml_cii_du(numero: &str, siret_acheteur: &str, avoir: bool, date: &str) -
     </ram:ApplicableHeaderTradeAgreement>
     <ram:ApplicableHeaderTradeSettlement>
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+        <ram:AllowanceTotalAmount>5.00</ram:AllowanceTotalAmount>
         <ram:TaxBasisTotalAmount>100.00</ram:TaxBasisTotalAmount>
         <ram:TaxTotalAmount currencyID="EUR">20.00</ram:TaxTotalAmount>
         <ram:GrandTotalAmount>120.00</ram:GrandTotalAmount>
@@ -183,6 +184,8 @@ pub fn xml_ubl_avoir(numero: &str, tva_acheteur: &str) -> String {
   <cac:LegalMonetaryTotal>
     <cbc:TaxExclusiveAmount currencyID="EUR">10.00</cbc:TaxExclusiveAmount>
     <cbc:TaxInclusiveAmount currencyID="EUR">12.00</cbc:TaxInclusiveAmount>
+    <cbc:AllowanceTotalAmount currencyID="EUR">2.50</cbc:AllowanceTotalAmount>
+    <cbc:ChargeTotalAmount currencyID="EUR">1.20</cbc:ChargeTotalAmount>
   </cac:LegalMonetaryTotal>
 </CreditNote>"#
     )

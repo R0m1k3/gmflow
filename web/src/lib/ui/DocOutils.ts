@@ -1,6 +1,7 @@
 // Petits utilitaires des écrans À traiter et fiche document (dates courtes, montants saisis,
 // alertes rattachées aux champs). Le vocabulaire affiché reste dans #lib/libelles.ts.
 import { libelleType, titreAlerte } from '#lib/libelles.ts';
+import { formatMontant } from './Montant.svelte';
 import type { ChampControle, Controle, DocumentAValider, FicheDocument, TypeDocument } from '#lib/types.ts';
 
 const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
@@ -160,4 +161,11 @@ export function tauxTva(ht: number | null, tva: number | null): string {
     if (Math.abs(t - u) < 0.15) return `${String(u).replace('.', ',')} %`;
   }
   return '';
+}
+
+/** Remise déduite sur une facture, si elle compte : « 280,16 € HT (20 %) ». */
+export function texteRemise(remise: number | null | undefined, taux?: number | null): string {
+  if (!remise || remise <= 0.005) return '';
+  const t = taux && taux > 0 ? ` (${taux.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}\u00a0%)` : '';
+  return `${formatMontant(remise)} HT${t}`;
 }

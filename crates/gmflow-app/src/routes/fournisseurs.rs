@@ -792,6 +792,7 @@ pub enum ElementFil {
         date_document: Option<time::Date>,
         montant_ht: Option<f64>,
         montant_ttc: Option<f64>,
+        remise_ht: Option<f64>,
         statut_depot: Option<String>,
         verifie: bool,
         societe_id: Option<i64>,
@@ -915,6 +916,7 @@ pub async fn fil(
         r#"select d.id, d.mail_id, d.type as "type!", d.numero, d.date_document,
                   coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date) as "date!",
                   d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,
+                  d.remise_ht::float8 as remise_ht,
                   d.statut_depot, d.verifie_le is not null as "verifie!", d.societe_id,
                   s.raison_sociale as "societe?", s.outil_depot as "outil?",
                   exists (select 1 from rapprochement r
@@ -981,6 +983,7 @@ pub async fn fil(
             date_document: d.date_document,
             montant_ht: d.montant_ht,
             montant_ttc: d.montant_ttc,
+            remise_ht: d.remise_ht,
             statut_depot: d.statut_depot,
             verifie: d.verifie,
             societe_id: d.societe_id,

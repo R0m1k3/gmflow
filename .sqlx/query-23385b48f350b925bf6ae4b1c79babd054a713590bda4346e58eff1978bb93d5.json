@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.mail_id, m.objet as mail_objet, m.expediteur as mail_expediteur,\n                  p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,\n                  d.type, d.societe_id, s.raison_sociale as \"societe?\", d.fournisseur_nom,\n                  d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,\n                  d.numero_commande, d.montant_ht::float8 as montant_ht,\n                  d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,\n                  d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,\n                  u.identifiant as \"verifie_par?\", d.type_corrige, d.societe_corrigee,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\", fo.statut as \"fournisseur_statut?\",\n                  d.statut_depot, d.controles, d.valide_le, uv.identifiant as \"valide_par?\",\n                  d.corrections, s.adresse_depot as \"societe_adresse_depot?\",\n                  s.outil_depot as \"societe_outil_depot?\",\n                  coalesce(m.date_mail, m.recu_le) as \"recu_le!\",\n                  coalesce(d.statut_depot = 'erreur'\n                           and d.valide_le > (select max(e.quand) from envoi_depot e\n                                              where e.document_id = d.id)\n                           and d.valide_le > now() - interval '30 minutes', false) as \"envoi_relance!\"\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           left join utilisateur u on u.id = d.verifie_par\n           left join utilisateur uv on uv.id = d.valide_par\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where d.id = $1",
+  "query": "select d.id, d.mail_id, m.objet as mail_objet, m.expediteur as mail_expediteur,\n                  p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,\n                  d.type, d.societe_id, s.raison_sociale as \"societe?\", d.fournisseur_nom,\n                  d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,\n                  d.numero_commande, d.montant_ht::float8 as montant_ht,\n                  d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,\n                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,\n                  d.annexes_ht::float8 as annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,\n                  u.identifiant as \"verifie_par?\", d.type_corrige, d.societe_corrigee,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\", fo.statut as \"fournisseur_statut?\",\n                  d.statut_depot, d.controles, d.valide_le, uv.identifiant as \"valide_par?\",\n                  d.corrections, s.adresse_depot as \"societe_adresse_depot?\",\n                  s.outil_depot as \"societe_outil_depot?\",\n                  coalesce(m.date_mail, m.recu_le) as \"recu_le!\",\n                  coalesce(d.statut_depot = 'erreur'\n                           and d.valide_le > (select max(e.quand) from envoi_depot e\n                                              where e.document_id = d.id)\n                           and d.valide_le > now() - interval '30 minutes', false) as \"envoi_relance!\"\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           left join utilisateur u on u.id = d.verifie_par\n           left join utilisateur uv on uv.id = d.valide_par\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where d.id = $1",
   "describe": {
     "columns": [
       {
@@ -232,6 +232,24 @@
       },
       {
         "ordinal": 22,
+        "name": "remise_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 23,
+        "name": "remise_taux",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 24,
+        "name": "annexes_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 25,
         "name": "confiance",
         "type_info": "Jsonb",
         "origin": {
@@ -242,7 +260,7 @@
         }
       },
       {
-        "ordinal": 23,
+        "ordinal": 26,
         "name": "texte",
         "type_info": "Text",
         "origin": {
@@ -253,7 +271,7 @@
         }
       },
       {
-        "ordinal": 24,
+        "ordinal": 27,
         "name": "modele",
         "type_info": "Text",
         "origin": {
@@ -264,7 +282,7 @@
         }
       },
       {
-        "ordinal": 25,
+        "ordinal": 28,
         "name": "effort",
         "type_info": "Text",
         "origin": {
@@ -275,7 +293,7 @@
         }
       },
       {
-        "ordinal": 26,
+        "ordinal": 29,
         "name": "copie_de",
         "type_info": "Int8",
         "origin": {
@@ -286,7 +304,7 @@
         }
       },
       {
-        "ordinal": 27,
+        "ordinal": 30,
         "name": "lu_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -297,7 +315,7 @@
         }
       },
       {
-        "ordinal": 28,
+        "ordinal": 31,
         "name": "verifie_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -308,7 +326,7 @@
         }
       },
       {
-        "ordinal": 29,
+        "ordinal": 32,
         "name": "verifie_par?",
         "type_info": "Text",
         "origin": {
@@ -319,7 +337,7 @@
         }
       },
       {
-        "ordinal": 30,
+        "ordinal": 33,
         "name": "type_corrige",
         "type_info": "Bool",
         "origin": {
@@ -330,7 +348,7 @@
         }
       },
       {
-        "ordinal": 31,
+        "ordinal": 34,
         "name": "societe_corrigee",
         "type_info": "Bool",
         "origin": {
@@ -341,7 +359,7 @@
         }
       },
       {
-        "ordinal": 32,
+        "ordinal": 35,
         "name": "fournisseur_id",
         "type_info": "Int8",
         "origin": {
@@ -352,7 +370,7 @@
         }
       },
       {
-        "ordinal": 33,
+        "ordinal": 36,
         "name": "fournisseur?",
         "type_info": "Text",
         "origin": {
@@ -363,7 +381,7 @@
         }
       },
       {
-        "ordinal": 34,
+        "ordinal": 37,
         "name": "fournisseur_statut?",
         "type_info": "Text",
         "origin": {
@@ -374,7 +392,7 @@
         }
       },
       {
-        "ordinal": 35,
+        "ordinal": 38,
         "name": "statut_depot",
         "type_info": "Text",
         "origin": {
@@ -385,7 +403,7 @@
         }
       },
       {
-        "ordinal": 36,
+        "ordinal": 39,
         "name": "controles",
         "type_info": "Jsonb",
         "origin": {
@@ -396,7 +414,7 @@
         }
       },
       {
-        "ordinal": 37,
+        "ordinal": 40,
         "name": "valide_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -407,7 +425,7 @@
         }
       },
       {
-        "ordinal": 38,
+        "ordinal": 41,
         "name": "valide_par?",
         "type_info": "Text",
         "origin": {
@@ -418,7 +436,7 @@
         }
       },
       {
-        "ordinal": 39,
+        "ordinal": 42,
         "name": "corrections",
         "type_info": "Jsonb",
         "origin": {
@@ -429,7 +447,7 @@
         }
       },
       {
-        "ordinal": 40,
+        "ordinal": 43,
         "name": "societe_adresse_depot?",
         "type_info": "Text",
         "origin": {
@@ -440,7 +458,7 @@
         }
       },
       {
-        "ordinal": 41,
+        "ordinal": 44,
         "name": "societe_outil_depot?",
         "type_info": "Text",
         "origin": {
@@ -451,13 +469,13 @@
         }
       },
       {
-        "ordinal": 42,
+        "ordinal": 45,
         "name": "recu_le!",
         "type_info": "Timestamptz",
         "origin": "Expression"
       },
       {
-        "ordinal": 43,
+        "ordinal": 46,
         "name": "envoi_relance!",
         "type_info": "Bool",
         "origin": "Expression"
@@ -491,6 +509,9 @@
       null,
       null,
       null,
+      null,
+      null,
+      null,
       false,
       true,
       true,
@@ -515,5 +536,5 @@
       null
     ]
   },
-  "hash": "357731705553b6258c3efec9ec179534627ebc79ca42218b27fe4850f5ddf0e1"
+  "hash": "23385b48f350b925bf6ae4b1c79babd054a713590bda4346e58eff1978bb93d5"
 }
