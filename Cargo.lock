@@ -1128,6 +1128,7 @@ dependencies = [
  "anyhow",
  "argon2",
  "axum",
+ "calamine",
  "gmflow-core",
  "hex",
  "nix 0.32.0",

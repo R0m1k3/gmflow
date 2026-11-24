@@ -64,6 +64,8 @@
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
   import DocRapprochement, { resumeLiens } from './DocRapprochement.svelte';
+  import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
+  import type { EtatExportPhenix } from '#lib/types.ts';
   import {
     adresseExpediteur,
     typeNumero,
@@ -681,6 +683,7 @@
     await tick();
     document.getElementById(`${uid}-liens`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }
+  let exportPhenix = $state<EtatExportPhenix | null>(null);
 </script>
 
 {#snippet montantLu(s: string)}
@@ -1037,6 +1040,11 @@
           {#if d.etat === 'lu' && rap && d.type === 'facture'}
             <Repli icone="camion" titre={titreLiens(d.type)} resume={resumeLiens(d, rap)} bind:ouvert={ouvrirLiens}>
               <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
+            </Repli>
+          {/if}
+          {#if d.etat === 'lu' && d.type === 'bl'}
+            <Repli icone="telecharger" titre="Export Phénix" resume={resumeExport(exportPhenix)} ouvert>
+              <DocExportPhenix id={d.id} bind:etat={exportPhenix} onerreur={(m) => (erreur = m)} />
             </Repli>
           {/if}
           {#if d.statut_depot || deposable}

@@ -95,7 +95,7 @@ fn source_la_plus_profonde(e: &(dyn std::error::Error + 'static)) -> String {
 }
 
 /// GET authentifié (clé en `X-API-Key`, comme le demande Apiflow) ; erreur en français.
-async fn obtenir(url: &str, jeton: Option<&str>) -> Result<Value, String> {
+pub(crate) async fn obtenir(url: &str, jeton: Option<&str>) -> Result<Value, String> {
     let mut req = client()?.get(url);
     if let Some(j) = jeton {
         req = req.header("X-API-Key", j);
@@ -132,11 +132,11 @@ pub async fn essayer(adresse: &str, jeton: Option<&str>) -> Result<String, Strin
 }
 
 /// Nombre JSON ou chaîne (« 135046 » : les bigint PostgreSQL arrivent en texte).
-fn entier(v: &Value) -> Option<i64> {
+pub(crate) fn entier(v: &Value) -> Option<i64> {
     v.as_i64().or_else(|| v.as_str()?.trim().parse().ok())
 }
 
-fn texte(v: &Value, cle: &str) -> Option<String> {
+pub(crate) fn texte(v: &Value, cle: &str) -> Option<String> {
     let t = v.get(cle)?.as_str()?.trim();
     (!t.is_empty()).then(|| t.to_string())
 }

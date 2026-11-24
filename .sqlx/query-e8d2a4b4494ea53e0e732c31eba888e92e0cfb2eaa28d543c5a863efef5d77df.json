@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.type, d.numero, coalesce(f.nom, d.fournisseur_nom) as fournisseur,\n                  d.magasin_demande_le, d.magasin_verifie_le, d.magasin_erreur\n           from document d left join fournisseur f on f.id = d.fournisseur_id\n           where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fournisseur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "magasin_demande_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "magasin_demande_le"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "magasin_verifie_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "magasin_verifie_le"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "magasin_erreur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "magasin_erreur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e8d2a4b4494ea53e0e732c31eba888e92e0cfb2eaa28d543c5a863efef5d77df"
+}

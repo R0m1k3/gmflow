@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set magasin_verifie_le = now(), magasin_erreur = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bbb1c01ea22d90076ef346db4d6769ede6a42f18ecbe44b327af8e528451a86c"
+}

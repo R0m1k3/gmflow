@@ -1,6 +1,7 @@
 //! Code partagé par l'app et le worker : configuration, base, chiffrement,
 //! file de tâches, lecture des `.eml`, connexion IMAP et appels à Claude CLI.
 
+pub mod articles_magasin;
 pub mod attente;
 pub mod claude;
 pub mod config;
@@ -11,6 +12,7 @@ pub mod depot;
 pub mod eml;
 pub mod essai_boite;
 pub mod expedition;
+pub mod export_phenix;
 pub mod file;
 #[cfg(feature = "test-utils")]
 pub mod fixtures;

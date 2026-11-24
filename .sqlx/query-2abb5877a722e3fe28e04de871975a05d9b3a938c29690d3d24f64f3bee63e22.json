@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update ligne_document set magasin = $2 where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2abb5877a722e3fe28e04de871975a05d9b3a938c29690d3d24f64f3bee63e22"
+}
