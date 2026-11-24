@@ -1,11 +1,11 @@
 <script lang="ts">
   // Boîtes mail : liste à filets ; ajout par l'assistant, réglages dans la fiche de la boîte.
-  import { quand } from '#lib/format.ts';
-  import { RUBRIQUES, nomCourtSociete, type Ton } from '#lib/libelles.ts';
+    import { RUBRIQUES, nomCourtSociete, type Ton } from '#lib/libelles.ts';
   import type { Boite, Societe } from '#lib/types.ts';
   import Etiquette from '#lib/ui/Etiquette.svelte';
   import Icone from '#lib/ui/Icone.svelte';
   import Vide from '#lib/ui/Vide.svelte';
+  import { leA } from './outils.ts';
 
   let { boites, societes }: { boites: Boite[]; societes: Societe[] } = $props();
 
@@ -30,26 +30,38 @@
     {/if}
   </div>
   <p class="lead">
-    GMFlow y cherche les nouveaux mails toutes les 5 minutes, lit les factures jointes et propose les réponses.
+    GMFlow y cherche les nouveaux mails, lit les factures jointes et propose les réponses.
     {#if !possible}<br /><a href="#societes">Ajoutez d’abord une société</a> : chaque boîte en dépend.{/if}
   </p>
 
-  <div class="filets">
-    {#each boites as b (b.id)}
-      {@const e = etat(b)}
-      <a class="ligne" href="/reglages/boites/{b.id}">
-        <div class="a">{b.libelle}</div>
-        <div class="r"><Etiquette ton={e.ton}>{e.texte}</Etiquette></div>
-        <div class="b">
-          {nomSociete(b.societe_id)}{#if b.libelle !== b.identifiant}{' '}· {b.identifiant}{/if}
-          {#if b.pause_auto || b.derniere_erreur}{' '}· <span class="flag {b.pause_auto ? 'e' : 'w'}">{b.derniere_erreur ?? 'Mot de passe refusé'}</span>{/if}
-        </div>
-        <div class="r2">{#if b.derniere_releve}<span class="num">{quand(b.derniere_releve)}</span>{/if}</div>
-      </a>
-    {:else}
-      <Vide compact icone="boite" titre="Aucune boîte mail" texte="Ajoutez l’adresse où arrivent les factures : moins de 3 minutes avec un mot de passe d’application.">
-        {#if possible}<a class="btn sm" href="/reglages/boites/nouvelle">Ajouter une boîte</a>{/if}
-      </Vide>
-    {/each}
-  </div>
+  {#if boites.length}
+    <div class="carte-r">
+      {#each boites as b (b.id)}
+        {@const e = etat(b)}
+        <a class="rang" href="/reglages/boites/{b.id}">
+          <div class="g">
+            <span class="t">{b.libelle}</span>
+            <span class="s">{nomSociete(b.societe_id)}{' '}· {b.identifiant}</span>
+            {#if b.pause_auto || b.derniere_erreur}
+              <span class="alerte-l" class:ko={b.pause_auto}><Icone nom="alerte" />{b.derniere_erreur ?? 'Mot de passe refusé'}</span>
+            {/if}
+          </div>
+          <div class="d">
+            <Etiquette ton={e.ton}>{#if e.ton === 'ok'}<Icone nom="coche" />{/if}{e.texte}</Etiquette>
+            {#if b.derniere_releve}<span class="m">vue le {leA(b.derniere_releve, true)}</span>{/if}
+          </div>
+        </a>
+      {/each}
+    </div>
+  {:else}
+    <Vide compact icone="boite" titre="Aucune boîte mail" texte="Ajoutez l’adresse où arrivent les factures : moins de 3 minutes avec un mot de passe d’application.">
+      {#if possible}<a class="btn sm" href="/reglages/boites/nouvelle">Ajouter une boîte</a>{/if}
+    </Vide>
+  {/if}
 </section>
+
+<style>
+  .alerte-l.ko {
+    color: var(--err-ink);
+  }
+</style>
