@@ -135,19 +135,19 @@
 </script>
 
 {#if fiche.groupe_id !== null}
-  <div class="groupe-de petit">
+  <div class="groupe-de">
     <Icone nom="batiment" />
     <span>Fait partie du groupe <a href="/fournisseurs?fiche={fiche.groupe_id}" data-sveltekit-reset="false">{fiche.groupe}</a></span>
-    {#if admin}<span class="sp"></span><button type="button" class="btn sm fantome" onclick={retirer}>Retirer du groupe</button>{/if}
+    {#if admin}<span class="sp"></span><button type="button" class="lien-accent" onclick={retirer}>Retirer du groupe</button>{/if}
   </div>
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
 {:else if marques.length || admin}
   <section class="bloc-groupe" aria-labelledby="groupe-{fiche.id}">
-    <h2 id="groupe-{fiche.id}">Fournisseurs du groupe {#if marques.length}<span class="num muted">{marques.length}</span>{/if}</h2>
+    <h3 id="groupe-{fiche.id}">Fournisseurs du groupe {#if marques.length}<span class="num muted">{marques.length}</span>{/if}</h3>
     {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
     {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
     {#if marques.length}
-      <p class="petit t2">
+      <p class="aide-g">
         Les factures et BL de {fiche.nom} vont à la marque dont le nom figure dans le document (par exemple « Dép. : L3C ») ; une marque inconnue
         est ajoutée toute seule, à confirmer ; sinon Claude tranche, et dans le doute ils restent ici.
       </p>
@@ -166,7 +166,7 @@
         {/each}
       </div>
     {:else}
-      <p class="petit t2">
+      <p class="aide-g">
         {fiche.nom} facture pour plusieurs marques, chacune avec son code BO Phénix ? Ajoutez-les ici : chaque document ira à la bonne marque.
       </p>
     {/if}
@@ -182,24 +182,24 @@
             /></label
           >
           <div class="plein actions">
-            <button type="submit" class="btn sm principal" class:en-cours={enCours} disabled={enCours}>Ajouter</button>
-            <button type="button" class="btn sm" onclick={() => (ajoutOuvert = false)}>Annuler</button>
+            <button type="submit" class="btn principal" class:en-cours={enCours} disabled={enCours}>Ajouter</button>
+            <button type="button" class="btn" onclick={() => (ajoutOuvert = false)}>Annuler</button>
           </div>
         </form>
       {:else}
         <div class="actions">
-          <button type="button" class="btn sm" onclick={() => (ajoutOuvert = true)}><Icone nom="plus" />Ajouter une marque</button>
+          <button type="button" class="btn" onclick={() => (ajoutOuvert = true)}>Ajouter une marque</button>
           <button
             type="button"
-            class="btn sm fantome"
+            class="lien-accent"
             onclick={() => {
               q = '';
               choix = '';
               rattacherOuvert = true;
-            }}><Icone nom="lien" />Rattacher une fiche existante</button
+            }}>Rattacher une fiche existante</button
           >
           {#if marques.length}
-            <button type="button" class="btn sm fantome" class:en-cours={enCours} disabled={enCours} onclick={repartir}
+            <button type="button" class="lien-accent" class:en-cours={enCours} disabled={enCours} onclick={repartir}
               >Ranger les documents déjà reçus</button
             >
           {/if}
@@ -225,42 +225,83 @@
   .groupe-de {
     display: flex;
     align-items: center;
-    gap: var(--e2);
-    padding: var(--e2) var(--e3);
-    margin-top: var(--e3);
-    border: 1px solid var(--line);
-    border-radius: 4px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 12px 20px;
+    border-radius: var(--r3);
     background: var(--pane);
+    box-shadow: 0 0 0 1px var(--line);
+    color: var(--text2);
+  }
+  .groupe-de :global(svg.i) {
+    color: var(--muted);
+  }
+  .groupe-de a {
+    color: var(--accent);
+    font-weight: 500;
   }
   .sp {
     flex: 1;
   }
   .bloc-groupe {
-    display: grid;
-    gap: var(--e2);
-    margin-top: var(--e8);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .bloc-groupe > h3 {
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  .aide-g {
+    font-size: 16px;
+    color: var(--text2);
+    text-wrap: pretty;
   }
   .code {
     color: var(--muted);
-    font-size: 0.85em;
+    font-size: 14px;
+    font-weight: 400;
   }
   .actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--e2);
+    align-items: center;
+    gap: 8px;
+  }
+  .lien-accent {
+    display: inline-flex;
+    align-items: center;
+    height: 40px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--r2);
+    background: none;
+    color: var(--accent);
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .lien-accent:hover {
+    color: var(--accent-ink);
+    background: var(--pane);
+  }
+  .groupe-de .lien-accent {
+    height: 32px;
+    font-size: 15px;
   }
   .ajout {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: var(--e2) var(--e3);
-    padding: var(--e3);
-    border: 1px solid var(--line);
-    border-radius: 4px;
+    gap: 12px 16px;
+    padding: 20px;
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
   }
   .ajout label {
     display: grid;
     gap: 4px;
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 500;
   }
   .plein {
@@ -270,5 +311,11 @@
     display: grid;
     gap: var(--e2);
     margin-top: var(--e2);
+  }
+  @media (max-width: 760px) {
+    .ajout {
+      grid-template-columns: 1fr;
+      padding: 16px;
+    }
   }
 </style>
