@@ -368,7 +368,7 @@
         <div class="dz-titre">Tout reprendre de zéro</div>
         <p>
           Efface tout ce qui vient des mails (mails, pièces jointes, factures et BL, fiches fournisseurs avec leurs codes
-          BO Phénix, réponses, historique) et relève à nouveau chaque boîte ; garde les sociétés, les boîtes mail, les
+          BO Phénix, réponses, historique) et relève à nouveau chaque boîte à partir des mails du jour ; garde les sociétés, les boîtes mail, les
           utilisateurs, la connexion à Claude et les réglages.
         </p>
       </div>
@@ -384,7 +384,7 @@
       <Bandeau ton="ok" role="status" titre="Tout est effacé, la relève a repris.">
         <span class="num">{bilanReinit.mails}</span> mails, <span class="num">{bilanReinit.documents}</span> documents et
         <span class="num">{bilanReinit.fournisseurs}</span> fournisseurs effacés ;
-        {n(bilanReinit.boites_relancees, 'boîte')} en cours de relève. Les mails reviennent dans quelques minutes.
+        {n(bilanReinit.boites_relancees, 'boîte')} en cours de relève. Les mails du jour reviennent dans quelques minutes.
       </Bandeau>
     {/if}
   </section>
@@ -399,8 +399,8 @@
   onconfirmer={reinitialiser}
 >
   <p>
-    Les mails, documents, fournisseurs, liens, réponses et l’historique seront effacés pour de bon, puis les boîtes relevées
-    à nouveau. La configuration reste.
+    Les mails, documents, fournisseurs, liens, réponses et l’historique seront effacés pour de bon. Les boîtes repartent
+    ensuite des mails du jour : l’historique n’est pas relu. La configuration reste.
   </p>
   <label class="dz-mot" for="dz-mot">Tapez <strong class="num">{MOT}</strong> pour confirmer</label>
   <input

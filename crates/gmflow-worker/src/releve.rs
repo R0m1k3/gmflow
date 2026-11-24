@@ -33,6 +33,8 @@ struct Boite {
     mot_de_passe_chiffre: Vec<u8>,
     dossiers: Vec<String>,
     reprise_mois: i32,
+    /// Posée par la réinitialisation : la reprise ne remonte pas avant ce jour.
+    reprise_depuis: Option<time::Date>,
 }
 
 /// Prend le bail (15 min) si personne ne le tient. Ne relève qu'une boîte active et non en pause.
@@ -42,7 +44,7 @@ async fn prendre_bail(pool: &PgPool, id: i64) -> sqlx::Result<Option<Boite>> {
         "update boite_mail set releve_jusqu_a = now() + interval '15 minutes'
          where id = $1 and active and not pause_auto
            and (releve_jusqu_a is null or releve_jusqu_a < now())
-         returning id, serveur, port, identifiant, mot_de_passe_chiffre, dossiers, reprise_mois",
+         returning id, serveur, port, identifiant, mot_de_passe_chiffre, dossiers, reprise_mois, reprise_depuis",
         id
     )
     .fetch_optional(pool)
@@ -156,23 +158,39 @@ fn erreur_base(e: impl std::fmt::Display) -> ErreurImap {
     ErreurImap::Autre(format!("base : {e}"))
 }
 
-/// Date IMAP (`SINCE`) : aujourd'hui moins `mois` mois.
-pub fn date_reprise(mois: i32) -> String {
+/// Aujourd'hui moins `mois` mois.
+fn jour_reprise(mois: i32) -> time::Date {
     let d = time::OffsetDateTime::now_utc().date();
     let total = d.year() * 12 + (d.month() as i32 - 1) - mois;
     let (annee, mois_num) = (total.div_euclid(12), total.rem_euclid(12) + 1);
     let mois_t = time::Month::try_from(mois_num as u8).expect("mois valide");
     let jour = d.day().min(28);
-    let date = time::Date::from_calendar_date(annee, mois_t, jour).expect("date valide");
+    time::Date::from_calendar_date(annee, mois_t, jour).expect("date valide")
+}
+
+/// Date au format IMAP (`2-Nov-2026`).
+pub fn date_imap(date: time::Date) -> String {
     const NOMS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     format!(
         "{}-{}-{}",
         date.day(),
-        NOMS[mois_num as usize - 1],
+        NOMS[date.month() as usize - 1],
         date.year()
     )
+}
+
+/// Date IMAP (`SINCE`) : aujourd'hui moins `mois` mois.
+pub fn date_reprise(mois: i32) -> String {
+    date_imap(jour_reprise(mois))
+}
+
+/// Début d'une relève sans dossier relevé : `reprise_mois` en arrière, mais jamais avant le
+/// jour de la réinitialisation (`reprise_depuis`).
+pub fn debut_releve(mois: i32, depuis: Option<time::Date>) -> String {
+    let d = jour_reprise(mois);
+    date_imap(depuis.map_or(d, |r| r.max(d)))
 }
 
 async fn relever_dossier(
@@ -237,7 +255,10 @@ async fn relever_dossier(
     };
 
     let requete = if dernier == 0 {
-        format!("SINCE {}", date_reprise(boite.reprise_mois))
+        format!(
+            "SINCE {}",
+            debut_releve(boite.reprise_mois, boite.reprise_depuis)
+        )
     } else {
         format!("UID {}:*", dernier + 1)
     };

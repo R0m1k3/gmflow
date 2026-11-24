@@ -2,7 +2,8 @@
 //! fournisseurs, rapprochements, envois, réponses, historique, appels à Claude, tâches en
 //! attente) et garde la configuration saisie (sociétés, boîtes mail, utilisateurs, réglages,
 //! connexion à Claude, expéditeurs publicitaires, sessions). Les relèves repartent ensuite de
-//! `reprise_mois`. Les `.eml` restent sur disque : la relève les réécrit au même chemin.
+//! la date du jour (`boite_mail.reprise_depuis`) : seuls les mails du jour reviennent, pas
+//! l'historique de `reprise_mois`. Les `.eml` restent sur disque : la relève les réécrit au même chemin.
 //!
 //! Concurrence avec le worker : refus si une relève tient son bail ou si un envoi (Dext/Yooz,
 //! réponse) est en cours. Les boîtes sont verrouillées ligne par ligne avant tout, puis les
@@ -164,10 +165,12 @@ async fn effacer(pool: &PgPool, auteur_id: Option<i64>) -> Result<Bilan, Refus> 
     .await?
     .rows_affected();
 
-    // Relève remise à zéro : sans `boite_dossier`, elle repart de SINCE (aujourd'hui - reprise_mois).
+    // Relève remise à zéro : sans `boite_dossier`, elle repart de SINCE ; `reprise_depuis` (jour
+    // de la réinitialisation, heure de Paris) la limite aux mails du jour.
     sqlx::query!(
         "update boite_mail set releve_jusqu_a = null, derniere_releve = null, derniere_erreur = null,
-             erreur_depuis = null, alerte_le = null, echecs_auth = 0, pause_auto = false"
+             erreur_depuis = null, alerte_le = null, echecs_auth = 0, pause_auto = false,
+             reprise_depuis = (now() at time zone 'Europe/Paris')::date"
     )
     .execute(&mut *tx)
     .await?;

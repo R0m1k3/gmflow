@@ -135,6 +135,25 @@ pub async fn deposer(compte: &str, dossier: &str, eml: &[u8]) {
     s.logout().await.ok();
 }
 
+/// Dépose un message reçu `jours` jours plus tôt (date interne IMAP, celle de `SINCE`).
+pub async fn deposer_ancien(compte: &str, dossier: &str, eml: &[u8], jours: i64) {
+    const NOMS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let d = time::OffsetDateTime::now_utc() - time::Duration::days(jours);
+    let date = format!(
+        "\"{:02}-{}-{} 12:00:00 +0000\"",
+        d.day(),
+        NOMS[d.month() as usize - 1],
+        d.year()
+    );
+    let mut s = session(compte).await;
+    s.append(dossier, None, Some(&date), eml)
+        .await
+        .expect("APPEND daté");
+    s.logout().await.ok();
+}
+
 /// Drapeaux de tous les messages d'un dossier.
 pub async fn drapeaux(compte: &str, dossier: &str) -> Vec<Vec<String>> {
     use futures::TryStreamExt;

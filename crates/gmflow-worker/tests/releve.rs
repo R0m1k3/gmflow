@@ -327,3 +327,22 @@ fn date_reprise() {
     let d = releve::date_reprise(3);
     assert!(d.split('-').count() == 3, "{d}");
 }
+
+#[test]
+fn debut_releve_apres_reinitialisation() {
+    let auj = time::OffsetDateTime::now_utc().date();
+    // Sans réinitialisation : la période de reprise.
+    assert_eq!(releve::debut_releve(3, None), releve::date_reprise(3));
+    // Réinitialisé aujourd'hui : les mails du jour seulement.
+    assert_eq!(releve::debut_releve(3, Some(auj)), releve::date_imap(auj));
+    // Réinitialisation plus ancienne que la période : la période l'emporte.
+    let vieux = auj - time::Duration::days(400);
+    assert_eq!(
+        releve::debut_releve(3, Some(vieux)),
+        releve::date_reprise(3)
+    );
+    assert_eq!(
+        releve::date_imap(time::macros::date!(2026 - 11 - 04)),
+        "4-Nov-2026"
+    );
+}

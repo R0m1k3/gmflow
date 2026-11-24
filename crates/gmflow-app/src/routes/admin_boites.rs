@@ -18,6 +18,8 @@ pub struct Boite {
     identifiant: String,
     dossiers: Vec<String>,
     reprise_mois: i32,
+    /// Jour de la réinitialisation (`AAAA-MM-JJ`), tant qu'il limite la période de reprise.
+    reprise_depuis: Option<String>,
     active: bool,
     pause_auto: bool,
     echecs_auth: i32,
@@ -150,7 +152,10 @@ impl Entree {
 async fn lire(etat: &Etat, id: i64) -> Resultat<Boite> {
     sqlx::query_as!(
         Boite,
-        "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,
+        "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois,
+             case when reprise_depuis > (now() - make_interval(months => reprise_mois))::date
+                  then reprise_depuis::text end as reprise_depuis,
+             active, pause_auto,
              echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test,
              smtp_serveur, smtp_port, smtp_securite, dossier_envoyes
          from boite_mail where id = $1",
@@ -223,7 +228,10 @@ async fn test_de_l_essai(
 pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vec<Boite>>> {
     let v = sqlx::query_as!(
         Boite,
-        "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois, active, pause_auto,
+        "select id, societe_id, libelle, serveur, port, identifiant, dossiers, reprise_mois,
+             case when reprise_depuis > (now() - make_interval(months => reprise_mois))::date
+                  then reprise_depuis::text end as reprise_depuis,
+             active, pause_auto,
              echecs_auth, derniere_releve, derniere_erreur, erreur_depuis, dernier_test,
              smtp_serveur, smtp_port, smtp_securite, dossier_envoyes
          from boite_mail order by libelle"
@@ -479,7 +487,8 @@ pub struct Compteur {
     dernier_uid: i64,
 }
 
-/// Par dossier surveillé : messages vus sur la période de reprise (à comparer au webmail).
+/// Par dossier surveillé : messages vus sur la période de reprise, depuis la réinitialisation
+/// s'il y en a eu une (à comparer au webmail).
 pub async fn compteurs(
     _a: AccesAdmin,
     State(etat): State<Etat>,
@@ -489,8 +498,8 @@ pub async fn compteurs(
     let v = sqlx::query_as!(
         Compteur,
         r#"select d.nom as "dossier!",
-               count(mb.id) filter (where coalesce(m.date_mail, mb.vu_le) >= now() - make_interval(months => b.reprise_mois)) as "messages_vus!",
-               count(distinct mb.mail_id) filter (where coalesce(m.date_mail, mb.vu_le) >= now() - make_interval(months => b.reprise_mois)) as "mails_uniques!",
+               count(mb.id) filter (where coalesce(m.date_mail, mb.vu_le) >= greatest(now() - make_interval(months => b.reprise_mois), b.reprise_depuis::timestamp at time zone 'Europe/Paris')) as "messages_vus!",
+               count(distinct mb.mail_id) filter (where coalesce(m.date_mail, mb.vu_le) >= greatest(now() - make_interval(months => b.reprise_mois), b.reprise_depuis::timestamp at time zone 'Europe/Paris')) as "mails_uniques!",
                count(mb.id) as "messages_vus_total!",
                coalesce(bd.dernier_uid, 0) as "dernier_uid!"
            from boite_mail b
