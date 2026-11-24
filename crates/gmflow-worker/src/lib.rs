@@ -12,6 +12,7 @@ pub mod relance;
 pub mod releve;
 pub mod reponse;
 pub mod sante;
+pub mod serveur_api;
 pub mod setup_token;
 pub mod test_boite;
 pub mod test_jeton;
@@ -135,6 +136,8 @@ async fn tache_envoi(
                 TacheEnvoi::TestExpedition { destinataire } => {
                     envoi::tester_expedition(&ctx, &destinataire).await?
                 }
+                TacheEnvoi::TestServeurApi => serveur_api::tester(&ctx).await?,
+                TacheEnvoi::SynchroMagasin => serveur_api::synchroniser(&ctx).await?,
                 TacheEnvoi::Alertes => {
                     reponse::interrompus(&ctx.pool).await?;
                     envoi::alertes(&ctx).await?

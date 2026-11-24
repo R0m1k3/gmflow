@@ -250,6 +250,7 @@ export const RUBRIQUES = {
   boites: 'Boîtes mail',
   claude: 'Connexion à Claude',
   envoi: 'Envoi vers Dext / Yooz',
+  serveurApi: 'Serveur du magasin',
   utilisateurs: 'Utilisateurs',
   traitements: 'Traitements',
   avance: 'Avancé',
