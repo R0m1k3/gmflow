@@ -105,6 +105,7 @@
   import FournEtat from './FournEtat.svelte';
   import FournGroupe from './FournGroupe.svelte';
   import Icone from './Icone.svelte';
+  import { phraseEcartLigne } from './DocOutils.ts';
   import Montant, { formatMontant } from './Montant.svelte';
   import Repli from './Repli.svelte';
   import Vide from './Vide.svelte';
@@ -378,15 +379,13 @@
       {#if r.bls.length} · {libelleMethode(r.bls[0].methode)}{/if}
       {#if r.facture.remise_ht && r.facture.remise_ht > 0.005} · <span class="flag i">Remise {formatMontant(r.facture.remise_ht)}</span>{/if}
       {#if r.ecarts.length}
-        · <span class="flag w">{r.ecarts.length} écart{r.ecarts.length > 1 ? 's' : ''} de quantité</span>{/if}
+        · <span class="flag w">{r.ecarts.length} article{r.ecarts.length > 1 ? 's' : ''} en écart</span>{/if}
     </div>
     {#if r.ecarts.length}
     <div class="ecarts petit t2">
       {#each r.ecarts.slice(0, 3) as x, i (i)}
-        <div>
-          {x.reference ?? x.designation ?? 'Article'} : livré <span class="num">{x.qte_bl.toLocaleString('fr-FR')}</span>, facturé
-          <span class="num">{x.qte_facture.toLocaleString('fr-FR')}</span>
-        </div>
+        {@const p = phraseEcartLigne(x)}
+        <div>{p.titre} : {p.article}, {p.detail}</div>
       {/each}
       {#if r.ecarts.length > 3}<div class="muted">et {r.ecarts.length - 3} autre{r.ecarts.length > 4 ? 's' : ''}</div>{/if}
     </div>

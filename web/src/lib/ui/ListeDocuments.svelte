@@ -145,7 +145,7 @@
               <div class="b">
                 {libelleType(d.type)}{#if d.numero}{' '}<span class="num">{d.numero}</span>{/if}{#if d.date_document}<span class="muted">{' du '}<span class="num">{dateFr(d.date_document, true)}</span></span>{/if}{d.societe ? `, ${nomCourtSociete(d.societe)}` : ''}
               </div>
-              <div class="r2">{#if d.remise_ht && d.remise_ht > 0.005}<Etiquette ton="info" title="Remise déduite sur la facture : le total ne correspond pas aux BL">Remise {formatMontant(d.remise_ht)}</Etiquette>{' '}{/if}{#if s}<Etiquette ton={s.ton}>{s.texte}</Etiquette>{/if}</div>
+              <div class="r2">{#if d.articles_ecart}<Etiquette ton="alerte" title="Articles manquants, en trop ou à un autre prix entre facture et BL">{d.articles_ecart} écart{d.articles_ecart > 1 ? 's' : ''} BL</Etiquette>{' '}{/if}{#if d.remise_ht && d.remise_ht > 0.005}<Etiquette ton="info" title="Remise déduite sur la facture : le total ne correspond pas aux BL">Remise {formatMontant(d.remise_ht)}</Etiquette>{' '}{/if}{#if s}<Etiquette ton={s.ton}>{s.texte}</Etiquette>{/if}</div>
             </a>
           {/each}
         {/each}

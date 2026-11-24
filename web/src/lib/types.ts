@@ -564,10 +564,16 @@ export interface DocRap {
 export type MethodeRapprochement = 'commande' | 'numero_bl' | 'facture_citee' | 'manuel';
 
 export interface EcartLigne {
+  /** Absent sur les écarts calculés avant la comparaison des prix. */
+  genre?: 'manquant' | 'en_trop' | 'prix';
   reference: string | null;
   designation: string | null;
   qte_bl: number;
   qte_facture: number;
+  prix_facture?: number | null;
+  prix_bl?: number | null;
+  /** Part de l'écart HT due à l'article : facturé − livré. */
+  montant_ht?: number | null;
 }
 
 export interface Rapproche {
@@ -649,6 +655,8 @@ export interface DocumentAValider {
   recu_le: string;
   montant_ttc: number | null;
   remise_ht: number | null;
+  /** Articles en écart avec les BL liés (manquant, en trop, prix changé). */
+  articles_ecart: number;
   /** Première alerte en une phrase, ou null. */
   alerte: string | null;
   /** Code stable de cette alerte (`doublon`, `montants`, `societe`, `depot`, `fournisseur`...). */
@@ -925,6 +933,8 @@ export interface LigneDocument {
   date_document: string | null;
   montant_ttc: number | null;
   remise_ht: number | null;
+  /** Articles en écart avec les BL liés (manquant, en trop, prix changé). */
+  articles_ecart: number;
   message: string | null;
   verifie: boolean;
   date_mail: string | null;

@@ -49,6 +49,8 @@ pub struct LigneDocument {
     date_document: Option<time::Date>,
     montant_ttc: Option<f64>,
     remise_ht: Option<f64>,
+    /// Articles en écart avec les BL liés (manquant, en trop, prix changé).
+    articles_ecart: i64,
     message: Option<String>,
     verifie: bool,
     #[serde(with = "time::serde::rfc3339::option")]
@@ -117,7 +119,9 @@ pub async fn lister(
         LigneDocument,
         r#"select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,
                   s.raison_sociale as "societe?", d.fournisseur_nom, d.numero, d.date_document,
-                  d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht, d.message,
+                  d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht,
+                  (select count(*) from rapprochement r cross join jsonb_array_elements(r.ecarts) e
+                   where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)) as "articles_ecart!", d.message,
                   d.verifie_le is not null as "verifie!", m.date_mail,
                   d.fournisseur_id, fo.nom as "fournisseur?", d.statut_depot, d.controles
            from document d

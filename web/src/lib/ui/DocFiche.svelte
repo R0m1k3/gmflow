@@ -72,6 +72,7 @@
     phrase,
     quandCourt,
     tauxTva,
+    phraseEcartLigne,
     texteRemise,
     type CleChamp
   } from './DocOutils.ts';
@@ -258,6 +259,7 @@
   let annexesTexte = $derived(
     d && d.etat === 'lu' && d.type !== 'bl' && d.annexes_ht && d.annexes_ht > 0.005 ? `${formatMontant(d.annexes_ht)} HT` : ''
   );
+  let articlesEcart = $derived(rap ? rap.liens.flatMap((l) => l.ecarts).map(phraseEcartLigne) : []);
   let remiseTexte = $derived(d && d.etat === 'lu' && d.type !== 'bl' ? texteRemise(d.remise_ht, d.remise_taux) : '');
   let doublon = $derived(d?.controles.find((c) => c.code === 'doublon') ?? null);
   /** Société non reconnue ou douteuse : bandeau à part, avec le choix de la société ou le rejet. */
@@ -781,9 +783,16 @@
       {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
         <Bandeau ton="info">Attribué à {nomSocieteChoisie}. Validez pour l’enregistrer.</Bandeau>
       {/if}
+      {#if articlesEcart.length && d.etat === 'lu'}
+        {@const p = articlesEcart[0]}
+        <Bandeau titre="{articlesEcart.length > 1 ? `${articlesEcart.length} articles en écart avec ${d.type === 'bl' ? 'la facture' : 'le BL'}` : `${p.titre}`}.">
+          {p.article} : {p.detail}{p.montant !== null && Math.abs(p.montant) > 0.005 ? ` (${p.montant > 0 ? '+' : ''}${formatMontant(p.montant)} HT)` : ''}.{articlesEcart.length > 1 ? ' Détail dans « ' + (d.type === 'bl' ? 'Facture liée' : 'BL liés') + ' ».' : ''}
+          {#snippet action()}<button type="button" class="btn sm" onclick={() => (ouvrirLiens = true)}>Voir</button>{/snippet}
+        </Bandeau>
+      {/if}
       {#if remiseTexte}
         <Bandeau ton="info" titre="Remise de {remiseTexte}.">
-          Elle est déduite du total HT de la {d.type === 'avoir' ? 'pièce' : 'facture'} : un écart avec les BL, valorisés avant remise, est normal.
+          Elle est déduite du total HT de la {d.type === 'avoir' ? 'pièce' : 'facture'}{articlesEcart.length ? ' ; l’écart qui reste avec les BL vient des articles signalés.' : ' : un écart avec les BL, valorisés avant remise, est normal.'}
         </Bandeau>
       {/if}
       {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}

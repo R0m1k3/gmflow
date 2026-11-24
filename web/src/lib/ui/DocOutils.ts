@@ -2,7 +2,7 @@
 // alertes rattachées aux champs). Le vocabulaire affiché reste dans #lib/libelles.ts.
 import { libelleType, titreAlerte } from '#lib/libelles.ts';
 import { formatMontant } from './Montant.svelte';
-import type { ChampControle, Controle, DocumentAValider, FicheDocument, TypeDocument } from '#lib/types.ts';
+import type { ChampControle, Controle, DocumentAValider, EcartLigne, FicheDocument, TypeDocument } from '#lib/types.ts';
 
 const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
 const jourMois = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit' });
@@ -168,4 +168,22 @@ export function texteRemise(remise: number | null | undefined, taux?: number | n
   if (!remise || remise <= 0.005) return '';
   const t = taux && taux > 0 ? ` (${taux.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}\u00a0%)` : '';
   return `${formatMontant(remise)} HT${t}`;
+}
+
+const qteFr = (v: number) => v.toLocaleString('fr-FR', { maximumFractionDigits: 3 });
+const pluriel = (v: number, mot: string) => `${qteFr(v)}\u00a0${mot}${Math.abs(v) > 1 ? 's' : ''}`;
+
+/** Écart d'un article entre facture et BL : titre court (« Manque au BL ») et détail. */
+export function phraseEcartLigne(e: EcartLigne): { article: string; titre: string; detail: string; montant: number | null } {
+  const genre = e.genre ?? (e.qte_facture > e.qte_bl ? 'manquant' : 'en_trop');
+  const article = e.designation ?? e.reference ?? 'Article';
+  const montant = e.montant_ht ?? null;
+  if (genre === 'prix') {
+    const pf = e.prix_facture ?? null;
+    const pb = e.prix_bl ?? null;
+    const detail = pf !== null && pb !== null ? `${formatMontant(pf)} facturé, ${formatMontant(pb)} au BL, pour ${qteFr(e.qte_facture)}` : 'prix différent';
+    return { article, titre: 'Prix changé', detail, montant };
+  }
+  const detail = `${pluriel(e.qte_facture, 'facturé')}, ${pluriel(e.qte_bl, 'livré')}`;
+  return { article, titre: genre === 'manquant' ? (e.qte_bl > 0 ? 'Livré en partie' : 'Manque au BL') : 'Livré, pas facturé', detail, montant };
 }

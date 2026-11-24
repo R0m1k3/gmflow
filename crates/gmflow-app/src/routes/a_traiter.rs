@@ -74,6 +74,8 @@ pub struct AValider {
     recu_le: time::OffsetDateTime,
     montant_ttc: Option<f64>,
     remise_ht: Option<f64>,
+    /// Articles en écart avec les BL liés (manquant, en trop, prix changé).
+    articles_ecart: i64,
     /// Première alerte en une phrase (contrôle en échec, fournisseur inconnu d'un BL).
     alerte: Option<String>,
     /// Code stable de cette alerte (`doublon`, `montants`, `societe`, `fournisseur`...).
@@ -312,6 +314,8 @@ pub async fn file(
                   d.numero, d.societe_id, s.raison_sociale as "societe?", d.date_document,
                   coalesce(m.date_mail, m.recu_le) as "recu_le!",
                   d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht,
+                  (select count(*) from rapprochement r cross join jsonb_array_elements(r.ecarts) e
+                   where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)) as "articles_ecart!",
                   case when jsonb_array_length(d.controles) > 0 then d.controles->0->>'message'
                        when d.type = 'bl' and d.fournisseur_id is null then 'Fournisseur non identifié'
                   end as alerte,

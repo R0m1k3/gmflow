@@ -337,9 +337,18 @@ async fn rapprochement_par_commande_sans_ecart_et_lien_defait_non_recree() {
         l.iter()
             .all(|x| x.facture_id == d_fa && x.methode == "commande")
     );
-    // HT facture 75 = 50 + 25 (totaux des BL) ; quantités identiques.
+    // HT facture 75 = 50 + 25 (totaux des BL) ; quantités identiques, mais le balai est à
+    // 6 € sur les lignes du BL (30 € pour 5) et à 5 € sur la facture : prix changé.
     assert!(l.iter().all(|x| x.ecart_montant == Some(0.0)), "{l:?}");
-    assert!(l.iter().all(|x| x.ecarts == json!([])));
+    let e = &l[0].ecarts;
+    assert_eq!(e.as_array().map(Vec::len), Some(1), "{e}");
+    assert_eq!(e[0]["genre"], "prix");
+    assert_eq!(e[0]["reference"], "REF-2");
+    assert_eq!(
+        (e[0]["prix_facture"].as_f64(), e[0]["prix_bl"].as_f64()),
+        (Some(5.0), Some(6.0))
+    );
+    assert_eq!(e[0]["montant_ht"].as_f64(), Some(-5.0));
     // BL-602 : lignes 30 € pour un total de 25 € -> contrôle non bloquant.
     let c: Value = sqlx::query_scalar("select controles from document where id = $1")
         .bind(d2)

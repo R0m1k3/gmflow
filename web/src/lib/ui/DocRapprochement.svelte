@@ -1,7 +1,7 @@
 <script lang="ts" module>
   import type { DetailRapprochement, FicheDocument } from '#lib/types.ts';
   import { formatMontant } from './Montant.svelte';
-  import { texteRemise } from './DocOutils.ts';
+  import { phraseEcartLigne, texteRemise } from './DocOutils.ts';
 
   const positif = (v: number | null | undefined) => (v && v > 0.005 ? v : null);
 
@@ -120,7 +120,11 @@
   let texteR = $derived(facture ? texteRemise(d.remise_ht, d.remise_taux) : texteRemise(remise));
   let horsQuoi = $derived([remise ? 'remise' : '', annexes ? 'éco-participation' : ''].filter(Boolean).join(' et '));
   let ecartsLignes = $derived(rap.liens.flatMap((l) => l.ecarts));
-  const qte = (v: number) => v.toLocaleString('fr-FR');
+  let detailsLignes = $derived(ecartsLignes.map(phraseEcartLigne));
+  /** Écart de montant qui reste sans article pour l'expliquer : où chercher. */
+  let resteSansArticle = $derived(
+    ecart !== null && Math.abs(ecart) > SEUIL_ECART && !expliquee && !ecartsLignes.length && rap.liens.length > 0
+  );
 
   $effect(() => {
     if (!actif || !rap.candidats.length) return;
@@ -192,9 +196,21 @@
           </div>
         {/if}
       {/if}
-      {#each ecartsLignes as e, i (i)}
-        <div><b>{e.designation ?? e.reference ?? 'Article'}</b> : <span class="num">{qte(e.qte_facture)}</span> facturé{e.qte_facture > 1 ? 's' : ''}, <span class="num">{qte(e.qte_bl)}</span> livré{e.qte_bl > 1 ? 's' : ''}</div>
-      {/each}
+      {#if detailsLignes.length}
+        <ul class="doc-articles">
+          {#each detailsLignes as x, i (i)}
+            <li>
+              <span class="flag {x.titre === 'Prix changé' ? 'e' : 'w'}">{x.titre}</span>
+              <b>{x.article}</b> : {x.detail}{#if x.montant !== null && Math.abs(x.montant) > 0.005}, <span class="num">{x.montant > 0 ? '+' : ''}<Montant valeur={x.montant} /></span> HT{/if}
+            </li>
+          {/each}
+        </ul>
+      {:else if resteSansArticle}
+        <div class="petit">
+          {#if facture && !rap.lignes.length}Les articles de la facture n’ont pas été lus : « Relire en détail » les lit pour trouver l’article manquant ou le prix changé.
+          {:else}Aucun article ne diffère entre les lignes lues : l’écart vient peut-être d’un article non lu, de frais ou d’une remise ligne par ligne.{/if}
+        </div>
+      {/if}
       {#if rap.candidats.length}<div class="petit">Lier un candidat peut régler l’écart.</div>{/if}
     </div>
   </div>
@@ -224,6 +240,16 @@
   :global(.doc-bleu) {
     color: var(--accent-ink);
     margin-top: 2px;
+  }
+  .doc-articles {
+    list-style: none;
+    margin: var(--e1) 0 0;
+    padding: 0;
+    display: grid;
+    gap: var(--e1);
+  }
+  .doc-articles .flag {
+    margin-right: var(--e1);
   }
   .doc-remise {
     margin-top: var(--e1);

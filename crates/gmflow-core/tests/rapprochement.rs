@@ -162,14 +162,18 @@ fn ecarts_de_quantites_par_article() {
         ligne(None, "pelle", 1.0, None),
         ligne(Some("REF-3"), "Râteau", 2.0, None),
     ];
-    let e = comparer(&facture, &bls);
+    let e = comparer(&facture, &bls, None);
     assert_eq!(e.len(), 2, "{e:?}");
     assert_eq!(e[0].reference.as_deref(), Some("REF-2"));
     assert_eq!((e[0].qte_bl, e[0].qte_facture), (4.0, 5.0));
+    assert_eq!(e[0].genre, "manquant");
+    // Un balai manquant à 4,00 € (prix de la facture, le BL n'en a pas).
+    assert_eq!(e[0].montant_ht, Some(4.0));
     assert_eq!(e[1].reference.as_deref(), Some("REF-3"));
     assert_eq!((e[1].qte_bl, e[1].qte_facture), (2.0, 0.0));
+    assert_eq!(e[1].genre, "en_trop");
     // Rien à comparer d'un côté : pas d'écart signalé.
-    assert!(comparer(&facture, &[]).is_empty());
+    assert!(comparer(&facture, &[], None).is_empty());
 }
 
 #[test]
@@ -208,4 +212,46 @@ fn ecart_explique_par_remise_et_eco_participation() {
     // Rien sur la facture, ou un écart qui reste : pas expliqué.
     assert!(!ecart_explique(-239.51, None, None));
     assert!(!ecart_explique(-200.0, Some(280.16), Some(40.65)));
+}
+
+fn ligne_prix(reference: Option<&str>, designation: &str, qte: f64, prix: f64) -> Ligne {
+    Ligne {
+        reference: reference.map(str::to_string),
+        designation: Some(designation.into()),
+        quantite: Some(qte),
+        prix_unitaire_ht: Some(prix),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn prix_change_entre_bl_et_facture() {
+    let facture = [
+        ligne_prix(Some("A1"), "Tapis de bain", 10.0, 12.5),
+        ligne_prix(Some("A2"), "Porte-savon", 4.0, 3.0),
+        // Référence fournisseur sur la facture, absente du BL : retrouvé par la désignation.
+        ligne_prix(Some("FX-88"), "Rideau douche", 2.0, 9.0),
+    ];
+    let bls = [
+        ligne_prix(Some("A1"), "Tapis de bain", 10.0, 11.9),
+        ligne_prix(Some("A2"), "Porte-savon", 4.0, 3.0),
+        ligne_prix(None, "RIDEAU DOUCHE", 2.0, 9.0),
+    ];
+    let e = comparer(&facture, &bls, None);
+    assert_eq!(e.len(), 1, "{e:?}");
+    assert_eq!(e[0].genre, "prix");
+    assert_eq!((e[0].prix_facture, e[0].prix_bl), (Some(12.5), Some(11.9)));
+    assert_eq!(e[0].montant_ht, Some(6.0));
+    // Prix du BL net d'une remise de 20 % que la facture applique en pied : pas un changement.
+    let bls_nets = [
+        ligne_prix(Some("A1"), "Tapis de bain", 10.0, 10.0),
+        ligne_prix(Some("A2"), "Porte-savon", 4.0, 2.4),
+        ligne_prix(None, "Rideau douche", 2.0, 7.2),
+    ];
+    let f2 = [
+        ligne_prix(Some("A1"), "Tapis de bain", 10.0, 12.5),
+        ligne_prix(Some("A2"), "Porte-savon", 4.0, 3.0),
+        ligne_prix(None, "Rideau douche", 2.0, 9.0),
+    ];
+    assert!(comparer(&f2, &bls_nets, Some(20.0)).is_empty());
 }
