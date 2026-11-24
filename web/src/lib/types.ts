@@ -167,6 +167,8 @@ export interface Boite {
   identifiant: string;
   dossiers: string[];
   reprise_mois: number;
+  /** Jour de la réinitialisation (`AAAA-MM-JJ`) : la relève ne remonte pas avant. */
+  reprise_depuis: string | null;
   active: boolean;
   pause_auto: boolean;
   echecs_auth: number;

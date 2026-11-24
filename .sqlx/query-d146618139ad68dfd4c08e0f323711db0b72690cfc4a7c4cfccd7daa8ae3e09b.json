@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update boite_mail set releve_jusqu_a = now() + interval '15 minutes'\n         where id = $1 and active and not pause_auto\n           and (releve_jusqu_a is null or releve_jusqu_a < now())\n         returning id, serveur, port, identifiant, mot_de_passe_chiffre, dossiers, reprise_mois",
+  "query": "update boite_mail set releve_jusqu_a = now() + interval '15 minutes'\n         where id = $1 and active and not pause_auto\n           and (releve_jusqu_a is null or releve_jusqu_a < now())\n         returning id, serveur, port, identifiant, mot_de_passe_chiffre, dossiers, reprise_mois, reprise_depuis",
   "describe": {
     "columns": [
       {
@@ -79,6 +79,17 @@
             "name": "reprise_mois"
           }
         }
+      },
+      {
+        "ordinal": 7,
+        "name": "reprise_depuis",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "reprise_depuis"
+          }
+        }
       }
     ],
     "parameters": {
@@ -93,8 +104,9 @@
       false,
       false,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "5d48df770b15694117e36aa74c3f8751c2cc9e77a3d68d7da840d4e1c7821356"
+  "hash": "d146618139ad68dfd4c08e0f323711db0b72690cfc4a7c4cfccd7daa8ae3e09b"
 }

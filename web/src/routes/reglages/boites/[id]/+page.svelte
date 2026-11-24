@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, attendreEssai, ErreurApi, essayerSmtp, lireBoite, message, sonder } from '#lib/api.ts';
-  import { quand } from '#lib/format.ts';
+  import { dateSimple, quand } from '#lib/format.ts';
   import { RUBRIQUES, nomCourtSociete, type Ton } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import type { Boite, Compteur, EssaiBoite, Societe } from '#lib/types.ts';
@@ -429,7 +429,9 @@
         </div>
       </form>
 
-      <h2 class="titre-bloc">Relève sur la période ({n(b.reprise_mois, 'mois', 'mois')})</h2>
+      <h2 class="titre-bloc">
+        {#if b.reprise_depuis}Relève depuis la réinitialisation du <span class="num">{dateSimple(b.reprise_depuis)}</span>{:else}Relève sur la période ({n(b.reprise_mois, 'mois', 'mois')}){/if}
+      </h2>
       <p class="petit t2">À comparer au nombre de messages du webmail, dossier par dossier.</p>
       <table>
         <thead>
@@ -456,7 +458,11 @@
     Plus aucun mail n’est relevé jusqu’à la reprise. Rien n’est effacé.
   </Confirmation>
   <Confirmation bind:ouvert={dlgReprise} titre="{b?.derniere_releve ? 'Reprendre' : 'Démarrer'} la surveillance ?" libelle={b?.derniere_releve ? 'Reprendre' : 'Démarrer'} onconfirmer={reprendre}>
-    GMFlow cherche les nouveaux mails toutes les 5 minutes{b && !b.derniere_releve ? `, et relève d’abord l’historique (${n(b.reprise_mois, 'mois', 'mois')})` : ''}.
+    GMFlow cherche les nouveaux mails toutes les 5 minutes{b && !b.derniere_releve
+      ? b.reprise_depuis
+        ? `, en commençant par les mails reçus depuis le ${dateSimple(b.reprise_depuis)}`
+        : `, et relève d’abord l’historique (${n(b.reprise_mois, 'mois', 'mois')})`
+      : ''}.
   </Confirmation>
 {/if}
 
