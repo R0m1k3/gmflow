@@ -212,16 +212,26 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
                 let mut x = echec(
                     "montants",
                     format!(
-                        "HT + TVA donnent {}, le TTC lu est {}",
+                        "HT + TVA donnent {}, le TTC lu est {}{}",
                         montant_fr(ht + tva),
-                        montant_fr(ttc)
+                        montant_fr(ttc),
+                        // Éco-participation ou port imprimés après le Total HT, oubliés.
+                        if ht + tva < ttc {
+                            " (éco-participation ou port à ajouter au HT et à la TVA ?)"
+                        } else {
+                            ""
+                        }
                     ),
                     &["montant_ttc"],
                 );
-                x.proposition = Some(Proposition {
-                    champ: "montant_ttc".into(),
-                    valeur: arrondi(ht + tva),
-                });
+                // TTC plus grand : il est le plus sûr (retrouvé dans le texte), pas de baisse
+                // proposée ; c'est le HT et la TVA qui ont oublié un montant.
+                if ht + tva > ttc {
+                    x.proposition = Some(Proposition {
+                        champ: "montant_ttc".into(),
+                        valeur: arrondi(ht + tva),
+                    });
+                }
                 e.push(x);
             }
         }

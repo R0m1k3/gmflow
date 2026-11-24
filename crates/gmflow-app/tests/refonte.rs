@@ -2027,13 +2027,11 @@ async fn fiches_document_et_mail() {
     assert_eq!(c["code"], "montants", "{}", r.json["controles"]);
     assert_eq!(
         c["message"],
-        "HT + TVA donnent 1\u{a0}242,00\u{a0}€, le TTC lu est 1\u{a0}250,40\u{a0}€"
+        "HT + TVA donnent 1\u{a0}242,00\u{a0}€, le TTC lu est 1\u{a0}250,40\u{a0}€ \
+         (éco-participation ou port à ajouter au HT et à la TVA ?)"
     );
     assert_eq!(c["champs"], json!(["montant_ttc"]));
-    assert_eq!(
-        c["proposition"],
-        json!({ "champ": "montant_ttc", "valeur": 1242.0 })
-    );
+    assert!(c["proposition"].is_null(), "{c}");
 
     let mail_id = r.json["mail_id"].as_i64().unwrap();
     let r = app
