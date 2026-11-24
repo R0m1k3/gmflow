@@ -359,10 +359,18 @@ fn remise_lue_a_part() {
     v["remise_ht"] = json!(280.16);
     v["remise_taux"] = json!(20);
     let avec: extraction::Extraction = serde_json::from_value(v).unwrap();
-    assert_eq!((avec.remise_ht, avec.remise_taux), (Some(280.16), Some(20.0)));
+    assert_eq!(
+        (avec.remise_ht, avec.remise_taux),
+        (Some(280.16), Some(20.0))
+    );
     // Le schéma la demande toujours, et la consigne explique que le HT reste net.
     let schema = extraction::schema(false);
-    let requis: Vec<&str> = schema["required"].as_array().unwrap().iter().filter_map(|r| r.as_str()).collect();
+    let requis: Vec<&str> = schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|r| r.as_str())
+        .collect();
     assert!(requis.contains(&"remise_ht") && requis.contains(&"remise_taux"));
     assert!(extraction::consigne_nouvel_essai(&[], None, None).contains("remise_ht"));
 }
