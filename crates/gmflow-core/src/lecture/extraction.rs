@@ -118,6 +118,17 @@ fn confiance() -> Value {
     json!({ "type": "number", "minimum": 0, "maximum": 1 })
 }
 
+/// Montants annexes (éco-participation, port…) : souvent imprimés sous le « Total HT » et la
+/// « TVA » mais compris dans le TTC. La compta (Dext, Yooz) les veut dans le HT et la TVA.
+const MONTANTS_ANNEXES: &str = "montant_ht, montant_tva et montant_ttc décrivent le document \
+     entier : HT + TVA = TTC. Quand des montants s'ajoutent après le « Total HT » imprimé \
+     (éco-participation, Éco-mobilier, Ecomaison, DEEE, éco-contribution, frais de port, \
+     emballage…), avec ou sans leur propre ligne de TVA (« TVA ecomaison »…), ajoute-les : \
+     montant_ht = total HT imprimé + ces montants HT, montant_tva = toute la TVA du document, \
+     y compris celle de ces montants. Exemple : Total HT 1 677,74, TVA 335,55, Ecomaison 12,47, \
+     TVA Ecomaison 2,49, Total TTC 2 028,25 donne montant_ht 1690.21, montant_tva 338.04, \
+     montant_ttc 2028.25.\n";
+
 /// Schéma JSON de la réponse. `avec_texte` : demande aussi la transcription (scans).
 pub fn schema(avec_texte: bool) -> Value {
     let mut proprietes = json!({
@@ -277,8 +288,10 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
          montant HT de la ligne) : toutes pour un bon de livraison, et pour une facture ou un avoir \
          quand elles sont lisibles ; au plus {LIGNES_MAX} lignes, sans les lignes de total ni de \
          port ; liste vide sinon. numeros_bl = les numéros de bons de livraison cités par une \
-         facture (liste vide sinon).\n\n"
+         facture (liste vide sinon).\n"
     ));
+    p.push_str(MONTANTS_ANNEXES);
+    p.push('\n');
     p.push_str(&format!(
         "Mail qui accompagne le document :\nDe : {}\nObjet : {}\n{}\n\nFichier : {}\n\n",
         mail.expediteur,
@@ -464,6 +477,7 @@ pub fn consigne_nouvel_essai(
          (total HT, TVA, net à payer TTC). Recopie les montants tels qu'ils sont imprimés ; \
          null seulement si le document ne les donne vraiment pas.\n",
     );
+    s.push_str(MONTANTS_ANNEXES);
     if let Some(f) = fichier {
         s.push_str(&format!(
             "Le fichier d'origine est aussi le fichier {f} du dossier courant : lis-le avec \

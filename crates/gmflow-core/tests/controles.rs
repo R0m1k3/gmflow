@@ -107,13 +107,23 @@ fn messages_dans_le_vocabulaire_de_l_ecran() {
     let e = controler(&f, jour());
     assert_eq!(
         e[0].message,
-        "HT + TVA donnent 1\u{a0}200,00\u{a0}€, le TTC lu est 1\u{a0}250,40\u{a0}€"
+        "HT + TVA donnent 1\u{a0}200,00\u{a0}€, le TTC lu est 1\u{a0}250,40\u{a0}€ \
+         (éco-participation ou port à ajouter au HT et à la TVA ?)"
     );
     assert_eq!(e[0].champs, ["montant_ttc"]);
+    // TTC plus grand (éco-participation oubliée) : pas de baisse du TTC proposée.
+    assert!(e[0].proposition.is_none());
+    f.ttc = Some(1150.4);
+    let e = controler(&f, jour());
+    assert_eq!(
+        e[0].message,
+        "HT + TVA donnent 1\u{a0}200,00\u{a0}€, le TTC lu est 1\u{a0}150,40\u{a0}€"
+    );
     let p = e[0].proposition.as_ref().unwrap();
     assert_eq!((p.champ.as_str(), p.valeur), ("montant_ttc", 1200.0));
 
     f.ht = None;
+    f.ttc = Some(1250.4);
     let e = controler(&f, jour());
     let p = e[0].proposition.as_ref().unwrap();
     assert_eq!((p.champ.as_str(), p.valeur), ("montant_ht", 1050.4));
