@@ -1,0 +1,13 @@
+<script lang="ts">
+  // Onglet Avoirs : avoirs reçus (GET /api/documents?type=avoir), comme l'onglet Factures.
+  import ListeDocuments, { type FiltreDocuments } from '#lib/ui/ListeDocuments.svelte';
+
+  const filtres: FiltreDocuments[] = [
+    { v: 'tous', l: 'Tous', params: { type: 'avoir' } },
+    { v: 'a-valider', l: 'À valider', params: { type: 'avoir', verifie: 'non' } },
+    { v: 'echec', l: 'Envoi échoué', params: { type: 'avoir', statut_depot: 'erreur' } },
+    { v: 'envoyes', l: 'Envoyés', params: { type: 'avoir', statut_depot: 'depose' } }
+  ];
+</script>
+
+<ListeDocuments titre="Avoirs" chemin="/avoirs" {filtres} rechercheType="avoir" videTitre="Aucun avoir" singulier="un avoir" section="Avoir" sansSuite="Aucun autre avoir dans cette liste" />

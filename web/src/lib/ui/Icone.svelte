@@ -17,6 +17,7 @@
     coche: '<path d="M4 12.5l5 5L20 6.5"/>',
     trombone: '<path d="M20.5 11.5 12.4 19.6a5 5 0 0 1-7-7L13.9 4a3.3 3.3 0 0 1 4.7 4.7l-8.4 8.4a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6"/>',
     fichier: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M9 13h6M9 17h6"/>',
+    avoir: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M9 15h6"/>',
     agrandir: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
     zoom: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M11 8v6M8 11h6"/>',
     telecharger: '<path d="M12 3v12m0 0-4-4m4 4 4-4M4 21h16"/>',

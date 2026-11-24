@@ -147,6 +147,7 @@
       titre: 'Pièces',
       liens: [
         { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true },
+        { href: '/avoirs', texte: 'Avoirs', court: 'Avoirs', icone: 'avoir', tel: false },
         { href: '/bl', texte: 'Bons de livraison', court: 'BL', icone: 'camion', tel: true },
         { href: '/a-traiter', texte: 'À valider', court: 'Valider', icone: 'coche', tel: false, compteur: () => compteurs.aValider }
       ]
