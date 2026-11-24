@@ -46,9 +46,11 @@
   }
 </script>
 
-<div class="titre-fiche"><h1>Nouveau fournisseur</h1></div>
-<p class="meta-fiche">Rarement utile : un fournisseur inconnu est créé tout seul, à confirmer, dès sa première facture.</p>
-{#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
+<div class="tete">
+  <h2 class="nom">Nouveau fournisseur</h2>
+  <p class="meta">Rarement utile : un fournisseur inconnu est créé tout seul, à confirmer, dès sa première facture.</p>
+</div>
+{#if erreur}<div class="err"><Bandeau ton="erreur">{erreur}</Bandeau></div>{/if}
 <form class="formulaire" onsubmit={creer}>
   <div class="plein"><Champ libelle="Nom" bind:valeur={ed.nom} requis /></div>
   <div class="plein"><Champ libelle="Code BO Phénix" bind:valeur={ed.code_gestion} mono aide="Notre code interne de ce fournisseur dans Phénix" /></div>
@@ -78,8 +80,40 @@
 </form>
 
 <style>
+  .tete {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 32px;
+    max-width: 816px;
+  }
+  .nom {
+    font-size: 28px;
+    font-weight: 500;
+    line-height: 1.15;
+  }
+  .meta {
+    font-size: 16px;
+    color: var(--text2);
+    text-wrap: pretty;
+  }
   .formulaire {
-    margin-top: var(--e4);
+    max-width: 816px;
+    padding: 20px;
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  @media (max-width: 760px) {
+    .nom {
+      font-size: 22px;
+    }
+    .formulaire {
+      padding: 16px;
+    }
+  }
+  .err {
+    margin-bottom: 16px;
+    max-width: 816px;
   }
   .boutons {
     display: flex;

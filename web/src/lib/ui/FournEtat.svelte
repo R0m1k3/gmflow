@@ -1,8 +1,9 @@
 <script lang="ts" module>
-  // Ligne d'état d'un fournisseur : « 3 factures ce mois · 1 à valider · 1 BL sans facture ».
+  // État d'un fournisseur : « 3 factures ce mois », puis les étiquettes ambre « 1 à valider »,
+  // « 1 BL sans facture ». `quoi` choisit la partie affichée (tuile : les deux sur deux lignes).
   import type { EtatFournisseur } from '#lib/types.ts';
 
-  /** Un morceau de la ligne : compteur (mono) puis texte ; `alerte` = à faire (ambre). */
+  /** Un morceau de l'état : compteur (mono) puis texte ; `alerte` = à faire (ambre). */
   export interface MorceauEtat {
     n: number | null;
     texte: string;
@@ -26,12 +27,22 @@
       .map((x) => (x.n === null ? x.texte : `${x.n} ${x.texte}`))
       .join(' · ');
   }
+
+  /** Le fournisseur a quelque chose à faire (étiquettes ambre). */
+  export const aDesAlertes = (e: EtatFournisseur) => e.a_valider > 0 || e.bl_sans_facture > 0;
 </script>
 
 <script lang="ts">
-  let { etat }: { etat: EtatFournisseur } = $props();
+  let { etat, quoi = 'tout' }: { etat: EtatFournisseur; quoi?: 'texte' | 'etiquettes' | 'tout' } = $props();
+  let morceaux = $derived(morceauxEtat(etat));
 </script>
 
-{#each morceauxEtat(etat) as m, i (i)}{#if i > 0}<span class="muted">{' · '}</span>{/if}<span class:flag={m.alerte} class:w={m.alerte}
-    >{#if m.n !== null}<span class="num">{m.n}</span>{' '}{/if}{m.texte}</span
-  >{/each}
+{#if quoi !== 'etiquettes'}
+  {@const t = morceaux[0]}
+  <span class="texte-etat">{#if t.n !== null}<span class="num">{t.n}</span>{' '}{/if}{t.texte}</span>
+{/if}
+{#if quoi !== 'texte'}
+  {#each morceaux.filter((m) => m.alerte) as m, i (i)}
+    <span class="etiquette att"><span class="num">{m.n}</span>{' '}{m.texte}</span>
+  {/each}
+{/if}
