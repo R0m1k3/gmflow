@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into logiflow_rapprochement (document_id, quand, ok, message, livraisons)\n         values ($1, now(), $2, $3, $4)\n         on conflict (document_id) do update\n         set quand = now(), ok = excluded.ok, message = excluded.message, livraisons = excluded.livraisons",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "895639ab6d846fc62872aba52da8512eb0beb485b88a6f364b04378af364e450"
+}

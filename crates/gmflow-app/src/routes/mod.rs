@@ -3,6 +3,7 @@ pub mod admin_boites;
 pub mod admin_claude;
 pub mod admin_expedition;
 pub mod admin_journal;
+pub mod admin_logiflow;
 pub mod admin_reinitialiser;
 pub mod admin_serveur_api;
 pub mod admin_societes;
@@ -122,6 +123,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/documents/{id}/deposer", post(documents::deposer))
         .route("/documents/{id}/valider", post(documents::valider))
         .route("/documents/{id}/ecarter", post(documents::ecarter))
+        .route("/documents/{id}/logiflow", post(admin_logiflow::relancer))
         .route("/a-traiter", get(a_traiter::file))
         .route("/recherche", get(recherche::chercher))
         .route("/a-traiter/compteurs", get(a_traiter::compteurs))
@@ -192,6 +194,13 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
             "/admin/serveur-api/synchro",
             post(admin_serveur_api::synchroniser),
         )
+        .route(
+            "/admin/logiflow",
+            get(admin_logiflow::lire)
+                .put(admin_logiflow::modifier)
+                .delete(admin_logiflow::supprimer),
+        )
+        .route("/admin/logiflow/test", post(admin_logiflow::tester))
         .route(
             "/admin/fournisseurs/{id}/codes-magasin",
             get(admin_serveur_api::codes),

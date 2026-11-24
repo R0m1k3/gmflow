@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select b.numero as \"numero!\" from rapprochement r join document b on b.id = r.bl_id\n           where r.facture_id = $1 and not r.rejete and b.numero is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "numero!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "14a50e72de134cbd5781c4e1c63a6371fb729711972e5f9216b44a65cae749c4"
+}

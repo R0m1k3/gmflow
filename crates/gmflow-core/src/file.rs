@@ -82,6 +82,13 @@ pub enum TacheEnvoi {
     TestServeurApi,
     /// Copie des fournisseurs du serveur du magasin (planifiée toutes les 12 h, ou à la demande).
     SynchroMagasin,
+    /// Essai de connexion à Logiflow (adresse et clé des réglages).
+    TestLogiflow,
+    /// Facture envoyée à Dext/Yooz : sa référence et ses montants écrits sur les livraisons de
+    /// ses BL dans Logiflow. Poussée après le dépôt, ou par « Relancer » sur la fiche.
+    RapprocherLogiflow {
+        document_id: i64,
+    },
     /// Recherche des articles d'un BL (et du détail des lots) sur le serveur du magasin, pour
     /// l'export vers BO Phénix. Après la lecture d'un BL, ou à la demande.
     VerifierArticlesBl {

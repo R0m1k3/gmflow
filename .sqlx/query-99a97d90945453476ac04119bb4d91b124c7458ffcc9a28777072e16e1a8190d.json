@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from logiflow_rapprochement where document_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "99a97d90945453476ac04119bb4d91b124c7458ffcc9a28777072e16e1a8190d"
+}
