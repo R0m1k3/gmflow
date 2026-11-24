@@ -78,6 +78,8 @@ pub enum TacheEnvoi {
     TestExpedition {
         destinataire: String,
     },
+    /// Essai de connexion à l'API du serveur (adresse et jeton des réglages).
+    TestServeurApi,
     /// Alertes de relève (boîte en échec depuis plus de 30 min, puis rétablie).
     Alertes,
     /// Réponse à un mail, depuis la boîte d'origine. Poussée uniquement par le clic « Envoyer »

@@ -1,6 +1,6 @@
 <script lang="ts">
   // Réglages (admins) : mise en route en tête, puis une section par sujet, Avancé replié.
-  // Ancres : #societes, #boites, #claude, #envoi, #utilisateurs, #traitements, #avance.
+  // Ancres : #societes, #boites, #claude, #envoi, #serveur-api, #utilisateurs, #traitements, #avance.
   import { goto } from '$app/navigation';
   import { tick } from 'svelte';
   import { api, message, miseEnRoute } from '#lib/api.ts';
@@ -16,6 +16,7 @@
   import Boites from './Boites.svelte';
   import Claude from './Claude.svelte';
   import Envoi from './Envoi.svelte';
+  import ServeurApi from './ServeurApi.svelte';
   import MiseEnRoute from './MiseEnRoute.svelte';
   import Societes from './Societes.svelte';
   import Traitements from './Traitements.svelte';
@@ -78,7 +79,7 @@
   // ---------- Navigation à gauche : section visible ----------
   let zone = $state<HTMLElement>();
   let visible = $state('mise-en-route');
-  const SECTIONS = ['mise-en-route', 'societes', 'boites', 'claude', 'envoi', 'utilisateurs', 'traitements', 'avance'];
+  const SECTIONS = ['mise-en-route', 'societes', 'boites', 'claude', 'envoi', 'serveur-api', 'utilisateurs', 'traitements', 'avance'];
   function suivre() {
     if (!zone) return;
     // Section courante : la dernière dont le titre a passé le premier tiers de la zone visible.
@@ -146,6 +147,7 @@
     { id: 'boites', titre: RUBRIQUES.boites, icone: 'boite', compte: boites.length },
     { id: 'claude', titre: RUBRIQUES.claude, icone: 'prise' },
     { id: 'envoi', titre: RUBRIQUES.envoi, icone: 'envoyer' },
+    { id: 'serveur-api', titre: RUBRIQUES.serveurApi, icone: 'lien' },
     { id: 'utilisateurs', titre: RUBRIQUES.utilisateurs, icone: 'utilisateurs', compte: utilisateurs.filter((u) => u.actif).length },
     { id: 'traitements', titre: RUBRIQUES.traitements, icone: 'rafraichir' },
     { id: 'avance', titre: RUBRIQUES.avance, icone: 'curseurs' }
@@ -188,6 +190,7 @@
             <Boites {boites} {societes} />
             <Claude bind:this={refClaude} onchange={() => rafraichir()} />
             <Envoi bind:this={refEnvoi} {societes} {modifierSociete} onchange={() => rafraichir()} />
+            <ServeurApi />
             <Utilisateurs bind:this={refUtilisateurs} {utilisateurs} {societes} onchange={() => rafraichir()} />
             <Traitements />
             <Avance onchange={() => rafraichir()} />

@@ -4,6 +4,7 @@ pub mod admin_claude;
 pub mod admin_expedition;
 pub mod admin_journal;
 pub mod admin_reinitialiser;
+pub mod admin_serveur_api;
 pub mod admin_societes;
 pub mod admin_traitements;
 pub mod admin_utilisateurs;
@@ -166,6 +167,13 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
             get(admin_expedition::lire).put(admin_expedition::modifier),
         )
         .route("/admin/expedition/test", post(admin_expedition::tester))
+        .route(
+            "/admin/serveur-api",
+            get(admin_serveur_api::lire)
+                .put(admin_serveur_api::modifier)
+                .delete(admin_serveur_api::supprimer),
+        )
+        .route("/admin/serveur-api/test", post(admin_serveur_api::tester))
         .route("/admin/documents/{id}/relire", post(documents::relire))
         .route(
             "/admin/claude/reglages",

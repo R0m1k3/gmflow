@@ -447,6 +447,12 @@ export interface ExpeditionVue {
   dernier_test: { quand: string; ok: boolean; message: string | null } | null;
 }
 
+export interface ServeurApiVue {
+  serveur: { adresse: string; fin: string | null } | null;
+  jeton_enregistre: boolean;
+  dernier_test: { quand: string; ok: boolean; message: string | null } | null;
+}
+
 export interface LigneSuivi {
   societe_id: number | null;
   societe: string | null;
