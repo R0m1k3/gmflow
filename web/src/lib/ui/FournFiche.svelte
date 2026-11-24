@@ -99,6 +99,7 @@
   import Bandeau from './Bandeau.svelte';
   import Champ from './Champ.svelte';
   import Chargement from './Chargement.svelte';
+  import CodesMagasin from './CodesMagasin.svelte';
   import Confirmation from './Confirmation.svelte';
   import Etiquette from './Etiquette.svelte';
   import FournEtat from './FournEtat.svelte';
@@ -542,6 +543,16 @@
     </form>
     </div>
   {:else}
+    {#if admin && !f.code_gestion}
+      <CodesMagasin
+        {id}
+        onassocie={async () => {
+          info = 'Code BO Phénix associé';
+          await charger();
+          onmodifie?.();
+        }}
+      />
+    {/if}
     <div class="replis">
       <Repli icone="batiment" titre="Fiche du fournisseur" resume={resumeFiche} bind:ouvert={ficheOuverte}>
         <div class="lignes-champs">

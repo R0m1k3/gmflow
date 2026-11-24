@@ -11,6 +11,7 @@ test-utils = ["dep:rust_xlsxwriter"]
 [dependencies]
 aes-gcm.workspace = true
 anyhow.workspace = true
+reqwest.workspace = true
 apalis.workspace = true
 apalis-postgres.workspace = true
 async-imap.workspace = true

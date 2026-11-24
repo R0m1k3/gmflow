@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from fournisseur_magasin",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2b8454e75bc5fc2e7e6df272868efc65c30bf41624ec3e6a362eb440654962d4"
+}

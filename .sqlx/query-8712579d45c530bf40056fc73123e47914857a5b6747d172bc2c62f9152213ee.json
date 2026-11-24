@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from fournisseur_magasin where code <> all($1::text[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8712579d45c530bf40056fc73123e47914857a5b6747d172bc2c62f9152213ee"
+}
