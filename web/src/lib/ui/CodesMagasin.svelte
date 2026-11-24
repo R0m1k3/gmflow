@@ -48,7 +48,7 @@
   <section class="codes" aria-label="Code BO Phénix à associer">
     <div class="tete">
       <h3>Code BO Phénix à associer</h3>
-      <span class="petit muted">{codes.nombre} fournisseurs au magasin</span>
+      <span class="t2 nb"><span class="num">{codes.nombre}</span> fournisseurs au magasin</span>
     </div>
     {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
     <input type="search" bind:value={q} placeholder="Chercher un code ou un nom au magasin" aria-label="Chercher un fournisseur du magasin" />
@@ -59,14 +59,14 @@
             <span class="code num">{s.code}</span>
             <span class="nom">
               {s.nom ?? '—'}
-              <span class="petit t2">
+              <span class="det">
                 {#if s.raison}{s.raison}{/if}{#if s.raison && (s.email || s.nb_articles)}{' · '}{/if}{#if s.email}{s.email}{:else if s.nb_articles}<span class="num">{s.nb_articles}</span> articles{/if}
               </span>
-              {#if s.deja_pris_par}<span class="petit flag w">déjà le code de {s.deja_pris_par}</span>{/if}
+              {#if s.deja_pris_par}<span class="etiquette att">déjà le code de {s.deja_pris_par}</span>{/if}
             </span>
             <button
               type="button"
-              class="btn sm"
+              class="btn"
               class:principal={!s.deja_pris_par && s.score >= 0.95}
               class:en-cours={enCours === s.code}
               disabled={enCours !== null || !!s.deja_pris_par}
@@ -76,33 +76,40 @@
         {/each}
       </ul>
     {:else}
-      <p class="petit t2">{q.trim() ? 'Aucun fournisseur du magasin ne correspond.' : 'Aucun fournisseur du magasin ne ressemble à cette fiche : cherchez-le par son code ou son nom.'}</p>
+      <p class="t2 rien">{q.trim() ? 'Aucun fournisseur du magasin ne correspond.' : 'Aucun fournisseur du magasin ne ressemble à cette fiche : cherchez-le par son code ou son nom.'}</p>
     {/if}
   </section>
 {/if}
 
 <style>
+  /* Encadré Sauge (fond sauge pâle, 12 px) sous les lignes de la fiche. */
   .codes {
-    margin: var(--e3) 0;
-    border: 1px solid var(--line);
-    border-radius: var(--r2, 8px);
-    padding: var(--e3);
     display: flex;
     flex-direction: column;
-    gap: var(--e2);
+    gap: 12px;
+    padding: 16px 20px;
+    border-radius: var(--r3);
+    background: var(--pane);
+    box-shadow: 0 0 0 1px var(--line);
   }
   .tete {
     display: flex;
     align-items: baseline;
-    gap: var(--e2);
+    flex-wrap: wrap;
+    gap: 4px 12px;
     justify-content: space-between;
   }
   h3 {
     margin: 0;
-    font-size: 14px;
+    font-size: 16px;
+    font-weight: 500;
+  }
+  .nb {
+    font-size: 15px;
   }
   input {
-    height: 32px;
+    height: 40px;
+    background: var(--white);
   }
   ul {
     list-style: none;
@@ -112,21 +119,40 @@
   li {
     display: flex;
     align-items: center;
-    gap: var(--e3);
-    padding: var(--e2) 0;
+    gap: 16px;
+    padding: 12px 0;
     border-top: 1px solid var(--line);
   }
   .code {
     min-width: 64px;
-    font-weight: 600;
-  }
-  .nom .flag {
-    align-self: flex-start;
+    font-weight: 500;
   }
   .nom {
     flex: 1;
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .det {
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .rien {
+    font-size: 15px;
+  }
+  li .btn {
+    flex: none;
+  }
+  @media (max-width: 760px) {
+    li {
+      flex-wrap: wrap;
+      gap: 8px 12px;
+    }
+    .code {
+      min-width: 0;
+    }
   }
 </style>

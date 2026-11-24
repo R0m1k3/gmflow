@@ -143,6 +143,9 @@ async fn tache_envoi(
                 TacheEnvoi::RapprocherLogiflow { document_id } => {
                     logiflow::rapprocher(&ctx, document_id).await?
                 }
+                TacheEnvoi::VerifierArticlesBl { document_id } => {
+                    serveur_api::verifier_bl(&ctx, document_id).await?
+                }
                 TacheEnvoi::Alertes => {
                     reponse::interrompus(&ctx.pool).await?;
                     envoi::alertes(&ctx).await?

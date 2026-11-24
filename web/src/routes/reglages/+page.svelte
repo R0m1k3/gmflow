@@ -73,6 +73,8 @@
       // les sections n'existent qu'une fois les données là.
       await tick();
       const id = location.hash.slice(1);
+      if (id === 'mise-en-route') merOuvert = true;
+      await tick();
       if (id) document.getElementById(id)?.scrollIntoView({ block: 'start' });
     });
   });
@@ -84,16 +86,21 @@
   function suivre() {
     if (!zone) return;
     // Section courante : la dernière dont le titre a passé le premier tiers de la zone visible.
-    const haut = Math.max(zone.getBoundingClientRect().top, 48) + Math.max(96, zone.clientHeight / 3);
+    // Ordinateur : la zone défile elle-même ; téléphone : c'est la fenêtre qui défile.
+    const propre = zone.scrollHeight > zone.clientHeight + 4;
+    const debut = propre ? zone.getBoundingClientRect().top : (barre?.getBoundingClientRect().bottom ?? 0);
+    const hauteur = propre ? zone.clientHeight : window.innerHeight - debut;
+    const haut = debut + Math.max(96, hauteur / 3);
     let courante = SECTIONS[0];
     for (const id of SECTIONS) {
       const el = document.getElementById(id);
       if (el && el.getBoundingClientRect().top <= haut) courante = id;
     }
     // Tout en bas : la dernière section, même courte.
-    if (zone.scrollHeight - zone.scrollTop - zone.clientHeight < 4 && zone.scrollHeight > zone.clientHeight) {
-      courante = SECTIONS[SECTIONS.length - 1];
-    }
+    const enBas = propre
+      ? zone.scrollHeight - zone.scrollTop - zone.clientHeight < 4
+      : window.scrollY > 0 && window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4;
+    if (enBas) courante = SECTIONS[SECTIONS.length - 1];
     visible = courante;
   }
   $effect(() => {
@@ -142,6 +149,9 @@
     aller('societes');
   }
 
+  // Détail des étapes de la mise en route : replié sous le bandeau, ouvert par « Voir les étapes » ou le lien du menu.
+  let merOuvert = $state(false);
+
   let faites = $derived(etat ? etat.etapes.filter((e) => e.fait).length : 0);
   let nav = $derived<{ id: string; titre: string; icone: NomIcone; compte?: number }[]>([
     { id: 'societes', titre: RUBRIQUES.societes, icone: 'batiment', compte: societes.filter((s) => !s.archivee).length },
@@ -163,14 +173,14 @@
     <div class="set">
       <nav class="set-nav" aria-label="Réglages" bind:this={barre}>
         <h1>Réglages</h1>
-        <a href="#mise-en-route" class:cur={visible === 'mise-en-route'} aria-current={visible === 'mise-en-route' ? 'true' : undefined}>
-          <Icone nom="drapeau" />Mise en route
+        <a href="#mise-en-route" onclick={() => (merOuvert = true)} class:cur={visible === 'mise-en-route'} aria-current={visible === 'mise-en-route' ? 'true' : undefined}>
+          <Icone nom="drapeau" /><span class="lib">Mise en route</span>
           {#if etat}<span class="st num">{faites}/{etat.etapes.length}</span>{/if}
         </a>
         <div class="grp">Par sujet</div>
         {#each nav as l (l.id)}
           <a href="#{l.id}" class:cur={visible === l.id} aria-current={visible === l.id ? 'true' : undefined}>
-            <Icone nom={l.icone} />{l.titre}
+            <Icone nom={l.icone} /><span class="lib">{l.titre}</span>
             {#if charge && l.compte}<span class="st num">{l.compte}</span>{/if}
           </a>
         {/each}
@@ -187,7 +197,7 @@
           {#if !charge && !erreur}
             <Chargement texte="Chargement des réglages" />
           {:else if charge}
-            <MiseEnRoute {etat} {boites} {societes} {agir} {aller} />
+            <MiseEnRoute {etat} {boites} {societes} {agir} {aller} bind:ouvert={merOuvert} />
             <Societes bind:this={refSocietes} {societes} onchange={() => rafraichir(true)} />
             <Boites {boites} {societes} />
             <Claude bind:this={refClaude} onchange={() => rafraichir()} />
@@ -205,93 +215,255 @@
 {/if}
 
 <style>
-  /* Mise en page de l'écran 4 de docs/maquette-b.html (réglages). */
+  /* Mise en page de docs/maquette-sauge/S6-Reglages.html : sujets à gauche, une page qui défile. */
   .set {
     flex: 1;
     display: flex;
     min-height: 0;
+    background: var(--white);
   }
   .set-nav {
-    width: 240px;
+    width: 280px;
     flex: none;
     border-right: 1px solid var(--line);
-    background: var(--pane);
-    padding: var(--e4) var(--e2);
+    background: var(--white);
+    padding: var(--e6) var(--e3);
     overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
   .set-nav h1 {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0 var(--e2) var(--e3);
+    font-size: 22px;
+    line-height: 1.3;
+    font-weight: 500;
+    margin: 0 0 var(--e4);
+    padding: 0 var(--e3);
   }
   .set-nav a {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 32px;
-    padding: 0 var(--e2);
+    gap: var(--e3);
+    height: 40px;
+    flex: none;
+    padding: 0 var(--e3);
     border-radius: var(--r2);
     color: var(--text2);
+    font-size: 16px;
     text-decoration: none;
-    margin-bottom: 2px;
     white-space: nowrap;
+    transition: background-color var(--vite) var(--ease);
+  }
+  .set-nav a :global(svg.i) {
+    flex: none;
+    color: var(--muted);
   }
   .set-nav a:hover {
-    background: var(--sunk);
+    background: var(--pane);
     color: var(--text);
   }
   .set-nav a.cur {
-    background: var(--white);
-    color: var(--black);
+    background: var(--sunk);
+    color: var(--text);
     font-weight: 500;
-    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .set-nav a.cur :global(svg.i) {
+    color: var(--text);
   }
   .set-nav a .st {
     margin-left: auto;
+    font-size: 15px;
+    font-weight: 400;
     color: var(--muted);
   }
   .set-nav .grp {
-    margin: var(--e5) var(--e2) 6px;
-    font-size: 12px;
+    margin: var(--e4) 0 0;
+    padding: 0 var(--e3) var(--e2);
+    font-size: 14px;
+    font-weight: 500;
     color: var(--muted);
   }
   .set-main {
     position: relative; /* garde les éléments .sr (position absolue) dans la zone qui défile */
     flex: 1;
+    min-width: 0;
     overflow: auto;
-    padding: var(--e6) var(--e10) var(--e10);
+    padding: var(--e8) var(--e10) 48px;
     scroll-behavior: smooth;
   }
   .set-col {
-    max-width: 760px;
+    max-width: 800px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--e10);
   }
 
-  /* Classes communes aux sections (composants de ce dossier). */
+  /* ---------- Classes communes aux sections (composants de ce dossier) ---------- */
+  /* Une section : titre 22 px, phrase d'aide, contenu ; un filet la sépare de la suivante. */
   .reglages :global(.sujet) {
-    padding-top: var(--e10);
-    scroll-margin-top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+    padding-bottom: var(--e10);
+    border-bottom: 1px solid var(--line-faint);
+    scroll-margin-top: var(--e6);
+  }
+  .reglages :global(.sujet:last-child) {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+  .reglages :global(.sujet > *) {
+    margin-top: 0;
+    margin-bottom: 0;
   }
   .reglages :global(.sujet-h) {
     display: flex;
     align-items: center;
-    gap: var(--e2);
+    gap: var(--e3);
+    flex-wrap: wrap;
     min-height: 32px;
   }
-  .reglages :global(.sujet-h h2),
-  .reglages :global(.mer h2) {
-    font-size: 20px;
-    line-height: 28px;
-    font-weight: 600;
+  .reglages :global(.sujet-h h2) {
+    font-size: 22px;
+    line-height: 1.3;
+    font-weight: 500;
     margin: 0;
   }
-  .reglages :global(.sujet .lead),
-  .reglages :global(.mer .lead) {
+  .reglages :global(.sujet .lead) {
     color: var(--text2);
-    margin: var(--e1) 0 var(--e5);
-    max-width: 60ch;
+    font-size: 16px;
+    line-height: 1.45;
+    max-width: 560px;
+    text-wrap: pretty;
   }
-  .reglages :global(.sujet > .bandeau) {
-    margin-bottom: var(--e4);
+  .reglages :global(.sujet-h + .lead) {
+    margin-top: calc(4px - var(--e4));
+  }
+  .reglages :global(.sous-titre) {
+    font-size: 17px;
+    font-weight: 500;
+    line-height: 1.4;
+  }
+  .reglages :global(.sujet > .sous-titre ~ .sous-titre) {
+    margin-top: var(--e2);
+  }
+
+  /* Encadré à lignes : rayon 12, bord #DDE2DA, filets #ECEFE9 entre les lignes. */
+  .reglages :global(.carte-r) {
+    display: flex;
+    flex-direction: column;
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+    background: var(--white);
+    overflow: hidden;
+  }
+  .reglages :global(.carte-r > * + *) {
+    border-top: 1px solid var(--line-faint);
+  }
+  .reglages :global(.rang) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--e4);
+    padding: var(--e4) var(--e5);
+    flex-wrap: wrap;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .reglages :global(a.rang),
+  .reglages :global(button.rang) {
+    transition: background-color var(--vite) var(--ease);
+  }
+  .reglages :global(a.rang:hover),
+  .reglages :global(button.rang:hover) {
+    background: var(--pane);
+    color: var(--text);
+  }
+  .reglages :global(button.rang) {
+    width: 100%;
+    border: 0;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .reglages :global(.rang:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .reglages :global(.rang .g) {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 260px;
+  }
+  .reglages :global(.rang .t) {
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .reglages :global(.rang .s) {
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--text2);
+    overflow-wrap: anywhere;
+  }
+  .reglages :global(.rang .m) {
+    font-size: 14px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .reglages :global(.rang .d) {
+    display: flex;
+    align-items: center;
+    gap: var(--e3);
+    flex-wrap: wrap;
+  }
+  .reglages :global(.rang .chev) {
+    color: var(--muted);
+    flex: none;
+  }
+  .reglages :global(.rang .alerte-l) {
+    font-size: 15px;
+  }
+  /* Action discrète en lien vert (Modifier, Se déconnecter, Supprimer). */
+  .reglages :global(.lien-a) {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .reglages :global(.lien-a:hover) {
+    color: var(--accent-ink);
+    text-decoration: underline;
+  }
+  .reglages :global(.lien-a:disabled) {
+    color: var(--muted);
+    cursor: default;
+    text-decoration: none;
+  }
+  /* Repli dans un encadré : même marge que les lignes. */
+  .reglages :global(.carte-r > .repli) {
+    border-bottom: 0;
+  }
+  .reglages :global(.carte-r > .repli > summary) {
+    padding: var(--e4) var(--e5);
+    min-height: 0;
+    font-size: 15px;
+  }
+  .reglages :global(.carte-r > .repli > summary:hover) {
+    background: var(--pane);
+  }
+  .reglages :global(.carte-r > .repli > .dedans) {
+    padding: var(--e1) var(--e5) var(--e5);
+    overflow-x: auto;
   }
   .reglages :global(.ligne.fixe) {
     cursor: default;
@@ -299,61 +471,96 @@
   .reglages :global(.ligne.fixe:hover) {
     background: none;
   }
+  /* Formulaire ouvert en place (dans un encadré ou seul). */
   .reglages :global(.edition) {
-    padding: var(--e4) var(--e2) var(--e5);
+    padding: var(--e5);
     background: var(--white);
   }
+  .reglages :global(.sujet > .edition) {
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+  }
   .reglages :global(.edition h3) {
-    font-size: 14px;
-    margin-bottom: var(--e3);
+    font-size: 17px;
+    font-weight: 500;
+    margin: 0 0 var(--e4);
   }
   .reglages :global(.edition > .bandeau) {
-    margin-bottom: var(--e3);
+    margin-bottom: var(--e4);
   }
   .reglages :global(.form-f) {
     display: flex;
-    gap: var(--e2);
+    gap: var(--e3);
     align-items: center;
-    margin-top: var(--e4);
+    margin-top: var(--e5);
     flex-wrap: wrap;
   }
-  .reglages :global(.sous-titre) {
-    font-size: 14px;
-    font-weight: 500;
-    margin: var(--e6) 0 var(--e2);
+  .reglages :global(.sujet > .form-f) {
+    margin-top: 0;
   }
 
-  @media (max-width: 760px) {
+  /* < 1024 px : les sujets passent en barre horizontale au-dessus du contenu. */
+  @media (max-width: 1023px) {
     .set {
       flex-direction: column;
     }
     .set-nav {
       position: sticky;
-      top: var(--haut-barre);
+      top: 0;
       z-index: 5;
       width: auto;
-      display: flex;
-      gap: 2px;
-      padding: var(--e2);
+      flex-direction: row;
+      gap: 4px;
+      padding: var(--e2) var(--e4);
       border-right: 0;
       border-bottom: 1px solid var(--line);
       overflow-x: auto;
+      scrollbar-width: none;
     }
     .set-nav h1,
-    .set-nav .grp,
-    .set-nav a .st {
+    .set-nav .grp {
       display: none;
     }
     .set-nav a {
-      flex: none;
-      margin: 0;
+      gap: var(--e2);
+      font-size: 15px;
+    }
+    .set-nav a .st {
+      margin-left: 2px;
+      font-size: 14px;
+    }
+    .set-main {
+      padding: var(--e6) var(--e6) var(--e10);
+    }
+  }
+  @media (max-width: 760px) {
+    .set-nav {
+      top: var(--haut-barre);
+    }
+    .set-nav a :global(svg.i) {
+      display: none;
     }
     .set-main {
       overflow: visible;
-      padding: var(--e4) var(--e4) var(--e8);
+      padding: var(--e5) var(--e4) var(--e10);
     }
     .reglages :global(.sujet) {
-      scroll-margin-top: calc(var(--haut-barre) + 52px);
+      scroll-margin-top: calc(var(--haut-barre) + 64px);
+    }
+    .reglages :global(.sujet-h h2) {
+      font-size: 20px;
+    }
+    .reglages :global(.rang) {
+      padding: var(--e4);
+    }
+    .reglages :global(.carte-r > .repli > summary) {
+      padding: var(--e4);
+    }
+    .reglages :global(.carte-r > .repli > .dedans) {
+      padding: var(--e1) var(--e4) var(--e4);
+    }
+    .reglages :global(.edition) {
+      padding: var(--e4);
     }
   }
 </style>

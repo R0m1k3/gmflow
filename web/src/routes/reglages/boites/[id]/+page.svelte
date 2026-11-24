@@ -473,14 +473,26 @@
   .page-h {
     margin-bottom: 0;
   }
+  .page-h h1 {
+    font-size: 22px;
+    font-weight: 500;
+  }
   .meta {
     margin: var(--e1) 0 var(--e5);
   }
   .page > :global(.bandeau) {
     margin-bottom: var(--e3);
   }
+  /* État de la boîte : encadré à rayon 12 comme les sections des réglages. */
   .etat {
-    margin: var(--e2) 0 var(--e2);
+    margin: var(--e2) 0;
+    border: 0;
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .etat > .ligne {
+    border-bottom: 0;
+    padding: var(--e4) var(--e5);
   }
   .etat .a {
     white-space: normal;
@@ -503,9 +515,9 @@
     background: none;
   }
   .titre-bloc {
-    font-size: 14px;
+    font-size: 17px;
     font-weight: 500;
-    margin: var(--e8) 0 var(--e2);
+    margin: var(--e8) 0 var(--e3);
   }
   .formulaire p.plein {
     margin: 0;

@@ -167,8 +167,8 @@
 {#snippet fiche(f: FicheCourte)}
   <button type="button" class="fiche" aria-current={f.id === ouvert ? 'true' : undefined} onclick={() => onouvrir(f.id)}>
     <span class="nom">{f.nom}</span>
-    {#if f.statut === 'a_confirmer'}<span class="flag w">Nouveau</span>{/if}
-    <span class="det petit muted">{details(f)}</span>
+    {#if f.statut === 'a_confirmer'}<span class="etiquette att">À confirmer</span>{/if}
+    <span class="det">{details(f)}</span>
   </button>
 {/snippet}
 
@@ -180,7 +180,7 @@
   {:else if paires.length === 0}
     <Vide compact titre="Aucun doublon probable" texte="Chaque fournisseur a une seule fiche." />
   {:else}
-    <p class="marge petit t2">
+    <p class="marge intro">
       Ces fiches désignent sans doute le même fournisseur : choisissez celle à garder, l'autre y est fusionnée avec ses documents. « Même
       groupe probable » : deux marques d'une même société (L3C et Homea chez U10), à regrouper sans les fusionner.
     </p>
@@ -188,7 +188,7 @@
       {@const g = aGarder(p)}
       {@const autre = g.id === p.a.id ? p.b : p.a}
       <div class="paire">
-        <div class="raison petit" class:groupe={p.meme_groupe}>{p.raison.charAt(0).toUpperCase() + p.raison.slice(1)}</div>
+        <div class="raison" class:groupe={p.meme_groupe}>{p.raison.charAt(0).toUpperCase() + p.raison.slice(1)}</div>
         {@render fiche(p.a)}
         {@render fiche(p.b)}
         <div class="actions">
@@ -253,24 +253,34 @@
     font-weight: 500;
   }
   .marge {
-    padding: var(--e3) var(--e4) 0;
+    padding: 0 4px 12px;
+  }
+  .intro {
+    font-size: 15px;
+    color: var(--text2);
+    text-wrap: pretty;
+  }
+  .raison {
+    font-size: 15px;
   }
   .paire {
     display: grid;
-    gap: var(--e1);
-    padding: var(--e3) var(--e4);
-    border-bottom: 1px solid var(--line);
+    gap: 6px;
+    padding: 12px 4px 16px;
+    border-top: 1px solid var(--line-faint);
   }
   .fiche {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 0 var(--e2);
-    padding: var(--e2) var(--e3);
-    border: 1px solid var(--line);
-    border-left: 3px solid var(--line);
-    border-radius: 4px;
-    background: var(--bg);
+    align-items: center;
+    gap: 2px 8px;
+    padding: 10px 14px;
+    border: 0;
+    border-radius: var(--r2);
+    box-shadow: 0 0 0 1px var(--line);
+    background: var(--white);
     color: inherit;
+    font: inherit;
     text-align: left;
     cursor: pointer;
   }
@@ -278,22 +288,27 @@
     background: var(--pane);
   }
   .fiche[aria-current='true'] {
-    background: var(--accent-weak);
-    border-left-color: var(--accent);
+    background: var(--sunk);
+    box-shadow: 0 0 0 1px var(--line);
   }
   .nom {
+    font-size: 16px;
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
   .det {
     grid-column: 1 / -1;
+    font-size: 14px;
+    color: var(--text2);
+    overflow-wrap: anywhere;
   }
   .actions {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--e2);
-    padding-top: var(--e1);
+    gap: 8px;
+    padding-top: 4px;
   }
 </style>

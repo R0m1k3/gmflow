@@ -89,6 +89,11 @@ pub enum TacheEnvoi {
     RapprocherLogiflow {
         document_id: i64,
     },
+    /// Recherche des articles d'un BL (et du détail des lots) sur le serveur du magasin, pour
+    /// l'export vers BO Phénix. Après la lecture d'un BL, ou à la demande.
+    VerifierArticlesBl {
+        document_id: i64,
+    },
     /// Alertes de relève (boîte en échec depuis plus de 30 min, puis rétablie).
     Alertes,
     /// Réponse à un mail, depuis la boîte d'origine. Poussée uniquement par le clic « Envoyer »

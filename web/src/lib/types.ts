@@ -1015,3 +1015,27 @@ export interface Traitements {
   claude: string | null;
   etapes: EtapeTraitement[];
 }
+
+/** Alerte de l'export Phénix : `rang` = ligne du BL (0 = première), absent si générale. */
+export interface AlerteExport {
+  rang: number | null;
+  article: string | null;
+  message: string;
+}
+
+/** GET /api/documents/{id}/export-phenix */
+export interface EtatExportPhenix {
+  serveur: boolean;
+  en_cours: boolean;
+  verifie_le: string | null;
+  erreur: string | null;
+  pret: boolean;
+  code_fournisseur: string | null;
+  lignes: number;
+  trouves: number;
+  lots: number;
+  composants: number;
+  a_relire: boolean;
+  matrice: { rangees: number; alertes: AlerteExport[] };
+  trame: { rangees: number; alertes: AlerteExport[] };
+}

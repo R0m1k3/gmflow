@@ -1,5 +1,5 @@
 <script lang="ts">
-  // À traiter (maquette B, écran 1) : la file à gauche (Bloqué, À valider, À répondre), l'élément
+  // À traiter (maquette Sauge S1) : la file à gauche (Bloqué, À valider, À répondre), l'élément
   // ouvert à droite (?doc=ID : fiche document ; ?mail=ID : aperçu du mail). J/K, Entrée, Échap.
   // Téléphone : la liste, puis l'élément en page (Volets).
   import { goto } from '$app/navigation';
@@ -15,7 +15,7 @@
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import DocFiche, { type PositionFiche, type ResultatFiche } from '#lib/ui/DocFiche.svelte';
-  import { age, drapeau, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
+  import { age, blSansFacture, drapeau, montantTuile, nomCourtDocument, nomExpediteur, quandCourt, typeNumero } from '#lib/ui/DocOutils.ts';
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import MailFiche from '#lib/ui/MailFiche.svelte';
@@ -135,7 +135,7 @@
   });
 
   // Position et « Ensuite » de l'élément ouvert.
-  const SECTIONS = { bloque: 'Bloqué', a_valider: 'À valider', a_repondre: 'À répondre' } as const;
+  const SECTIONS = { bloque: 'Bloqué', a_valider: 'Pièce', a_repondre: 'À répondre' } as const;
   let position = $derived.by((): PositionFiche | null => {
     if (!file || !courant) return null;
     const de = elements.filter((e) => e.section === courant!.section);
@@ -253,6 +253,17 @@
   const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
   let horsLimite = $derived(file ? file.compteurs.a_valider - file.a_valider.length : 0);
   let ouvert = $derived(!!(docId || mailId));
+
+  // BL sans facture liée : « En attente de facture » sous la tuile.
+  let blAttente = $state(new Set<number>());
+  $effect(() => {
+    const ids = (file?.a_valider ?? []).filter((l) => l.type === 'bl').map((l) => l.id);
+    if (!ids.length) {
+      blAttente = new Set();
+      return;
+    }
+    void blSansFacture(ids).then((r) => (blAttente = r));
+  });
 </script>
 
 <svelte:head><title>À traiter · GMFlow</title></svelte:head>
@@ -260,10 +271,9 @@
 <Volets {ouvert} libelleListe="File À traiter">
   {#snippet liste()}
     <div class="liste-h">
-      <h1>À traiter</h1>
-      {#if file}<span class="num">{file.compteurs.total}</span>{/if}
+      <h1>À traiter{#if file}{' '}<span class="num">{file.compteurs.total}</span>{/if}</h1>
       <span class="sp"></span>
-      {#if majA}<span class="muted petit">Mis à jour à {heure.format(majA)}</span>{/if}
+      {#if majA}<span class="muted petit">mis à jour à {heure.format(majA)}</span>{/if}
     </div>
     <div class="liste-s" bind:this={listeEl}>
       {#if toutValide && !annonce}<div class="doc-annonce"><Bandeau ton="ok" role="status">Tout est validé</Bandeau></div>{/if}
@@ -325,29 +335,39 @@
 
         <section class="sec">
           <div class="sec-h">
-            <h2>À valider</h2><span class="num">{file.compteurs.a_valider}</span>
+            <h2>À valider</h2>
             {#if file.a_valider.length}
-              <button type="button" class="btn sm" onclick={commencer}>Commencer{#if !ouvert}<Kbd t="Enter" />{/if}</button>
+              <button type="button" class="btn sm tel-seul" onclick={commencer}>Commencer</button>
             {/if}
           </div>
           {#each file.a_valider as l (l.id)}
             {@const f = drapeau(l)}
+            {@const m = montantTuile(l)}
             <a class="ligne" class:cur={docId === l.id} aria-current={docId === l.id ? 'true' : undefined} href="/a-traiter?doc={l.id}" data-cle="d{l.id}">
               <div class="a">{l.fournisseur ?? 'Fournisseur non reconnu'}</div>
-              <div class="r">{#if l.montant_ttc !== null}<Montant valeur={l.montant_ttc} avoir={l.type === 'avoir'} />{/if}</div>
-              <div class="b">
-                {libelleType(l.type)}{#if l.numero}<span class="large-seul">{' '}<span class="num">{l.numero}</span></span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}{#if l.articles_ecart}{' '}<span class="flag w">{l.articles_ecart} écart{l.articles_ecart > 1 ? 's' : ''} BL</span>{/if}{#if l.remise_ht && l.remise_ht > 0.005}{' '}<span class="flag i">Remise {formatMontant(l.remise_ht)}</span>{/if}
-              </div>
+              <div class="r">{#if m === 'sans'}— HT{:else if m !== null}<Montant valeur={m} avoir={l.type === 'avoir'} />{/if}</div>
+              <div class="b"><span class="txt"><span class="large-seul">{typeNumero(l.type, l.numero)}</span><span class="tel-seul">{libelleType(l.type)}</span>{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}</span></div>
               <div class="r2">{age(l.recu_le)}</div>
+              {#if f}
+                <div class="c"><span class="alerte-l" class:doublon={f.ton === 'e'}><Icone nom="alerte" />{f.texte}</span></div>
+              {:else if l.type === 'bl' && blAttente.has(l.id)}
+                <div class="c attente">En attente de facture</div>
+              {/if}
+              {#if l.articles_ecart || (l.remise_ht && l.remise_ht > 0.005)}
+                <div class="c">
+                  {#if l.articles_ecart}<span class="etiquette att">{l.articles_ecart} écart{l.articles_ecart > 1 ? 's' : ''} BL</span>{/if}
+                  {#if l.remise_ht && l.remise_ht > 0.005}<span class="etiquette info">Remise {formatMontant(l.remise_ht)}</span>{/if}
+                </div>
+              {/if}
             </a>
           {:else}
-            <p class="muted petit doc-rien">Rien à valider</p>
+            <p class="doc-rien">Rien à valider</p>
           {/each}
           {#if horsLimite > 0}<p class="plus">{horsLimite} autres, à voir après ceux-ci</p>{/if}
         </section>
 
         <section class="sec" id="a-repondre">
-          <div class="sec-h"><h2>À répondre</h2><span class="num">{file.compteurs.a_repondre}</span></div>
+          <div class="sec-h"><h2>À répondre <span class="num">{file.compteurs.a_repondre}</span></h2></div>
           {#each file.a_repondre as m (m.id)}
             <a class="ligne" class:cur={mailId === m.id} aria-current={mailId === m.id ? 'true' : undefined} href="/a-traiter?mail={m.id}" data-cle="m{m.id}">
               <div class="a">{m.resume ? `${m.fournisseur ?? nomExpediteur(m.expediteur)} : ${minuscule(m.resume)}` : m.objet || '(sans objet)'}</div>
@@ -358,7 +378,7 @@
               <div class="r2">{quandCourt(m.date_mail)}</div>
             </a>
           {:else}
-            <p class="muted petit doc-rien">Aucune question en attente</p>
+            <p class="doc-rien">Aucune question en attente</p>
           {/each}
         </section>
       {/if}
@@ -366,7 +386,7 @@
     <div class="liste-f">
       <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
       {#if mailId}<span><Kbd t={['Ctrl', 'Enter']} /> envoyer</span>{:else}<span><Kbd t="Enter" /> {docId ? 'valider' : file && !file.a_valider.length && file.a_repondre.length ? 'répondre' : 'commencer'}</span>{/if}
-      <span><Kbd t="/" /> chercher</span>
+      {#if !mailId}<span><Kbd t="E" /> écarter</span>{/if}
     </div>
   {/snippet}
 
@@ -376,6 +396,7 @@
         id={docId}
         {position}
         {ensuite}
+        sansSuite="Aucune autre pièce à valider"
         {annonce}
         onfait={apres}
         onchange={() => void chargerFile().catch(() => {})}
@@ -412,7 +433,20 @@
   }
   .doc-rien {
     margin: 0;
-    padding: var(--e1) var(--e4) var(--e2);
+    padding: 0 4px var(--e2);
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .txt {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .attente {
+    color: var(--text2);
+  }
+  .alerte-l.doublon {
+    color: var(--err);
   }
   /* ligne de Bloqué : le titre ouvre la fiche, le bouton débloque */
   .doc-bloc {

@@ -3,13 +3,14 @@
   // fait par le worker. Après chaque envoi d'une facture à Dext/Yooz, GMFlow écrit sa référence
   // et ses montants sur la livraison de ses BL dans Logiflow.
   import { api, message, sonder } from '#lib/api.ts';
-  import { quand } from '#lib/format.ts';
   import { RUBRIQUES } from '#lib/libelles.ts';
   import type { LogiflowVue } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
+  import Icone from '#lib/ui/Icone.svelte';
+  import { leA } from './outils.ts';
 
   let vue = $state<LogiflowVue | null>(null);
   let erreur = $state('');
@@ -143,47 +144,44 @@
     </form>
   {:else}
     {@const s = vue.serveur}
-    <div class="filets">
-      <div class="ligne bloc fixe">
-        <div class="a num">{s.adresse}</div>
-        <div class="b">
-          {#if vue.jeton_enregistre}clé enregistrée{#if s.fin}{' '}(…<span class="num">{s.fin}</span>){/if}{:else}<span class="flag w">pas de clé</span>{/if}
-        </div>
-        <div class="r">
-          <button type="button" class="btn sm fantome" onclick={() => { if (vue) remplir(vue); edition = true; }}>Modifier</button>
-          <button type="button" class="btn sm fantome" onclick={supprimer}>Supprimer</button>
-        </div>
-      </div>
-      <div class="essai">
-        <div>
-          <button type="button" class="btn sm" class:en-cours={essai} disabled={essai} onclick={essayer}>Tester la connexion</button>
-        </div>
-        {#if essai}
-          <span class="petit muted">Essai en cours…</span>
-        {:else if vue.dernier_test}
-          <span class="petit">
-            <Etiquette ton={vue.dernier_test.ok ? 'ok' : 'erreur'}>{vue.dernier_test.ok ? 'Connexion réussie' : 'Connexion échouée'}</Etiquette>
-            <span class="t2">le <span class="num">{quand(vue.dernier_test.quand)}</span>{vue.dernier_test.message ? ` : ${vue.dernier_test.message}` : ''}</span>
+    <div class="carte-r">
+      <div class="rang">
+        <div class="g">
+          <span class="t num">{s.adresse}</span>
+          <span class="s">
+            {#if vue.jeton_enregistre}clé enregistrée{#if s.fin}{' '}(…<span class="num">{s.fin}</span>){/if}{:else}<span class="flag w">pas de clé</span>{/if}
           </span>
-        {/if}
+          {#if essai}
+            <span class="resultat">Essai en cours…</span>
+          {:else if vue.dernier_test}
+            <span class="resultat">
+              <Etiquette ton={vue.dernier_test.ok ? 'ok' : 'erreur'}>
+                <Icone nom={vue.dernier_test.ok ? 'coche' : 'alerte'} />{vue.dernier_test.ok ? 'Connexion réussie' : 'Connexion échouée'}
+              </Etiquette>
+              <span class="num">le {leA(vue.dernier_test.quand)}</span>{vue.dernier_test.message ? ` : ${vue.dernier_test.message}` : ''}
+            </span>
+          {/if}
+        </div>
+        <div class="d">
+          <button type="button" class="btn" class:en-cours={essai} disabled={essai} onclick={essayer}>Tester la connexion</button>
+          <button type="button" class="lien-a" onclick={() => { if (vue) remplir(vue); edition = true; }}>Modifier</button>
+          <button type="button" class="lien-a" onclick={supprimer}>Supprimer</button>
+        </div>
       </div>
     </div>
   {/if}
 </section>
 
 <style>
-  .essai {
-    padding: var(--e3) var(--e2);
+  .resultat {
     display: flex;
-    flex-direction: column;
+    align-items: center;
     gap: var(--e2);
+    flex-wrap: wrap;
+    font-size: 14px;
+    color: var(--text2);
   }
-  .ligne .a {
-    white-space: normal;
+  .t {
     word-break: break-all;
-  }
-  .ligne .r {
-    display: flex;
-    gap: var(--e1);
   }
 </style>

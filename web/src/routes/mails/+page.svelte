@@ -6,16 +6,16 @@
   import { untrack } from 'svelte';
   import { requete, sonder } from '#lib/api.ts';
   import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
-  import { libelleCategorie, libelleStatutReponse, tonStatutReponse } from '#lib/libelles.ts';
+  import { libelleStatutReponse, tonStatutReponse } from '#lib/libelles.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { LigneMail } from '#lib/types.ts';
+  import type { Categorie, LigneMail } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
-  import MailFiche, { dateMail, nomExpediteur } from '#lib/ui/MailFiche.svelte';
+  import MailFiche, { dateMail, nomLisible } from '#lib/ui/MailFiche.svelte';
   import Vide from '#lib/ui/Vide.svelte';
   import Volets from '#lib/ui/Volets.svelte';
 
@@ -42,6 +42,15 @@
       if (document.visibilityState === 'visible') await lst.lire(true);
     }, 60_000);
   });
+
+  /** Catégorie courte de la tuile (maquette : « Information », « Notification », « Pièce jointe »). */
+  const CATEGORIE_TUILE: Record<Categorie, string> = {
+    question: 'Question',
+    information: 'Information',
+    document_seul: 'Pièce jointe',
+    publicite: 'Publicité',
+    notification: 'Notification'
+  };
 
   let groupes = $derived(parJour(lst.elements, (m) => m.date_mail));
 
@@ -71,17 +80,15 @@
 
 <svelte:head><title>Mails · GMFlow</title></svelte:head>
 
-<Volets ouvert={!!mailId} libelleListe="Mails reçus" largeur={460}>
+<Volets ouvert={!!mailId} libelleListe="Mails reçus" largeur={360}>
   {#snippet liste()}
     <div class="liste-h">
-      <h1>Mails</h1>
-      <span class="num">{lst.total}</span>
-      <span class="sp"></span>
-      <a class="btn sm fantome" href="/recherche?type=mail"><Icone nom="chercher" />Chercher</a>
+      <h1>Mails <span class="num">{lst.total}</span></h1>
+      <a class="btn-icone chercher" href="/recherche?type=mail" title="Chercher dans les mails" aria-label="Chercher dans les mails"><Icone nom="chercher" /></a>
     </div>
     <div class="puces" role="group" aria-label="Catégorie">
       {#each FILTRES as f (f.v)}
-        <a class="btn sm" href={lien(null, f.v)} aria-current={filtre === f.v ? "true" : undefined} data-sveltekit-replacestate>{f.l}</a>
+        <a class="btn sm" href={lien(null, f.v)} aria-current={filtre === f.v ? 'true' : undefined} data-sveltekit-replacestate>{f.l}</a>
       {/each}
     </div>
     <div class="liste-s" bind:this={listeEl}>
@@ -97,31 +104,33 @@
         <Vide compact icone="mail" titre="Aucun mail" texte="Rien dans cette catégorie pour l’instant." />
       {:else}
         {#each groupes as g (g.titre)}
-          <div class="jour-h">{g.titre} <span class="num muted">{g.elements.length}</span></div>
-          {#each g.elements as m (m.id)}
-            <a
-              class="ligne"
-              class:cur={mailId === m.id}
-              class:pub={m.categorie === 'publicite'}
-              aria-current={mailId === m.id ? 'true' : undefined}
-              href={lien(m.id)}
-              data-id={m.id}
-            >
-              <div class="a">{nomExpediteur(m.expediteur) || '(expéditeur inconnu)'}</div>
-              <div class="r">
-                {#if m.statut_reponse === 'a_repondre'}
-                  <Etiquette ton={tonStatutReponse(m.statut_reponse)}>{libelleStatutReponse(m.statut_reponse)}</Etiquette>
-                {:else if m.categorie}
-                  <span class="muted petit">{libelleCategorie(m.categorie)}</span>
-                {/if}
-              </div>
-              <div class="b">
-                {#if m.nb_pieces}<span class="pj" title="{m.nb_pieces} pièce{m.nb_pieces > 1 ? 's' : ''} jointe{m.nb_pieces > 1 ? 's' : ''}"><Icone nom="trombone" /></span>{/if}
-                {m.objet || '(sans objet)'}
-              </div>
-              <div class="r2"><span class="num">{dateMail(m.date_mail, false)}</span></div>
-            </a>
-          {/each}
+          <div class="groupe">
+            <h2 class="jour-h">{g.titre} <span class="num">{g.elements.length}</span></h2>
+            {#each g.elements as m (m.id)}
+              <a
+                class="ligne tuile"
+                class:pub={m.categorie === 'publicite'}
+                aria-current={mailId === m.id ? 'true' : undefined}
+                href={lien(m.id)}
+                data-id={m.id}
+              >
+                <span class="t1">
+                  <span class="de">{nomLisible(m.expediteur) || '(expéditeur inconnu)'}</span>
+                  <span class="h num">{dateMail(m.date_mail, false)}</span>
+                </span>
+                <span class="t2">
+                  {#if m.nb_pieces}<span class="pj" title="{m.nb_pieces} pièce{m.nb_pieces > 1 ? 's' : ''} jointe{m.nb_pieces > 1 ? 's' : ''}"><Icone nom="trombone" /></span>{/if}
+                  <span class="objet">{m.objet || '(sans objet)'}</span>
+                </span>
+                <span class="t3">
+                  {#if m.categorie}<span>{CATEGORIE_TUILE[m.categorie] ?? m.categorie}</span>{:else}<span>Pas encore trié</span>{/if}
+                  {#if m.statut_reponse === 'a_repondre'}
+                    <Etiquette ton={tonStatutReponse(m.statut_reponse)}>{libelleStatutReponse(m.statut_reponse)}</Etiquette>
+                  {/if}
+                </span>
+              </a>
+            {/each}
+          </div>
         {/each}
         {#if lst.reste > 0}
           <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
@@ -146,14 +155,79 @@
 </Volets>
 
 <style>
+  .chercher {
+    margin-left: auto;
+    align-self: center;
+  }
+  .groupe {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: var(--e4);
+  }
+  .groupe .jour-h {
+    margin: 0;
+    padding: 0 4px 4px;
+  }
+  .ligne.tuile {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 16px;
+    min-width: 0;
+  }
+  .t1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--e3);
+    min-width: 0;
+  }
+  .de {
+    font-size: 16px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .h {
+    flex: none;
+    font-size: 14px;
+    color: var(--text2);
+  }
+  .t2 {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    min-width: 0;
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .objet {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
   .pj {
+    flex: none;
     display: inline-flex;
-    vertical-align: -3px;
-    margin-right: 4px;
-    color: var(--muted);
+    color: var(--text2);
   }
   .pj :global(svg) {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
+  }
+  .t3 {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .ligne.pub .de {
+    font-weight: 400;
+    color: var(--muted);
   }
 </style>

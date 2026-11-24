@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Fiche document plein écran (maquette B, écran 2). Même fiche que le volet de À traiter ;
+  // Fiche document plein écran (Plein écran F de la fiche). Même fiche que le volet de À traiter ;
   // la file « À valider » sert à la position, à « Ensuite », et à J/K. Après une validation,
   // la fiche suivante s'ouvre ; après la dernière, retour à À traiter (« Tout est validé »).
   import { goto } from '$app/navigation';
@@ -32,7 +32,7 @@
 
   let liste = $derived(file?.a_valider ?? []);
   let i = $derived(liste.findIndex((l) => l.id === id));
-  let position = $derived<PositionFiche | null>(i >= 0 && file ? { section: 'À valider', n: i + 1, total: file.compteurs.a_valider } : null);
+  let position = $derived<PositionFiche | null>(i >= 0 && file ? { section: 'Pièce', n: i + 1, total: file.compteurs.a_valider } : null);
   /** Le suivant dans la file : après celui-ci, sinon le premier (comme le serveur). */
   let suivantListe = $derived(i >= 0 ? (liste[i + 1] ?? (i > 0 ? liste[0] : undefined)) : liste[0]);
   let precedentListe = $derived(i > 0 ? liste[i - 1] : undefined);
@@ -71,6 +71,7 @@
       retour="/"
       {position}
       ensuite={suivantListe && suivantListe.id !== id ? nomCourtDocument(suivantListe) : undefined}
+      sansSuite="Aucune autre pièce à valider"
       {annonce}
       onfait={apres}
       onchange={() => void aTraiter.file(societe.id).then((f) => (file = f)).catch(() => {})}

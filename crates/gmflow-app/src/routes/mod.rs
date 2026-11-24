@@ -13,6 +13,7 @@ pub mod auth;
 pub mod bilan;
 pub mod depots;
 pub mod documents;
+pub mod export_phenix;
 pub mod fichiers;
 pub mod fournisseurs;
 pub mod mails;
@@ -134,6 +135,19 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         )
         .route("/rapprochement/{id}", delete(rapprochement::delier))
         .route("/documents/{id}/rapprochement", get(rapprochement::detail))
+        .route("/documents/{id}/export-phenix", get(export_phenix::etat))
+        .route(
+            "/documents/{id}/export-phenix/verifier",
+            post(export_phenix::verifier),
+        )
+        .route(
+            "/documents/{id}/export-phenix/matrice",
+            get(export_phenix::matrice),
+        )
+        .route(
+            "/documents/{id}/export-phenix/trame",
+            get(export_phenix::trame),
+        )
         .route(
             "/documents/{id}/rapprochement-ignore",
             post(rapprochement::ignorer),

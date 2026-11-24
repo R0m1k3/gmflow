@@ -337,6 +337,7 @@ pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i
             unite: l.unite,
             prix_unitaire_ht: l.prix,
             montant_ht: l.montant,
+            ..Default::default()
         });
     }
     Ok(m)
@@ -364,12 +365,38 @@ pub async fn ecrire_lignes(
     let unites: Vec<Option<String>> = lignes.iter().map(|l| l.unite.clone()).collect();
     let prix: Vec<Option<f64>> = lignes.iter().map(|l| l.prix_unitaire_ht).collect();
     let montants: Vec<Option<f64>> = lignes.iter().map(|l| l.montant_ht).collect();
+    let gencods: Vec<Option<String>> = lignes
+        .iter()
+        .map(|l| {
+            l.gencod
+                .as_deref()
+                .map(|g| g.split_whitespace().collect::<String>())
+                .filter(|g| !g.is_empty())
+        })
+        .collect();
+    let nombres = |f: fn(&Ligne) -> Option<f64>| lignes.iter().map(f).collect::<Vec<_>>();
+    let (colis, pcb, remises, tva) = (
+        nombres(|l| l.colis),
+        nombres(|l| l.pcb),
+        nombres(|l| l.remise_taux),
+        nombres(|l| l.taux_tva),
+    );
+    let (deee, ecomob, pvc) = (
+        nombres(|l| l.deee_ht),
+        nombres(|l| l.ecomob_ht),
+        nombres(|l| l.pv_conseille),
+    );
     sqlx::query!(
         r#"insert into ligne_document (document_id, rang, reference, designation, quantite, unite,
-                                       prix_unitaire_ht, montant_ht)
-           select $1, r, re, de, q::numeric(14, 3), u, p::numeric(14, 4), m::numeric(14, 2)
+                                       prix_unitaire_ht, montant_ht, gencod, colis, pcb,
+                                       remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille)
+           select $1, r, re, de, q::numeric(14, 3), u, p::numeric(14, 4), m::numeric(14, 2), g,
+                  c::numeric(14, 3), pc::numeric(14, 3), rt::numeric(8, 4), tv::numeric(6, 3),
+                  dh::numeric(14, 4), eh::numeric(14, 4), pv::numeric(14, 4)
            from unnest($2::int[], $3::text[], $4::text[], $5::float8[], $6::text[], $7::float8[],
-                       $8::float8[]) as t(r, re, de, q, u, p, m)"#,
+                       $8::float8[], $9::text[], $10::float8[], $11::float8[], $12::float8[],
+                       $13::float8[], $14::float8[], $15::float8[], $16::float8[])
+                as t(r, re, de, q, u, p, m, g, c, pc, rt, tv, dh, eh, pv)"#,
         document_id,
         &rangs,
         &refs as &[Option<String>],
@@ -377,7 +404,15 @@ pub async fn ecrire_lignes(
         &qte as &[Option<f64>],
         &unites as &[Option<String>],
         &prix as &[Option<f64>],
-        &montants as &[Option<f64>]
+        &montants as &[Option<f64>],
+        &gencods as &[Option<String>],
+        &colis as &[Option<f64>],
+        &pcb as &[Option<f64>],
+        &remises as &[Option<f64>],
+        &tva as &[Option<f64>],
+        &deee as &[Option<f64>],
+        &ecomob as &[Option<f64>],
+        &pvc as &[Option<f64>]
     )
     .execute(&mut *c)
     .await?;

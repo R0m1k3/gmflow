@@ -173,3 +173,14 @@ const ACTIONS: Record<string, string> = {
 export function libelleAction(a: string): string {
   return ACTIONS[a] ?? a.charAt(0).toUpperCase() + a.slice(1).replace(/_/g, ' ');
 }
+
+const jourMoisAn = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric' });
+const jourMoisSeul = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit' });
+const heureMinute = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+
+/** « 24/11/2026 à 14:55 » (ou « 24/11 à 14:55 » avec `court`), comme la maquette des réglages. */
+export function leA(iso: string | null | undefined, court = false): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${(court ? jourMoisSeul : jourMoisAn).format(d)} à ${heureMinute.format(d)}`;
+}
