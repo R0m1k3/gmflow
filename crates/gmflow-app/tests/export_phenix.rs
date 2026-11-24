@@ -111,7 +111,7 @@ async fn export_du_bl_apres_la_recherche_au_magasin() {
     )
     .bind(bl)
     .bind(json!({
-        "par": "reference", "no_id": "132319", "codein": "440088", "libelle": "LOT", "gencod": null,
+        "par": "gencod", "no_id": "132319", "codein": "440088", "libelle": "LOT", "gencod": null,
         "composants": [
             { "no_id": "1", "codein": "440110", "libelle": "S", "lib_ticket": null, "gencod": "3262313080538",
               "reference": "03/3484-S", "quantite": 1.0, "pa": 2.0, "pv": 4.99, "pv_conseille": null,
