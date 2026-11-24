@@ -19,6 +19,7 @@
   import Chargement from './Chargement.svelte';
   import DocFiche, { type ResultatFiche } from './DocFiche.svelte';
   import { dateFr } from './DocOutils.ts';
+  import { formatMontant } from './Montant.svelte';
   import Etiquette from './Etiquette.svelte';
   import Icone from './Icone.svelte';
   import Kbd from './Kbd.svelte';
@@ -144,7 +145,7 @@
               <div class="b">
                 {libelleType(d.type)}{#if d.numero}{' '}<span class="num">{d.numero}</span>{/if}{#if d.date_document}<span class="muted">{' du '}<span class="num">{dateFr(d.date_document, true)}</span></span>{/if}{d.societe ? `, ${nomCourtSociete(d.societe)}` : ''}
               </div>
-              <div class="r2">{#if s}<Etiquette ton={s.ton}>{s.texte}</Etiquette>{/if}</div>
+              <div class="r2">{#if d.remise_ht && d.remise_ht > 0.005}<Etiquette ton="info" title="Remise déduite sur la facture : le total ne correspond pas aux BL">Remise {formatMontant(d.remise_ht)}</Etiquette>{' '}{/if}{#if s}<Etiquette ton={s.ton}>{s.texte}</Etiquette>{/if}</div>
             </a>
           {/each}
         {/each}

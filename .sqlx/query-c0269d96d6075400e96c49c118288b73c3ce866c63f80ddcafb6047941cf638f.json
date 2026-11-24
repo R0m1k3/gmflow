@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                  d.montant_ht::float8 as montant_ht, d.fournisseur_id, fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", p.nom as nom_fichier\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.etat = 'lu' and d.type in ('facture', 'bl') and not d.rapprochement_ignore\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = m.id and b.societe_id = $2)))\n             and ($3::bigint is null or d.fournisseur_id = $3)\n             and ($4::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $4)\n             and ($5::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $5)\n           order by coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) desc, d.id desc\n           limit $6",
+  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                  d.montant_ht::float8 as montant_ht,\n                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", p.nom as nom_fichier\n           from document d\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = any($1)\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))",
   "describe": {
     "columns": [
       {
@@ -66,6 +66,18 @@
       },
       {
         "ordinal": 6,
+        "name": "remise_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "annexes_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
         "name": "fournisseur_id",
         "type_info": "Int8",
         "origin": {
@@ -76,7 +88,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 9,
         "name": "fournisseur?",
         "type_info": "Text",
         "origin": {
@@ -87,7 +99,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "societe?",
         "type_info": "Text",
         "origin": {
@@ -98,7 +110,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "nom_fichier",
         "type_info": "Text",
         "origin": {
@@ -111,11 +123,7 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
-        "Int8",
-        "Int8",
-        "Date",
-        "Date",
+        "Int8Array",
         "Int8"
       ]
     },
@@ -126,11 +134,13 @@
       true,
       true,
       null,
+      null,
+      null,
       true,
-      false,
-      false,
+      true,
+      true,
       false
     ]
   },
-  "hash": "3f08065a8df7680e90177c0d8fa59755719d2fe447385013db2066fe1fd0136f"
+  "hash": "c0269d96d6075400e96c49c118288b73c3ce866c63f80ddcafb6047941cf638f"
 }

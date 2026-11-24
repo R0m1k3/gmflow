@@ -26,6 +26,10 @@ pub struct DonneesXml {
     pub montant_ht: Option<f64>,
     pub montant_tva: Option<f64>,
     pub montant_ttc: Option<f64>,
+    /// Total des remises de pied (`AllowanceTotalAmount`), en positif.
+    pub remise_ht: Option<f64>,
+    /// Total des frais de pied (`ChargeTotalAmount` : port, éco-participation…).
+    pub annexes_ht: Option<f64>,
     /// Lignes articles (au plus `LIGNES_MAX`).
     pub lignes: Vec<Ligne>,
     /// Numéros des bons de livraison cités (en-tête ou lignes).
@@ -263,6 +267,8 @@ fn cii(
                     "TaxBasisTotalAmount" => remplir_montant(&mut d.montant_ht, v),
                     "TaxTotalAmount" => remplir_montant(&mut d.montant_tva, v),
                     "GrandTotalAmount" => remplir_montant(&mut d.montant_ttc, v),
+                    "AllowanceTotalAmount" => remplir_montant(&mut d.remise_ht, v),
+                    "ChargeTotalAmount" => remplir_montant(&mut d.annexes_ht, v),
                     _ => {}
                 }
             }
@@ -329,6 +335,8 @@ fn ubl(
         "TaxTotal/TaxAmount" => remplir_montant(&mut d.montant_tva, v),
         "LegalMonetaryTotal/TaxExclusiveAmount" => remplir_montant(&mut d.montant_ht, v),
         "LegalMonetaryTotal/TaxInclusiveAmount" => remplir_montant(&mut d.montant_ttc, v),
+        "LegalMonetaryTotal/AllowanceTotalAmount" => remplir_montant(&mut d.remise_ht, v),
+        "LegalMonetaryTotal/ChargeTotalAmount" => remplir_montant(&mut d.annexes_ht, v),
         _ => {
             if let Some(s) = c.strip_prefix("AccountingSupplierParty/Party/") {
                 partie_ubl(s, v, &mut d.vendeur);

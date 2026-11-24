@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                          d.montant_ht::float8 as montant_ht, d.fournisseur_id,\n                          fo.nom as \"fournisseur?\", s.raison_sociale as \"societe?\",\n                          p.nom as nom_fichier\n                   from document d\n                   join piece_jointe p on p.id = d.piece_jointe_id\n                   left join fournisseur fo on fo.id = d.fournisseur_id\n                   left join societe s on s.id = d.societe_id\n                   where d.etat = 'lu' and d.type = $1 and d.fournisseur_id = $2 and d.id <> $3\n                     and not exists (select 1 from rapprochement r where not r.rejete\n                                     and ((r.facture_id = $3 and r.bl_id = d.id)\n                                          or (r.bl_id = $3 and r.facture_id = d.id)))\n                     and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                 where mb.mail_id = d.mail_id and ($4::bigint is null or b.societe_id = $4))\n                   order by d.date_document desc nulls last, d.id desc\n                   limit 50",
+  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                          d.montant_ht::float8 as montant_ht,\n                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,\n                  d.fournisseur_id,\n                          fo.nom as \"fournisseur?\", s.raison_sociale as \"societe?\",\n                          p.nom as nom_fichier\n                   from document d\n                   join piece_jointe p on p.id = d.piece_jointe_id\n                   left join fournisseur fo on fo.id = d.fournisseur_id\n                   left join societe s on s.id = d.societe_id\n                   where d.etat = 'lu' and d.type = $1 and d.fournisseur_id = $2 and d.id <> $3\n                     and not exists (select 1 from rapprochement r where not r.rejete\n                                     and ((r.facture_id = $3 and r.bl_id = d.id)\n                                          or (r.bl_id = $3 and r.facture_id = d.id)))\n                     and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                 where mb.mail_id = d.mail_id and ($4::bigint is null or b.societe_id = $4))\n                   order by d.date_document desc nulls last, d.id desc\n                   limit 50",
   "describe": {
     "columns": [
       {
@@ -66,6 +66,18 @@
       },
       {
         "ordinal": 6,
+        "name": "remise_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "annexes_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
         "name": "fournisseur_id",
         "type_info": "Int8",
         "origin": {
@@ -76,7 +88,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 9,
         "name": "fournisseur?",
         "type_info": "Text",
         "origin": {
@@ -87,7 +99,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "societe?",
         "type_info": "Text",
         "origin": {
@@ -98,7 +110,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "nom_fichier",
         "type_info": "Text",
         "origin": {
@@ -124,11 +136,13 @@
       true,
       true,
       null,
+      null,
+      null,
       true,
       false,
       false,
       false
     ]
   },
-  "hash": "3b4bc76292c9cc593700827d08f16c2af894b2afaa3d14ad19034b64a08a9cc4"
+  "hash": "9dd10521d7df5736b3c6314515f0a6f17987e268daa6f0502c28bdb182060ffd"
 }

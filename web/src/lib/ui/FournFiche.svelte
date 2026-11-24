@@ -105,7 +105,7 @@
   import FournEtat from './FournEtat.svelte';
   import FournGroupe from './FournGroupe.svelte';
   import Icone from './Icone.svelte';
-  import Montant from './Montant.svelte';
+  import Montant, { formatMontant } from './Montant.svelte';
   import Repli from './Repli.svelte';
   import Vide from './Vide.svelte';
 
@@ -376,6 +376,7 @@
     <div class="b">
       {#each r.bls as b, i (b.lien_id)}{i > 0 ? ', ' : ''}BL <span class="num">{b.numero ?? b.id}</span>{/each}
       {#if r.bls.length} · {libelleMethode(r.bls[0].methode)}{/if}
+      {#if r.facture.remise_ht && r.facture.remise_ht > 0.005} · <span class="flag i">Remise {formatMontant(r.facture.remise_ht)}</span>{/if}
       {#if r.ecarts.length}
         · <span class="flag w">{r.ecarts.length} écart{r.ecarts.length > 1 ? 's' : ''} de quantité</span>{/if}
     </div>
@@ -661,6 +662,7 @@
                   {:else if e.statut_depot}
                     · <Etiquette ton={tonStatutEnvoi(e.statut_depot)}>{libelleStatutEnvoi(e.statut_depot, e.outil)}</Etiquette>
                   {/if}
+                  {#if e.remise_ht && e.remise_ht > 0.005} · <span class="flag i">Remise {formatMontant(e.remise_ht)}</span>{/if}
                   {#if e.nb_alertes}
                     · <span class="flag w">{e.nb_alertes} alerte{e.nb_alertes > 1 ? 's' : ''}</span>{/if}
                   {#if plusieursSocietes && e.societe} · {nomCourtSociete(e.societe)}{/if}

@@ -19,7 +19,7 @@
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import MailFiche from '#lib/ui/MailFiche.svelte';
-  import Montant from '#lib/ui/Montant.svelte';
+  import Montant, { formatMontant } from '#lib/ui/Montant.svelte';
   import Vide from '#lib/ui/Vide.svelte';
   import Volets from '#lib/ui/Volets.svelte';
 
@@ -336,7 +336,7 @@
               <div class="a">{l.fournisseur ?? 'Fournisseur non reconnu'}</div>
               <div class="r">{#if l.montant_ttc !== null}<Montant valeur={l.montant_ttc} avoir={l.type === 'avoir'} />{/if}</div>
               <div class="b">
-                {libelleType(l.type)}{#if l.numero}<span class="large-seul">{' '}<span class="num">{l.numero}</span></span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}
+                {libelleType(l.type)}{#if l.numero}<span class="large-seul">{' '}<span class="num">{l.numero}</span></span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}{#if l.remise_ht && l.remise_ht > 0.005}{' '}<span class="flag i">Remise {formatMontant(l.remise_ht)}</span>{/if}
               </div>
               <div class="r2">{age(l.recu_le)}</div>
             </a>

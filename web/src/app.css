@@ -672,7 +672,8 @@ input.num {
 .etiquette.ko,
 .etiquette.info,
 .flag.w,
-.flag.e {
+.flag.e,
+.flag.i {
   padding: 1px 7px;
   border-radius: var(--r1);
   font-weight: 600;
@@ -903,6 +904,10 @@ input.num {
 .flag.e {
   background: var(--err-p);
   color: var(--err-ink);
+}
+.flag.i {
+  background: var(--info-p);
+  color: var(--accent-ink);
 }
 .plus {
   display: block;

@@ -1,6 +1,27 @@
 <script lang="ts" module>
   import type { DetailRapprochement, FicheDocument } from '#lib/types.ts';
   import { formatMontant } from './Montant.svelte';
+  import { texteRemise } from './DocOutils.ts';
+
+  const positif = (v: number | null | undefined) => (v && v > 0.005 ? v : null);
+
+  /**
+   * Ce qui explique l'écart, porté par la facture du lien (la fiche, ou la facture liée à un BL) :
+   * sa remise (BL valorisés avant remise) et ses montants annexes (éco-participation, port : jamais
+   * sur un BL). `reste` : l'écart une fois ces montants retirés (comme `ecart_explique` du serveur).
+   */
+  export function explicationEcart(d: FicheDocument, rap: DetailRapprochement | null) {
+    const f = d.type === 'facture' ? d : (rap?.liens[0]?.autre ?? null);
+    const remise = positif(f?.remise_ht);
+    const annexes = positif(f?.annexes_ht);
+    const e = rap?.liens[0]?.ecart_montant ?? null;
+    if (e === null || (remise === null && annexes === null)) return { remise, annexes, reste: null, expliquee: false };
+    const a = annexes ?? 0;
+    const avant = e + (remise ?? 0) - a; // BL valorisés avant remise
+    const apres = e - a; // BL valorisés après remise
+    const reste = Math.abs(apres) < Math.abs(avant) ? apres : avant;
+    return { remise, annexes, reste, expliquee: Math.abs(reste) <= SEUIL_ECART };
+  }
 
   /** Écart de montant HT au-delà duquel le lien est signalé (comme le serveur, SEUIL_MONTANT). */
   export const SEUIL_ECART = 0.05;
@@ -17,7 +38,11 @@
     const c = rap.candidats.length;
     if (c) morceaux.push(`${c} à lier`);
     const e = rap.liens[0]?.ecart_montant;
-    if (e !== null && e !== undefined && Math.abs(e) > SEUIL_ECART) morceaux.push(`écart de ${formatMontant(Math.abs(e))} HT`);
+    const x = explicationEcart(d, rap);
+    if (e !== null && e !== undefined && Math.abs(e) > SEUIL_ECART) {
+      if (x.expliquee) morceaux.push(`écart expliqué (${[x.remise ? 'remise' : '', x.annexes ? 'éco-part.' : ''].filter(Boolean).join(', ')})`);
+      else morceaux.push(`écart de ${formatMontant(Math.abs(x.reste ?? e))} HT`);
+    } else if (x.remise) morceaux.push('remise sur la facture');
     else if (rap.liens.some((l) => l.ecarts.length)) morceaux.push('écart de quantités');
     return morceaux.join(', ');
   }
@@ -87,6 +112,13 @@
   }
 
   let ecart = $derived(rap.liens[0]?.ecart_montant ?? null);
+  let explication = $derived(explicationEcart(d, rap));
+  let remise = $derived(explication.remise);
+  let annexes = $derived(explication.annexes);
+  let horsRemise = $derived(explication.reste);
+  let expliquee = $derived(explication.expliquee);
+  let texteR = $derived(facture ? texteRemise(d.remise_ht, d.remise_taux) : texteRemise(remise));
+  let horsQuoi = $derived([remise ? 'remise' : '', annexes ? 'éco-participation' : ''].filter(Boolean).join(' et '));
   let ecartsLignes = $derived(rap.liens.flatMap((l) => l.ecarts));
   const qte = (v: number) => v.toLocaleString('fr-FR');
 
@@ -144,13 +176,21 @@
 
 {#if (ecart !== null && Math.abs(ecart) > SEUIL_ECART) || ecartsLignes.length}
   <div class="encadre doc-ecart">
-    <Icone nom="alerte" class="doc-ambre" />
+    <Icone nom={expliquee && !ecartsLignes.length ? 'info' : 'alerte'} class={expliquee && !ecartsLignes.length ? 'doc-bleu' : 'doc-ambre'} />
     <div>
       {#if ecart !== null && Math.abs(ecart) > SEUIL_ECART}
         <div>
           <b>Écart de <Montant valeur={Math.abs(ecart)} /> HT</b> :
           {ecart > 0 ? `la facture dépasse ${facture ? 'les BL liés' : 'ses BL'}.` : `${facture ? 'les BL liés dépassent' : 'les BL dépassent'} la facture.`}
         </div>
+        {#if horsRemise !== null}
+          <div class="doc-remise">
+            {#if remise}<div><b>Remise de {texteR}</b> déduite sur la facture.</div>{/if}
+            {#if annexes}<div><b>Éco-participation et frais de <Montant valeur={annexes} /> HT</b> comptés sur la facture, jamais sur un BL.</div>{/if}
+            {#if expliquee}<div>Hors {horsQuoi}, les montants concordent.</div>
+            {:else}<div>Hors {horsQuoi}, {horsRemise > 0 ? 'la facture dépasse' : 'les BL dépassent'} de <Montant valeur={Math.abs(horsRemise)} /> HT.</div>{/if}
+          </div>
+        {/if}
       {/if}
       {#each ecartsLignes as e, i (i)}
         <div><b>{e.designation ?? e.reference ?? 'Article'}</b> : <span class="num">{qte(e.qte_facture)}</span> facturé{e.qte_facture > 1 ? 's' : ''}, <span class="num">{qte(e.qte_bl)}</span> livré{e.qte_bl > 1 ? 's' : ''}</div>
@@ -180,6 +220,13 @@
   .doc-ecart > div {
     display: grid;
     gap: 2px;
+  }
+  :global(.doc-bleu) {
+    color: var(--accent-ink);
+    margin-top: 2px;
+  }
+  .doc-remise {
+    margin-top: var(--e1);
   }
   :global(.doc-ambre) {
     color: var(--warn);

@@ -278,6 +278,11 @@ export interface FicheDocument {
   montant_ht: number | null;
   montant_tva: number | null;
   montant_ttc: number | null;
+  /** Remise HT déduite sur la pièce, en positif, et son taux (%) s'il est imprimé. */
+  remise_ht: number | null;
+  remise_taux: number | null;
+  /** Éco-participation, port… compris dans le HT (jamais sur un BL). */
+  annexes_ht: number | null;
   confiance: Confiance;
   texte: string | null;
   modele: string | null;
@@ -546,6 +551,10 @@ export interface DocRap {
   date_document: string | null;
   numero_commande: string | null;
   montant_ht: number | null;
+  /** Remise HT déduite sur la facture (explique l'écart avec les BL). */
+  remise_ht: number | null;
+  /** Éco-participation, port… compris dans le HT de la facture. */
+  annexes_ht: number | null;
   fournisseur_id: number | null;
   fournisseur: string | null;
   societe: string | null;
@@ -639,6 +648,7 @@ export interface DocumentAValider {
   date_document: string | null;
   recu_le: string;
   montant_ttc: number | null;
+  remise_ht: number | null;
   /** Première alerte en une phrase, ou null. */
   alerte: string | null;
   /** Code stable de cette alerte (`doublon`, `montants`, `societe`, `depot`, `fournisseur`...). */
@@ -717,6 +727,7 @@ export type ElementFil =
       date_document: string | null;
       montant_ht: number | null;
       montant_ttc: number | null;
+      remise_ht: number | null;
       statut_depot: StatutDepot | null;
       verifie: boolean;
       societe_id: number | null;
@@ -913,6 +924,7 @@ export interface LigneDocument {
   numero: string | null;
   date_document: string | null;
   montant_ttc: number | null;
+  remise_ht: number | null;
   message: string | null;
   verifie: boolean;
   date_mail: string | null;
