@@ -135,7 +135,7 @@
   type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number };
   type Groupe = { titre: string; liens: Lien[] };
   const groupes: Groupe[] = [
-    { titre: '', liens: [{ href: '/', texte: 'Accueil', court: 'Accueil', icone: 'boite', tel: true }] },
+    { titre: '', liens: [{ href: '/', texte: 'Accueil', court: 'Accueil', icone: 'maison', tel: true }] },
     {
       titre: 'Courrier',
       liens: [
@@ -177,7 +177,7 @@
 {#if publique}
   <main class="seul">{@render children()}</main>
 {:else if session.moi}
-  <div class="cadre">
+  <div class="cadre" class:sur-accueil={page.url.pathname === '/'}>
     <!-- Barre du haut : recherche à gauche ; état, réglages et compte à droite.
          Écran étroit : bouton du menu (tiroir) et logo en plus, loupe à la place du champ. -->
     <header class="barre">
@@ -205,11 +205,11 @@
 
       {#if etat}
         <a class="etat" class:ok={etat.ok} href={etat.ok ? '/' : '/a-traiter#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'} aria-label={etat.texte}>
-          <span class="point"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok}<span class="etat-n">{compteurs.problemes}</span>{/if}
+          <span class="pastille"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok}<span class="etat-n">{compteurs.problemes}</span>{/if}
         </a>
       {/if}
       {#if admin}
-        <a class="btn-icone reglages" href="/reglages" aria-label="Réglages" title="Réglages" aria-current={reglagesActif ? 'page' : undefined}><Icone nom="reglages" /></a>
+        <a class="btn-icone reglages" href="/reglages" aria-label="Réglages" title="Réglages" aria-current={reglagesActif ? 'page' : undefined}><Icone nom="curseurs" /></a>
       {/if}
       <div class="moi" data-menu>
         <button type="button" class="initiales" aria-haspopup="menu" aria-expanded={menuOuvert} aria-label="Compte {session.moi.identifiant}" title={session.moi.identifiant} onclick={() => (menuOuvert = !menuOuvert)}>
@@ -240,7 +240,7 @@
 
       {#if admin && societe.liste.length > 0}
         <label class="sel">
-          <span class="sr">Société</span>
+          <span class="sr">Société affichée</span>
           <select value={societe.id === null ? '' : String(societe.id)} onchange={(e) => societe.choisir(e.currentTarget.value ? Number(e.currentTarget.value) : null)}>
             <option value="">Toutes les sociétés</option>
             {#each societe.liste as s (s.id)}<option value={String(s.id)}>{s.raison_sociale}</option>{/each}
@@ -285,12 +285,13 @@
 {/if}
 
 <style>
-  /* Ordinateur (≥ 1024 px) : barre latérale fixe à gauche, contenu à droite. */
+  /* Ordinateur (≥ 1024 px) : barre latérale sauge à gauche, colonne blanche à droite (maquette Sauge). */
   .cadre {
     display: grid;
     grid-template-columns: var(--larg-lateral) minmax(0, 1fr);
     grid-template-rows: var(--haut-barre) minmax(0, 1fr);
     min-height: 100dvh;
+    background: var(--bg);
   }
   .barre {
     grid-column: 2;
@@ -300,10 +301,11 @@
     z-index: 20;
     display: flex;
     align-items: center;
-    gap: var(--e2);
+    gap: var(--e4);
     height: var(--haut-barre);
-    padding: 0 var(--e4) 0 var(--e6);
+    padding: 0 var(--e6);
     border-bottom: 1px solid var(--line);
+    border-left: 1px solid var(--line);
     background: var(--white);
   }
   .barre > .etroit-seul {
@@ -315,6 +317,21 @@
   .contenu {
     grid-column: 2;
     grid-row: 2;
+    background: var(--white);
+    border-left: 1px solid var(--line);
+  }
+  /* Accueil : pas de colonne blanche, des cartes sur le fond sauge. */
+  .cadre.sur-accueil .barre {
+    position: static;
+    height: auto;
+    min-height: var(--haut-barre);
+    padding: var(--e6) var(--e10) 0;
+    border: 0;
+    background: none;
+  }
+  .cadre.sur-accueil .contenu {
+    background: none;
+    border-left: 0;
   }
   .lateral {
     grid-column: 1;
@@ -324,10 +341,9 @@
     height: 100dvh;
     display: flex;
     flex-direction: column;
-    gap: var(--e2);
-    padding: 0 var(--e3) var(--e2);
-    border-right: 1px solid var(--line);
-    background: var(--pane);
+    gap: var(--e6);
+    padding: var(--e6) var(--e4);
+    background: var(--bg);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -335,10 +351,8 @@
     flex: none;
     display: flex;
     align-items: center;
-    height: var(--haut-barre);
-    margin: 0 calc(-1 * var(--e3)) var(--e1);
-    padding: 0 var(--e5);
-    border-bottom: 1px solid var(--line);
+    height: 32px;
+    padding: 0 var(--e3);
   }
   .fermer-tiroir {
     display: none;
@@ -347,12 +361,15 @@
   .logo {
     display: flex;
     align-items: center;
-    gap: var(--e2);
+    gap: var(--e3);
     font-weight: 600;
-    font-size: 15px;
-    color: var(--black);
+    font-size: 18px;
+    color: var(--text);
     text-decoration: none;
     border-radius: var(--r1);
+  }
+  .logo:hover {
+    color: var(--text);
   }
 
   .sel {
@@ -363,13 +380,13 @@
   }
   .sel select {
     width: 100%;
-    height: 34px;
-    padding: 0 30px 0 10px;
-    border: 1px solid var(--line2);
+    height: 44px;
+    padding: 0 40px 0 16px;
+    border: 1px solid var(--line);
     border-radius: var(--r2);
     background: var(--white);
     color: var(--text);
-    font-weight: 500;
+    font-size: 16px;
     cursor: pointer;
     text-overflow: ellipsis;
   }
@@ -378,20 +395,20 @@
   }
   .sel :global(svg) {
     position: absolute;
-    right: 9px;
+    right: 14px;
     pointer-events: none;
   }
 
   .recherche {
     display: flex;
     align-items: center;
-    gap: var(--e2);
-    width: min(400px, 100%);
-    height: 34px;
-    padding: 0 var(--e2) 0 10px;
-    border: 1px solid var(--line2);
+    gap: var(--e3);
+    flex: 0 1 480px;
+    height: 44px;
+    padding: 0 var(--e4);
+    border: 1px solid var(--line);
     border-radius: var(--r2);
-    background: var(--bg);
+    background: var(--white);
     color: var(--muted);
     transition:
       border-color var(--vite) var(--ease),
@@ -401,19 +418,19 @@
     visibility: hidden;
   }
   .recherche:focus-within {
-    background: var(--white);
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-weak);
   }
   .recherche input {
     flex: 1;
     min-width: 0;
-    height: 32px;
+    height: 40px;
     padding: 0;
     border: 0;
     background: none;
     box-shadow: none;
     color: var(--text);
+    font-size: 17px;
   }
   .recherche input:focus {
     box-shadow: none;
@@ -428,30 +445,28 @@
   .groupes {
     display: flex;
     flex-direction: column;
-    gap: var(--e4);
-    margin-top: var(--e2);
+    gap: var(--e6);
   }
   .groupe {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--e1);
   }
   .g-titre {
-    padding: 0 10px var(--e1);
-    font-size: 12px;
-    font-weight: 600;
+    padding: 0 var(--e3) var(--e2);
+    font-size: 14px;
+    font-weight: 500;
     color: var(--muted);
   }
   .lien {
     display: flex;
     align-items: center;
-    gap: 10px;
-    height: 34px;
-    padding: 0 10px;
+    gap: var(--e3);
+    height: 40px;
+    padding: 0 var(--e3);
     border-radius: var(--r2);
-    color: var(--text);
-    font-size: 14px;
-    font-weight: 500;
+    color: var(--text2);
+    font-size: 16px;
     text-decoration: none;
     white-space: nowrap;
     transition:
@@ -460,7 +475,6 @@
   }
   .lien :global(svg) {
     flex: none;
-    color: var(--text2);
   }
   .lien .t {
     flex: 1;
@@ -472,25 +486,28 @@
     background: var(--sunk);
     color: var(--text);
   }
-  /* page ouverte : fond bleu pâle + filet bleu à gauche, impossible à manquer */
+  /* page ouverte : tuile blanche bordée, comme une carte posée sur le fond */
   .lien.cur {
-    background: var(--accent-weak);
-    color: var(--accent-ink);
-    font-weight: 600;
-    box-shadow: inset 3px 0 0 var(--accent);
+    background: var(--white);
+    color: var(--text);
+    font-weight: 500;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.05),
+      0 0 0 1px var(--line);
   }
-  .lien.cur :global(svg) {
-    color: var(--accent);
+  .lien .compteur {
+    margin-left: auto;
   }
 
   .etat {
     display: flex;
     align-items: center;
     gap: var(--e2);
-    height: 32px;
-    padding: 0 10px;
+    height: 40px;
+    padding: 0 var(--e2);
     border-radius: var(--r2);
     color: var(--err);
+    font-size: 16px;
     font-weight: 500;
     text-decoration: none;
     white-space: nowrap;
@@ -498,47 +515,67 @@
   }
   .etat:hover {
     background: var(--err-bg);
+    color: var(--err);
+  }
+  .pastille {
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: currentColor;
+    flex: none;
   }
   .etat.ok {
     color: var(--text2);
     font-weight: 400;
   }
-  .etat.ok .point {
-    color: var(--ok);
+  .etat.ok .pastille {
+    background: var(--ok-point);
   }
   .etat.ok:hover {
     background: var(--pane);
+    color: var(--text);
   }
   .etat-n {
     display: none;
   }
+  .reglages {
+    width: 44px;
+    height: 44px;
+    border: 1px solid var(--line);
+    border-radius: var(--r2);
+    background: var(--white);
+    color: var(--muted);
+  }
+  .reglages:hover {
+    background: var(--pane);
+    color: var(--text);
+  }
   .reglages[aria-current='page'] {
-    background: var(--accent-weak);
-    color: var(--accent-ink);
+    background: var(--sunk);
+    color: var(--text);
   }
 
   .moi {
     position: relative;
   }
   .initiales {
-    width: 30px;
-    height: 30px;
-    margin-left: var(--e1);
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
     border: 0;
     padding: 0;
     background: var(--sunk);
     display: grid;
     place-items: center;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text2);
     transition: background-color var(--vite) var(--ease);
   }
   .initiales:hover,
   .initiales[aria-expanded='true'] {
     background: var(--line);
-    color: var(--black);
+    color: var(--text);
   }
   .qui {
     padding: var(--e2) 10px 10px;
@@ -554,13 +591,13 @@
     position: absolute;
     right: 0;
     top: calc(100% + 8px);
-    min-width: 240px;
-    padding: var(--e1);
-    border: 1px solid var(--line);
+    min-width: 260px;
+    padding: var(--e2);
+    border: 0;
     border-radius: var(--r3);
     background: var(--white);
     box-shadow:
-      0 2px 4px rgba(0, 0, 0, 0.04),
+      0 0 0 1px var(--line),
       0 8px 24px rgba(0, 0, 0, 0.08);
     animation: menu-entre var(--moyen) var(--ease);
   }
@@ -575,10 +612,10 @@
     align-items: center;
     gap: 10px;
     width: 100%;
-    height: 34px;
-    padding: 0 10px;
+    height: 40px;
+    padding: 0 var(--e3);
     border: 0;
-    border-radius: var(--r2);
+    border-radius: 8px;
     background: none;
     color: var(--text);
     text-align: left;
@@ -610,9 +647,26 @@
     .cadre {
       display: block;
     }
-    .barre {
+    :global(:root) {
+      --haut-barre: 60px;
+    }
+    .barre,
+    .cadre.sur-accueil .barre {
+      position: sticky;
+      height: var(--haut-barre);
+      min-height: 0;
       gap: var(--e1);
       padding: 0 var(--e3);
+      border-left: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--white);
+    }
+    .contenu {
+      border-left: 0;
+    }
+    .reglages {
+      width: 40px;
+      height: 40px;
     }
     .barre > .etroit-seul {
       display: inline-grid;
@@ -630,7 +684,7 @@
     .etat {
       gap: 6px;
       background: var(--err-bg);
-      font-weight: 600;
+      font-weight: 500;
     }
     .etat-t {
       display: none;
@@ -703,7 +757,7 @@
       z-index: 15;
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      height: calc(56px + env(safe-area-inset-bottom));
+      height: calc(60px + env(safe-area-inset-bottom));
       padding-bottom: env(safe-area-inset-bottom);
       border-top: 1px solid var(--line);
       background: var(--white);
@@ -714,20 +768,16 @@
       align-items: center;
       justify-content: center;
       gap: 2px;
-      font-size: 12px;
+      font-size: 13px;
       color: var(--text2);
       text-decoration: none;
     }
     .onglets a.cur {
-      color: var(--accent-ink);
-      font-weight: 600;
-      background: var(--accent-weak);
-      box-shadow: inset 0 3px 0 var(--accent);
+      color: var(--accent);
+      font-weight: 500;
     }
     .onglets .compteur {
       font-size: 12px;
-      line-height: 16px;
-      padding: 0 4px;
     }
     .contenu {
       padding-bottom: calc(56px + env(safe-area-inset-bottom));

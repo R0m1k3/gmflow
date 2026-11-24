@@ -138,6 +138,9 @@ async fn tache_envoi(
                 }
                 TacheEnvoi::TestServeurApi => serveur_api::tester(&ctx).await?,
                 TacheEnvoi::SynchroMagasin => serveur_api::synchroniser(&ctx).await?,
+                TacheEnvoi::VerifierArticlesBl { document_id } => {
+                    serveur_api::verifier_bl(&ctx, document_id).await?
+                }
                 TacheEnvoi::Alertes => {
                     reponse::interrompus(&ctx.pool).await?;
                     envoi::alertes(&ctx).await?

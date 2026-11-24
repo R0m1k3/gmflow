@@ -74,9 +74,10 @@
 </script>
 
 <script lang="ts">
-  // Fiche d'un fournisseur : identité en lecture (admin : bouton « Modifier » qui ouvre le formulaire
-  // complet, confirmer, fusionner), encadré « À rapprocher », puis le fil par mois (factures, avoirs,
-  // BL, mails). Sert au volet de /fournisseurs et à /fournisseurs/[id].
+  // Fiche d'un fournisseur (maquette Sauge S3) : titre et état, « Fiche du fournisseur » (champs remplis,
+  // encadré des champs à compléter ; admin : « Modifier », confirmer, fusionner, codes du magasin),
+  // groupe et marques, « À rapprocher » en cartes, puis le fil par mois (factures, avoirs, BL, mails).
+  // Sert au volet de /fournisseurs et à /fournisseurs/[id].
   import type { Snippet } from 'svelte';
   import { api, ErreurApi, filFournisseur, fournisseurs as listerFournisseurs, message, modifierFournisseur } from '#lib/api.ts';
   import { dateSimple } from '#lib/format.ts';
@@ -107,7 +108,6 @@
   import Icone from './Icone.svelte';
   import { phraseEcartLigne } from './DocOutils.ts';
   import Montant, { formatMontant } from './Montant.svelte';
-  import Repli from './Repli.svelte';
   import Vide from './Vide.svelte';
 
   let {
@@ -133,7 +133,6 @@
   let introuvable = $state(false);
   let info = $state('');
   let enCours = $state(false);
-  let ficheOuverte = $state(true);
 
   // Sociétés pour « rangé par défaut dans » (modifiable par un admin seulement, la barre du haut les charge).
   let societes = $derived(admin ? societe.liste : []);
@@ -164,7 +163,6 @@
     info = '';
     erreur = '';
     nbMois = 6;
-    ficheOuverte = true;
   });
   $effect(() => {
     void id;
@@ -177,15 +175,38 @@
 
   let aConfirmer = $derived(f?.statut === 'a_confirmer');
   let nomSocieteDefaut = $derived(f?.societe_defaut ?? '');
-  let resumeFiche = $derived.by(() => {
+
+  // Lignes de la fiche : celles remplies sont affichées, les vides listées dans « N champs à compléter ».
+  // Le code BO Phénix et le statut sont toujours affichés.
+  let champs = $derived.by(() => {
+    if (!f) return [];
+    const c: { libelle: string; valeur: string; mono?: boolean; multi?: boolean; toujours?: boolean }[] = [
+      { libelle: 'Code BO Phénix', valeur: f.code_gestion ?? '', mono: true, toujours: true }
+    ];
+    if (f.groupe_id !== null) c.push({ libelle: 'Noms sur les documents', valeur: f.noms_documents.join(', ') });
+    c.push(
+      { libelle: 'Domaines mail', valeur: f.domaines.join(', ') },
+      { libelle: 'SIRET', valeur: f.siret ?? '', mono: true },
+      { libelle: 'N° TVA', valeur: f.tva ?? '', mono: true },
+      { libelle: 'Adresse', valeur: f.adresse ?? '', multi: true },
+      { libelle: 'Téléphone', valeur: f.telephone ?? '' },
+      { libelle: 'E-mail de contact', valeur: f.email ?? '' },
+      { libelle: 'Interlocuteur', valeur: f.interlocuteur ?? '' },
+      { libelle: 'Conditions de paiement', valeur: f.conditions_paiement ?? '' },
+      { libelle: 'Société par défaut', valeur: nomSocieteDefaut },
+      { libelle: 'Format des BL', valeur: f.format_bl ?? '' },
+      { libelle: 'Notes', valeur: f.notes ?? '', multi: true },
+      { libelle: 'Statut', valeur: f.statut === 'valide' ? 'Confirmé' : 'À confirmer', toujours: true }
+    );
+    return c;
+  });
+  let champsRemplis = $derived(champs.filter((c) => c.toujours || c.valeur.trim()));
+  let champsVides = $derived(champs.filter((c) => !c.toujours && !c.valeur.trim()).map((c) => c.libelle));
+  let metaFiche = $derived.by(() => {
     if (!f) return '';
-    const m: string[] = [];
-    if (f.code_gestion) m.push(`BO Phénix ${f.code_gestion}`);
-    else m.push('Sans code BO Phénix');
-    if (f.siret) m.push(`SIRET ${f.siret}`);
-    else if (f.tva) m.push(`TVA ${f.tva}`);
+    const m: string[] = [f.code_gestion ? `Code BO Phénix ${f.code_gestion}` : 'Sans code BO Phénix'];
     if (f.domaines.length) m.push(f.domaines.length > 1 ? `${f.domaines[0]} et ${f.domaines.length - 1} autre${f.domaines.length > 2 ? 's' : ''}` : f.domaines[0]);
-    if (nomSocieteDefaut) m.push(nomCourtSociete(nomSocieteDefaut));
+    if (f.statut === 'valide') m.push('Confirmé');
     return m.join(' · ');
   });
 
@@ -204,7 +225,6 @@
     erreur = '';
     info = '';
     groupeQ = '';
-    ficheOuverte = true;
     estGroupe = false;
     if (f.groupe_id === null) {
       try {
@@ -352,59 +372,65 @@
   let tout = $state<Record<string, boolean>>({});
   let ar = $derived(fil?.a_rapprocher);
   let nbARapprocher = $derived(ar ? ar.bl_sans_facture.length + ar.factures_sans_bl.length + ar.avec_ecart.length : 0);
+  let sortesAR = $derived(ar ? [ar.bl_sans_facture.length, ar.avec_ecart.length, ar.factures_sans_bl.length].filter((n) => n > 0).length : 0);
   const limiter = <T,>(l: T[], cle: string) => (tout[cle] ? l : l.slice(0, LIMITE));
   const nomDoc = (d: DocRap) => d.numero ?? d.nom_fichier;
   const ecartNet = (e: number | null) => e !== null && Math.abs(e) > 0.05;
 </script>
 
-{#snippet docRap(d: DocRap)}
-  <a class="ligne" href="/documents/{d.id}">
-    <div class="a">{libelleType(d.type)} <span class="num">{nomDoc(d)}</span></div>
-    <div class="r"><Montant valeur={d.montant_ht} /> <span class="muted petit">HT</span></div>
-    <div class="b">
-      {dateSimple(d.date_document)}{#if d.numero_commande}{' · commande '}<span class="num">{d.numero_commande}</span>{/if}{#if plusieursSocietes && d.societe}{' · '}{nomCourtSociete(d.societe)}{/if}
-    </div>
+
+{#snippet carteDoc(d: DocRap, etat: string, montantEcart: number | null | undefined = undefined)}
+  <a class="carte-ar" href="/documents/{d.id}">
+    <span class="ic"><Icone nom={d.type === 'bl' ? 'camion' : 'fichier'} /></span>
+    <span class="corps">
+      <span class="titre">{libelleType(d.type)} <span class="num">{nomDoc(d)}</span></span>
+      <span class="sous">
+        {etat}{#if d.date_document}{' · '}<span class="num">{dateSimple(d.date_document)}</span>{/if}{#if d.numero_commande}{' · commande '}<span class="num">{d.numero_commande}</span>{/if}{#if plusieursSocietes && d.societe}{' · '}{nomCourtSociete(d.societe)}{/if}
+      </span>
+    </span>
+    <span class="montant">
+      {#if montantEcart !== undefined}
+        {#if montantEcart === null}<span class="muted petit">écart non calculable</span>
+        {:else}<span class:etiquette={ecartNet(montantEcart)} class:att={ecartNet(montantEcart)}>Écart <Montant valeur={montantEcart} /></span>{/if}
+      {:else}
+        <Montant valeur={d.montant_ht} /> HT
+      {/if}
+    </span>
+    <Icone nom="droite" class="chev" />
   </a>
 {/snippet}
 
 {#snippet ecart(r: Rapproche)}
-  <a class="ligne" href="/documents/{r.facture.id}">
-    <div class="a">{libelleType(r.facture.type)} <span class="num">{nomDoc(r.facture)}</span></div>
-    <div class="r">
-      {#if r.ecart_montant === null}<span class="muted petit">écart non calculable</span>
-      {:else}<span class:flag={ecartNet(r.ecart_montant)} class:e={ecartNet(r.ecart_montant)}><Montant valeur={r.ecart_montant} /></span>{/if}
-    </div>
-    <div class="b">
-      {#each r.bls as b, i (b.lien_id)}{i > 0 ? ', ' : ''}BL <span class="num">{b.numero ?? b.id}</span>{/each}
-      {#if r.bls.length} · {libelleMethode(r.bls[0].methode)}{/if}
-      {#if r.facture.remise_ht && r.facture.remise_ht > 0.005} · <span class="flag i">Remise {formatMontant(r.facture.remise_ht)}</span>{/if}
-      {#if r.ecarts.length}
-        · <span class="flag w">{r.ecarts.length} article{r.ecarts.length > 1 ? 's' : ''} en écart</span>{/if}
-    </div>
-    {#if r.ecarts.length}
-    <div class="ecarts petit t2">
-      {#each r.ecarts.slice(0, 3) as x, i (i)}
-        {@const p = phraseEcartLigne(x)}
-        <div>{p.titre} : {p.article}, {p.detail}</div>
-      {/each}
-      {#if r.ecarts.length > 3}<div class="muted">et {r.ecarts.length - 3} autre{r.ecarts.length > 4 ? 's' : ''}</div>{/if}
-    </div>
-    {/if}
-  </a>
-{/snippet}
-
-{#snippet groupe(cle: string, titre: string, n: number, contenu: Snippet)}
-  <div class="groupe">
-    <h3>{titre} <span class="num muted">{n}</span></h3>
-    <div class="filets">{@render contenu()}</div>
-    {#if n > LIMITE && !tout[cle]}
-      <button type="button" class="plus" onclick={() => (tout[cle] = true)}>{n - LIMITE} autre{n - LIMITE > 1 ? 's' : ''}</button>
+  <div class="ecart-bloc">
+    {@render carteDoc(
+      r.facture,
+      r.bls.length ? `${r.bls.map((b) => `BL ${b.numero ?? b.id}`).join(', ')} · ${libelleMethode(r.bls[0].methode)}` : 'Écart avec les BL',
+      r.ecart_montant
+    )}
+    {#if (r.facture.remise_ht && r.facture.remise_ht > 0.005) || r.ecarts.length}
+      <div class="ecarts petit t2">
+        {#if r.facture.remise_ht && r.facture.remise_ht > 0.005}<div><span class="etiquette info">Remise {formatMontant(r.facture.remise_ht)}</span></div>{/if}
+        {#if r.ecarts.length}
+          <div class="ecarts-t"><span class="etiquette att">{r.ecarts.length} article{r.ecarts.length > 1 ? 's' : ''} en écart</span></div>
+          {#each r.ecarts.slice(0, 3) as x, i (i)}
+            {@const p = phraseEcartLigne(x)}
+            <div>{p.titre} : {p.article}, {p.detail}</div>
+          {/each}
+          {#if r.ecarts.length > 3}<div class="muted">et {r.ecarts.length - 3} autre{r.ecarts.length > 4 ? 's' : ''}</div>{/if}
+        {/if}
+      </div>
     {/if}
   </div>
 {/snippet}
 
-{#snippet valeurOuTiret(v: string, mono = false)}
-  {#if v}<span class:num={mono}>{v}</span>{:else}<span class="muted">—</span>{/if}
+{#snippet groupe(cle: string, titre: string, n: number, contenu: Snippet)}
+  <div class="groupe-ar">
+    {#if sortesAR > 1}<h4>{titre} <span class="num muted">{n}</span></h4>{/if}
+    {@render contenu()}
+    {#if n > LIMITE && !tout[cle]}
+      <button type="button" class="plus" onclick={() => (tout[cle] = true)}>{n - LIMITE} autre{n - LIMITE > 1 ? 's' : ''}</button>
+    {/if}
+  </div>
 {/snippet}
 
 {#if !fil}
@@ -421,204 +447,187 @@
     <Chargement />
   {/if}
 {:else if f}
-  <div class="titre-fiche">
-    <h1>{f.nom}</h1>
-    {#if aConfirmer}<Etiquette ton="alerte">{libelleStatutFournisseur(f.statut)}</Etiquette>{/if}
-    <span class="sp"></span>
-    {#if admin}
-      {#if !ed}
-        <button type="button" class="btn modifier" onclick={ouvrirEdition}><Icone nom="crayon" />Modifier</button>
-      {/if}
-    {:else}
-      <span class="lecture-seule petit">Modifiable par l’administrateur</span>
-    {/if}
-  </div>
-  <div class="meta-fiche"><FournEtat etat={fil.etat} /></div>
-  {#if f.groupe_id !== null}
-    <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
-  {/if}
-
-  {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
-  {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
-  {#if aConfirmer && admin && !ed}
-    <Bandeau titre="Nouveau fournisseur.">
-      Ses factures ne partent pas seules vers Dext ou Yooz tant que la fiche n'est pas confirmée : vérifiez le nom et le SIRET.
-      {#snippet action()}
-        <button type="button" class="btn sm principal" class:en-cours={enCours} disabled={enCours} onclick={confirmer}>Confirmer</button>
-      {/snippet}
-    </Bandeau>
-  {/if}
-
-  {#if ed}
-    <div class="cadre-form">
-    <form class="form-fiche" onsubmit={enregistrer} aria-label="Modifier la fiche de {f.nom}">
-      <h2 class="plein">Modifier la fiche</h2>
-      <div class="plein">
-        <Champ
-          libelle="Code BO Phénix"
-          bind:valeur={ed.code_gestion}
-          mono
-          placeholder="ex. 004512"
-          erreur={fautes.code_gestion}
-          aide="Notre code interne de ce fournisseur dans Phénix ; repris dans les exports"
-        />
-      </div>
-      <div class="plein"><Champ libelle="Nom" bind:valeur={ed.nom} requis erreur={fautes.nom} /></div>
-      <Champ libelle="SIRET" bind:valeur={ed.siret} mono inputmode="numeric" placeholder="14 chiffres" erreur={fautes.siret} />
-      <Champ libelle="N° TVA intracommunautaire" bind:valeur={ed.tva} mono placeholder="FR..." erreur={fautes.tva} />
-      <div class="plein">
-        <Champ
-          libelle="Domaines mail"
-          bind:valeur={ed.domaines}
-          placeholder="durand.fr"
-          erreur={fautes.domaines}
-          aide="Séparés par des virgules ; appris tout seul quand une facture est reconnue par son SIRET ou son n° de TVA"
-        />
-      </div>
-      <div class="plein">
-        <Champ libelle="Adresse" type="textarea" bind:valeur={ed.adresse} placeholder="N°, rue, code postal, ville" erreur={fautes.adresse} />
-      </div>
-      <Champ libelle="Téléphone" bind:valeur={ed.telephone} inputmode="tel" placeholder="03 83 00 00 00" erreur={fautes.telephone} />
-      <Champ libelle="E-mail de contact" bind:valeur={ed.email} inputmode="email" placeholder="commandes@fournisseur.fr" erreur={fautes.email} />
-      <Champ libelle="Interlocuteur" bind:valeur={ed.interlocuteur} placeholder="Nom du commercial ou du contact" erreur={fautes.interlocuteur} />
-      <Champ
-        libelle="Conditions de paiement"
-        bind:valeur={ed.conditions_paiement}
-        placeholder="ex. 30 jours fin de mois, LCR"
-        erreur={fautes.conditions_paiement}
-      />
-      <Champ
-        libelle="Société par défaut"
-        type="select"
-        bind:valeur={ed.societe_defaut_id}
-        options={[{ valeur: '', libelle: 'Aucune société' }, ...societes.map((s) => ({ valeur: String(s.id), libelle: s.raison_sociale }))]}
-        erreur={fautes.societe_defaut_id}
-      />
-      <Champ libelle="Format des BL" bind:valeur={ed.format_bl} placeholder="ex. Excel, colonnes réf. / qté" erreur={fautes.format_bl} />
-      <div class="plein"><Champ libelle="Notes" type="textarea" bind:valeur={ed.notes} erreur={fautes.notes} /></div>
-      <Champ
-        libelle="Statut"
-        type="select"
-        bind:valeur={ed.statut}
-        options={[
-          { valeur: 'valide', libelle: 'Confirmé' },
-          { valeur: 'a_confirmer', libelle: 'À confirmer' }
-        ]}
-        erreur={fautes.statut}
-        aide="Une fiche à confirmer bloque l'envoi automatique de ses factures"
-      />
-      {#if !estGroupe}
-        <div class="champ" class:en-faute={!!fautes.groupe_id}>
-          <label for="groupe-{id}">Fait partie du groupe</label>
-          <input type="search" class="groupe-q" placeholder="Chercher un groupe (ex. U10)" bind:value={groupeQ} autocomplete="off" aria-label="Chercher un groupe" />
-          <select
-            id="groupe-{id}"
-            bind:value={() => (ed?.groupe_id == null ? '' : String(ed.groupe_id)), (v) => ed && (ed.groupe_id = v === '' ? null : Number(v))}
-            aria-invalid={fautes.groupe_id ? 'true' : undefined}
-          >
-            {#each optionsGroupe as o (o.valeur)}<option value={o.valeur}>{o.libelle}</option>{/each}
-          </select>
-          {#if fautes.groupe_id}<div class="erreur-champ" role="alert">{fautes.groupe_id}</div>{/if}
-          <div class="aide">Pour une marque d'un groupe qui facture pour plusieurs marques (U10 pour L3C, Homea, Decor10)</div>
+  <div class="fiche-f">
+    <header class="tete">
+      <div class="tete-g">
+        <h2 class="nom">{f.nom}</h2>
+        <div class="meta">
+          <span>{metaFiche}</span>
+          {#if aConfirmer}<span class="etiquette att">{libelleStatutFournisseur(f.statut)}</span>{/if}
+          <FournEtat etat={fil.etat} quoi="etiquettes" />
         </div>
-        {#if ed.groupe_id !== null}
-          <div class="plein">
-            <Champ
-              libelle="Noms sur les documents"
-              bind:valeur={ed.noms_documents}
-              placeholder="ex. HOMEA DECO, homea.fr"
-              erreur={fautes.noms_documents}
-              aide="Autres écritures de cette marque dans les factures et BL du groupe, séparées par des virgules ; son nom est toujours cherché"
-            />
-          </div>
+      </div>
+      {#if admin}
+        {#if !ed}
+          <button type="button" class="btn modifier" onclick={ouvrirEdition}>Modifier</button>
         {/if}
       {:else}
-        <p class="petit t2 groupe-note">Cette fiche est un groupe : ses marques sont listées plus bas.</p>
+        <span class="lecture-seule petit">Modifiable par l’administrateur</span>
       {/if}
-      <div class="plein boutons">
-        <button type="submit" class="btn principal" class:en-cours={enCours} disabled={enCours}>Enregistrer</button>
-        <button type="button" class="btn" onclick={fermerEdition} disabled={enCours}>Annuler</button>
+    </header>
+
+    {#if f.groupe_id !== null || erreur || info || (aConfirmer && admin && !ed)}
+      <div class="annonces">
+        {#if f.groupe_id !== null}
+          <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
+        {/if}
+        {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
+        {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
+        {#if aConfirmer && admin && !ed}
+          <Bandeau titre="Nouveau fournisseur.">
+            Ses factures ne partent pas seules vers Dext ou Yooz tant que la fiche n'est pas confirmée : vérifiez le nom et le SIRET.
+            {#snippet action()}
+              <button type="button" class="btn sm principal" class:en-cours={enCours} disabled={enCours} onclick={confirmer}>Confirmer</button>
+            {/snippet}
+          </Bandeau>
+        {/if}
       </div>
-    </form>
-    </div>
-  {:else}
-    {#if admin && !f.code_gestion}
-      <CodesMagasin
-        {id}
-        onassocie={async () => {
-          info = 'Code BO Phénix associé';
-          await charger();
-          onmodifie?.();
-        }}
-      />
     {/if}
-    <div class="replis">
-      <Repli icone="batiment" titre="Fiche du fournisseur" resume={resumeFiche} bind:ouvert={ficheOuverte}>
-        <div class="lignes-champs">
-          <Champ disposition="ligne" libelle="Code BO Phénix" valeur={f.code_gestion ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.code_gestion ?? '', true)}{/snippet}
-          </Champ>
-          {#if f.groupe_id !== null}
-            <Champ disposition="ligne" libelle="Noms sur les documents" valeur={f.noms_documents.join(', ')}>
-              {#snippet affichage()}{@render valeurOuTiret(f?.noms_documents.join(', ') ?? '')}{/snippet}
-            </Champ>
+
+    {#if ed}
+      <section class="sec-f cadre-form" aria-labelledby="ed-{id}">
+        <h3 id="ed-{id}">Modifier la fiche</h3>
+        <form class="form-fiche" onsubmit={enregistrer} aria-label="Modifier la fiche de {f.nom}">
+          <div class="plein">
+            <Champ
+              libelle="Code BO Phénix"
+              bind:valeur={ed.code_gestion}
+              mono
+              placeholder="ex. 004512"
+              erreur={fautes.code_gestion}
+              aide="Notre code interne de ce fournisseur dans Phénix ; repris dans les exports"
+            />
+          </div>
+          <div class="plein"><Champ libelle="Nom" bind:valeur={ed.nom} requis erreur={fautes.nom} /></div>
+          <Champ libelle="SIRET" bind:valeur={ed.siret} mono inputmode="numeric" placeholder="14 chiffres" erreur={fautes.siret} />
+          <Champ libelle="N° TVA intracommunautaire" bind:valeur={ed.tva} mono placeholder="FR..." erreur={fautes.tva} />
+          <div class="plein">
+            <Champ
+              libelle="Domaines mail"
+              bind:valeur={ed.domaines}
+              placeholder="durand.fr"
+              erreur={fautes.domaines}
+              aide="Séparés par des virgules ; appris tout seul quand une facture est reconnue par son SIRET ou son n° de TVA"
+            />
+          </div>
+          <div class="plein">
+            <Champ libelle="Adresse" type="textarea" bind:valeur={ed.adresse} placeholder="N°, rue, code postal, ville" erreur={fautes.adresse} />
+          </div>
+          <Champ libelle="Téléphone" bind:valeur={ed.telephone} inputmode="tel" placeholder="03 83 00 00 00" erreur={fautes.telephone} />
+          <Champ libelle="E-mail de contact" bind:valeur={ed.email} inputmode="email" placeholder="commandes@fournisseur.fr" erreur={fautes.email} />
+          <Champ libelle="Interlocuteur" bind:valeur={ed.interlocuteur} placeholder="Nom du commercial ou du contact" erreur={fautes.interlocuteur} />
+          <Champ
+            libelle="Conditions de paiement"
+            bind:valeur={ed.conditions_paiement}
+            placeholder="ex. 30 jours fin de mois, LCR"
+            erreur={fautes.conditions_paiement}
+          />
+          <Champ
+            libelle="Société par défaut"
+            type="select"
+            bind:valeur={ed.societe_defaut_id}
+            options={[{ valeur: '', libelle: 'Aucune société' }, ...societes.map((s) => ({ valeur: String(s.id), libelle: s.raison_sociale }))]}
+            erreur={fautes.societe_defaut_id}
+          />
+          <Champ libelle="Format des BL" bind:valeur={ed.format_bl} placeholder="ex. Excel, colonnes réf. / qté" erreur={fautes.format_bl} />
+          <div class="plein"><Champ libelle="Notes" type="textarea" bind:valeur={ed.notes} erreur={fautes.notes} /></div>
+          <Champ
+            libelle="Statut"
+            type="select"
+            bind:valeur={ed.statut}
+            options={[
+              { valeur: 'valide', libelle: 'Confirmé' },
+              { valeur: 'a_confirmer', libelle: 'À confirmer' }
+            ]}
+            erreur={fautes.statut}
+            aide="Une fiche à confirmer bloque l'envoi automatique de ses factures"
+          />
+          {#if !estGroupe}
+            <div class="champ" class:en-faute={!!fautes.groupe_id}>
+              <label for="groupe-{id}">Fait partie du groupe</label>
+              <input type="search" class="groupe-q" placeholder="Chercher un groupe (ex. U10)" bind:value={groupeQ} autocomplete="off" aria-label="Chercher un groupe" />
+              <select
+                id="groupe-{id}"
+                bind:value={() => (ed?.groupe_id == null ? '' : String(ed.groupe_id)), (v) => ed && (ed.groupe_id = v === '' ? null : Number(v))}
+                aria-invalid={fautes.groupe_id ? 'true' : undefined}
+              >
+                {#each optionsGroupe as o (o.valeur)}<option value={o.valeur}>{o.libelle}</option>{/each}
+              </select>
+              {#if fautes.groupe_id}<div class="erreur-champ" role="alert">{fautes.groupe_id}</div>{/if}
+              <div class="aide">Pour une marque d'un groupe qui facture pour plusieurs marques (U10 pour L3C, Homea, Decor10)</div>
+            </div>
+            {#if ed.groupe_id !== null}
+              <div class="plein">
+                <Champ
+                  libelle="Noms sur les documents"
+                  bind:valeur={ed.noms_documents}
+                  placeholder="ex. HOMEA DECO, homea.fr"
+                  erreur={fautes.noms_documents}
+                  aide="Autres écritures de cette marque dans les factures et BL du groupe, séparées par des virgules ; son nom est toujours cherché"
+                />
+              </div>
+            {/if}
+          {:else}
+            <p class="petit t2 groupe-note">Cette fiche est un groupe : ses marques sont listées plus bas.</p>
           {/if}
-          <Champ disposition="ligne" libelle="SIRET" valeur={f.siret ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.siret ?? '', true)}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="N° TVA" valeur={f.tva ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.tva ?? '', true)}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Adresse" valeur={f.adresse ?? ''}>
-            {#snippet affichage()}{#if f?.adresse}<span class="multi">{f.adresse}</span>{:else}{@render valeurOuTiret('')}{/if}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Téléphone" valeur={f.telephone ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.telephone ?? '')}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="E-mail de contact" valeur={f.email ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.email ?? '')}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Interlocuteur" valeur={f.interlocuteur ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.interlocuteur ?? '')}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Conditions de paiement" valeur={f.conditions_paiement ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.conditions_paiement ?? '')}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Domaines mail" valeur={f.domaines.join(', ')}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.domaines.join(', ') ?? '')}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Société par défaut" valeur={nomSocieteDefaut}>
-            {#snippet affichage()}{@render valeurOuTiret(nomSocieteDefaut)}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Format des BL" valeur={f.format_bl ?? ''}>
-            {#snippet affichage()}{@render valeurOuTiret(f?.format_bl ?? '')}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Notes" valeur={f.notes ?? ''}>
-            {#snippet affichage()}{#if f?.notes}<span class="multi">{f.notes}</span>{:else}{@render valeurOuTiret('')}{/if}{/snippet}
-          </Champ>
-          <Champ disposition="ligne" libelle="Statut" valeur={f.statut === 'valide' ? 'Confirmé' : 'À confirmer'} />
-        </div>
-        <div class="pied-fiche petit muted">
+          <div class="plein boutons">
+            <button type="submit" class="btn principal" class:en-cours={enCours} disabled={enCours}>Enregistrer</button>
+            <button type="button" class="btn" onclick={fermerEdition} disabled={enCours}>Annuler</button>
+          </div>
+        </form>
+      </section>
+    {:else}
+      <section class="sec-f" aria-labelledby="fiche-{id}">
+        <h3 id="fiche-{id}">Fiche du fournisseur</h3>
+        <dl class="champs">
+          {#each champsRemplis as c (c.libelle)}
+            <div>
+              <dt>{c.libelle}</dt>
+              <dd class:num={c.mono} class:multi={c.multi}>{#if c.valeur}{c.valeur}{:else}<span class="muted">—</span>{/if}</dd>
+            </div>
+          {/each}
+        </dl>
+        {#if admin && !f.code_gestion}
+          <CodesMagasin
+            {id}
+            onassocie={async () => {
+              info = 'Code BO Phénix associé';
+              await charger();
+              onmodifie?.();
+            }}
+          />
+        {/if}
+        {#if champsVides.length}
+          <div class="a-completer">
+            <div class="ac-t">
+              <span class="ac-titre"><span class="num">{champsVides.length}</span> champ{champsVides.length > 1 ? 's' : ''} à compléter</span>
+              <span class="ac-liste">{champsVides.join(', ')}</span>
+            </div>
+            {#if admin}
+              <button type="button" class="btn" onclick={ouvrirEdition}>Compléter la fiche</button>
+            {:else}
+              <span class="petit t2">L’administrateur peut les compléter</span>
+            {/if}
+          </div>
+        {/if}
+        <div class="pied-fiche">
           <span>Fiche créée le <span class="num">{dateSimple(f.cree_le.slice(0, 10))}</span></span>
           {#if admin}
-            <span class="sp"></span>
-            <button type="button" class="btn sm fantome" onclick={ouvrirFusion}><Icone nom="lien" />Fusionner avec une autre fiche</button>
+            <button type="button" class="lien-discret" onclick={ouvrirFusion}><Icone nom="lien" />Fusionner avec une autre fiche</button>
           {/if}
         </div>
-      </Repli>
-    </div>
-  {/if}
+      </section>
+    {/if}
 
-  {#if f.groupe_id === null}
-    <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
-  {/if}
+    {#if f.groupe_id === null}
+      <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
+    {/if}
 
-  <section class="bloc-fil" aria-labelledby="ar-{id}">
-    <h2 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}</h2>
-    {#if ar && nbARapprocher}
-      <div class="encadre-ar">
+    <section class="sec-f" aria-labelledby="ar-{id}">
+      <h3 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}</h3>
+      {#if ar && nbARapprocher}
         {#if ar.bl_sans_facture.length}
-          {#snippet bls()}{#each limiter(ar?.bl_sans_facture ?? [], 'bl') as d (d.id)}{@render docRap(d)}{/each}{/snippet}
+          {#snippet bls()}{#each limiter(ar?.bl_sans_facture ?? [], 'bl') as d (d.id)}{@render carteDoc(d, 'En attente de facture')}{/each}{/snippet}
           {@render groupe('bl', BL_EN_ATTENTE, ar.bl_sans_facture.length, bls)}
         {/if}
         {#if ar.avec_ecart.length}
@@ -626,70 +635,63 @@
           {@render groupe('ecart', 'Écarts entre BL et facture', ar.avec_ecart.length, ecarts)}
         {/if}
         {#if ar.factures_sans_bl.length}
-          {#snippet fsb()}{#each limiter(ar?.factures_sans_bl ?? [], 'fsb') as d (d.id)}{@render docRap(d)}{/each}{/snippet}
-          {@render groupe('fsb', `${FACTURE_SANS_BL}`, ar.factures_sans_bl.length, fsb)}
+          {#snippet fsb()}{#each limiter(ar?.factures_sans_bl ?? [], 'fsb') as d (d.id)}{@render carteDoc(d, 'Sans BL')}{/each}{/snippet}
+          {@render groupe('fsb', FACTURE_SANS_BL, ar.factures_sans_bl.length, fsb)}
         {/if}
         {#if ar.tronque}<p class="petit muted">Liste limitée aux 300 plus récents de chaque sorte.</p>{/if}
-      </div>
-    {:else}
-      <p class="muted">Rien à rapprocher : chaque BL a sa facture, sans écart.</p>
-    {/if}
-  </section>
+      {:else}
+        <p class="t2">Rien à rapprocher : chaque BL a sa facture, sans écart.</p>
+      {/if}
+    </section>
 
-  <section class="bloc-fil" aria-labelledby="fil-{id}">
-    <h2 id="fil-{id}">Factures, BL et mails</h2>
-    {#each moisFil as m (m.mois)}
-      <div class="mois">
-        <h3>{libelleMois(m.mois)} <span class="num muted">{m.elements.length}</span></h3>
-        <div class="filets">
-          {#each m.elements as e (`${e.genre}-${e.id}`)}
-            {#if e.genre === 'document'}
-              <a class="ligne" href="/documents/{e.id}">
-                <div class="a">
-                  {libelleType(e.type)}
-                  {#if e.numero}<span class="num">{e.numero}</span>{/if}
-                </div>
-                <div class="r">
-                  {#if e.montant_ttc !== null}<Montant valeur={e.montant_ttc} avoir={e.type === 'avoir'} />
-                  {:else if e.montant_ht !== null}<Montant valeur={e.montant_ht} avoir={e.type === 'avoir'} /> <span class="muted petit">HT</span>{/if}
-                </div>
-                <div class="b">
-                  <span class="num">{dateSimple(e.date)}</span>
+    <section class="sec-f" aria-labelledby="fil-{id}">
+      <h3 id="fil-{id}">Factures, BL et mails</h3>
+      {#each moisFil as m (m.mois)}
+        <div class="mois">
+          <h4>{libelleMois(m.mois)} <span class="num muted">{m.elements.length}</span></h4>
+          <div class="fil">
+            {#each m.elements as e (`${e.genre}-${e.id}`)}
+              {#if e.genre === 'document'}
+                <a class="el" href="/documents/{e.id}">
+                  <span class="el-nom">{libelleType(e.type)}{#if e.numero}{' '}<span class="num">{e.numero}</span>{/if}</span>
+                  <span class="t2 num">{dateSimple(e.date)}</span>
                   {#if e.type === 'bl'}
-                    {#if !e.verifie} · <Etiquette ton="alerte">À valider</Etiquette>{/if}
-                    {#if !e.rapproche} · <span class="flag w">{BL_EN_ATTENTE}</span>{/if}
+                    {#if !e.verifie}<span class="etiquette att">À valider</span>{/if}
+                    {#if !e.rapproche}<span class="el-etat">{BL_EN_ATTENTE}</span>{/if}
                   {:else if e.statut_depot}
-                    · <Etiquette ton={tonStatutEnvoi(e.statut_depot)}>{libelleStatutEnvoi(e.statut_depot, e.outil)}</Etiquette>
+                    <Etiquette ton={tonStatutEnvoi(e.statut_depot)}>{libelleStatutEnvoi(e.statut_depot, e.outil)}</Etiquette>
                   {/if}
-                  {#if e.remise_ht && e.remise_ht > 0.005} · <span class="flag i">Remise {formatMontant(e.remise_ht)}</span>{/if}
-                  {#if e.nb_alertes}
-                    · <span class="flag w">{e.nb_alertes} alerte{e.nb_alertes > 1 ? 's' : ''}</span>{/if}
-                  {#if plusieursSocietes && e.societe} · {nomCourtSociete(e.societe)}{/if}
-                </div>
-              </a>
-            {:else}
-              <a class="ligne" href="/mails/{e.id}">
-                <div class="a"><Icone nom="mail" class="ic-mail" />{e.objet || 'Sans objet'}</div>
-                <div class="r">
+                  {#if e.remise_ht && e.remise_ht > 0.005}<span class="etiquette info">Remise {formatMontant(e.remise_ht)}</span>{/if}
+                  {#if e.nb_alertes}<span class="etiquette att">{e.nb_alertes} alerte{e.nb_alertes > 1 ? 's' : ''}</span>{/if}
+                  {#if plusieursSocietes && e.societe}<span class="el-etat">{nomCourtSociete(e.societe)}</span>{/if}
+                  <span class="el-montant">
+                    {#if e.montant_ttc !== null}<Montant valeur={e.montant_ttc} avoir={e.type === 'avoir'} />
+                    {:else if e.montant_ht !== null}<Montant valeur={e.montant_ht} avoir={e.type === 'avoir'} /> <span class="muted">HT</span>{/if}
+                  </span>
+                </a>
+              {:else}
+                <a class="el" href="/mails/{e.id}">
+                  <span class="el-nom el-mail"><Icone nom="mail" />{e.objet || 'Sans objet'}</span>
+                  <span class="t2 num">{dateSimple(e.date)}</span>
                   {#if e.statut_reponse}<Etiquette ton={tonStatutReponse(e.statut_reponse)}>{libelleStatutReponse(e.statut_reponse)}</Etiquette>{/if}
-                </div>
-                <div class="b">
-                  <span class="num">{dateSimple(e.date)}</span> · {expediteurCourt(e.expediteur)} · {e.resume ?? libelleCategorie(e.categorie)}
-                </div>
-              </a>
-            {/if}
-          {/each}
+                  <span class="el-etat el-resume">{expediteurCourt(e.expediteur)} · {e.resume ?? libelleCategorie(e.categorie)}</span>
+                </a>
+              {/if}
+            {/each}
+          </div>
         </div>
-      </div>
-    {:else}
-      <Vide compact titre="Rien sur les {nbMois} derniers mois" texte="Ni facture, ni BL, ni mail de ce fournisseur." />
-    {/each}
-    {#if nbMois < 24}
-      <button type="button" class="btn sm plus-ancien" onclick={() => (nbMois = nbMois < 12 ? 12 : 24)}>
-        Voir jusqu'à {nbMois < 12 ? 12 : 24} mois
-      </button>
-    {/if}
-  </section>
+      {:else}
+        <Vide compact titre="Rien sur les {nbMois} derniers mois" texte="Ni facture, ni BL, ni mail de ce fournisseur." />
+      {/each}
+      {#if nbMois < 24}
+        <div>
+          <button type="button" class="btn" onclick={() => (nbMois = nbMois < 12 ? 12 : 24)}>
+            Voir jusqu’à {nbMois < 12 ? 12 : 24} mois
+          </button>
+        </div>
+      {/if}
+    </section>
+  </div>
 
   {#if admin}
     <Confirmation bind:ouvert={fusionOuverte} titre="Fusionner « {f.nom} »" libelle="Fusionner" danger onconfirmer={fusionner}>
@@ -709,94 +711,291 @@
 {/if}
 
 <style>
-  .replis {
-    margin-top: var(--e4);
+  /* Fiche Sauge : blocs espacés de 40 px, titres 20 px, lignes clé / valeur à filets. */
+  .fiche-f {
+    max-width: 816px;
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    container-type: inline-size;
   }
-  .pied-fiche {
+  .tete {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .tete-g {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    flex: 1 1 320px;
+  }
+  .nom {
+    font-size: 28px;
+    font-weight: 500;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+  .meta {
     display: flex;
     align-items: center;
-    gap: var(--e2);
-    padding-top: var(--e3);
-  }
-  .bloc-fil {
-    margin-top: var(--e8);
-  }
-  .bloc-fil > h2 {
-    font-size: 14px;
-    margin-bottom: var(--e2);
-  }
-  .bloc-fil h3 {
-    font-size: 12px;
-    font-weight: 500;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 16px;
     color: var(--text2);
-    margin: var(--e4) 0 var(--e1);
   }
-  .encadre-ar {
-    border: 1px solid var(--line);
-    border-radius: var(--r2);
-    background: var(--white);
-    padding: 0 var(--e3) var(--e2);
-  }
-  .encadre-ar .groupe:first-child h3 {
-    margin-top: var(--e3);
-  }
-  .encadre-ar .filets {
-    border-top: 0;
-  }
-  .encadre-ar .filets > :global(:last-child) {
-    border-bottom: 0;
-  }
-  .ecarts {
-    grid-column: 1 / -1;
-    padding-top: var(--e1);
-  }
-  .plus-ancien {
-    margin-top: var(--e4);
-  }
-  :global(.ligne .a svg.ic-mail) {
-    color: var(--muted);
-    margin-right: 6px;
-    vertical-align: -3px;
-  }
-  .fusion {
-    display: grid;
-    gap: var(--e2);
-    margin-top: var(--e3);
-  }
-  .fusion select {
-    height: auto;
-    padding: var(--e1);
-    background-image: none;
-  }
-  .erreur-fusion {
-    color: var(--err);
-  }
-  .multi {
-    white-space: pre-line;
-  }
-  .titre-fiche .modifier {
+  .modifier {
+    height: 44px;
     flex: none;
-    align-self: center;
   }
   .lecture-seule {
     flex: none;
     color: var(--text2);
+    padding-top: 8px;
   }
-  .cadre-form {
-    container-type: inline-size;
+  .annonces {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: -16px;
   }
+  .sec-f {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .sec-f h3,
+  .sec-f h4 {
+    margin: 0;
+  }
+  .sec-f > h3 {
+    font-size: 20px;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+  .sec-f h4 {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text2);
+  }
+  .champs {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    font-size: 16px;
+  }
+  .champs > div {
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-faint);
+  }
+  .champs dt {
+    color: var(--text2);
+  }
+  .champs dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .multi {
+    white-space: pre-line;
+  }
+  .a-completer {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 16px 20px;
+    border-radius: var(--r3);
+    background: var(--pane);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .ac-t {
+    flex: 1 1 360px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+  .ac-titre {
+    font-weight: 500;
+  }
+  .ac-liste {
+    font-size: 15px;
+    color: var(--text2);
+    text-wrap: pretty;
+  }
+  .pied-fiche {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .lien-discret {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text2);
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .lien-discret:hover {
+    color: var(--text);
+    text-decoration: underline;
+  }
+  .lien-discret :global(svg.i) {
+    width: 16px;
+    height: 16px;
+  }
+  /* À rapprocher : une carte par pièce */
+  .groupe-ar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .groupe-ar + .groupe-ar {
+    margin-top: 8px;
+  }
+  .carte-ar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+    color: var(--text);
+    text-decoration: none;
+    background: var(--white);
+  }
+  .carte-ar:hover {
+    background: var(--pane);
+  }
+  .carte-ar:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .carte-ar .ic {
+    color: var(--muted);
+    display: flex;
+    flex: none;
+  }
+  .carte-ar .corps {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .carte-ar .titre {
+    font-weight: 500;
+  }
+  .carte-ar .sous {
+    font-size: 15px;
+    color: var(--text2);
+    overflow-wrap: anywhere;
+  }
+  .carte-ar .montant {
+    flex: none;
+    color: var(--text2);
+    white-space: nowrap;
+  }
+  .carte-ar :global(svg.chev) {
+    flex: none;
+    color: var(--muted);
+    width: 16px;
+    height: 16px;
+  }
+  .ecart-bloc {
+    display: flex;
+    flex-direction: column;
+  }
+  .ecarts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 20px 4px 56px;
+  }
+  .ecarts-t {
+    margin-bottom: 2px;
+  }
+  /* Fil par mois */
+  .mois {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .mois + .mois {
+    margin-top: 12px;
+  }
+  .fil {
+    border-top: 1px solid var(--line-faint);
+  }
+  .el {
+    display: flex;
+    align-items: center;
+    gap: 6px 12px;
+    flex-wrap: wrap;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-faint);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .el:hover {
+    background: var(--pane);
+    box-shadow: -8px 0 0 var(--pane), 8px 0 0 var(--pane);
+  }
+  .el-nom {
+    font-weight: 500;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .el-mail {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .el-mail :global(svg.i) {
+    color: var(--muted);
+    flex: none;
+  }
+  .el-etat {
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .el-resume {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 200px;
+  }
+  .el-montant {
+    margin-left: auto;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .el-montant:empty {
+    display: none;
+  }
+  /* Formulaire de modification */
   .form-fiche {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--e4) var(--e5);
-    margin-top: var(--e4);
-    padding: var(--e4);
-    border: 1px solid var(--line2);
-    border-radius: var(--r2);
+    padding: 20px;
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
     background: var(--white);
-  }
-  .form-fiche > h2 {
-    font-size: 14px;
   }
   .form-fiche .plein {
     grid-column: 1 / -1;
@@ -811,11 +1010,41 @@
   .groupe-note {
     align-self: end;
   }
-  /* Volet étroit ou téléphone : une colonne. */
+  .fusion {
+    display: grid;
+    gap: var(--e2);
+    margin-top: var(--e3);
+  }
+  .fusion select {
+    height: auto;
+    padding: var(--e1);
+    background-image: none;
+  }
+  .erreur-fusion {
+    color: var(--err);
+  }
+  /* Volet étroit ou téléphone */
   @container (max-width: 520px) {
+    .nom {
+      font-size: 22px;
+    }
+    .champs > div {
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 12px;
+    }
     .form-fiche {
       grid-template-columns: 1fr;
       padding: var(--e3);
+    }
+    .carte-ar {
+      padding: 14px 16px;
+      gap: 12px;
+    }
+    .ecarts {
+      padding-left: 16px;
+    }
+    .modifier {
+      height: 40px;
     }
   }
 </style>

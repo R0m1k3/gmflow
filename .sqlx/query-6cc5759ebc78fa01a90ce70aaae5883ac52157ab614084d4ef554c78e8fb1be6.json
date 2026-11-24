@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select exists (select 1 from document d\n                          where d.id = $1 and d.type = 'bl' and d.etat = 'lu'\n                            and exists (select 1 from ligne_document l where l.document_id = d.id))\n              and exists (select 1 from parametre where cle = $2) as \"ok!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6cc5759ebc78fa01a90ce70aaae5883ac52157ab614084d4ef554c78e8fb1be6"
+}

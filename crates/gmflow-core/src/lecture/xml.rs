@@ -188,6 +188,12 @@ fn partie_cii(suite: &str, sid: Option<&str>, v: &str, p: &mut Partie) {
     }
 }
 
+/// EAN / GTIN : 8, 12, 13 ou 14 chiffres.
+pub fn est_gencod(v: &str) -> bool {
+    let v = v.trim();
+    matches!(v.len(), 8 | 12 | 13 | 14) && v.bytes().all(|b| b.is_ascii_digit())
+}
+
 fn quantite(ligne: &mut Ligne, v: &str, unite: Option<String>) {
     if ligne.quantite.is_none() {
         ligne.quantite = montant(v);
@@ -207,8 +213,15 @@ fn ligne_cii(s: &str, unite: Option<String>, v: &str, d: &mut DonneesXml) {
     };
     match s {
         "SpecifiedTradeProduct/SellerAssignedID" => remplir(&mut l.reference, v),
-        "SpecifiedTradeProduct/GlobalID" | "SpecifiedTradeProduct/BuyerAssignedID" => {
+        "SpecifiedTradeProduct/GlobalID" => {
+            if est_gencod(v) {
+                remplir(&mut l.gencod, v);
+            }
             remplir(&mut l.reference, v)
+        }
+        "SpecifiedTradeProduct/BuyerAssignedID" => remplir(&mut l.reference, v),
+        "SpecifiedLineTradeSettlement/ApplicableTradeTax/RateApplicablePercent" => {
+            remplir_montant(&mut l.taux_tva, v)
         }
         "SpecifiedTradeProduct/Name" => remplir(&mut l.designation, v),
         "SpecifiedLineTradeDelivery/BilledQuantity" => quantite(l, v, unite),
@@ -295,7 +308,13 @@ fn ligne_ubl(s: &str, unite: Option<String>, v: &str, d: &mut DonneesXml) {
     };
     match s {
         "Item/SellersItemIdentification/ID" => remplir(&mut l.reference, v),
-        "Item/StandardItemIdentification/ID" => remplir(&mut l.reference, v),
+        "Item/StandardItemIdentification/ID" => {
+            if est_gencod(v) {
+                remplir(&mut l.gencod, v);
+            }
+            remplir(&mut l.reference, v)
+        }
+        "Item/ClassifiedTaxCategory/Percent" => remplir_montant(&mut l.taux_tva, v),
         "Item/Name" => remplir(&mut l.designation, v),
         "Item/Description" => remplir(&mut l.designation, v),
         "InvoicedQuantity" | "CreditedQuantity" => quantite(l, v, unite),
