@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select jsonb_build_object('quand', quand, 'ok', ok, 'message', message,\n                                     'livraisons', livraisons) as \"v!\"\n           from logiflow_rapprochement where document_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "v!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "b14da794c4ebdaa0dbc96e5f740afe732f76986cdc2561f60eb37f459404a9b1"
+}

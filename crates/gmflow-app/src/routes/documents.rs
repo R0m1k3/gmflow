@@ -7,7 +7,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use gmflow_core::lecture::extraction::TYPES;
-use gmflow_core::{depot, file, journal};
+use gmflow_core::{depot, file, journal, parametre};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -258,6 +258,12 @@ pub struct FicheComplete {
     boites: Vec<BoiteReception>,
     /// Document pas encore lu (`a_lire`, `en_cours`) : pourquoi il attend.
     attente: Option<gmflow_core::attente::Attente>,
+    /// Dernier report de la facture dans Logiflow : `{quand, ok, message, livraisons}`.
+    logiflow: Option<Value>,
+    /// Logiflow est configuré (Réglages) : la fiche d'une facture envoyée propose « Relancer ».
+    logiflow_configure: bool,
+    /// Facture envoyée il y a moins de 10 min, résultat Logiflow pas encore là : la fiche attend.
+    logiflow_attendu: bool,
 }
 
 async fn mail_du_document(etat: &Etat, id: i64) -> Resultat<i64> {
@@ -343,11 +349,36 @@ pub async fn fiche(
     } else {
         None
     };
+    let logiflow = sqlx::query_scalar!(
+        r#"select jsonb_build_object('quand', quand, 'ok', ok, 'message', message,
+                                     'livraisons', livraisons) as "v!"
+           from logiflow_rapprochement where document_id = $1"#,
+        id
+    )
+    .fetch_optional(&etat.pool)
+    .await?;
+    let logiflow_configure = parametre::lire(&etat.pool, gmflow_core::logiflow::CLE)
+        .await?
+        .is_some();
+    let logiflow_attendu = logiflow_configure
+        && logiflow.is_none()
+        && d.r#type.as_deref() == Some("facture")
+        && d.statut_depot.as_deref() == Some("depose")
+        && sqlx::query_scalar!(
+            r#"select exists (select 1 from envoi_depot where document_id = $1 and etat = 'envoye'
+                              and quand > now() - interval '10 minutes') as "e!""#,
+            id
+        )
+        .fetch_one(&etat.pool)
+        .await?;
     Ok(Json(FicheComplete {
         document: d,
         envois,
         boites,
         attente,
+        logiflow,
+        logiflow_configure,
+        logiflow_attendu,
     }))
 }
 

@@ -251,6 +251,7 @@ export const RUBRIQUES = {
   claude: 'Connexion à Claude',
   envoi: 'Envoi vers Dext / Yooz',
   serveurApi: 'Serveur du magasin',
+  logiflow: 'Logiflow',
   utilisateurs: 'Utilisateurs',
   traitements: 'Traitements',
   avance: 'Avancé',

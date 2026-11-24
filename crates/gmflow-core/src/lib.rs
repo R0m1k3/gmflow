@@ -18,6 +18,7 @@ pub mod fournisseurs;
 pub mod imap;
 pub mod journal;
 pub mod lecture;
+pub mod logiflow;
 pub mod parametre;
 pub mod rapprochement;
 pub mod reglages;

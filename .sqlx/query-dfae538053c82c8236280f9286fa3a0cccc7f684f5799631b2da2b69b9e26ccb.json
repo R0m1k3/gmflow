@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select exists (select 1 from envoi_depot where document_id = $1 and etat = 'envoye'\n                              and quand > now() - interval '10 minutes') as \"e!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "e!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dfae538053c82c8236280f9286fa3a0cccc7f684f5799631b2da2b69b9e26ccb"
+}

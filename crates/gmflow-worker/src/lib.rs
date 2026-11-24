@@ -4,6 +4,7 @@
 pub mod envoi;
 pub mod fournisseur;
 pub mod lecture;
+pub mod logiflow;
 pub mod orchestre;
 pub mod planif;
 pub mod purge;
@@ -138,6 +139,10 @@ async fn tache_envoi(
                 }
                 TacheEnvoi::TestServeurApi => serveur_api::tester(&ctx).await?,
                 TacheEnvoi::SynchroMagasin => serveur_api::synchroniser(&ctx).await?,
+                TacheEnvoi::TestLogiflow => logiflow::tester(&ctx).await?,
+                TacheEnvoi::RapprocherLogiflow { document_id } => {
+                    logiflow::rapprocher(&ctx, document_id).await?
+                }
                 TacheEnvoi::Alertes => {
                     reponse::interrompus(&ctx.pool).await?;
                     envoi::alertes(&ctx).await?

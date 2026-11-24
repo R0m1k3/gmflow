@@ -2,7 +2,7 @@
 //! par mail, le fichier d'origine en pièce jointe), test de l'expédition et alertes.
 
 use gmflow_core::expedition::{self, PieceJointe};
-use gmflow_core::{depot, eml, journal, parametre, stockage};
+use gmflow_core::{depot, eml, file, journal, parametre, stockage};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -234,6 +234,15 @@ pub async fn deposer(
             )
             .await?;
             tx.commit().await?;
+            // Facture envoyée : ses livraisons dans Logiflow (si configuré) reçoivent la facture.
+            if d.r#type.as_deref() == Some("facture")
+                && parametre::lire(pool, gmflow_core::logiflow::CLE)
+                    .await?
+                    .is_some()
+            {
+                file::pousser_envoi(pool, file::TacheEnvoi::RapprocherLogiflow { document_id })
+                    .await?;
+            }
         }
         Err(e) => {
             let message = format!("{e:#}");

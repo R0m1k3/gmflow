@@ -1,0 +1,138 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.type, d.statut_depot, d.numero, d.numeros_bl,\n                  d.montant_ht::float8 as ht, d.montant_ttc::float8 as ttc, d.fournisseur_nom,\n                  fo.id as \"fournisseur_id?\", fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", s.autres_noms as \"autres_noms?\"\n           from document d\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "numeros_bl",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numeros_bl"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "ttc",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "fournisseur_nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_nom"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "fournisseur_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "fournisseur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "autres_noms?",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "autres_noms"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      false,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "1569d60028406b330c3ba3a0da31541c2faf27c4f955481776027fbae2a922a4"
+}

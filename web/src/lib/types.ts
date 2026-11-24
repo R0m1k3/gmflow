@@ -314,6 +314,20 @@ export interface FicheDocument {
   boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
   /** Document pas encore lu : pourquoi il attend. */
   attente: Attente | null;
+  /** Dernier report de la facture dans Logiflow (après l'envoi à Dext/Yooz). */
+  logiflow: ResultatLogiflow | null;
+  logiflow_configure: boolean;
+  /** Facture envoyée à l'instant : le résultat Logiflow arrive. */
+  logiflow_attendu: boolean;
+}
+
+export type EtatLivraisonLogiflow = 'complete' | 'deja_fait' | 'deja_rapproche' | 'autre_facture' | 'introuvable' | 'ambigu' | 'erreur';
+
+export interface ResultatLogiflow {
+  quand: string;
+  ok: boolean;
+  message: string;
+  livraisons: { bl: string; livraison_id: number | null; magasin: string | null; etat: EtatLivraisonLogiflow; message: string }[];
 }
 
 export type GenreAttente =
@@ -461,6 +475,12 @@ export interface ServeurApiVue {
   synchro: { quand: string; ok: boolean; message: string | null; nombre: number | null } | null;
   /** Fournisseurs du magasin copiés. */
   nombre: number;
+}
+
+export interface LogiflowVue {
+  serveur: { adresse: string; fin: string | null } | null;
+  jeton_enregistre: boolean;
+  dernier_test: { quand: string; ok: boolean; message: string | null } | null;
 }
 
 export interface SuggestionCode {

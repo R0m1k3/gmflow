@@ -38,7 +38,8 @@
     titreAlerte,
     titreEnvoi,
     titreLiens,
-    tonStatutEnvoi
+    tonStatutEnvoi,
+    type Ton
   } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
@@ -47,6 +48,7 @@
     Controle,
     CorrectionDocument,
     DetailRapprochement,
+    EtatLivraisonLogiflow,
     FicheDocument,
     ChangementsFournisseur,
     LigneFournisseur,
@@ -164,7 +166,13 @@
   /** Validée, envoi demandé mais pas encore pris par le worker. */
   const envoiDemande = (v: FicheDocument) => !!v.valide_le && (v.statut_depot === 'pret' || v.statut_depot === 'a_verifier');
   const enCours = (v: FicheDocument) =>
-    v.etat === 'a_lire' || v.etat === 'en_cours' || v.statut_depot === 'en_envoi' || envoiDemande(v) || v.envoi_relance;
+    v.etat === 'a_lire' ||
+    v.etat === 'en_cours' ||
+    v.statut_depot === 'en_envoi' ||
+    envoiDemande(v) ||
+    v.envoi_relance ||
+    v.logiflow_attendu ||
+    (attenteLogiflow && !v.logiflow);
 
   /** Relit la fiche ; garde les champs saisis si `garder`. Rend vrai s'il faut continuer à suivre. */
   async function charger(ident: number, garder: boolean): Promise<boolean> {
@@ -443,6 +451,31 @@
       erreur = message(e);
     } finally {
       occupe = null;
+    }
+  }
+
+  /** « Relancer » Logiflow cliqué : la fiche suit jusqu'au nouveau résultat. */
+  let attenteLogiflow = $state(false);
+  const LIBELLES_LOGIFLOW: Record<EtatLivraisonLogiflow, { texte: string; ton: Ton }> = {
+    complete: { texte: 'Complétée', ton: 'ok' },
+    deja_fait: { texte: 'Déjà faite', ton: 'ok' },
+    deja_rapproche: { texte: 'Déjà rapprochée', ton: 'neutre' },
+    autre_facture: { texte: 'Autre facture', ton: 'alerte' },
+    introuvable: { texte: 'Introuvable', ton: 'alerte' },
+    ambigu: { texte: 'À choisir', ton: 'alerte' },
+    erreur: { texte: 'Échec', ton: 'erreur' }
+  };
+  async function relancerLogiflow() {
+    if (!d) return;
+    erreur = '';
+    try {
+      await api.post(`/api/documents/${d.id}/logiflow`, {});
+      attenteLogiflow = true;
+      info = 'Recherche relancée dans Logiflow : le résultat s’affiche dans quelques secondes.';
+      await charger(d.id, true);
+      suivre();
+    } catch (e) {
+      erreur = message(e);
     }
   }
 
@@ -966,6 +999,48 @@
               </table>
             {:else}
               <p class="t2 petit">Aucun envoi pour l’instant.</p>
+            {/if}
+          </Repli>
+        {/if}
+        {#if d.type === 'facture' && d.statut_depot === 'depose' && (d.logiflow_configure || d.logiflow)}
+          {@const lf = d.logiflow}
+          <Repli
+            icone="camion"
+            titre="Logiflow"
+            resume={lf ? lf.message : d.logiflow_attendu || attenteLogiflow ? 'recherche en cours' : 'pas encore reporté'}
+            ouvert={!!lf && !lf.ok}
+          >
+            <div class="doc-envoi">
+              {#if lf}
+                <p>
+                  <Etiquette ton={lf.ok ? 'ok' : 'alerte'}>{lf.ok ? 'Reportée' : 'À regarder'}</Etiquette>
+                  <span class="t2 petit">le {jourHeure(lf.quand)} : {lf.message}</span>
+                </p>
+              {:else if d.logiflow_attendu || attenteLogiflow}
+                <p class="t2 petit">Recherche des livraisons dans Logiflow…</p>
+              {:else}
+                <p class="t2 petit">Cette facture n’a pas encore été reportée dans Logiflow.</p>
+              {/if}
+            </div>
+            {#if lf?.livraisons.length}
+              <table>
+                <thead><tr><th>BL</th><th>Livraison</th><th>Résultat</th></tr></thead>
+                <tbody>
+                  {#each lf.livraisons as l, i (i)}
+                    <tr>
+                      <td class="num" style="white-space: nowrap">{l.bl}</td>
+                      <td class="t2">{#if l.livraison_id}n° <span class="num">{l.livraison_id}</span>{l.magasin ? `, ${l.magasin}` : ''}{:else}—{/if}</td>
+                      <td>
+                        <Etiquette ton={LIBELLES_LOGIFLOW[l.etat]?.ton ?? 'neutre'}>{LIBELLES_LOGIFLOW[l.etat]?.texte ?? l.etat}</Etiquette>
+                        <div class="t2 petit">{l.message}</div>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            {/if}
+            {#if d.logiflow_configure && !(d.logiflow_attendu || (attenteLogiflow && !lf))}
+              <p><button type="button" class="btn sm" onclick={relancerLogiflow}><Icone nom="rafraichir" />Relancer la recherche</button></p>
             {/if}
           </Repli>
         {/if}
