@@ -293,3 +293,67 @@ async fn groupe_et_marques_crees_a_la_lecture() {
     );
     b.fermer().await;
 }
+
+/// Facture U10 : Claude ne lit ni groupe ni entité, U10 n'a encore aucune marque ; le cadre
+/// « Dép. : HOMEA Maison / EXPEDIE PAR : U10 Strasbourg » suffit à créer le groupe et la marque.
+#[tokio::test]
+async fn marque_du_cadre_sans_entite_lue() {
+    let faux = FauxClaude::new();
+    let mut b = Banc::new().await;
+    let mut config = (*b.ctx.config).clone();
+    config.claude_bin = faux.bin();
+    b.ctx.config = std::sync::Arc::new(config);
+    let societe: i64 = sqlx::query_scalar(
+        "insert into societe (raison_sociale, siret) values ('Magasin Frouard', $1) returning id",
+    )
+    .bind(SIRET_A)
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    parametre::enregistrer_jeton_claude(b.pool(), &b.ctx.chiffreur, "sk-ant-oat01-test_cadre")
+        .await
+        .unwrap();
+
+    faux.lira(
+        "BL-H1",
+        json!({ "nom": "U10", "siret": null, "tva": TVA_U10, "groupe": null, "entite": null }),
+    );
+    let d1 = lire_bl(
+        &b,
+        societe,
+        "BL-H1",
+        &[
+            "U10",
+            "Dep. : HOMEA Maison",
+            "EXPEDIE PAR : U10 Strasbourg - 15 Rue du Tanin - CS 30032 - 67380 LINGOLSHEIM",
+            "BON DE LIVRAISON BL-H1",
+            "R1 Vase 2",
+        ],
+    )
+    .await;
+    let u10 = fiche(&b, "U10").await;
+    let homea = fiche(&b, "HOMEA Maison").await;
+    assert_eq!(u10.groupe_id, None);
+    assert_eq!(homea.groupe_id, Some(u10.id));
+    assert_eq!(fournisseur_du(&b, d1).await, homea.id);
+
+    // « Dép. : HOMEA » ensuite : la même marque.
+    faux.lira(
+        "BL-H2",
+        json!({ "nom": "U10", "siret": null, "tva": TVA_U10, "groupe": null, "entite": null }),
+    );
+    let d2 = lire_bl(
+        &b,
+        societe,
+        "BL-H2",
+        &[
+            "U10",
+            "Dep. : HOMEA",
+            "BON DE LIVRAISON BL-H2",
+            "R2 Coussin 4",
+        ],
+    )
+    .await;
+    assert_eq!(fournisseur_du(&b, d2).await, homea.id);
+    assert_eq!(b.compter("select count(*) from fournisseur").await, 2);
+}

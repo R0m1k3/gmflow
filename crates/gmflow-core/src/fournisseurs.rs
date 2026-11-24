@@ -674,18 +674,31 @@ const FIN_DE_MENTION: &[&str] = &[
 /// compte au plus 4 mots ; il doit contenir une lettre (« Dép. : 54 » est un département
 /// administratif).
 pub fn mention_entite(texte: &str) -> Option<String> {
+    mention(
+        texte,
+        &[
+            ("departement", false),
+            ("division", false),
+            ("dep", true),
+            ("marque", true),
+        ],
+    )
+}
+
+/// Comme [`mention_entite`], mais seulement « Dép. : X » et « Marque : X » : assez sûr pour
+/// faire d'un fournisseur un groupe sans que Claude l'ait lu (« Département : Meurthe-et-
+/// Moselle » d'une adresse ne doit pas créer de marque).
+pub fn mention_marque(texte: &str) -> Option<String> {
+    mention(texte, &[("dep", true), ("marque", true)])
+}
+
+/// (repère, deux-points obligatoire)
+fn mention(texte: &str, reperes: &[(&str, bool)]) -> Option<String> {
     let orig: Vec<char> = texte.chars().collect();
     let bas: Vec<char> = orig
         .iter()
         .map(|c| sans_accent(c.to_lowercase().next().unwrap_or(*c)))
         .collect();
-    // (repère, deux-points obligatoire)
-    const REPERES: &[(&str, bool)] = &[
-        ("departement", false),
-        ("division", false),
-        ("dep", true),
-        ("marque", true),
-    ];
     let commence = |i: usize, mot: &str| {
         let m: Vec<char> = mot.chars().collect();
         bas.len() >= i + m.len() && bas[i..i + m.len()] == m[..]
@@ -694,7 +707,7 @@ pub fn mention_entite(texte: &str) -> Option<String> {
         if i > 0 && bas[i - 1].is_alphanumeric() {
             continue;
         }
-        for (mot, deux_points) in REPERES {
+        for (mot, deux_points) in reperes {
             if !commence(i, mot) {
                 continue;
             }
@@ -745,13 +758,30 @@ pub fn mention_entite(texte: &str) -> Option<String> {
     None
 }
 
-/// Marque désignée par un nom (nom de la fiche ou un de ses noms sur les documents).
+/// Marque désignée par un nom (nom de la fiche ou un de ses noms sur les documents), au besoin
+/// suivi d'un complément : « HOMEA Maison » est la marque Homea, et « HOMEA » la marque
+/// « HOMEA Maison ».
 fn marque_de_nom<'a>(marques: &'a [Marque], nom: &str) -> Option<&'a Marque> {
-    marques.iter().find(|m| {
-        std::iter::once(&m.nom)
-            .chain(m.noms_documents.iter())
-            .any(|n| meme_nom(n, nom))
-    })
+    let noms = |m: &'a Marque| std::iter::once(&m.nom).chain(m.noms_documents.iter());
+    marques
+        .iter()
+        .find(|m| noms(m).any(|n| meme_nom(n, nom)))
+        .or_else(|| {
+            let lu = normaliser(&nom_propre(nom));
+            let mut avec_complement = marques.iter().filter(|m| {
+                noms(m).any(|n| {
+                    let n = normaliser(&nom_propre(n));
+                    !n.is_empty()
+                        && !lu.is_empty()
+                        && (lu.starts_with(&format!("{n} ")) || n.starts_with(&format!("{lu} ")))
+                })
+            });
+            // Une seule marque, sinon le nom est ambigu.
+            match (avec_complement.next(), avec_complement.next()) {
+                (Some(m), None) => Some(m),
+                _ => None,
+            }
+        })
 }
 
 /// Marque d'un document d'un groupe, sans Claude : l'entité lue sur le document, sinon la
@@ -1134,6 +1164,12 @@ mod tests {
         assert_eq!(m("Les marques : toutes"), None);
         assert_eq!(m("Remarque : livrer le matin"), None);
         assert_eq!(m("Aucune mention ici"), None);
+        // Repères sûrs seulement.
+        assert_eq!(
+            mention_marque("Dép. : HOMEA Maison\nEXPEDIE PAR : U10 Strasbourg").as_deref(),
+            Some("HOMEA Maison")
+        );
+        assert_eq!(mention_marque("Département : Meurthe et Moselle"), None);
     }
 
     #[test]
@@ -1162,6 +1198,14 @@ mod tests {
         assert_eq!(id("Dép. : HOMEA DECO / EXPEDIE PAR U10", None), Some(2));
         assert_eq!(id("Homea et L3C", None), None);
         assert_eq!(id("Dép. : L3C\nRéassort Homea", None), Some(1));
+        // L'en-tête réel d'une facture U10 : la marque suivie d'un complément.
+        assert_eq!(id("Facture", Some("HOMEA Maison")), Some(2));
+        assert_eq!(id("Facture", Some("Homeaux")), None);
+        let l = [m(1, "HOMEA Maison", &[])];
+        assert_eq!(
+            marque_du_document(&l, "BL", Some("Homea")).map(|m| m.id),
+            Some(1)
+        );
     }
 
     #[test]
