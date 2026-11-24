@@ -294,66 +294,74 @@ pub async fn rattacher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> {
         d.objet,
         d.texte
     );
+    // Entité non lue par Claude : la mention « Dép. : X » du texte (facture U10 de Homea,
+    // même si U10 n'a encore aucune marque) ; groupe non lu : le fournisseur lu.
+    let entite = d
+        .fournisseur_entite
+        .clone()
+        .or_else(|| fournisseurs::mention_marque(&d.texte));
+    let nom_groupe = d
+        .fournisseur_groupe
+        .as_deref()
+        .or(d.fournisseur_nom.as_deref());
     // (fiche du document, comment, groupe qui a gagné une marque)
-    let (id, comment, nouvelle_marque) = if let Some((g, e)) = fournisseurs::groupe_et_entite(
-        d.fournisseur_groupe.as_deref(),
-        d.fournisseur_entite.as_deref(),
-    ) {
-        // Les identifiants lus sont ceux du groupe (U10 facture pour L3C) : appris au groupe.
-        let ind_groupe = Indices {
-            nom: Some(g),
-            ..ind.clone()
-        };
-        let verrou = fournisseurs::verrouiller(pool).await?;
-        let (groupe, par_identifiant) = fournisseurs::groupe_lu(pool, &ind_groupe, &e).await?;
-        fournisseurs::apprendre(pool, groupe, &ind_groupe, par_identifiant).await?;
-        let (marque, nouvelle) = fournisseurs::marque_lue(pool, groupe, &e).await?;
-        verrou.commit().await?;
-        (marque, "groupe et entité lus", nouvelle.then_some(groupe))
-    } else {
-        // (fiche, comment, avec le domaine) ; les identifiants appris vont au groupe.
-        let (id, comment, apprendre) = match fournisseurs::identifier(pool, &ind).await? {
-            Identification::Trouve { id, par } => (Some(id), par, Some(par == "identifiant")),
-            Identification::Candidats(c) => {
-                match choisir(ctx, document_id, &ind, &d.expediteur, &c).await? {
-                    Some(id) => (Some(id), "claude", Some(false)),
-                    None => (
-                        fournisseurs::creer(pool, &ind).await?,
-                        "nouvelle fiche",
-                        None,
-                    ),
+    let (id, comment, nouvelle_marque) =
+        if let Some((g, e)) = fournisseurs::groupe_et_entite(nom_groupe, entite.as_deref()) {
+            // Les identifiants lus sont ceux du groupe (U10 facture pour L3C) : appris au groupe.
+            let ind_groupe = Indices {
+                nom: Some(g),
+                ..ind.clone()
+            };
+            let verrou = fournisseurs::verrouiller(pool).await?;
+            let (groupe, par_identifiant) = fournisseurs::groupe_lu(pool, &ind_groupe, &e).await?;
+            fournisseurs::apprendre(pool, groupe, &ind_groupe, par_identifiant).await?;
+            let (marque, nouvelle) = fournisseurs::marque_lue(pool, groupe, &e).await?;
+            verrou.commit().await?;
+            (marque, "groupe et entité lus", nouvelle.then_some(groupe))
+        } else {
+            // (fiche, comment, avec le domaine) ; les identifiants appris vont au groupe.
+            let (id, comment, apprendre) = match fournisseurs::identifier(pool, &ind).await? {
+                Identification::Trouve { id, par } => (Some(id), par, Some(par == "identifiant")),
+                Identification::Candidats(c) => {
+                    match choisir(ctx, document_id, &ind, &d.expediteur, &c).await? {
+                        Some(id) => (Some(id), "claude", Some(false)),
+                        None => (
+                            fournisseurs::creer(pool, &ind).await?,
+                            "nouvelle fiche",
+                            None,
+                        ),
+                    }
                 }
+                Identification::Aucun => (
+                    fournisseurs::creer(pool, &ind).await?,
+                    "nouvelle fiche",
+                    None,
+                ),
+            };
+            let Some(trouvee) = id else {
+                return Ok(());
+            };
+            let groupe =
+                sqlx::query_scalar!("select groupe_id from fournisseur where id = $1", trouvee)
+                    .fetch_one(pool)
+                    .await?
+                    .unwrap_or(trouvee);
+            if let Some(avec_domaine) = apprendre {
+                fournisseurs::apprendre(pool, groupe, &ind, avec_domaine).await?;
             }
-            Identification::Aucun => (
-                fournisseurs::creer(pool, &ind).await?,
-                "nouvelle fiche",
-                None,
-            ),
+            match vers_marque(
+                ctx,
+                document_id,
+                groupe,
+                &texte,
+                d.fournisseur_entite.as_deref(),
+            )
+            .await?
+            {
+                Some((m, par, nouvelle)) => (m, par, nouvelle.then_some(groupe)),
+                None => (trouvee, comment, None),
+            }
         };
-        let Some(trouvee) = id else {
-            return Ok(());
-        };
-        let groupe =
-            sqlx::query_scalar!("select groupe_id from fournisseur where id = $1", trouvee)
-                .fetch_one(pool)
-                .await?
-                .unwrap_or(trouvee);
-        if let Some(avec_domaine) = apprendre {
-            fournisseurs::apprendre(pool, groupe, &ind, avec_domaine).await?;
-        }
-        match vers_marque(
-            ctx,
-            document_id,
-            groupe,
-            &texte,
-            d.fournisseur_entite.as_deref(),
-        )
-        .await?
-        {
-            Some((m, par, nouvelle)) => (m, par, nouvelle.then_some(groupe)),
-            None => (trouvee, comment, None),
-        }
-    };
     let defaut = sqlx::query_scalar!(
         "select societe_defaut_id from fournisseur where id = $1",
         id
