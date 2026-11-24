@@ -32,6 +32,7 @@
     libelleType,
     libelleValider,
     libelleVoie,
+    nomCourtSociete,
     nomOutil,
     detailAlerte,
     titreAlerte,
@@ -254,6 +255,9 @@
   }
   let alertes = $derived(d ? d.controles.filter((c) => c.code !== 'doublon' && !levee(c)) : []);
   let doublon = $derived(d?.controles.find((c) => c.code === 'doublon') ?? null);
+  /** Société non reconnue ou douteuse : bandeau à part, avec le choix de la société ou le rejet. */
+  let alerteSociete = $derived(alertes.find((c) => c.code === 'societe') ?? null);
+  let autresAlertes = $derived(alertes.filter((c) => c !== alerteSociete));
   let peuSurs = $derived(d && d.etat === 'lu' && !d.verifie_le ? champsPeuSurs(d) : new Set<CleChamp>());
 
   function aControler(k: CleChamp): boolean | string {
@@ -495,6 +499,7 @@
   );
 
   let dlgEcarter = $state(false);
+  let dlgRejeter = $state(false);
   let dlgForcer = $state(false);
   let dlgRelire = $state(false);
   let dlgRelireDetail = $state(false);
@@ -742,11 +747,34 @@
         </Bandeau>
       {:else if doublon && !refus && !d.verifie_le}
         <Bandeau ton="erreur" titre="Doublon.">{phrase(doublon.message)}</Bandeau>
-      {:else if alertes.length && !refus}
-        <Bandeau titre="{titreAlerte(alertes[0])}.">
-          {#if detailAlerte(alertes[0])}{phrase(detailAlerte(alertes[0]))}{/if}{#if alertes.length > 1}
-            {' '}{alertes.length - 1 === 1 ? 'Une autre alerte' : `${alertes.length - 1} autres alertes`}, surlignée{alertes.length > 2 ? 's' : ''} dans les champs.{/if}
+      {:else if autresAlertes.length && !refus}
+        <Bandeau titre="{titreAlerte(autresAlertes[0])}.">
+          {#if detailAlerte(autresAlertes[0])}{phrase(detailAlerte(autresAlertes[0]))}{/if}{#if autresAlertes.length > 1}
+            {' '}{autresAlertes.length - 1 === 1 ? 'Une autre alerte' : `${autresAlertes.length - 1} autres alertes`}, surlignée{autresAlertes.length > 2 ? 's' : ''} dans les champs.{/if}
         </Bandeau>
+      {/if}
+      {#if alerteSociete && !refus && d.etat === 'lu' && !envoiDemande(d) && d.statut_depot !== 'depose' && d.statut_depot !== 'en_envoi'}
+        <Bandeau titre="{titreAlerte(alerteSociete)}.">
+          {d.societe_id === null
+            ? 'Aucune de vos sociétés n’est trouvée sur le document.'
+            : `${d.societe ?? 'La société'} est trouvée avec peu de certitude.`}
+          Choisissez la bonne société, ou rejetez la pièce si elle n’est pas pour vous.
+          <span class="choix-societe">
+            {#each societe.liste as s (s.id)}
+              <button
+                type="button"
+                class="btn sm"
+                class:principal={choix.societe === String(s.id)}
+                aria-pressed={choix.societe === String(s.id)}
+                disabled={!editable}
+                onclick={() => (choix.societe = String(s.id))}>{nomCourtSociete(s.raison_sociale)}</button
+              >
+            {/each}
+            <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgRejeter = true)}>Rejeter</button>
+          </span>
+        </Bandeau>
+      {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
+        <Bandeau ton="info">Attribué à {nomSocieteChoisie}. Validez pour l’enregistrer.</Bandeau>
       {/if}
       {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
         <Bandeau titre="Lecture incomplète.">
@@ -971,6 +999,9 @@
 <Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarter}>
   <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
 </Confirmation>
+<Confirmation bind:ouvert={dlgRejeter} titre="Rejeter ce document ?" libelle="Rejeter" danger onconfirmer={ecarter}>
+  <p>{titreDoc} n’est pour aucune de vos sociétés : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
+</Confirmation>
 <Confirmation bind:ouvert={dlgForcer} titre="Envoyer ce doublon quand même ?" libelle="Envoyer quand même" danger onconfirmer={() => valider(true)}>
   <p>{refus?.code === 'doublon' ? phrase(refus.message) : doublon ? phrase(doublon.message) : ''} La facture partira à {nomOutil(outil)} telle quelle.</p>
 </Confirmation>
@@ -1000,6 +1031,12 @@
     align-items: flex-start;
     gap: 2px;
     padding: 0 0 var(--e2);
+  }
+  .choix-societe {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e2);
+    margin-top: var(--e2);
   }
   .doc-question {
     margin-top: var(--e3);
