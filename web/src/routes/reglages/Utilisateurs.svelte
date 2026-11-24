@@ -2,14 +2,14 @@
   // Utilisateurs : administrateurs et responsables de magasin, ajout et modification en place.
   import { tick } from 'svelte';
   import { api, message } from '#lib/api.ts';
-  import { quand } from '#lib/format.ts';
-  import { RUBRIQUES, libelleRole, nomCourtSociete } from '#lib/libelles.ts';
+    import { RUBRIQUES, libelleRole, nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import type { Role, Societe, Utilisateur } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
   import Icone from '#lib/ui/Icone.svelte';
+  import { leA } from './outils.ts';
 
   let {
     utilisateurs,
@@ -127,20 +127,22 @@
   <p class="lead">Un responsable de magasin voit les factures et les mails de sa société ; un administrateur voit tout, réglages compris.</p>
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
 
-  <div class="filets">
+  <div class="carte-r">
     {#if f && f.id === null}{@render formulaire(f)}{/if}
     {#each tries as u (u.id)}
       {#if f && f.id === u.id}
         {@render formulaire(f)}
       {:else}
-        <div class="ligne bloc fixe" class:inactif={!u.actif}>
-          <div class="a">{u.identifiant}{#if u.id === session.moi?.id}{' '}<span class="muted">(vous)</span>{/if}</div>
-          <div class="b">
-            {libelleRole(u.role)}{#if u.role === 'responsable'}{' '}· {nomSociete(u.societe_id)}{/if} · créé le <span class="num">{quand(u.cree_le)}</span>
+        <div class="rang" class:inactif={!u.actif}>
+          <div class="g">
+            <span class="t">{u.identifiant}{#if u.id === session.moi?.id}{' '}<span class="vous">(vous)</span>{/if}</span>
+            <span class="s">
+              {libelleRole(u.role)}{#if u.role === 'responsable'}{' '}· {nomSociete(u.societe_id)}{/if} · créé le <span class="num">{leA(u.cree_le)}</span>
+            </span>
           </div>
-          <div class="r droite">
+          <div class="d">
             {#if !u.actif}<Etiquette ton="pale">Désactivé</Etiquette>{/if}
-            <button type="button" class="btn sm fantome" onclick={() => modifier(u)}>Modifier</button>
+            <button type="button" class="lien-a" onclick={() => modifier(u)}>Modifier</button>
           </div>
         </div>
       {/if}
@@ -149,12 +151,11 @@
 </section>
 
 <style>
-  .droite {
-    display: flex;
-    align-items: center;
-    gap: var(--e3);
-  }
-  .inactif .a {
+  .inactif .t {
     color: var(--text2);
+  }
+  .vous {
+    font-weight: 400;
+    color: var(--muted);
   }
 </style>

@@ -11,7 +11,7 @@
   import type { LigneFournisseur } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
-  import FournEtat, { texteEtat } from '#lib/ui/FournEtat.svelte';
+  import FournEtat, { aDesAlertes, texteEtat } from '#lib/ui/FournEtat.svelte';
   import FournDoublons from '#lib/ui/FournDoublons.svelte';
   import FournFiche from '#lib/ui/FournFiche.svelte';
   import FournNouveau from '#lib/ui/FournNouveau.svelte';
@@ -121,6 +121,10 @@
         if (idOuvert === null) return false;
         void goto(`/fournisseurs/${idOuvert}`);
       },
+      f: () => {
+        if (idOuvert === null) return false;
+        void goto(`/fournisseurs/${idOuvert}`);
+      },
       Escape: () => {
         if (fiche === null) return false;
         void ouvrir(null);
@@ -149,36 +153,32 @@
 
 <svelte:head><title>Fournisseurs · GMFlow</title></svelte:head>
 
-<Volets ouvert={idOuvert !== null || nouveau} libelleListe="Fournisseurs">
+<Volets ouvert={idOuvert !== null || nouveau} libelleListe="Fournisseurs" largeur={340}>
   {#snippet liste()}
     <div class="liste-h">
-      <h1>Fournisseurs</h1>
-      {#if charge}<span class="num">{totaux.tous}</span>{/if}
-      {#if admin && societe.courante}<span class="muted petit">{nomCourtSociete(societe.courante.raison_sociale)}</span>{/if}
-      <span class="sp"></span>
+      <h1>Fournisseurs {#if charge}<span class="num">{totaux.tous}</span>{/if}</h1>
+      {#if admin && societe.courante}<span class="muted petit societe-nom">{nomCourtSociete(societe.courante.raison_sociale)}</span>{/if}
       {#if admin}
-        <a class="btn sm fantome" href="/fournisseurs?fiche=nouveau" aria-current={nouveau ? 'true' : undefined}><Icone nom="plus" />Nouveau</a>
+        <a class="btn nouveau" href="/fournisseurs?fiche=nouveau" aria-current={nouveau ? 'true' : undefined}>Nouveau</a>
       {/if}
     </div>
-    <div class="outils">
-      <label class="recherche">
-        <span class="sr">Chercher un fournisseur</span>
-        <Icone nom="chercher" />
-        <input type="search" placeholder="Nom, code BO, SIRET, TVA, domaine" bind:value={q} autocomplete="off" />
-      </label>
-      <div class="onglets" role="tablist" aria-label="Fournisseurs">
-        <button type="button" role="tab" aria-selected={onglet === 'tous'} onclick={() => (onglet = 'tous')}>
-          Tous {#if charge}<span class="num muted">{totaux.tous}</span>{/if}
+    <label class="recherche">
+      <span class="sr">Filtrer les fournisseurs</span>
+      <Icone nom="chercher" />
+      <input type="search" placeholder="Nom, code BO, SIRET, TVA, domaine" bind:value={q} autocomplete="off" />
+    </label>
+    <div class="puces" role="group" aria-label="Filtrer">
+      <button type="button" class="btn" aria-pressed={onglet === 'tous'} onclick={() => (onglet = 'tous')}>
+        Tous {#if charge}<span class="num">{totaux.tous}</span>{/if}
+      </button>
+      <button type="button" class="btn" aria-pressed={onglet === 'nouveaux'} onclick={() => (onglet = 'nouveaux')}>
+        À confirmer {#if totaux.nouveaux}<span class="num">{totaux.nouveaux}</span>{/if}
+      </button>
+      {#if admin}
+        <button type="button" class="btn" aria-pressed={onglet === 'doublons'} onclick={() => (onglet = 'doublons')}>
+          Doublons {#if totaux.doublons}<span class="num">{totaux.doublons}</span>{/if}
         </button>
-        <button type="button" role="tab" aria-selected={onglet === 'nouveaux'} onclick={() => (onglet = 'nouveaux')}>
-          À confirmer {#if totaux.nouveaux}<span class="compteur">{totaux.nouveaux}</span>{/if}
-        </button>
-        {#if admin}
-          <button type="button" role="tab" aria-selected={onglet === 'doublons'} onclick={() => (onglet = 'doublons')}>
-            Doublons {#if totaux.doublons}<span class="compteur">{totaux.doublons}</span>{/if}
-          </button>
-        {/if}
-      </div>
+      {/if}
     </div>
     <div class="liste-s" bind:this={conteneur} aria-busy={enCours}>
       {#if onglet === 'doublons'}
@@ -191,40 +191,47 @@
           }}
         />
       {:else}
-      {#if erreur}
-        <div class="marge">
+        {#if erreur}
           <Bandeau ton="erreur">
             {erreur}
             {#snippet action()}<button type="button" class="btn sm" onclick={() => charger()}>Réessayer</button>{/snippet}
           </Bandeau>
+        {:else if !charge}
+          <Chargement />
+        {/if}
+        <div class="tuiles">
+          {#each lignes as l (l.id)}
+            <a
+              class="ligne tuile"
+              href="/fournisseurs?fiche={l.id}"
+              data-id={l.id}
+              data-sveltekit-reset="false"
+              aria-current={l.id === idOuvert ? 'true' : undefined}
+              title={texteEtat(l)}
+            >
+              <div class="a">
+                {l.nom}{#if l.code_gestion}{' '}<span class="code num">{l.code_gestion}</span>{/if}
+              </div>
+              <div class="r date num">{dateCourte(l.dernier_document)}</div>
+              <div class="b">
+                <FournEtat etat={l} quoi="texte" />{#if l.groupe}<span class="groupe">{' · groupe '}{l.groupe}</span>{/if}
+              </div>
+              {#if aDesAlertes(l) || l.statut === 'a_confirmer'}
+                <div class="c">
+                  {#if l.statut === 'a_confirmer'}<span class="etiquette att">À confirmer</span>{/if}
+                  <FournEtat etat={l} quoi="etiquettes" />
+                </div>
+              {/if}
+            </a>
+          {:else}
+            {#if charge && !erreur}<Vide compact titre={titreVide} />{/if}
+          {/each}
         </div>
-      {:else if !charge}
-        <Chargement />
-      {/if}
-      {#each lignes as l (l.id)}
-        <a
-          class="ligne"
-          href="/fournisseurs?fiche={l.id}"
-          data-id={l.id}
-          data-sveltekit-reset="false"
-          aria-current={l.id === idOuvert ? 'true' : undefined}
-          title={texteEtat(l)}
-        >
-          <div class="a">
-            {l.nom}{#if l.code_gestion}{' '}<span class="code num">{l.code_gestion}</span>{/if}{#if l.groupe}{' '}<span class="code">· {l.groupe}</span>{/if}
-          </div>
-          <div class="r">{#if l.statut === 'a_confirmer'}<span class="flag w">Nouveau</span>{/if}</div>
-          <div class="b"><FournEtat etat={l} /></div>
-          <div class="r2 num">{dateCourte(l.dernier_document)}</div>
-        </a>
-      {:else}
-        {#if charge && !erreur}<Vide compact titre={titreVide} />{/if}
-      {/each}
-      {#if lignes.length < total}
-        <button type="button" class="plus" disabled={enCours} onclick={() => charger(true)}>
-          Voir <span class="num">{Math.min(PAR_PAGE, total - lignes.length)}</span> de plus (<span class="num">{total - lignes.length}</span> restants)
-        </button>
-      {/if}
+        {#if lignes.length < total}
+          <button type="button" class="plus" disabled={enCours} onclick={() => charger(true)}>
+            Voir <span class="num">{Math.min(PAR_PAGE, total - lignes.length)}</span> de plus (<span class="num">{total - lignes.length}</span> restants)
+          </button>
+        {/if}
       {/if}
     </div>
     <div class="liste-f">
@@ -240,15 +247,15 @@
         <span class="pos large-seul"><span class="num">{indice + 1}</span> sur <span class="num">{total}</span></span>
       {/if}
       <span class="sp"></span>
-      {#if idOuvert !== null}
-        <a class="btn sm fantome large-seul" href="/fournisseurs/{idOuvert}"><Icone nom="agrandir" />Plein écran</a>
-      {/if}
-      <button type="button" class="btn sm fantome large-seul" onclick={() => ouvrir(null)} aria-label="Fermer">
-        <Icone nom="fermer" /><Kbd t="Escape" />
-      </button>
+      <div class="outils-h large-seul">
+        {#if idOuvert !== null}
+          <a class="btn-h" href="/fournisseurs/{idOuvert}">Plein écran <Kbd t="F" /></a>
+        {/if}
+        <button type="button" class="btn-h" onclick={() => ouvrir(null)}>Fermer <Kbd t="Escape" /></button>
+      </div>
     </div>
     <div class="volet-b">
-      <div class="contenu-fiche">
+      <div class="contenu-fiche fourn">
         {#if nouveau}
           <FournNouveau
             oncree={(id) => {
@@ -272,56 +279,109 @@
 </Volets>
 
 <style>
-  .code {
-    color: var(--gris);
-    font-size: 0.85em;
+  .liste-h {
+    align-items: center;
   }
-  .outils {
+  .societe-nom {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nouveau {
+    height: 36px;
     flex: none;
-    display: grid;
-    gap: var(--e2);
-    padding: var(--e3) var(--e4) 0;
-    border-bottom: 1px solid var(--line);
   }
   .recherche {
-    position: relative;
-    display: block;
-  }
-  .recherche :global(svg.i) {
-    position: absolute;
-    left: 10px;
-    top: 8px;
-    color: var(--muted);
-    pointer-events: none;
-  }
-  .recherche input {
-    height: 32px;
-    padding-left: 34px;
-  }
-  .onglets {
-    display: flex;
-    gap: var(--e4);
-  }
-  .onglets button {
+    flex: none;
     display: flex;
     align-items: center;
-    gap: 6px;
-    height: 36px;
+    gap: 8px;
+    height: 40px;
+    margin: 0 4px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r2);
+    background: var(--white);
+    color: var(--muted);
+  }
+  .recherche:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .recherche input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
     padding: 0;
     border: 0;
-    border-bottom: 2px solid transparent;
-    background: none;
+    outline: none;
+    background: transparent;
+    box-shadow: none;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .tuiles {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .tuile {
+    row-gap: 4px;
+  }
+  .tuile .code {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .tuile .date {
+    font-size: 14px;
+    font-weight: 400;
     color: var(--text2);
-    font-weight: 500;
   }
-  .onglets button:hover {
+  .tuile .b {
+    font-size: 15px;
+  }
+  .tuile .c {
+    margin-top: 0;
+    gap: 4px;
+  }
+  .groupe {
+    color: var(--muted);
+  }
+  .outils-h {
+    display: flex;
+    gap: 4px;
+  }
+  .btn-h {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text2);
+    font-size: 15px;
+    text-decoration: none;
+  }
+  .btn-h:hover {
+    background: var(--pane);
     color: var(--text);
   }
-  .onglets button[aria-selected='true'] {
-    color: var(--text);
-    border-bottom-color: var(--accent);
+  .volet-h {
+    padding: 0 32px;
   }
-  .marge {
-    padding: var(--e3) var(--e4);
+  .contenu-fiche.fourn {
+    padding: 32px;
+  }
+  @media (max-width: 760px) {
+    .volet-h {
+      padding: 0 var(--e3) 0 var(--e4);
+    }
+    .contenu-fiche.fourn {
+      padding: var(--e5) var(--e4) var(--e8);
+    }
   }
 </style>

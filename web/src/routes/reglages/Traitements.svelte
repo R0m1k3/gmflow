@@ -9,6 +9,7 @@
   import Confirmation from '#lib/ui/Confirmation.svelte';
   import { quandCourt } from '#lib/ui/DocOutils.ts';
   import Etiquette from '#lib/ui/Etiquette.svelte';
+  import Icone from '#lib/ui/Icone.svelte';
 
   let vue = $state<Vue | null>(null);
   let erreur = $state('');
@@ -99,16 +100,16 @@
       <Bandeau ton="attention" titre="Claude ne lit pas en ce moment.">{vue.claude}.</Bandeau>
     {/if}
 
-    <div class="filets">
+    <div class="carte-r">
       {#each vue.etapes as e (e.cle)}
-        {@const s = ETATS[e.etat]}
-        <div class="ligne bloc fixe etape">
-          <div class="a">
-            {e.nom}
-            <Etiquette ton={s.ton} point>{s.texte}</Etiquette>
-          </div>
-          <div class="b">
-            <span class="resume">{e.resume}.</span>
+        {@const st = ETATS[e.etat]}
+        <div class="rang etape">
+          <div class="g">
+            <span class="t nom">
+              {e.nom}
+              <Etiquette ton={st.ton}>{#if st.ton === 'ok'}<Icone nom="coche" />{:else}<Icone nom="alerte" />{/if}{st.texte}</Etiquette>
+            </span>
+            <span class="s">{e.resume}.</span>
             {#if e.blocage}
               <span class="detail ko">Ne peut pas avancer : {e.blocage}.</span>
             {/if}
@@ -128,31 +129,31 @@
             {/if}
             <span class="detail">Dernier passage : {vu(e.dernier_passage)}.</span>
           </div>
-          <div class="r">
+          <div class="d">
             {#if e.relance_demandee}
               <span class="attente">Relance demandée…</span>
             {:else}
-              <button
-                type="button"
-                class="btn sm"
-                class:en-cours={occupe === e.cle}
-                disabled={!!occupe}
-                onclick={() => relancer(e)}>Relancer</button
-              >
+              <button type="button" class="btn" class:en-cours={occupe === e.cle} disabled={!!occupe} onclick={() => relancer(e)}>Relancer</button>
             {/if}
           </div>
         </div>
       {/each}
     </div>
 
-    <h3 class="sous-titre">Relire tous les documents en attente</h3>
-    <p class="aide">
-      Remet en lecture les documents en attente ou illisibles qui ne sont pas déjà dans la file. Les mails récents
-      passent avant eux, et la limite du jour compte.
-    </p>
-    <button type="button" class="btn" class:en-cours={occupe === 'tout'} disabled={!!occupe} onclick={() => (dlgTout = true)}
-      >Tout relire</button
-    >
+    <div class="carte-r">
+      <div class="rang">
+        <div class="g">
+          <span class="t">Relire tous les documents en attente</span>
+          <span class="s">
+            Remet en lecture les documents en attente ou illisibles qui ne sont pas déjà dans la file. Les mails récents passent avant
+            eux, et la limite du jour compte.
+          </span>
+        </div>
+        <div class="d">
+          <button type="button" class="btn" class:en-cours={occupe === 'tout'} disabled={!!occupe} onclick={() => (dlgTout = true)}>Tout relire</button>
+        </div>
+      </div>
+    </div>
   {/if}
 </section>
 
@@ -161,26 +162,19 @@
 </Confirmation>
 
 <style>
-  .etape .a {
+  .nom {
     display: flex;
     align-items: center;
     gap: var(--e2);
     flex-wrap: wrap;
   }
-  .etape .b {
-    white-space: normal;
-    color: var(--text);
-    font-size: 14px;
-    line-height: 21px;
-    padding-top: 2px;
-  }
-  .resume,
-  .detail {
-    display: block;
+  .etape {
+    align-items: flex-start;
   }
   .detail {
     color: var(--text2);
-    font-size: 13px;
+    font-size: 14px;
+    line-height: 1.45;
   }
   .detail.ko {
     color: var(--err-ink);
@@ -188,11 +182,6 @@
   }
   .attente {
     color: var(--text2);
-    font-size: 13px;
-  }
-  .aide {
-    color: var(--text2);
-    margin: 0 0 var(--e3);
-    max-width: 60ch;
+    font-size: 14px;
   }
 </style>

@@ -2,7 +2,8 @@
 // alertes rattachées aux champs). Le vocabulaire affiché reste dans #lib/libelles.ts.
 import { libelleType, titreAlerte } from '#lib/libelles.ts';
 import { formatMontant } from './Montant.svelte';
-import type { ChampControle, Controle, DocumentAValider, EcartLigne, FicheDocument, TypeDocument } from '#lib/types.ts';
+import { api } from '#lib/api.ts';
+import type { ChampControle, Controle, DetailRapprochement, DocumentAValider, EcartLigne, FicheDocument, TypeDocument } from '#lib/types.ts';
 
 const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
 const jourMois = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit' });
@@ -57,6 +58,24 @@ export function nomExpediteur(e: string | null | undefined): string {
   if (!e) return '';
   const m = e.match(/^\s*"?([^"<]+?)"?\s*<[^>]+>\s*$/);
   return m ? m[1] : e.trim();
+}
+
+/** Adresse d'un expéditeur : « Céline Marchal <c@x.fr> » donne « c@x.fr ». */
+export function adresseExpediteur(e: string | null | undefined): string {
+  if (!e) return '';
+  const m = e.match(/<([^>]+)>/);
+  return (m ? m[1] : e).trim();
+}
+
+/** « Facture 26037533 » : type et numéro d'une pièce, en tête de fiche ou de tuile. */
+export function typeNumero(type: TypeDocument | null | undefined, numero: string | null | undefined): string {
+  return `${libelleType(type)}${numero ? ` ${numero}` : ''}`;
+}
+
+/** Montant affiché sur une tuile : TTC, ou « — HT » quand un BL n'en porte pas. */
+export function montantTuile(l: { type: TypeDocument | null; montant_ttc: number | null }): number | 'sans' | null {
+  if (l.montant_ttc !== null) return l.montant_ttc;
+  return l.type === 'bl' ? 'sans' : null;
 }
 
 /** Montant saisi (« 1 841,76 € », « 1.841,76 », « 1841.76 ») ; null si vide, NaN si illisible. */
@@ -186,4 +205,24 @@ export function phraseEcartLigne(e: EcartLigne): { article: string; titre: strin
   }
   const detail = `${pluriel(e.qte_facture, 'facturé')}, ${pluriel(e.qte_bl, 'livré')}`;
   return { article, titre: genre === 'manquant' ? (e.qte_bl > 0 ? 'Livré en partie' : 'Manque au BL') : 'Livré, pas facturé', detail, montant };
+}
+
+// ---------- BL en attente de facture (listes) ----------
+// Les listes ne disent pas si un BL est lié à une facture : la fiche de rapprochement de chaque BL
+// affiché est lue (30 au plus, gardée une minute). À remplacer par un champ des listes côté serveur.
+const attenteBl = new Map<number, { quand: number; sans: boolean }>();
+
+/** Parmi ces BL, ceux qui n'ont pas encore de facture liée (ni « pas de correspondance attendue »). */
+export async function blSansFacture(ids: number[]): Promise<Set<number>> {
+  const maintenant = Date.now();
+  const lire = ids.slice(0, 30).filter((i) => (attenteBl.get(i)?.quand ?? 0) < maintenant - 60_000);
+  await Promise.all(
+    lire.map((i) =>
+      api
+        .get<DetailRapprochement>(`/api/documents/${i}/rapprochement`)
+        .then((r) => attenteBl.set(i, { quand: maintenant, sans: !r.ignore && r.liens.length === 0 }))
+        .catch(() => {})
+    )
+  );
+  return new Set(ids.filter((i) => attenteBl.get(i)?.sans));
 }

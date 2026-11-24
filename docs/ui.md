@@ -1,15 +1,15 @@
 # GMFlow : socle de l'interface (mode d'emploi pour les pages)
 
-Référence visuelle : `docs/maquette-b.html`. Styles : `web/src/app.css` ; composants : `web/src/lib/ui/` (import `#lib/ui/Nom.svelte`).
+Référence visuelle : `docs/maquette-sauge/` (piste « Sauge » : P3 accueil, S1 à S6 écrans, HTML + PNG). Styles : `web/src/app.css` ; composants : `web/src/lib/ui/` (import `#lib/ui/Nom.svelte`).
 
 ## Règles de mise en page
 
-- **Un écran, une tâche, un bouton principal** (`.btn.principal`, bleu tampon). Le reste : `.btn` (secondaire), `.btn.fantome` (discret), `.btn.danger`. Taille `.sm` dans les listes et en-têtes.
+- **Un écran, une tâche, un bouton principal** (`.btn.principal`, vert sauge #2D6A4F, 44 px). Le reste : `.btn` (secondaire), `.btn.fantome` (discret), `.btn.danger`. Taille `.sm` dans les listes et en-têtes.
 - **Raccourcis affichés** dans les boutons (`<Kbd t="Enter" />`) et posés avec `raccourcis()`. Masqués sur téléphone, automatiquement.
 - **Montants, numéros, dates, compteurs en mono** : `<Montant valeur={x} />` ou `<span class="num">`. Jamais `toFixed`.
 - **Filets plutôt que cartes** : listes `.ligne` séparées par des filets, sections `.sec`, blocs repliés `<Repli>`. Pas de cartes empilées, pas d'ombre, un état = une étiquette (`<Etiquette>`) : pastille saturée pour ok, à contrôler, erreur, info ; texte seul pour le neutre.
-- **Couleurs à sens unique** : bleu = action principale et sélection ; ambre = à contrôler ; rouge = bloqué ou urgent ; vert = fait. Le reste en neutres (`--text`, `--text2`, `--muted`).
-- **Contraste et lisibilité** : texte de base 14/22 px (15 px sur téléphone), rien sous 12 px. `--text` #111 (≥ 15:1), `--text2` #2e2e2b (≥ 9:1), `--muted` #474743 (≥ 7:1) sur `--white`, `--pane` et `--sunk` ; pas d'autre gris pour du texte. Contenu à lire sur blanc (listes, fiches), barre latérale et en-têtes de groupe sur `--pane` (#ebebe7), séparés par `--line` (#c8c8c2), qui sert aussi de filet entre les lignes. `--line2` (#84847e, ≥ 3:1) = bord des boutons et des champs (`--champ`). Sélection : fond `--accent-weak` + filet `--accent` de 3 px à gauche (listes, barre latérale) ; puce active pleine en bleu. Étiquettes de sens en pastille saturée (`--warn-p`/`--err-p`/`--ok-p`/`--info-p`) avec texte foncé (`*-ink`). Désactivé : `--desact` sur `--desact-bg` (5.7:1), jamais `opacity` sur du texte.
+- **Couleurs à sens unique** : vert sauge = action principale et liens ; sélection sur fond `--sunk` (#ECEFEA) ; ambre = à contrôler ; rouge = bloqué ou urgent ; vert = fait. Le reste en neutres (`--text`, `--text2`, `--muted`).
+- **Contraste et lisibilité** : police Source Sans 3, texte de base 16 px (15-14 px pour le secondaire), titres 22 px en 500. `--text` #1C2520 (15.6:1), `--text2` #46514A (8.4:1), `--muted` #5E6962 (5.8:1) sur blanc ; pas d'autre gris pour du texte. Fond de l'application, barre latérale et aperçu sur `--bg`/`--pane` (#F4F5F3), colonne de travail blanche bordée de `--line` (#DDE2DA), filets entre lignes `--line-faint` (#ECEFE9). Listes en tuiles arrondies (10 px), tuile choisie sur `--sunk` ; lien actif du menu = tuile blanche bordée. Étiquettes 14 px rayon 6 (`--warn-p`/`--ok-p` + `*-ink`). Cartes blanches rayon 16 (`.carte`), encadrés rayon 12 (`.encadre`). Désactivé : `--desact` sur `--desact-bg`, jamais `opacity` sur du texte.
 - **Vocabulaire** : tout libellé métier passe par `#lib/libelles.ts` (voir plus bas). Pas de point final sur titres, boutons, étiquettes ; pas de point d'exclamation.
 - **Racine de la page** : `<Volets>` (file + détail), `<div class="pleine">` (fiche plein écran) ou `<div class="page">` (réglages, bilan, fournisseur ; `.page.etroite` pour un formulaire).
 - Grille de 4 px : utiliser les jetons `--e1`… `--e10` (4 à 40 px), rayons `--r1/--r2/--r3` (4, 6, 8).

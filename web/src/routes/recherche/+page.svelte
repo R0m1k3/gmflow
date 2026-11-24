@@ -223,7 +223,7 @@
 
 <svelte:head><title>{params.q ? `${params.q} · Recherche` : 'Recherche'} · GMFlow</title></svelte:head>
 
-<div class="page">
+<div class="page recherche">
   <form class="cherche" role="search" onsubmit={chercher}>
     <Icone nom="chercher" />
     <input
@@ -241,7 +241,7 @@
   </form>
 
   <div class="filtres">
-    <div class="segments" role="group" aria-label="Type">
+    <div class="segments puces" role="group" aria-label="Type">
       {#each TYPES as t (t.v)}
         <button type="button" class="btn sm" aria-pressed={params.type === t.v} onclick={() => aller({ type: t.v })}>{t.l}</button>
       {/each}
@@ -306,14 +306,14 @@
               <span class="petit muted">les {g.elements.length} plus récents : précisez la recherche pour voir les autres</span>
             {/if}
           </div>
-          <div class="filets">
+          <div class="boite">
             {#each g.elements as d, i (d.id)}
               {@const e = etatDocument(d)}
               <a class="ligne" class:cur={cur === i} data-indice={i} href="/documents/{d.id}">
                 <div class="a">{d.fournisseur || d.nom_fichier}</div>
                 <div class="r">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} avoir={d.type === 'avoir'} />{/if}</div>
                 <div class="b">
-                  {libelleType(d.type)}{#if d.numero}{' '}<span class="num">{d.numero}</span>{/if}{d.societe ? `, ${nomCourtSociete(d.societe)}` : ''}
+                  <span class="quoi">{libelleType(d.type)}{#if d.numero}{' '}<span class="num">{d.numero}</span>{/if}{d.societe ? ` · ${nomCourtSociete(d.societe)}` : ''}</span>
                   <span class="etat"><Etiquette ton={e.ton}>{e.texte}</Etiquette></span>
                 </div>
                 <div class="r2"><span class="num">{jourCourt(d.date_document ?? d.recu_le)}</span></div>
@@ -333,7 +333,7 @@
               <span class="petit muted">les {g.elements.length} plus récents : précisez la recherche pour voir les autres</span>
             {/if}
           </div>
-          <div class="filets">
+          <div class="boite">
             {#each g.elements as m, i (m.id)}
               {@const k = nbDocs + i}
               <a class="ligne" class:cur={cur === k} data-indice={k} href="/mails/{m.id}" class:pub={m.categorie === 'publicite'}>
@@ -373,55 +373,56 @@
 </div>
 
 <style>
+  /* Recherche dans le langage Sauge : champ 48 px, filtres en puces, groupes à titre 22 px,
+     résultats dans un encadré blanc à anneau #DDE2DA (rayon 12), choix J/K sur fond #ECEFEA. */
+  .recherche {
+    max-width: 1120px;
+  }
   .cherche {
     position: relative;
     display: flex;
     gap: var(--e2);
     max-width: 760px;
-    margin-bottom: var(--e3);
+    margin-bottom: var(--e4);
   }
   .cherche > :global(svg.i) {
     position: absolute;
-    left: 12px;
-    top: 10px;
+    left: 16px;
+    top: 15px;
     color: var(--muted);
     pointer-events: none;
   }
   .cherche input {
-    padding-left: 36px;
+    height: 48px;
+    padding-left: 44px;
+    font-size: 17px;
+    border-radius: var(--r2);
+  }
+  .cherche .btn {
+    height: 48px;
   }
   .filtres {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--e2);
-    margin-bottom: var(--e3);
-  }
-  .segments {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--e1);
-  }
-  .segments .btn[aria-pressed='true'] {
-    background: var(--accent-weak);
-    border-color: var(--accent);
-    color: var(--accent-ink);
+    gap: var(--e2) var(--e3);
+    margin-bottom: var(--e4);
   }
   .periode {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--e2);
     color: var(--text2);
-    font-size: 12px;
+    font-size: 15px;
   }
   .periode input {
     width: auto;
-    height: 28px;
-    font-size: 12px;
+    height: 36px;
+    font-size: 15px;
   }
   .compris {
-    margin-bottom: var(--e5);
-    font-size: 12px;
+    margin: 0 0 var(--e8);
+    font-size: 15px;
     max-width: none;
   }
   .compris b {
@@ -433,27 +434,54 @@
     transition: opacity var(--moyen) var(--ease);
   }
   .groupe {
-    margin-bottom: var(--e8);
+    margin-bottom: var(--e10);
   }
   .groupe-h {
     display: flex;
     align-items: baseline;
-    gap: var(--e2);
-    margin-bottom: var(--e2);
+    flex-wrap: wrap;
+    gap: var(--e2) var(--e3);
+    margin-bottom: var(--e4);
   }
   .groupe-h h2 {
-    font-size: 14px;
+    font-size: 22px;
+    font-weight: 500;
   }
-  /* sélection J/K : les filets retirent le bord gauche de .ligne.cur, on le remet */
-  .filets > .ligne.cur {
-    box-shadow: inset 2px 0 0 var(--accent);
+  .groupe-h > .num {
+    font-size: 18px;
+  }
+  .groupe-h .petit {
+    font-size: 15px;
+  }
+  .boite {
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+    background: var(--white);
+    overflow: hidden;
+  }
+  .boite > .ligne {
+    padding: 14px var(--e5);
+    border-radius: 0;
+    border-bottom: 1px solid var(--line-faint);
+  }
+  .boite > .ligne:last-child {
+    border-bottom: 0;
+  }
+  .boite > .ligne .b,
+  .boite > .ligne .r2 {
+    font-size: 15px;
+  }
+  .ligne .quoi {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .ligne .etat {
-    margin-left: var(--e2);
+    margin-left: var(--e1);
   }
   .ligne .cat {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 400;
   }
   .ligne.pub .a {
     color: var(--text2);
@@ -468,14 +496,17 @@
     vertical-align: -3px;
   }
   .pj :global(svg.i) {
-    width: 13px;
-    height: 13px;
+    width: 15px;
+    height: 15px;
+  }
+  .groupe :global(.plus) {
+    margin-top: var(--e3);
   }
   .touches-aide {
     display: flex;
-    gap: var(--e4);
+    gap: var(--e5);
     color: var(--muted);
-    font-size: 12px;
+    font-size: 15px;
   }
   .touches-aide span {
     display: flex;
@@ -496,6 +527,18 @@
     }
     .periode input {
       height: 40px;
+    }
+    .compris {
+      margin-bottom: var(--e6);
+    }
+    .groupe {
+      margin-bottom: var(--e8);
+    }
+    .groupe-h h2 {
+      font-size: 20px;
+    }
+    .boite > .ligne {
+      padding: 12px var(--e4);
     }
   }
 </style>

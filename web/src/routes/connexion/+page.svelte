@@ -36,22 +36,65 @@
 
 <div class="accueil">
   <div class="logo"><span class="marque" aria-hidden="true"></span>GMFlow</div>
-  <h1>Se connecter</h1>
-  <p class="t2">Factures, BL et mails des fournisseurs, au même endroit.</p>
+  <div class="carte-seule">
+    <h1>Se connecter</h1>
+    <p>Factures, BL et mails des fournisseurs, au même endroit.</p>
 
-  {#if erreur}<Bandeau ton="erreur" titre={erreur.titre}>{erreur.texte}</Bandeau>{/if}
+    {#if erreur}<Bandeau ton="erreur" titre={erreur.titre}>{erreur.texte}</Bandeau>{/if}
 
-  <form onsubmit={connecter}>
-    <Champ libelle="Identifiant" bind:valeur={identifiant} requis autocomplete="username" />
-    <Champ libelle="Mot de passe" type="password" bind:valeur={motDePasse} requis autocomplete="current-password" />
-    <button class="btn principal plein" class:en-cours={envoi} disabled={envoi}>Se connecter</button>
-  </form>
-  <p class="petit muted pied">Mot de passe oublié : demandez à un administrateur de GMFlow.</p>
+    <form onsubmit={connecter}>
+      <Champ libelle="Identifiant" bind:valeur={identifiant} requis autocomplete="username" />
+      <Champ libelle="Mot de passe" type="password" bind:valeur={motDePasse} requis autocomplete="current-password" />
+      <button class="btn principal plein" class:en-cours={envoi} disabled={envoi}>Se connecter</button>
+    </form>
+  </div>
+  <p class="pied">Mot de passe oublié : demandez à un administrateur de GMFlow.</p>
 </div>
 
 <style>
-  /* Écran seul, centré (le cadre <main class="seul"> limite déjà la largeur). */
+  /* Écran seul (Sauge) : logo, puis une carte blanche (rayon 16, anneau #DDE2DA) sur le fond sauge. */
+  .carte-seule {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+    padding: var(--e8) var(--e6);
+    background: var(--white);
+    border-radius: var(--r-carte);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 0 0 1px var(--line);
+  }
+  .carte-seule h1 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 500;
+    line-height: 1.2;
+  }
+  .carte-seule > p {
+    margin: calc(-1 * var(--e2)) 0 var(--e2);
+    font-size: 16px;
+    color: var(--text2);
+    text-wrap: pretty;
+  }
+  .carte-seule :global(.bandeau) {
+    margin: 0;
+  }
+  .carte-seule :global(.btn.plein) {
+    width: 100%;
+    height: 48px;
+    font-size: 16px;
+  }
+  .carte-seule form :global(.btn.plein) {
+    margin-top: var(--e2);
+  }
   .pied {
-    margin-top: var(--e5);
+    margin: var(--e5) var(--e2) 0;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  @media (max-width: 420px) {
+    .carte-seule {
+      padding: var(--e6) var(--e5);
+    }
   }
 </style>

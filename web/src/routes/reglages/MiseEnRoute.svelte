@@ -1,5 +1,6 @@
 <script lang="ts">
-  // Mise en route : les 5 étapes de GET /api/admin/mise-en-route, la première à faire ouverte.
+  // Mise en route : bandeau d'une phrase (étapes faites, ce qui manque, « Continuer »), puis le
+  // détail des 5 étapes de GET /api/admin/mise-en-route, replié, la première à faire ouverte.
   import { RUBRIQUES, nomCourtSociete } from '#lib/libelles.ts';
   import type { Boite, CleEtape, MiseEnRoute, Societe } from '#lib/types.ts';
   import Icone from '#lib/ui/Icone.svelte';
@@ -10,13 +11,15 @@
     boites,
     societes,
     agir,
-    aller
+    aller,
+    ouvert = $bindable(false)
   }: {
     etat: MiseEnRoute | null;
     boites: Boite[];
     societes: Societe[];
     agir: (cle: CleEtape) => void;
     aller: (id: string) => void;
+    ouvert?: boolean;
   } = $props();
 
   const ETAPES: Record<CleEtape, { titre: string; but: string; action: string }> = {
@@ -47,6 +50,15 @@
     ouverte = ouverte === cle ? null : cle;
   }
 
+  let faites = $derived(etat ? etat.etapes.filter((e) => e.fait).length : 0);
+  let suivante = $derived(etat?.etapes.find((e) => !e.fait) ?? null);
+  // « Il manque … » : le premier manque de la première étape à faire, sinon son but.
+  let manque = $derived.by(() => {
+    if (!suivante) return '';
+    const m = suivante.manques[0] ?? suivante.resume ?? ETAPES[suivante.cle].but;
+    return m ? `${m.replace(/[.\s]+$/, '')}.` : '';
+  });
+
   let restantes = $derived(etat ? etat.etapes.filter((e) => !e.fait).length : 0);
   let lead = $derived.by(() => {
     if (!etat) return '';
@@ -64,10 +76,29 @@
   }
 </script>
 
-<section class="mer" id="mise-en-route">
-  <h2>Mise en route</h2>
+<section class="mer" id="mise-en-route" aria-label="Mise en route">
   {#if etat}
-    <p class="lead">{lead}</p>
+    <div class="bandeau-mer" class:fini={etat.terminee}>
+      <Icone nom="drapeau" />
+      <span class="phrase">
+        {#if etat.terminee}
+          <b>Mise en route terminée.</b> Les factures arrivent, sont lues et partent vers Dext / Yooz.
+        {:else}
+          <b>Mise en route : {faites} {faites > 1 ? 'étapes' : 'étape'} sur {etat.etapes.length}.</b> {manque}
+        {/if}
+      </span>
+      <span class="actions-mer">
+        <button type="button" class="lien-mer" aria-expanded={ouvert} aria-controls="etapes-mer" onclick={() => (ouvert = !ouvert)}>
+          {ouvert ? 'Masquer les étapes' : 'Voir les étapes'}
+        </button>
+        {#if suivante}
+          <button type="button" class="lien-mer fort" onclick={() => suivante && agir(suivante.cle)}>Continuer</button>
+        {/if}
+      </span>
+    </div>
+    {#if ouvert}
+      <div class="detail-mer" id="etapes-mer">
+        <p class="lead">{lead}</p>
     <div class="prog" aria-hidden="true">
       {#each etat.etapes as e (e.cle)}<i class:d={e.fait} class:c={!e.fait && e.cle === premiere}></i>{/each}
     </div>
@@ -118,12 +149,80 @@
         </li>
       {/each}
     </ol>
+        </div>
+    {/if}
   {:else}
     <p class="lead">État de la mise en route indisponible : les sections ci-dessous restent utilisables.</p>
   {/if}
 </section>
 
 <style>
+  .mer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+    scroll-margin-top: var(--e6);
+  }
+  .mer > .lead {
+    margin: 0;
+  }
+  /* Bandeau ambre de la maquette : drapeau, une phrase, « Continuer ». */
+  .bandeau-mer {
+    display: flex;
+    align-items: center;
+    gap: var(--e4);
+    padding: var(--e4) var(--e5);
+    border-radius: var(--r3);
+    background: var(--warn-bg);
+    color: var(--warn-ink);
+    flex-wrap: wrap;
+  }
+  .bandeau-mer.fini {
+    background: var(--ok-bg);
+    color: var(--ok-ink);
+  }
+  .bandeau-mer > :global(svg.i) {
+    flex: none;
+  }
+  .bandeau-mer .phrase {
+    flex: 1 1 320px;
+    min-width: 0;
+  }
+  .bandeau-mer b {
+    font-weight: 500;
+  }
+  .actions-mer {
+    display: flex;
+    align-items: center;
+    gap: var(--e5);
+    margin-left: auto;
+  }
+  .lien-mer {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 15px;
+    color: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .lien-mer.fort {
+    font-size: 16px;
+    font-weight: 500;
+  }
+  .lien-mer:hover {
+    text-decoration: underline;
+  }
+  .detail-mer {
+    padding: var(--e5);
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .detail-mer .lead {
+    margin: 0 0 var(--e4);
+    color: var(--text2);
+  }
   .prog {
     display: flex;
     gap: var(--e1);
@@ -136,27 +235,26 @@
     background: var(--line);
   }
   .prog i.d {
-    background: var(--black);
+    background: var(--accent);
   }
   .prog i.c {
-    background: var(--accent);
+    background: var(--warn-line);
   }
   .steps {
     list-style: none;
     margin: 0;
     padding: 0;
-    border-top: 1px solid var(--line);
   }
-  .step {
-    border-bottom: 1px solid var(--line);
+  .step + .step {
+    border-top: 1px solid var(--line-faint);
   }
   .step-h {
     display: grid;
     grid-template-columns: 32px 1fr auto;
     align-items: center;
     gap: var(--e3);
-    min-height: 52px;
-    padding: 6px 0;
+    min-height: 56px;
+    padding: var(--e2) 0;
     width: 100%;
   }
   button.step-h {
@@ -165,47 +263,49 @@
     text-align: left;
     font: inherit;
     color: inherit;
+    cursor: pointer;
   }
   button.step-h:hover h3 {
     color: var(--accent-ink);
   }
   .step-h h3 {
     margin: 0;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 500;
   }
   .step-h p {
     margin: 0;
     color: var(--text2);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: 14px;
+    line-height: 1.45;
   }
   .step-h .st {
-    font-size: 12px;
+    font-size: 14px;
     color: var(--muted);
   }
   .step.open .step-h .st {
     color: var(--accent-ink);
   }
   .step-b {
-    padding: 0 0 var(--e6) 44px;
+    padding: 0 0 var(--e5) 44px;
   }
   .boxes {
     margin: 0 0 var(--e4);
-    border: 1px solid var(--line);
-    border-radius: var(--r2);
-    background: var(--white);
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--line);
+    overflow: hidden;
   }
   .boxes a {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px var(--e3);
+    padding: var(--e3) var(--e4);
     color: inherit;
     text-decoration: none;
+    flex-wrap: wrap;
   }
   .boxes a + a {
-    border-top: 1px solid var(--line);
+    border-top: 1px solid var(--line-faint);
   }
   .boxes a:hover {
     background: var(--pane);
@@ -228,14 +328,22 @@
     align-items: flex-start;
     gap: var(--e2);
     padding: 3px 0;
+    font-size: 15px;
     color: var(--warn);
   }
   .manques li :global(svg.i) {
-    margin-top: 2px;
+    margin-top: 3px;
+    flex: none;
   }
   @media (max-width: 760px) {
     .step-b {
       padding-left: 0;
+    }
+    .detail-mer {
+      padding: var(--e4);
+    }
+    .bandeau-mer {
+      padding: var(--e4);
     }
   }
 </style>

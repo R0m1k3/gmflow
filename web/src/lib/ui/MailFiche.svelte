@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  // Fiche mail (maquette B, écran 3) : le mail et ses pièces à gauche, la réponse à droite.
+  // Fiche mail (maquette Sauge S2) : le mail et ses pièces au centre, la colonne « Réponse » à droite.
   // Utilisée par /mails/[id] ; peut aussi s'ouvrir dans le volet de droite de À traiter
   // (`ouvrir` dit où aller après un envoi ou un classement).
 
@@ -26,6 +26,39 @@
     const m = e.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
     if (m) return m[1].trim() || m[2].trim();
     return e.trim();
+  }
+
+  /** Adresse seule : « Céline Marchal <c.marchal@arc-france.fr> » devient « c.marchal@arc-france.fr ». */
+  export function adresseExpediteur(e: string | null | undefined): string {
+    if (!e) return '';
+    return (e.match(/<([^>]+)>/)?.[1] ?? e).trim();
+  }
+
+  const GENERIQUES = /^(no-?reply|ne-?pas-?repondre|contact|info|infos|compta|comptabilite|facturation|factures?|service|admin|commercial|ventes?|news|newsletter|bonjour|hello)$/i;
+  const majuscules = (t: string) => t.replace(/(^|[\s-])(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase());
+
+  /** Nom lisible d'un expéditeur pour les listes : le nom affiché, sinon tiré de l'adresse
+   *  (« betty.pecqueur@… » → « Betty Pecqueur », « contact@lidis.fr » → « Lidis »). */
+  export function nomLisible(e: string | null | undefined): string {
+    const nom = nomExpediteur(e);
+    if (!nom.includes('@')) return nom;
+    const [local, domaine = ''] = nom.toLowerCase().split('@');
+    const mots = local.split(/[._]+/).filter((x) => /^\p{L}[\p{L}-]+$/u.test(x));
+    if (mots.length >= 2 && !GENERIQUES.test(mots[0])) return majuscules(mots.join(' '));
+    const d = domaine.split('.').slice(-2, -1)[0];
+    return d ? majuscules(d.replace(/[-_]+/g, ' ')) : nom;
+  }
+
+  /** « aujourd’hui à 14:38 », « hier à 17:02 », « 14/11 à 08:57 », « 14/11/25 à 08:57 ». */
+  export function dateLongue(iso: string | null | undefined): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const k = cleJour.format(d);
+    const h = heure.format(d);
+    if (k === cleJour.format(new Date())) return `aujourd’hui à ${h}`;
+    if (k === cleJour.format(new Date(Date.now() - 86_400_000))) return `hier à ${h}`;
+    if (k.slice(0, 4) === cleJour.format(new Date()).slice(0, 4)) return `${jourMois.format(d)} à ${h}`;
+    return `${jourMoisAn.format(d)} à ${h}`;
   }
 
   /** Paragraphes du corps, et la partie citée (réponse précédente) à part. */
@@ -383,13 +416,9 @@
     confirmationOuverte = true;
   }
 
-  /** Envoi en un clic (parcours B) ; confirmation seulement s'il reste un « [à compléter] ». */
+  /** Envoi toujours confirmé (règle de Michael, 2026-11-22) ; « [à compléter] » restant signalé en rouge. */
   function demanderEnvoi() {
     if (!peutEnvoyer || !actif) return;
-    if (!aCompleter) {
-      void envoyer();
-      return;
-    }
     const reste = aCompleter
       ? ` Attention : ${aCompleter === 1 ? 'un passage « [à compléter] » reste' : `${aCompleter} passages « [à compléter] » restent`} dans le texte.`
       : '';
@@ -481,12 +510,15 @@
     /\.(pdf|xlsx|xlsm|xls|ods|csv)$/i.test(p.nom);
   let pieceOuverte = $state<number | null>(null);
   let pieceVue = $derived(m?.pieces.find((p) => p.id === pieceOuverte) ?? null);
-  // Un autre mail : la première pièce qui a un aperçu s'ouvre.
+  /** Pièce lue comme facture, avoir ou BL (les autres sont « écartées »). */
+  const utile = (p: FicheMail['pieces'][number]) =>
+    p.document_etat === 'lu' && (p.document_type === 'facture' || p.document_type === 'avoir' || p.document_type === 'bl');
+  // Un autre mail : la première facture, avoir ou BL qui a un aperçu s'ouvre (pas les logos de signature).
   let dernierMail = 0;
   $effect(() => {
     if (!m || m.id === dernierMail) return;
     dernierMail = m.id;
-    pieceOuverte = m.pieces.find(apercable)?.id ?? null;
+    pieceOuverte = m.pieces.find((p) => utile(p) && apercable(p))?.id ?? null;
   });
 
   // ---------- Ne concerne pas cette société ----------
@@ -551,38 +583,84 @@
     return { texte: avec('lu'), ton: 'neutre' };
   }
 
+  /** « betty.pecqueur@lafoirfouille.fr, aujourd’hui à 14:38 » */
   let meta = $derived.by(() => {
     if (!m) return '';
-    const morceaux = [m.fournisseur ?? (nomExpediteur(m.expediteur) || 'Expéditeur inconnu')];
-    const boites = adressesDuMail.join(', ');
-    if (boites) morceaux.push(`à ${boites}${societesDuMail.length ? ` (${societesDuMail.join(', ')})` : ''}`);
-    if (m.date_mail) morceaux.push(dateMail(m.date_mail));
-    return morceaux.join(', ');
+    const de = adresseExpediteur(m.expediteur) || 'Expéditeur inconnu';
+    return m.date_mail ? `${de}, ${dateLongue(m.date_mail)}` : de;
   });
 
   let etatTri = $derived.by(() => {
     if (!m) return '';
     if (m.categorie) return `${libelleCategorie(m.categorie)}${m.categorie_par ? `, ${libelleTriePar(m.categorie_par)}` : ''}`;
     if (m.tri_etat === 'erreur') return 'Tri en erreur';
-    if (m.tri_etat === 'a_trier' || m.tri_etat === 'en_cours') return 'Pas encore trié';
     return 'Pas encore trié';
   });
 
+  /** Ce que dit l'encadré « En une phrase » quand Claude n'a pas encore résumé le mail. */
+  let sansResume = $derived.by(() => {
+    if (!m) return '';
+    if (m.tri_etat === 'erreur') return 'Le tri de ce mail a échoué : pas de résumé.';
+    if (m.tri_etat === 'a_trier' || m.tri_etat === 'en_cours' || !m.tri_etat) return 'Claude n’a pas encore lu ce mail.';
+    return 'Pas de résumé pour ce mail.';
+  });
+
+  /** « 3 pièces jointes » + « écartées, aucune n’est une facture » ou « : 1 facture, 2 écartées ». */
+  let piecesTitre = $derived.by(() => {
+    if (!m || !m.pieces.length) return { n: '', suite: '' };
+    const ps = m.pieces;
+    const n = `${ps.length} pièce${ps.length > 1 ? 's' : ''} jointe${ps.length > 1 ? 's' : ''}`;
+    const compte = (f: (p: FicheMail['pieces'][number]) => boolean) => ps.filter(f).length;
+    const factures = compte((p) => utile(p) && p.document_type === 'facture');
+    const avoirs = compte((p) => utile(p) && p.document_type === 'avoir');
+    const bls = compte((p) => utile(p) && p.document_type === 'bl');
+    const enLecture = compte((p) => p.document_etat === 'a_lire' || p.document_etat === 'en_cours');
+    const erreurs = compte((p) => p.document_etat === 'erreur');
+    const ecartees = ps.length - factures - avoirs - bls - enLecture - erreurs;
+    if (ecartees === ps.length)
+      return { n, suite: ps.length > 1 ? 'écartées, aucune n’est une facture' : 'écartée, ce n’est pas une facture' };
+    const pl = (k: number, un: string, plusieurs = `${un}s`) => (k ? [`${k} ${k > 1 ? plusieurs : un}`] : []);
+    const morceaux = [
+      ...pl(factures, 'facture'),
+      ...pl(avoirs, 'avoir'),
+      ...pl(bls, 'BL', 'BL'),
+      ...pl(enLecture, 'en lecture', 'en lecture'),
+      ...pl(erreurs, 'en erreur', 'en erreur'),
+      ...pl(ecartees, 'écartée')
+    ];
+    return { n, suite: `: ${morceaux.join(', ')}` };
+  });
+
+  /** Fiche document du lien « Ouvrir la fiche du document » : la pièce ouverte, sinon la première lue. */
+  let documentLien = $derived(
+    pieceVue?.document_id ?? m?.pieces.find(utile)?.document_id ?? m?.pieces.find((p) => p.document_id)?.document_id ?? null
+  );
+
+  let etatReponse = $derived.by(() => {
+    if (!m) return '';
+    if (m.statut_reponse === 'a_repondre') return 'Réponse attendue, pas encore écrite';
+    if (m.statut_reponse === 'repondu') return 'Déjà répondu';
+    if (m.statut_reponse === 'sans_suite') return 'Classé : pas besoin de réponse';
+    return 'Pas de réponse attendue pour ce mail';
+  });
+
   let boiteBrouillon = $derived(actif?.boite_adresse ?? m?.boites.find((b) => String(b.boite_id) === boiteEnvoi)?.adresse ?? '');
+  /** Barre du haut : retour (Échap) en page pleine ; en volet, seulement la position dans À répondre (ou le retour sur téléphone). */
+  let avecPosition = $derived(indiceFile >= 0 && !!file);
 </script>
 
-<div class="volet-h">
+<div class="volet-h" class:tel-seul={volet && !avecPosition}>
   {#if volet}
     <a class="retour tel-seul" href={retour.href}><Icone nom="gauche" />{retour.libelle}</a>
   {:else}
     <a class="retour" href={retour.href}><Icone nom="gauche" />{retour.libelle}<Kbd t="Escape" /></a>
   {/if}
-  {#if indiceFile >= 0 && file}
+  {#if avecPosition && file}
     {#if !volet}<span class="vsep"></span>{/if}
     <span class="pos">À répondre <span class="num">{indiceFile + 1}</span> sur <span class="num">{file.length}</span></span>
   {/if}
   <span class="sp"></span>
-  {#if indiceFile >= 0 && file}
+  {#if avecPosition && file}
     <button type="button" class="btn sm fantome" aria-label="Mail précédent" disabled={indiceFile <= 0} onclick={() => voisin(-1)}>
       <Icone nom="haut" /><Kbd t="K" />
     </button>
@@ -602,20 +680,22 @@
 {:else if !m}
   <Chargement texte="Ouverture du mail" />
 {:else}
-  <div class="mail-b">
+  <div class="mail-b" class:redaction={!!actif}>
     <!-- ======== le mail ======== -->
-    <section class="mail-l" aria-label="Mail reçu">
+    <article class="mail-l" aria-label="Mail reçu">
       {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
       {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
 
-      <div class="titre-fiche"><h1>{m.objet || '(sans objet)'}</h1></div>
-      <div class="meta-fiche">
-        {meta}
-        {#if m.priorite === 'haute' && aRepondre}<span class="urgent">{libellePriorite(m.priorite)}</span>{/if}
-        {#if !masque}
-          <button type="button" class="btn sm fantome masquer" onclick={() => (dlgMasquer = true)}><Icone nom="fermer" />{libelleMasque}</button>
-        {/if}
-      </div>
+      <header class="tete">
+        <h1>{m.objet || '(sans objet)'}</h1>
+        <div class="meta">
+          <span>{meta}</span>
+          {#if m.priorite === 'haute' && aRepondre}<span class="urgent">{libellePriorite(m.priorite)}</span>{/if}
+          {#if !masque}
+            <button type="button" class="masquer" onclick={() => (dlgMasquer = true)}><Icone nom="fermer" />{libelleMasque}</button>
+          {/if}
+        </div>
+      </header>
       {#if masque}
         <Bandeau titre="Mail masqué.">
           Il n’apparaît plus dans les listes{societeMasque ? ` de ${nomCourtSociete(societeMasque.raison_sociale)}` : ''}{masque.documents
@@ -625,83 +705,86 @@
         </Bandeau>
       {/if}
 
-      {#if m.resume}
-        <div class="resume"><div class="lab">En une phrase</div><p>{m.resume}</p></div>
-      {/if}
+      <section class="phrase" aria-label="En une phrase">
+        <span class="lab">En une phrase</span>
+        {#if m.resume}<p>{m.resume}</p>{:else}<p class="sans">{sansResume}</p>{/if}
+        <div class="classe">
+          <span class="cl">
+            {#if m.categorie}
+              <span>Classé en <b>{libelleCategorie(m.categorie)}</b>{m.categorie_par ? ` ${libelleTriePar(m.categorie_par)}` : ''}</span>
+            {:else}
+              <span>{etatTri}</span>
+            {/if}
+            {#if m.statut_reponse}<Etiquette ton={tonStatutReponse(m.statut_reponse)}>{libelleStatutReponse(m.statut_reponse)}</Etiquette>{/if}
+          </span>
+          <span class="boutons">
+            {#if aRepondre}
+              <span class="mal">Mal trié ?</span>
+              <button type="button" class="btn" class:en-cours={occupe === 'statut:sans_suite'} disabled={!!occupe} onclick={() => changerStatut('sans_suite', 'Classé : pas besoin de réponse.')}>
+                {ACTIONS_REPONSE.sansSuite}
+              </button>
+              <button type="button" class="btn" class:en-cours={occupe === 'categorie:information'} disabled={!!occupe} onclick={() => classer('information', 'Classé en Information : le tri s’en souviendra.')}>
+                Information
+              </button>
+              <button type="button" class="btn" class:en-cours={occupe === 'categorie:publicite'} disabled={!!occupe} onclick={() => classer('publicite', 'Classé en Publicité : le tri s’en souviendra.')}>
+                Publicité
+              </button>
+              {#if m.categorie === 'question' && m.categorie_par !== 'humain'}
+                <button type="button" class="btn" class:en-cours={occupe === 'categorie:question'} disabled={!!occupe} onclick={() => classer('question', 'Question confirmée : le tri s’en souviendra.')}>
+                  Vraie question
+                </button>
+              {:else if m.categorie_par === 'humain'}
+                <span class="mal">Question confirmée</span>
+              {/if}
+            {:else if m.statut_reponse === 'repondu' || m.statut_reponse === 'sans_suite' || (m.categorie === 'question' && !m.statut_reponse)}
+              <button type="button" class="btn" disabled={!!occupe} class:en-cours={occupe === 'statut:a_repondre'} onclick={() => changerStatut('a_repondre', 'Remis dans À répondre.')}>
+                Remettre à répondre
+              </button>
+            {:else if m.categorie !== 'question'}
+              <button type="button" class="btn" disabled={!!occupe} class:en-cours={occupe === 'categorie:question'} onclick={() => classer('question', 'Classé en Question : ajouté à À répondre.')}>
+                C’est une question
+              </button>
+            {/if}
+          </span>
+        </div>
+      </section>
 
-      <div class="tri">
-        {#if aRepondre}
-          <span>Mal trié ?</span>
-          <button type="button" class="btn sm" class:en-cours={occupe === 'statut:sans_suite'} disabled={!!occupe} onclick={() => changerStatut('sans_suite', 'Classé : pas besoin de réponse.')}>
-            {ACTIONS_REPONSE.sansSuite}
-          </button>
-          <button type="button" class="btn sm" class:en-cours={occupe === 'categorie:information'} disabled={!!occupe} onclick={() => classer('information', 'Classé en Information : le tri s’en souviendra.')}>
-            Information
-          </button>
-          <button type="button" class="btn sm" class:en-cours={occupe === 'categorie:publicite'} disabled={!!occupe} onclick={() => classer('publicite', 'Classé en Publicité : le tri s’en souviendra.')}>
-            Publicité
-          </button>
-          {#if m.categorie === 'question' && m.categorie_par !== 'humain'}
-            <button type="button" class="btn sm fantome droite" class:en-cours={occupe === 'categorie:question'} disabled={!!occupe} onclick={() => classer('question', 'Question confirmée : le tri s’en souviendra.')}>
-              Vraie question
-            </button>
-          {:else if m.categorie_par === 'humain'}
-            <span class="droite">Question confirmée</span>
-          {/if}
-        {:else}
-          <span>{etatTri}</span>
-          {#if m.statut_reponse}
-            <Etiquette ton={tonStatutReponse(m.statut_reponse)}>{libelleStatutReponse(m.statut_reponse)}</Etiquette>
-          {/if}
-          <span class="sp"></span>
-          {#if m.statut_reponse === 'repondu' || m.statut_reponse === 'sans_suite' || (m.categorie === 'question' && !m.statut_reponse)}
-            <button type="button" class="btn sm" disabled={!!occupe} class:en-cours={occupe === 'statut:a_repondre'} onclick={() => changerStatut('a_repondre', 'Remis dans À répondre.')}>
-              Remettre à répondre
-            </button>
-          {:else if m.categorie !== 'question'}
-            <button type="button" class="btn sm" disabled={!!occupe} class:en-cours={occupe === 'categorie:question'} onclick={() => classer('question', 'Classé en Question : ajouté à À répondre.')}>
-              C’est une question
-            </button>
-          {/if}
-        {/if}
-      </div>
-
-      <div class="from">
-        <span>De</span><span>{m.expediteur || '—'}</span>
-        <span>À</span><span>{m.destinataires.join(', ') || '—'}</span>
-        <span>Objet</span><span>{m.objet || '(sans objet)'}</span>
-        <span>Reçu</span><span>{adressesDuMail.join(', ')}{societesDuMail.length ? `, ${societesDuMail.join(', ')}` : ''}</span>
-      </div>
+      <dl class="entetes">
+        <div><dt>De</dt><dd title={m.expediteur}>{adresseExpediteur(m.expediteur) || '—'}</dd></div>
+        <div><dt>À</dt><dd>{m.destinataires.join(', ') || '—'}</dd></div>
+        <div><dt>Reçu</dt><dd>{[...adressesDuMail, ...societesDuMail].join(', ') || '—'}</dd></div>
+      </dl>
 
       {#if m.pieces.length}
-        <div class="pj">
+        <section class="pieces" aria-label="Pièces jointes">
+          <div class="pieces-h">
+            <h3>{piecesTitre.n} <span>{piecesTitre.suite}</span></h3>
+            {#if documentLien}<a class="lien-doc" href="/documents/{documentLien}">Ouvrir la fiche du document</a>{/if}
+          </div>
           <div class="pj-liste">
             {#each m.pieces as p (p.id)}
               {@const e = etatPiece(p)}
+              {@const detaillee = utile(p) || p.document_etat === 'a_lire' || p.document_etat === 'en_cours' || p.document_etat === 'erreur'}
               <button
                 type="button"
-                class="pj-carte"
+                class="pj"
+                class:detaillee
                 aria-pressed={p.id === pieceOuverte}
-                title={apercable(p) ? 'Afficher l’aperçu' : 'Pas d’aperçu : téléchargez le fichier'}
+                title="{e.texte}. {apercable(p) ? 'Afficher l’aperçu' : 'Pas d’aperçu : téléchargez le fichier'}"
                 onclick={() => (pieceOuverte = p.id === pieceOuverte ? null : p.id)}
               >
-                <Icone nom={p.document_id ? 'fichier' : 'trombone'} />
-                <span class="pj-t">
-                  <span class="nom">{p.nom}</span>
-                  <span class="t2 etat-{e.ton}">{e.texte}</span>
-                </span>
+                {#if detaillee}<Icone nom="fichier" />{/if}
+                <span class="nom">{p.nom}</span>
+                {#if detaillee}<span class="etat etat-{e.ton}">{e.texte}</span>{/if}
               </button>
             {/each}
           </div>
           {#if pieceVue}
             <div class="pj-apercu">
-              {#if pieceVue.document_id}
-                <a class="pj-fiche" href="/documents/{pieceVue.document_id}"><Icone nom="fichier" />Ouvrir la fiche du document</a>
-              {/if}
               <ApercuPiece id={pieceVue.id} typeMime={pieceVue.type_mime} nom={pieceVue.nom} />
             </div>
           {/if}
-        </div>
+        </section>
       {/if}
 
       <div class="mailtext">
@@ -755,24 +838,20 @@
         </Repli>
         <Repli icone="info" titre="Détails techniques">
           <div class="from details">
+            <span>Expéditeur</span><span>{m.expediteur || '—'}</span>
             <span>Message-ID</span><span class="num">{m.message_id}</span>
             {#each m.boites as b (b.boite_id)}<span>Boîte</span><span>{b.adresse}{b.libelle !== b.adresse ? ` (${b.libelle})` : ''}, dossier {b.dossier}</span>{/each}
             {#each m.pieces as p (p.id)}<span>Pièce</span><span>{p.nom} <span class="muted">({p.type_mime}, {taille(p.taille)})</span></span>{/each}
           </div>
         </Repli>
       </div>
-    </section>
+    </article>
 
     <!-- ======== la réponse ======== -->
-    <section class="mail-r" aria-label="Réponse">
+    <aside class="mail-r" aria-label="Réponse">
+      <h2>Réponse</h2>
       {#if actif && editable}
-        <div class="rep-h">
-          <h2>{actif.statut === 'modifie' || modifieIci ? 'Réponse proposée, modifiée' : 'Réponse proposée'}</h2>
-          <span class="muted">à relire</span>
-          <span class="sp"></span>
-          <button type="button" class="btn sm fantome" disabled={!!occupe} class:en-cours={occupe === 'proposer'} onclick={demanderAutre}>{ACTIONS_REPONSE.autre}</button>
-          <button type="button" class="btn sm fantome" disabled={!!occupe} onclick={demanderEffacer}>{ACTIONS_REPONSE.effacer}</button>
-        </div>
+        <p class="etat-rep">{actif.statut === 'modifie' || modifieIci ? 'Proposée par Claude, modifiée' : 'Proposée par Claude, à relire'}</p>
         {#if actif.erreur}<Bandeau ton={actif.erreur.includes('envoi') ? 'erreur' : 'attention'} titre={actif.erreur.includes('envoi') ? 'L’envoi n’est pas parti.' : undefined}>{actif.erreur}</Bandeau>{/if}
         <textarea
           class="editeur"
@@ -788,69 +867,63 @@
         {#if !actif.smtp}
           <div class="rep-n"><Icone nom="alerte" />Envoi impossible : le serveur d’envoi de {actif.boite_adresse} n’est pas configuré (Réglages, Boîtes mail)</div>
         {/if}
-        <div class="rep-f">
-          <button type="button" class="btn principal" class:en-cours={occupe === 'envoyer'} disabled={!peutEnvoyer} onclick={demanderEnvoi}>
-            {libelleEnvoyerDepuis(actif.boite_adresse)}<Kbd t={['Ctrl', 'Enter']} />
-          </button>
-          {#if modifieIci}
-            <button type="button" class="btn fantome" disabled={!!occupe} class:en-cours={occupe === 'enregistrer'} onclick={enregistrer}>Enregistrer</button>
-          {/if}
+        <button type="button" class="btn principal plein envoyer" class:en-cours={occupe === 'envoyer'} disabled={!peutEnvoyer} onclick={demanderEnvoi}>
+          <span>{libelleEnvoyerDepuis(actif.boite_adresse)}</span><Kbd t={['Ctrl', 'Enter']} />
+        </button>
+        {#if modifieIci}
+          <button type="button" class="btn plein" disabled={!!occupe} class:en-cours={occupe === 'enregistrer'} onclick={enregistrer}>Enregistrer</button>
+        {/if}
+        <div class="rep-autres">
+          <button type="button" class="btn sm fantome" disabled={!!occupe} class:en-cours={occupe === 'proposer'} onclick={demanderAutre}>{ACTIONS_REPONSE.autre}</button>
+          <button type="button" class="btn sm fantome" disabled={!!occupe} onclick={demanderEffacer}>{ACTIONS_REPONSE.effacer}</button>
         </div>
-        <p class="petit muted note">Rien ne part sans votre clic. La réponse reste dans le fil du mail reçu.</p>
+        <p class="note">Rien ne part sans votre accord : l’envoi est confirmé. La réponse reste dans le fil du mail reçu.</p>
       {:else if actif && actif.statut === 'generation'}
-        <div class="rep-h"><h2>Réponse</h2><span class="muted">{libelleBrouillon('generation')}</span></div>
+        <p class="etat-rep">{libelleBrouillon('generation')}</p>
         <div class="attente" role="status" aria-live="polite">
           <span class="roue" aria-hidden="true"></span>
           <div>
             <div>Claude rédige une réponse dans le ton de vos réponses précédentes.</div>
-            <div class="petit muted">
+            <div class="note">
               Depuis <span class="num">{depuisSecondes}</span> s, depuis {actif.boite_adresse}.
               {#if depuisSecondes > 90}C’est plus long que d’habitude : vous pouvez quitter la page, la réponse vous attendra ici.{/if}
             </div>
           </div>
         </div>
       {:else if actif && actif.statut === 'envoi'}
-        <div class="rep-h"><h2>Réponse</h2><span class="muted">{libelleBrouillon('envoi')}</span></div>
+        <p class="etat-rep">{libelleBrouillon('envoi')}</p>
         <textarea class="editeur" value={actif.texte} disabled aria-label="Texte de la réponse"></textarea>
         <div class="attente" role="status" aria-live="polite">
           <span class="roue" aria-hidden="true"></span>
           <div>
             <div>Envoi depuis {actif.boite_adresse}.</div>
-            <div class="petit muted">Depuis <span class="num">{depuisSecondes}</span> s.</div>
+            <div class="note">Depuis <span class="num">{depuisSecondes}</span> s.</div>
           </div>
-          {#if depuisSecondes > 20 && etaitDansFile}
-            <span class="sp"></span>
-            <button type="button" class="btn sm" onclick={passerAuSuivant}>Passer au suivant</button>
-          {/if}
         </div>
+        {#if depuisSecondes > 20 && etaitDansFile}
+          <button type="button" class="btn plein" onclick={passerAuSuivant}>Passer au suivant</button>
+        {/if}
       {:else}
-        <div class="rep-h"><h2>Réponse</h2>{#if aRepondre}<span class="muted">pas encore de réponse</span>{/if}</div>
-        <div class="proposer">
-          {#if !aRepondre && m.categorie !== 'question'}
-            <p class="t2">Pas de réponse attendue pour ce mail.</p>
-          {/if}
-          {#if m.boites.length > 1}
-            <label class="depuis">
-              <span>Répondre depuis</span>
-              <select bind:value={boiteEnvoi} disabled={!!occupe}>
-                {#each m.boites as b (b.boite_id)}<option value={String(b.boite_id)}>{b.adresse}</option>{/each}
-              </select>
-            </label>
-          {/if}
-          <div>
-            <button
-              type="button"
-              class="btn"
-              class:principal={aRepondre || m.categorie === 'question'}
-              class:en-cours={occupe === 'proposer'}
-              disabled={!!occupe || !m.boites.length}
-              onclick={proposer}
-            >
-              {ACTIONS_REPONSE.proposer}
-            </button>
-          </div>
-          <p class="petit muted">Claude propose un texte depuis {boiteBrouillon || 'la boîte du mail'} ; vous le relisez, le retouchez et l’envoyez vous-même.</p>
-        </div>
+        <p class="etat-rep">{etatReponse}</p>
+        {#if m.boites.length > 1}
+          <label class="depuis">
+            <span>Répondre depuis</span>
+            <select bind:value={boiteEnvoi} disabled={!!occupe}>
+              {#each m.boites as b (b.boite_id)}<option value={String(b.boite_id)}>{b.adresse}</option>{/each}
+            </select>
+          </label>
+        {/if}
+        <button
+          type="button"
+          class="btn plein haut"
+          class:principal={aRepondre || m.categorie === 'question'}
+          class:en-cours={occupe === 'proposer'}
+          disabled={!!occupe || !m.boites.length}
+          onclick={proposer}
+        >
+          {ACTIONS_REPONSE.proposer}
+        </button>
+        <p class="note">Claude propose un texte depuis {boiteBrouillon || 'la boîte du mail'}. Vous le relisez, le retouchez et l’envoyez vous-même.</p>
       {/if}
 
       {#if envoyes.length}
@@ -863,7 +936,7 @@
           {/each}
         </div>
       {/if}
-    </section>
+    </aside>
   </div>
 {/if}
 
@@ -889,163 +962,272 @@
   .charge-erreur {
     padding: var(--e5) var(--e6);
   }
+  /* Le mail au centre, la colonne « Réponse » à droite (fond sauge). */
   .mail-b {
     flex: 1;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
     min-height: 0;
+    background: var(--white);
   }
   .mail-l {
-    overflow: auto;
-    padding: var(--e5) var(--e6);
-    border-right: 1px solid var(--line);
+    flex: 1;
     min-width: 0;
-  }
-  .mail-r {
     overflow: auto;
-    padding: var(--e5) var(--e6);
+    padding: var(--e8);
     display: flex;
     flex-direction: column;
-    background: var(--white);
+    gap: var(--e6);
+  }
+  .mail-r {
+    flex: none;
+    width: 300px;
+    overflow: auto;
+    padding: var(--e8) var(--e6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+    background: var(--pane);
+    border-left: 1px solid var(--line);
     min-width: 0;
   }
-  .mail-l :global(.bandeau) {
-    margin-bottom: var(--e4);
+  @media (min-width: 1400px) {
+    .mail-b.redaction .mail-r {
+      width: 380px;
+    }
+  }
+
+  /* ---- en-tête du mail ---- */
+  .tete {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e2);
+  }
+  .tete h1 {
+    font-size: 22px;
+    line-height: 1.3;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+  }
+  .meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--e2) var(--e4);
+    font-size: 15px;
+    color: var(--text2);
+    overflow-wrap: anywhere;
   }
   .urgent {
-    margin-left: var(--e2);
     color: var(--err);
     font-weight: 500;
   }
-  .resume {
-    padding: var(--e3) 14px;
-    border: 1px solid var(--line);
-    border-radius: var(--r2);
-    background: var(--white);
-    margin-bottom: var(--e4);
-  }
-  .resume .lab {
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 2px;
-  }
-  .resume p {
-    margin: 0;
-    font-size: 14px;
-    line-height: 21px;
-  }
-  .tri {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin: 0 0 var(--e5);
-    color: var(--muted);
-    font-size: 12px;
-  }
-  .tri .btn {
-    color: var(--text2);
-  }
-  /* Confirmation du tri : à droite, y compris quand la ligne passe à la ligne. */
-  .tri .droite {
-    margin-left: auto;
-  }
-  .from {
-    display: grid;
-    grid-template-columns: 52px 1fr;
-    row-gap: 2px;
-    column-gap: var(--e2);
-    font-size: 12px;
-    padding-bottom: var(--e3);
-    border-bottom: 1px solid var(--line);
-    margin-bottom: var(--e4);
-    overflow-wrap: anywhere;
-  }
-  .from > span:nth-child(odd) {
-    color: var(--muted);
-  }
-  .from.details {
-    grid-template-columns: 84px 1fr;
-    border-bottom: 0;
-    margin-bottom: 0;
-  }
-  .mailtext {
-    font-size: 13px;
-    line-height: 21px;
-    color: var(--text);
-    max-width: 62ch;
-    overflow-wrap: anywhere;
-  }
-  .mailtext p {
-    margin: 0 0 var(--e3);
-    white-space: pre-line;
-  }
-  .cite-bouton {
-    font-size: 12px;
-  }
-  .cite {
-    margin-top: var(--e2);
-    padding-left: var(--e3);
-    border-left: 2px solid var(--line);
-    color: var(--text2);
-    white-space: pre-wrap;
-    font-size: 12px;
-    line-height: 18px;
-  }
   .masquer {
-    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--e1);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text2);
+    font: inherit;
+    cursor: pointer;
   }
-  .pj {
-    margin: var(--e4) 0;
+  .masquer :global(svg) {
+    width: 14px;
+    height: 14px;
+  }
+  .masquer:hover {
+    color: var(--text);
+    text-decoration: underline;
+  }
+
+  /* ---- En une phrase ---- */
+  .phrase {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e2);
+    padding: var(--e5) var(--e6);
+    border-radius: var(--r3);
+    background: var(--pane);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .phrase .lab {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text2);
+  }
+  .phrase p {
+    margin: 0;
+    font-size: 19px;
+    line-height: 1.45;
+    text-wrap: pretty;
+  }
+  .phrase p.sans {
+    font-size: 16px;
+    color: var(--text2);
+  }
+  .classe {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--e3);
+    padding-top: var(--e2);
+  }
+  .cl {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--e2);
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .cl b {
+    color: var(--text);
+    font-weight: 500;
+  }
+  .boutons {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--e2);
+  }
+  .boutons .mal {
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .boutons .btn {
+    height: 36px;
+    padding: 0 var(--e4);
+    background: var(--white);
+    font-size: 16px;
+  }
+
+  /* ---- De / À / Reçu ---- */
+  .entetes {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--e2);
+    font-size: 16px;
+  }
+  .entetes > div {
+    display: grid;
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: var(--e3);
+  }
+  .entetes dt {
+    color: var(--muted);
+  }
+  .entetes dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* ---- Pièces jointes ---- */
+  .pieces {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e3);
+    padding-top: var(--e4);
+    border-top: 1px solid var(--line-faint);
+  }
+  .pieces-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--e3);
+  }
+  .pieces-h h3 {
+    font-size: 17px;
+    font-weight: 500;
+  }
+  .pieces-h h3 span {
+    font-weight: 400;
+    color: var(--text2);
+  }
+  .lien-doc {
+    font-size: 15px;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .lien-doc:hover {
+    text-decoration: underline;
   }
   .pj-liste {
     display: flex;
     flex-wrap: wrap;
     gap: var(--e2);
   }
-  .pj-carte {
-    display: flex;
+  .pj {
+    display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     max-width: 100%;
     min-width: 0;
-    padding: var(--e2) var(--e3);
-    border: 1px solid var(--line2);
-    border-radius: var(--r2);
-    background: var(--white);
-    color: var(--text);
+    padding: 0 var(--e2);
+    border: 0;
+    border-radius: var(--r-etiq);
+    background: var(--sunk);
+    color: var(--text2);
+    font: inherit;
+    font-size: 14px;
+    line-height: 24px;
     text-align: left;
     cursor: pointer;
   }
-  .pj-carte:hover {
-    background: var(--pane);
+  .pj:hover {
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--line);
   }
-  .pj-carte[aria-pressed='true'] {
-    border-color: var(--accent);
-    box-shadow: inset 0 0 0 1px var(--accent);
+  .pj[aria-pressed='true'] {
     background: var(--accent-weak);
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
-  .pj-t {
-    display: grid;
-    min-width: 0;
+  .pj.detaillee {
+    padding: 6px var(--e3) 6px var(--e2);
+    border-radius: var(--r2);
+    line-height: 1.35;
+    background: var(--white);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--text);
   }
-  .pj-t .nom {
-    font-weight: 500;
+  .pj.detaillee[aria-pressed='true'] {
+    background: var(--accent-weak);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .pj :global(svg) {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--text2);
+  }
+  .pj .nom {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 320px;
+    max-width: 280px;
   }
-  .pj-t .t2 {
-    font-size: 12px;
+  .pj.detaillee .nom {
+    font-weight: 500;
   }
-  .pj-t .etat-ok {
+  .pj .etat {
+    color: var(--text2);
+  }
+  .pj .etat::before {
+    content: '· ';
+    color: var(--muted);
+  }
+  .pj .etat-ok {
     color: var(--ok);
   }
-  .pj-t .etat-alerte {
+  .pj .etat-alerte {
     color: var(--warn);
   }
-  .pj-t .etat-erreur {
+  .pj .etat-erreur {
     color: var(--err);
   }
   .pj-apercu {
@@ -1053,32 +1235,47 @@
     flex-direction: column;
     height: 70vh;
     min-height: 420px;
-    margin-top: var(--e3);
-    border: 1px solid var(--line2);
-    border-radius: var(--r2);
+    border: 1px solid var(--line);
+    border-radius: var(--r3);
     overflow: hidden;
     background: var(--pane);
   }
-  .pj-fiche {
-    flex: none;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: var(--e2) var(--e3);
-    border-bottom: 1px solid var(--line);
-    background: var(--white);
-    font-weight: 500;
+
+  /* ---- corps (affichage du webmail) ---- */
+  .mailtext {
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--text);
+    max-width: 70ch;
+    overflow-wrap: anywhere;
   }
+  .mailtext p {
+    margin: 0 0 var(--e3);
+    white-space: pre-line;
+  }
+  .cite-bouton {
+    font-size: 14px;
+  }
+  .cite {
+    margin-top: var(--e2);
+    padding-left: var(--e3);
+    border-left: 2px solid var(--line);
+    color: var(--text2);
+    white-space: pre-wrap;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* ---- fournisseur, tri, détails ---- */
   .ctx {
-    margin-top: var(--e4);
-    font-size: 12px;
+    font-size: 15px;
     color: var(--text2);
   }
   .ctx h3 {
-    margin: 0 0 6px;
-    font-size: 12px;
+    margin: 0 0 var(--e1);
+    font-size: 15px;
     font-weight: 500;
-    color: var(--muted);
+    color: var(--text);
   }
   .ctx h3 a {
     color: inherit;
@@ -1086,8 +1283,22 @@
   .ctx div {
     display: flex;
     justify-content: space-between;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--line);
+    padding: var(--e2) 0;
+    border-bottom: 1px solid var(--line-faint);
+  }
+  .mail-l .replis {
+    margin-top: 0;
+  }
+  .from {
+    display: grid;
+    grid-template-columns: 96px 1fr;
+    row-gap: var(--e1);
+    column-gap: var(--e3);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .from > span:nth-child(odd) {
+    color: var(--muted);
   }
   .ligne-tri {
     display: flex;
@@ -1106,76 +1317,99 @@
     gap: 6px;
     margin-bottom: var(--e3);
   }
-  .rep-h {
-    display: flex;
-    align-items: center;
-    gap: var(--e2);
-    margin-bottom: var(--e3);
+
+  /* ---- colonne Réponse ---- */
+  .mail-r h2 {
+    font-size: 20px;
+    font-weight: 500;
   }
-  .rep-h h2 {
+  .etat-rep {
     margin: 0;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 16px;
+    color: var(--text2);
   }
-  .rep-h .muted {
-    font-size: 12px;
+  .mail-r .btn.plein {
+    width: 100%;
+    justify-content: center;
   }
-  .mail-r :global(.bandeau) {
-    margin-bottom: var(--e3);
+  .mail-r .btn.haut {
+    height: 44px;
   }
-  .editeur {
-    flex: 1;
-    min-height: 360px;
-    padding: 14px var(--e4);
-    font-size: 13px;
-    line-height: 21px;
-    resize: none;
+  .mail-r .btn:not(.principal):not(.fantome) {
+    background: var(--white);
   }
-  .rep-n {
-    margin-top: 10px;
-    font-size: 12px;
-    color: var(--warn);
-    display: flex;
-    gap: 6px;
-    align-items: center;
-  }
-  .rep-f {
-    display: flex;
-    align-items: center;
-    gap: var(--e2);
-    margin-top: var(--e3);
+  .envoyer {
+    height: auto;
+    min-height: 44px;
+    padding-top: var(--e2);
+    padding-bottom: var(--e2);
+    white-space: normal;
+    flex-wrap: wrap;
+    text-align: center;
+    overflow-wrap: anywhere;
   }
   .note {
-    margin: var(--e2) 0 0;
-  }
-  .proposer {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--e3);
-    padding: var(--e4) 0;
-  }
-  .proposer p {
     margin: 0;
-    max-width: 52ch;
+    font-size: 15px;
+    color: var(--muted);
+    text-wrap: pretty;
   }
   .depuis {
     display: flex;
-    align-items: center;
-    gap: var(--e3);
+    flex-direction: column;
+    gap: var(--e1);
+    font-size: 15px;
     color: var(--text2);
   }
-  .depuis select {
-    width: auto;
-    min-width: 240px;
+  .editeur {
+    flex: 1;
+    min-height: 320px;
+    padding: var(--e3) 14px;
+    font-size: 16px;
+    line-height: 1.5;
+    resize: vertical;
+    background: var(--white);
+  }
+  .rep-n {
+    font-size: 14px;
+    color: var(--warn);
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .rep-n :global(svg) {
+    flex: none;
+    margin-top: 2px;
+  }
+  .rep-autres {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e1);
+    justify-content: center;
+  }
+  .attente {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--e3);
+    font-size: 15px;
+  }
+  .roue {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-top: 3px;
+    border: 1.5px solid var(--line);
+    border-top-color: var(--text2);
+    border-radius: 50%;
+    animation: tourne 0.8s linear infinite;
   }
   .envoyes {
-    margin-top: var(--e6);
+    margin-top: var(--e2);
   }
   .texte-envoye {
     white-space: pre-wrap;
-    font-size: 13px;
-    line-height: 21px;
+    font-size: 15px;
+    line-height: 1.5;
     color: var(--text2);
   }
   @keyframes tourne {
@@ -1184,7 +1418,7 @@
     }
   }
 
-  /* Tablette étroite et téléphone : le mail, puis la réponse. */
+  /* Écran moyen et téléphone : le mail, puis la réponse dessous. */
   @media (max-width: 1200px) {
     .mail-b {
       display: block;
@@ -1192,11 +1426,12 @@
     }
     .mail-l {
       overflow: visible;
-      border-right: 0;
-      border-bottom: 1px solid var(--line);
     }
     .mail-r {
+      width: auto;
       overflow: visible;
+      border-left: 0;
+      border-top: 1px solid var(--line);
     }
     .editeur {
       min-height: 280px;
@@ -1206,14 +1441,27 @@
     .mail-b {
       overflow: visible;
     }
-    .mail-l,
-    .mail-r {
-      padding: 14px var(--e4) var(--e4);
+    .mail-l {
+      padding: var(--e5) var(--e4);
+      gap: var(--e5);
     }
-    .rep-f .btn.principal {
-      flex: 1;
-      height: 48px;
-      white-space: normal;
+    .mail-r {
+      padding: var(--e5) var(--e4) var(--e8);
+    }
+    .phrase {
+      padding: var(--e4);
+    }
+    .phrase p {
+      font-size: 18px;
+    }
+    .entetes > div {
+      grid-template-columns: 56px minmax(0, 1fr);
+    }
+    .pj .nom {
+      max-width: 220px;
+    }
+    .envoyer {
+      min-height: 48px;
     }
     .ligne-tri select,
     .depuis select {

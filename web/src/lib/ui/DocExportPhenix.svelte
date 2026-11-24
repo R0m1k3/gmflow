@@ -100,10 +100,10 @@
 
     <div class="boutons">
       {#if etat.pret}
-        <a class="btn principal sm" href="/api/documents/{id}/export-phenix/matrice" download><Icone nom="telecharger" />Matrice d’intégration</a>
+        <a class="btn sm" href="/api/documents/{id}/export-phenix/matrice" download><Icone nom="telecharger" />Matrice d’intégration</a>
         <a class="btn sm" href="/api/documents/{id}/export-phenix/trame" download><Icone nom="telecharger" />Trame BO Phénix</a>
       {:else}
-        <button type="button" class="btn principal sm" disabled><Icone nom="telecharger" />Matrice d’intégration</button>
+        <button type="button" class="btn sm" disabled><Icone nom="telecharger" />Matrice d’intégration</button>
         <button type="button" class="btn sm" disabled><Icone nom="telecharger" />Trame BO Phénix</button>
       {/if}
     </div>

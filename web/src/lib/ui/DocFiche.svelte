@@ -14,11 +14,14 @@
 </script>
 
 <script lang="ts">
-  // Fiche document (maquette B, écrans 1 et 2), dans le volet de À traiter ou en plein écran :
-  // aperçu à gauche ; à droite alerte en une phrase, champs modifiables au clic (douteux en ambre,
-  // correction proposée en un clic), blocs repliés BL liés / Envoi / Mail d'origine / Lecture ;
-  // barre d'action « Valider et envoyer à Dext » (POST /valider avec les corrections), refus 409
-  // par code, « Écarter », « Relire avec Claude » (admins). Suit la lecture et l'envoi en cours.
+  // Fiche document (maquette Sauge S1, S4, S5), dans le volet d'une liste ou en plein écran :
+  // aperçu au centre (barre : position, pages, zoom, plein écran ; la page en carte blanche) ;
+  // colonne à droite : nom, « Facture n°, reçue le … de … », alerte en une phrase, champs
+  // modifiables au clic (douteux en ambre, correction proposée en un clic ; Type et N° seulement
+  // s'ils sont douteux, vides ou demandés), lignes-liens BL liés / Envoi / Mail d'origine /
+  // Lecture / Fiche fournisseur qui s'ouvrent en place, « Relire avec Claude », « Relire en
+  // détail », « Rapprocher d'une facture » ; en pied « Valider et envoyer à Dext » (POST /valider
+  // avec les corrections), refus 409 par code, « Écarter », « Ensuite : … ». Suit la lecture et l'envoi en cours.
   // Raccourcis : Entrée (action principale), E (écarter), F (plein écran, volet), Échap (plein écran).
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
@@ -49,6 +52,7 @@
     DetailRapprochement,
     FicheDocument,
     ChangementsFournisseur,
+    Fournisseur,
     LigneFournisseur,
     Page,
     TypeDocument
@@ -63,6 +67,8 @@
   import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
   import type { EtatExportPhenix } from '#lib/types.ts';
   import {
+    adresseExpediteur,
+    typeNumero,
     champsDeLAlerte,
     champsPeuSurs,
     dateFr,
@@ -91,6 +97,7 @@
     retourLibelle = 'À traiter',
     position = null,
     ensuite,
+    sansSuite,
     annonce = '',
     onfait,
     onchange,
@@ -106,6 +113,8 @@
     position?: PositionFiche | null;
     /** « Sodistra, facture 2026/11/0457 » : ce qui s'ouvrira après. */
     ensuite?: string;
+    /** « Aucune autre facture dans cette liste » : pied de la fiche quand rien ne suit. */
+    sansSuite?: string;
     /** Phrase laissée par l'action précédente (« Envoi à Dext demandé : … »). */
     annonce?: string;
     /** Validé, écarté : la page ouvre le suivant. */
@@ -201,6 +210,7 @@
       choix = { ...VIDE };
       lu = { ...VIDE };
       editionF = false;
+      voirTN = false;
       charger(ident, false)
         .then((attendre) => {
           if (ident !== id) return;
@@ -229,6 +239,29 @@
       .then((attendre) => attendre && suivre())
       .catch((e) => (erreurChargement = message(e)));
   }
+
+  // ---------- Aperçu : zoom de la page ----------
+  const ZOOMS = [0.5, 0.67, 0.8, 1, 1.25, 1.5, 2];
+  let zoom = $state(1);
+  let pages = $state<number | null>(null);
+  let zoomable = $state(false);
+  function zoomer(sens: 1 | -1) {
+    const i = ZOOMS.indexOf(zoom);
+    zoom = ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, (i < 0 ? 3 : i) + sens))];
+  }
+
+  // ---------- Code BO Phénix du fournisseur (fiche fournisseur) ----------
+  let codeBo = $state<{ id: number; code: string | null } | null>(null);
+  $effect(() => {
+    const fid = d?.fournisseur_id ?? null;
+    if (fid === null || codeBo?.id === fid) return;
+    api
+      .get<Fournisseur>(`/api/fournisseurs/${fid}`)
+      .then((f) => {
+        if (d?.fournisseur_id === fid) codeBo = { id: fid, code: f.code_gestion };
+      })
+      .catch(() => {});
+  });
 
   // ---------- Champs ----------
   const CLES: Record<CleChamp, keyof Choix> = {
@@ -552,7 +585,7 @@
     }
     return {
       principal: {
-        libelle: libelleValider((choix.type || null) as TypeDocument | null, outil),
+        libelle: choix.type === 'bl' ? 'Valider le BL' : libelleValider((choix.type || null) as TypeDocument | null, outil),
         touche: 'Enter',
         onclick: () => valider(),
         enCours: occupe === 'valider',
@@ -588,7 +621,6 @@
   let resumeEnvoi = $derived.by(() => {
     if (!d) return '';
     const fem = choix.type === 'facture' ? 'e' : '';
-    const dest = d.societe_adresse_depot ? `vers ${d.societe_adresse_depot}` : 'pas d’adresse Dext / Yooz';
     const s = d.statut_depot;
     const etat =
       s === 'depose' && dernierEnvoi
@@ -598,7 +630,7 @@
           : d.valide_le
             ? 'envoi demandé'
             : `pas encore envoyé${fem}`;
-    return `${dest}, ${etat}`;
+    return etat;
   });
   let corrections = $derived(d ? Object.entries(d.corrections ?? {}) : []);
   const NOMS_CHAMPS: Record<string, string> = {
@@ -615,6 +647,42 @@
   const brut = (v: unknown) => (v === null || v === undefined || v === '' ? 'vide' : String(v));
   const quantite = (v: number | null) => (v === null ? '—' : v.toLocaleString('fr-FR'));
   let estBl = $derived(choix.type === 'bl');
+
+  /** Type et N° : dans le sous-titre ; en champ s'ils sont douteux, vides, corrigés, ou demandés. */
+  let voirTN = $state(false);
+  let montrerType = $derived(voirTN || !!aControler('type') || change('type') || !choix.type);
+  let montrerNumero = $derived(voirTN || !!aControler('numero') || change('numero') || !choix.numero);
+  let nomFiche = $derived(choix.fournisseurNom || d?.fournisseur_nom || 'Fournisseur non reconnu');
+  let feminin = $derived(choix.type === 'facture' || choix.type === 'relance');
+  /** « 24/11 à 13:26 » */
+  const jourAHeure = (iso: string | null | undefined) => jourHeure(iso).replace(' ', ' à ');
+  /** « de LIDIS », « d’EDITIONS DU TONNERRE » */
+  const de = (nom: string) => (/^du /.test(nom) ? nom : /^[aeiouyhàâäéèêëîïôöûüù]/i.test(nom) ? `d’${nom}` : `de ${nom}`);
+  /** Facture ou avoir à envoyer, société sans adresse Dext / Yooz (quand le serveur ne l'a pas déjà signalé). */
+  let sansAdresse = $derived(
+    !!d &&
+      d.etat === 'lu' &&
+      deposable &&
+      d.societe_id !== null &&
+      !d.societe_adresse_depot &&
+      !d.valide_le &&
+      !d.statut_depot?.match(/^(depose|en_envoi|erreur|doublon)$/) &&
+      !alertes.some((c) => c.code === 'depot')
+  );
+  /** BL lu, sans facture liée : il attend la sienne. */
+  let blEnAttente = $derived(!!d && d.etat === 'lu' && estBl && !!rap && !rap.ignore && rap.liens.length === 0);
+  let resumeLecture = $derived.by(() => {
+    if (!d) return '';
+    const n = rap?.lignes.length ?? 0;
+    if (n) return `${n} ligne${n > 1 ? 's' : ''} lue${n > 1 ? 's' : ''}${d.modele ? ' par Claude' : ''}`;
+    return d.lu_le ? `lu le ${jourHeure(d.lu_le)}` : '';
+  });
+  async function rapprocher() {
+    ouvrirLiens = !ouvrirLiens;
+    if (!ouvrirLiens) return;
+    await tick();
+    document.getElementById(`${uid}-liens`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
   let exportPhenix = $state<EtatExportPhenix | null>(null);
 </script>
 
@@ -643,391 +711,459 @@
   {#if d?.fournisseur_statut === 'a_confirmer' && !change('fournisseur')}
     <span class="source">{libelleStatutFournisseur('a_confirmer')}</span>
   {/if}
+  {#if codeBo?.code && !change('fournisseur') && codeBo.id === d?.fournisseur_id}
+    <span class="doc-petit doc-ligne">Code BO Phénix {codeBo.code}</span>
+  {/if}
 {/snippet}
 
-<div class="volet-h">
-  {#if pleinEcran}
-    <a class="retour" href={retour}><Icone nom="gauche" />{retourLibelle} <Kbd t="Escape" /></a>
-    <span class="vsep"></span>
-  {:else}
-    <a class="retour tel-seul" href={retour}><Icone nom="gauche" />{retourLibelle}</a>
-  {/if}
-  {#if position}
-    <span class="pos">{position.section} <span class="num">{position.n}</span> sur <span class="num">{position.total}</span></span>
-  {/if}
-  <span class="sp"></span>
-  {#if relisible}
-    <button type="button" class="btn sm fantome large-seul" onclick={() => (dlgRelire = true)}><Icone nom="rafraichir" />Relire avec Claude</button>
-    <button type="button" class="btn sm fantome large-seul" onclick={() => (dlgRelireDetail = true)}><Icone nom="rafraichir" />Relire en détail</button>
-    <span class="vsep"></span>
-  {/if}
-  {#if pleinEcran && d}
-    {#if /^(application\/pdf|image\/)/.test(d.type_mime)}
-      <a class="btn sm fantome large-seul" href={urlApercu(d.piece_id)} target="_blank" rel="noopener"><Icone nom="zoom" />Zoom</a>
-    {/if}
-    <a class="btn sm fantome" href="/api/pieces/{d.piece_id}" download={d.nom_fichier}>
-      <Icone nom="telecharger" />{d.type_mime === 'application/pdf' ? 'PDF' : 'Fichier'}
-    </a>
-    {#if onprecedent || onsuivant}<span class="vsep"></span>{/if}
-  {/if}
-  {#if onprecedent}
-    <button type="button" class="btn sm fantome" aria-label="Précédent" onclick={onprecedent}><Icone nom="haut" /><Kbd t="K" /></button>
-  {/if}
-  {#if onsuivant}
-    <button type="button" class="btn sm fantome" aria-label="Suivant" onclick={onsuivant}><Icone nom="bas" /><Kbd t="J" /></button>
-  {/if}
-  {#if !pleinEcran}
-    <span class="vsep"></span>
-    <a class="btn sm fantome large-seul" href="/documents/{id}"><Icone nom="agrandir" />Plein écran <Kbd t="F" /></a>
-  {/if}
-</div>
-
-<div class="volet-b">
-  <div class="apercu-zone" class:sr={erreurChargement !== ''}>
-    {#if d}<ApercuPiece id={d.piece_id} typeMime={d.type_mime} nom={d.nom_fichier} outils={false} />{/if}
-  </div>
-  <div class="contenu-fiche avec-barre">
-    {#if annonce}<Bandeau ton="ok" role="status">{annonce}</Bandeau>{/if}
-    {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
-    {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
-
-    {#if erreurChargement}
-      <Bandeau ton="erreur">
-        {erreurChargement}
-        {#snippet action()}
-          {#if introuvable}<a class="btn sm" href={retour}>Retour à À traiter</a>{:else}<button type="button" class="btn sm" onclick={reessayer}>Réessayer</button>{/if}
-        {/snippet}
-      </Bandeau>
-    {:else if !d}
-      <Chargement texte="Chargement du document" />
-    {:else}
-      <div class="titre-fiche"><h1>{titre}</h1>{#if choix.numero}<span class="num">{choix.numero}</span>{/if}</div>
-      <div class="meta-fiche">
-        Reçue le {jourHeure(d.recu_le)}{d.mail_expediteur ? ` de ${nomExpediteur(d.mail_expediteur)}` : ''}{#if admin && d.voie}, {libelleVoie(d.voie)}{/if}{#if d.valide_le}, validation le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}{:else if d.verifie_le}, validation le {jourHeure(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}{/if}
-        {#if d.copie_de}<span class="petit">· même fichier que le <a href="/documents/{d.copie_de}">document {d.copie_de}</a></span>{/if}
-      </div>
-
-      <!-- Une phrase en tête : refus, état, ou première alerte -->
-      {#if refus}
-        {#if refus.code === 'doublon'}
-          <Bandeau ton="erreur" titre="Doublon.">{phrase(refus.message)}</Bandeau>
-        {:else if refus.code === 'expedition'}
-          <Bandeau ton="erreur" titre="Envoi impossible.">
-            L’adresse d’envoi vers {nomOutil(outil)} n’est pas encore configurée.
-            {#snippet action()}{#if admin}<a class="btn sm" href="/reglages">Ouvrir les réglages</a>{/if}{/snippet}
-          </Bandeau>
-        {:else if refus.code === 'sans_adresse'}
-          <Bandeau ton="erreur" titre="Envoi impossible.">
-            {d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{admin ? '' : ' Un administrateur doit la renseigner.'}
-            {#snippet action()}{#if admin}<a class="btn sm" href="/reglages">Ouvrir les réglages</a>{/if}{/snippet}
-          </Bandeau>
-        {:else}
-          <Bandeau ton="erreur">{phrase(refus.message)}</Bandeau>
-        {/if}
+<div class="volet-b doc-corps">
+  <section class="apercu-zone doc-apercu" aria-label="Document" class:sr={erreurChargement !== ''}>
+    <div class="apercu-barre">
+      {#if pleinEcran}
+        <a class="retour" href={retour}><Icone nom="gauche" />{retourLibelle} <Kbd t="Escape" /></a>
+      {:else}
+        <a class="retour tel-seul" href={retour}><Icone nom="gauche" />{retourLibelle}</a>
       {/if}
-      {#if d.etat === 'a_lire' || d.etat === 'en_cours'}
-        <Bandeau ton={attenteBloquee ? 'attention' : 'info'} titre="{libelleEtat(d.etat)}.">
-          {#if d.attente}{phrase(d.attente.raison)}{/if}
-          {#if d.etat === 'a_lire'}{depuisAttente}{/if}
-          {#if d.attente?.dernier_essai}<span class="dernier-essai">Dernier essai : {phrase(d.attente.dernier_essai)}</span>{/if}
-          <span class="dernier-essai">La fiche se met à jour toute seule.</span>
+      {#if position}
+        <span class="pos large-seul">{position.section} <span class="num">{position.n}</span> sur <span class="num">{position.total}</span></span>
+      {/if}
+      {#if pages}<span class="num large-seul">{pages === 1 ? 'Page 1 / 1' : `${pages} pages`}</span>{/if}
+      <div class="outils">
+        {#if onprecedent}
+          <button type="button" class="outil carre" class:tel-seul={!pleinEcran} aria-label="Précédent (K)" title="Précédent (K)" onclick={onprecedent}><Icone nom="haut" /></button>
+        {/if}
+        {#if onsuivant}
+          <button type="button" class="outil carre" class:tel-seul={!pleinEcran} aria-label="Suivant (J)" title="Suivant (J)" onclick={onsuivant}><Icone nom="bas" /></button>
+        {/if}
+        {#if zoomable}
+          <button type="button" class="outil carre large-seul" aria-label="Dézoomer" disabled={zoom <= ZOOMS[0]} onclick={() => zoomer(-1)}>−</button>
+          <button type="button" class="outil carre large-seul" aria-label="Zoomer" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onclick={() => zoomer(1)}>+</button>
+        {/if}
+        {#if pleinEcran && d}
+          {#if /^(application\/pdf|image\/)/.test(d.type_mime)}
+            <a class="outil large-seul" href={urlApercu(d.piece_id)} target="_blank" rel="noopener"><Icone nom="ouvrir" />Ouvrir</a>
+          {/if}
+          <a class="outil" href="/api/pieces/{d.piece_id}" download={d.nom_fichier}><Icone nom="telecharger" />{d.type_mime === 'application/pdf' ? 'PDF' : 'Fichier'}</a>
+        {:else if !pleinEcran}
+          <a class="outil large-seul" href="/documents/{id}">Plein écran <Kbd t="F" /></a>
+        {/if}
+      </div>
+    </div>
+    {#if d}<ApercuPiece id={d.piece_id} typeMime={d.type_mime} nom={d.nom_fichier} outils={false} carte {zoom} bind:pages bind:zoomable />{/if}
+  </section>
+
+  <section class="doc-fiche" aria-label={estBl ? 'Détails du BL' : 'Détails de la pièce'}>
+    <div class="contenu-fiche avec-barre">
+      {#if annonce}<Bandeau ton="ok" role="status">{annonce}</Bandeau>{/if}
+      {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
+      {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
+
+      {#if erreurChargement}
+        <Bandeau ton="erreur">
+          {erreurChargement}
           {#snippet action()}
-            {#if lisibleMaintenant}
-              <button type="button" class="btn sm principal" onclick={lireMaintenant} disabled={occupe !== null}>
-                {occupe === 'relire' ? 'Demande…' : 'Lire maintenant'}
-              </button>
-            {/if}
+            {#if introuvable}<a class="btn sm" href={retour}>Retour à {retourLibelle}</a>{:else}<button type="button" class="btn sm" onclick={reessayer}>Réessayer</button>{/if}
           {/snippet}
         </Bandeau>
-      {:else if d.etat === 'erreur'}
-        <Bandeau ton="erreur" titre="Illisible.">{d.message ? phrase(d.message) : 'La lecture a échoué.'}{admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}</Bandeau>
-      {:else if d.etat === 'ignore'}
-        <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}</Bandeau>
-      {:else if d.statut_depot === 'en_envoi'}
-        <Bandeau ton="info" titre="{libelleStatutEnvoi('en_envoi')}.">La fiche se met à jour toute seule.</Bandeau>
-      {:else if envoiDemande(d)}
-        <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} demandé.">Validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : elle part dans quelques instants.</Bandeau>
-      {:else if d.statut_depot === 'depose'}
-        <Bandeau ton="ok" titre="{libelleStatutEnvoi('depose', outil)}.">{dernierEnvoi ? `Le ${jourHeure(dernierEnvoi.quand)}, à ${dernierEnvoi.adresse}.` : ''}</Bandeau>
-      {:else if d.envoi_relance}
-        <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} relancé.">Relancé le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : il part dans quelques instants.</Bandeau>
-      {:else if d.statut_depot === 'erreur'}
-        <Bandeau ton="erreur" titre="Envoi à {nomOutil(outil)} échoué.">
-          {dernierEnvoi?.message ? phrase(dernierEnvoi.message) : ''}{admin ? '' : ' Un administrateur peut la renvoyer.'}
-        </Bandeau>
-      {:else if doublon && !refus && !d.verifie_le}
-        <Bandeau ton="erreur" titre="Doublon.">{phrase(doublon.message)}</Bandeau>
-      {:else if autresAlertes.length && !refus}
-        <Bandeau titre="{titreAlerte(autresAlertes[0])}.">
-          {#if detailAlerte(autresAlertes[0])}{phrase(detailAlerte(autresAlertes[0]))}{/if}{#if autresAlertes.length > 1}
-            {' '}{autresAlertes.length - 1 === 1 ? 'Une autre alerte' : `${autresAlertes.length - 1} autres alertes`}, surlignée{autresAlertes.length > 2 ? 's' : ''} dans les champs.{/if}
-        </Bandeau>
-      {/if}
-      {#if alerteSociete && !refus && d.etat === 'lu' && !envoiDemande(d) && d.statut_depot !== 'depose' && d.statut_depot !== 'en_envoi'}
-        <Bandeau titre="{titreAlerte(alerteSociete)}.">
-          {d.societe_id === null
-            ? 'Aucune de vos sociétés n’est trouvée sur le document.'
-            : `${d.societe ?? 'La société'} est trouvée avec peu de certitude.`}
-          Choisissez la bonne société, ou rejetez la pièce si elle n’est pas pour vous.
-          <span class="choix-societe">
-            {#each societe.liste as s (s.id)}
-              <button
-                type="button"
-                class="btn sm"
-                class:principal={choix.societe === String(s.id)}
-                aria-pressed={choix.societe === String(s.id)}
-                disabled={!editable}
-                onclick={() => (choix.societe = String(s.id))}>{nomCourtSociete(s.raison_sociale)}</button
-              >
-            {/each}
-            <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgRejeter = true)}>Rejeter</button>
-          </span>
-        </Bandeau>
-      {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
-        <Bandeau ton="info">Attribué à {nomSocieteChoisie}. Validez pour l’enregistrer.</Bandeau>
-      {/if}
-      {#if articlesEcart.length && d.etat === 'lu'}
-        {@const p = articlesEcart[0]}
-        <Bandeau titre="{articlesEcart.length > 1 ? `${articlesEcart.length} articles en écart avec ${d.type === 'bl' ? 'la facture' : 'le BL'}` : `${p.titre}`}.">
-          {p.article} : {p.detail}{p.montant !== null && Math.abs(p.montant) > 0.005 ? ` (${p.montant > 0 ? '+' : ''}${formatMontant(p.montant)} HT)` : ''}.{articlesEcart.length > 1 ? ' Détail dans « ' + (d.type === 'bl' ? 'Facture liée' : 'BL liés') + ' ».' : ''}
-          {#snippet action()}<button type="button" class="btn sm" onclick={() => (ouvrirLiens = true)}>Voir</button>{/snippet}
-        </Bandeau>
-      {/if}
-      {#if remiseTexte}
-        <Bandeau ton="info" titre="Remise de {remiseTexte}.">
-          Elle est déduite du total HT de la {d.type === 'avoir' ? 'pièce' : 'facture'}{articlesEcart.length ? ' ; l’écart qui reste avec les BL vient des articles signalés.' : ' : un écart avec les BL, valorisés avant remise, est normal.'}
-        </Bandeau>
-      {/if}
-      {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
-        <Bandeau titre="Lecture incomplète.">
-          {phrase(d.message.replace(/^Lecture à vérifier : /, ''))} Vérifiez sur l’aperçu{relisible ? ', ou faites-le relire en détail' : ''}.
-          {#snippet action()}{#if relisible}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/if}{/snippet}
-        </Bandeau>
-      {:else if montantsManquants && relisible}
-        <Bandeau titre="Montants non lus.">
-          Les totaux sont sur le document mais la lecture les a manqués. La relecture en détail lit le PDF entier avec un modèle plus fort.
-          {#snippet action()}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/snippet}
-        </Bandeau>
-      {/if}
-
-      {#if d.etat === 'lu'}
-        {@const ctrlF = aControler('fournisseur')}
-        <div class="lignes-champs">
-          <Champ
-            disposition="ligne"
-            libelle="Type"
-            type="select"
-            bind:valeur={choix.type}
-            options={optionsType}
-            modifiable={editable}
-            aControler={aControler('type')}
-          />
-          <Champ
-            disposition="ligne"
-            libelle="Société"
-            type="select"
-            bind:valeur={choix.societe}
-            options={optionsSociete}
-            modifiable={editable}
-            aControler={aControler('societe')}
-          />
-          <div class="champ-ligne" class:a-controler={!!ctrlF && !editionF}>
-            {#if editionF}
-              <label class="k" for="{uid}-f">Fournisseur</label>
-              <div class="v edition">
-                <input
-                  id="{uid}-f"
-                  type="search"
-                  bind:this={saisieF}
-                  bind:value={qF}
-                  oninput={chercherF}
-                  onkeydown={toucheF}
-                  onblur={() => (editionF = false)}
-                  placeholder="Nom, SIRET ou domaine"
-                  autocomplete="off"
-                />
-              </div>
-              <div class="doc-choix" role="listbox" aria-label="Fiches fournisseur">
-                {#each resultatsF as f, i (f.id)}
-                  <button type="button" role="option" aria-selected={i === 0} class="btn sm fantome" onpointerdown={(e) => e.preventDefault()} onclick={() => choisirF(f)}>
-                    {f.nom}{#if f.statut === 'a_confirmer'}<span class="muted">nouveau</span>{/if}
-                    {#if i === 0}<Kbd t="Enter" />{/if}
-                  </button>
-                {:else}
-                  <span class="muted petit">Aucune fiche trouvée</span>
-                {/each}
-                {#if choix.fournisseur}
-                  <button type="button" role="option" aria-selected="false" class="btn sm fantome" onpointerdown={(e) => e.preventDefault()} onclick={() => choisirF(null)}>Aucune fiche</button>
-                {/if}
-              </div>
-            {:else}
-              <div class="k">Fournisseur</div>
-              <div class="v" class:modifiable={editable}>
-                {#if editable}
-                  <button type="button" class="val" onclick={ouvrirF} aria-label="Modifier Fournisseur">{@render lectureF()}</button>
-                {:else}
-                  <span class="val">{@render lectureF()}</span>
-                {/if}
-                {#if admin && d.fournisseur_id && d.fournisseur_statut === 'a_confirmer' && !change('fournisseur')}
-                  <button type="button" class="btn sm" class:en-cours={occupe === 'fournisseur'} disabled={occupe !== null} onclick={() => majFournisseur(d!.fournisseur_id!, { statut: 'valide' }, `Fiche ${choix.fournisseurNom} confirmée`)}>
-                    Confirmer la fiche
-                  </button>
-                {/if}
-              </div>
-              <!-- « Nouveau fournisseur (à confirmer) » est déjà écrit à côté du nom -->
-              {#if typeof ctrlF === 'string' && !(d.fournisseur_statut === 'a_confirmer' && ctrlF.includes('confirmer'))}<div class="aide">{ctrlF}</div>{/if}
-            {/if}
-          </div>
-          <Champ disposition="ligne" libelle="N°" bind:valeur={choix.numero} mono modifiable={editable} aControler={aControler('numero')} />
-          <Champ disposition="ligne" libelle="Date" type="date" bind:valeur={choix.date} mono modifiable={editable} aControler={aControler('date')}>
-            {#snippet affichage()}
-              {#if choix.date}<span class="num">{dateFr(choix.date)}</span>{:else}<span class="vide-val">Non lue</span>{/if}
-            {/snippet}
-          </Champ>
-          {#if choix.commande || lu.commande}
-            <Champ disposition="ligne" libelle="Commande" bind:valeur={choix.commande} mono modifiable={editable} />
-          {/if}
-          {#if !estBl || choix.ht || lu.ht}
-            {#if remiseTexte}
-              <Champ disposition="ligne" libelle="Remise" valeur={`\u2212${remiseTexte}`} mono />
-            {/if}
-            {#if annexesTexte}
-              <Champ disposition="ligne" libelle="Éco-part., port" valeur={annexesTexte} mono />
-            {/if}
-            <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
-              {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
-              {#snippet apres()}{@render proposer('ht')}{/snippet}
-            </Champ>
-          {/if}
-          {#if !estBl || choix.tva || lu.tva}
-            <Champ disposition="ligne" libelle="TVA" bind:valeur={choix.tva} mono inputmode="decimal" modifiable={editable} aControler={aControler('tva')} indice={tauxTva(ht, tva) || undefined}>
-              {#snippet affichage()}{@render montantLu(choix.tva)}{/snippet}
-              {#snippet apres()}{@render proposer('tva')}{/snippet}
-            </Champ>
-          {/if}
-          {#if !estBl || choix.ttc || lu.ttc}
-            <Champ disposition="ligne" libelle="Total TTC" bind:valeur={choix.ttc} mono inputmode="decimal" modifiable={editable} aControler={aControler('ttc')}>
-              {#snippet affichage()}{@render montantLu(choix.ttc)}{/snippet}
-              {#snippet apres()}{@render proposer('ttc')}{/snippet}
-            </Champ>
-          {/if}
+      {:else if !d}
+        <Chargement texte="Chargement du document" />
+      {:else}
+        <div class="doc-tete">
+          <h1 class="doc-nom">{nomFiche}</h1>
+          <p class="doc-sous">
+            {typeNumero((choix.type || null) as TypeDocument | null, choix.numero)}, reçu{feminin ? 'e' : ''} le {jourAHeure(d.recu_le)}{d.mail_expediteur ? ` de ${adresseExpediteur(d.mail_expediteur)}` : ''}{#if d.valide_le}, validation le {jourAHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}{:else if d.verifie_le}, validation le {jourAHeure(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}{/if}
+            {#if d.copie_de}<span class="petit">· même fichier que le <a href="/documents/{d.copie_de}">document {d.copie_de}</a></span>{/if}
+          </p>
         </div>
 
-        {#if proposerRangement}
-          <div class="doc-question">
+        <!-- Une phrase en tête : refus, état, ou première alerte -->
+        {#if refus}
+          {#if refus.code === 'doublon'}
+            <Bandeau ton="erreur" titre="Doublon.">{phrase(refus.message)}</Bandeau>
+          {:else if refus.code === 'expedition'}
+            <Bandeau ton="erreur" titre="Envoi impossible.">
+              L’adresse d’envoi vers {nomOutil(outil)} n’est pas encore configurée.
+              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages#envoi">Ouvrir les réglages</a>{/if}{/snippet}
+            </Bandeau>
+          {:else if refus.code === 'sans_adresse'}
+            <Bandeau ton="erreur" titre="Envoi impossible.">
+              {d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{admin ? '' : ' Un administrateur doit la renseigner.'}
+              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages#societes">Ouvrir les réglages</a>{/if}{/snippet}
+            </Bandeau>
+          {:else}
+            <Bandeau ton="erreur">{phrase(refus.message)}</Bandeau>
+          {/if}
+        {/if}
+        {#if d.etat === 'a_lire' || d.etat === 'en_cours'}
+          <Bandeau ton={attenteBloquee ? 'attention' : 'info'} titre="{libelleEtat(d.etat)}.">
+            {#if d.attente}{phrase(d.attente.raison)}{/if}
+            {#if d.etat === 'a_lire'}{depuisAttente}{/if}
+            {#if d.attente?.dernier_essai}<span class="dernier-essai">Dernier essai : {phrase(d.attente.dernier_essai)}</span>{/if}
+            <span class="dernier-essai">La fiche se met à jour toute seule.</span>
+            {#snippet action()}
+              {#if lisibleMaintenant}
+                <button type="button" class="btn sm principal" onclick={lireMaintenant} disabled={occupe !== null}>
+                  {occupe === 'relire' ? 'Demande…' : 'Lire maintenant'}
+                </button>
+              {/if}
+            {/snippet}
+          </Bandeau>
+        {:else if d.etat === 'erreur'}
+          <Bandeau ton="erreur" titre="Illisible.">{d.message ? phrase(d.message) : 'La lecture a échoué.'}{admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}</Bandeau>
+        {:else if d.etat === 'ignore'}
+          <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}</Bandeau>
+        {:else if d.statut_depot === 'en_envoi'}
+          <Bandeau ton="info" titre="{libelleStatutEnvoi('en_envoi')}.">La fiche se met à jour toute seule.</Bandeau>
+        {:else if envoiDemande(d)}
+          <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} demandé.">Validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : elle part dans quelques instants.</Bandeau>
+        {:else if d.statut_depot === 'depose'}
+          <Bandeau ton="ok" titre="{libelleStatutEnvoi('depose', outil)}.">{dernierEnvoi ? `Le ${jourHeure(dernierEnvoi.quand)}, à ${dernierEnvoi.adresse}.` : ''}</Bandeau>
+        {:else if d.envoi_relance}
+          <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} relancé.">Relancé le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : il part dans quelques instants.</Bandeau>
+        {:else if d.statut_depot === 'erreur'}
+          <Bandeau ton="erreur" titre="Envoi à {nomOutil(outil)} échoué.">
+            {dernierEnvoi?.message ? phrase(dernierEnvoi.message) : ''}{admin ? '' : ' Un administrateur peut la renvoyer.'}
+          </Bandeau>
+        {:else if doublon && !refus && !d.verifie_le}
+          <Bandeau ton="erreur" titre="Doublon.">{phrase(doublon.message)}</Bandeau>
+        {:else if autresAlertes.length && !refus}
+          {@const a0 = autresAlertes[0]}
+          <Bandeau titre={detailAlerte(a0) ? `${titreAlerte(a0)} :` : `${titreAlerte(a0)}.`}>
+            {#if detailAlerte(a0)}{phrase(detailAlerte(a0))}{/if}{#if a0.code === 'depot' && admin}{' '}<a href="/reglages#societes">Indiquer l’adresse</a>{/if}{#if autresAlertes.length > 1}
+              {' '}{autresAlertes.length - 1 === 1 ? 'Une autre alerte' : `${autresAlertes.length - 1} autres alertes`}, surlignée{autresAlertes.length > 2 ? 's' : ''} dans les champs.{/if}
+          </Bandeau>
+        {/if}
+        {#if sansAdresse && !refus}
+          <Bandeau titre="À vérifier :">
+            {d.societe ?? 'La société'} n’a pas d’adresse d’envoi vers {outil ? nomOutil(outil) : 'Dext ou Yooz'}.{#if admin}{' '}<a href="/reglages#societes">Indiquer l’adresse</a>{:else}{' '}Un administrateur doit l’indiquer.{/if}
+          </Bandeau>
+        {/if}
+        {#if alerteSociete && !refus && d.etat === 'lu' && !envoiDemande(d) && d.statut_depot !== 'depose' && d.statut_depot !== 'en_envoi'}
+          <Bandeau titre="{titreAlerte(alerteSociete)}.">
+            {d.societe_id === null
+              ? 'Aucune de vos sociétés n’est trouvée sur le document.'
+              : `${d.societe ?? 'La société'} est trouvée avec peu de certitude.`}
+            Choisissez la bonne société, ou rejetez la pièce si elle n’est pas pour vous.
+            <span class="choix-societe">
+              {#each societe.liste as s (s.id)}
+                <button
+                  type="button"
+                  class="btn sm"
+                  class:principal={choix.societe === String(s.id)}
+                  aria-pressed={choix.societe === String(s.id)}
+                  disabled={!editable}
+                  onclick={() => (choix.societe = String(s.id))}>{nomCourtSociete(s.raison_sociale)}</button
+                >
+              {/each}
+              <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgRejeter = true)}>Rejeter</button>
+            </span>
+          </Bandeau>
+        {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
+          <Bandeau ton="info">Attribué à {nomSocieteChoisie}. Validez pour l’enregistrer.</Bandeau>
+        {/if}
+        {#if articlesEcart.length && d.etat === 'lu'}
+          {@const p = articlesEcart[0]}
+          <Bandeau titre="{articlesEcart.length > 1 ? `${articlesEcart.length} articles en écart avec ${d.type === 'bl' ? 'la facture' : 'le BL'}` : `${p.titre}`}.">
+            {p.article} : {p.detail}{p.montant !== null && Math.abs(p.montant) > 0.005 ? ` (${p.montant > 0 ? '+' : ''}${formatMontant(p.montant)} HT)` : ''}.{articlesEcart.length > 1 ? ' Détail dans « ' + (d.type === 'bl' ? 'Facture liée' : 'BL liés') + ' ».' : ''}
+            {#snippet action()}<button type="button" class="btn sm" onclick={() => (ouvrirLiens = true)}>Voir</button>{/snippet}
+          </Bandeau>
+        {/if}
+        {#if remiseTexte}
+          <Bandeau ton="info" titre="Remise de {remiseTexte}.">
+            Elle est déduite du total HT de la {d.type === 'avoir' ? 'pièce' : 'facture'}{articlesEcart.length ? ' ; l’écart qui reste avec les BL vient des articles signalés.' : ' : un écart avec les BL, valorisés avant remise, est normal.'}
+          </Bandeau>
+        {/if}
+        {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
+          <Bandeau titre="Lecture incomplète.">
+            {phrase(d.message.replace(/^Lecture à vérifier : /, ''))} Vérifiez sur l’aperçu{relisible ? ', ou faites-le relire en détail' : ''}.
+            {#snippet action()}{#if relisible}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/if}{/snippet}
+          </Bandeau>
+        {:else if montantsManquants && relisible}
+          <Bandeau titre="Montants non lus.">
+            Les totaux sont sur le document mais la lecture les a manqués. La relecture en détail lit le PDF entier avec un modèle plus fort.
+            {#snippet action()}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/snippet}
+          </Bandeau>
+        {/if}
+        {#if blEnAttente}
+          <Bandeau ton="info" titre="En attente de facture.">
+            Il sera rapproché dès que la facture {de(choix.fournisseurNom || d.fournisseur_nom || 'du fournisseur')} arrivera.
+          </Bandeau>
+        {/if}
+
+        {#if d.etat === 'lu'}
+          {@const ctrlF = aControler('fournisseur')}
+          <div class="lignes-champs">
+            {#if montrerType}
+              <Champ
+                disposition="ligne"
+                libelle="Type"
+                type="select"
+                bind:valeur={choix.type}
+                options={optionsType}
+                modifiable={editable}
+                aControler={aControler('type')}
+              />
+            {/if}
+            <div class="champ-ligne" class:a-controler={!!ctrlF && !editionF}>
+              {#if editionF}
+                <label class="k" for="{uid}-f">Fournisseur</label>
+                <div class="v edition">
+                  <input
+                    id="{uid}-f"
+                    type="search"
+                    bind:this={saisieF}
+                    bind:value={qF}
+                    oninput={chercherF}
+                    onkeydown={toucheF}
+                    onblur={() => (editionF = false)}
+                    placeholder="Nom, SIRET ou domaine"
+                    autocomplete="off"
+                  />
+                </div>
+                <div class="doc-choix" role="listbox" aria-label="Fiches fournisseur">
+                  {#each resultatsF as f, i (f.id)}
+                    <button type="button" role="option" aria-selected={i === 0} class="btn sm fantome" onpointerdown={(e) => e.preventDefault()} onclick={() => choisirF(f)}>
+                      {f.nom}{#if f.statut === 'a_confirmer'}<span class="muted">nouveau</span>{/if}
+                      {#if i === 0}<Kbd t="Enter" />{/if}
+                    </button>
+                  {:else}
+                    <span class="muted petit">Aucune fiche trouvée</span>
+                  {/each}
+                  {#if choix.fournisseur}
+                    <button type="button" role="option" aria-selected="false" class="btn sm fantome" onpointerdown={(e) => e.preventDefault()} onclick={() => choisirF(null)}>Aucune fiche</button>
+                  {/if}
+                </div>
+              {:else}
+                <div class="k">Fournisseur</div>
+                <div class="v" class:modifiable={editable}>
+                  {#if editable}
+                    <button type="button" class="val" onclick={ouvrirF} aria-label="Modifier Fournisseur">{@render lectureF()}</button>
+                  {:else}
+                    <span class="val">{@render lectureF()}</span>
+                  {/if}
+                  {#if admin && d.fournisseur_id && d.fournisseur_statut === 'a_confirmer' && !change('fournisseur')}
+                    <button type="button" class="btn sm" class:en-cours={occupe === 'fournisseur'} disabled={occupe !== null} onclick={() => majFournisseur(d!.fournisseur_id!, { statut: 'valide' }, `Fiche ${choix.fournisseurNom} confirmée`)}>
+                      Confirmer la fiche
+                    </button>
+                  {/if}
+                </div>
+                <!-- « Nouveau fournisseur (à confirmer) » est déjà écrit à côté du nom -->
+                {#if typeof ctrlF === 'string' && !(d.fournisseur_statut === 'a_confirmer' && ctrlF.includes('confirmer'))}<div class="aide">{ctrlF}</div>{/if}
+              {/if}
+            </div>
+            <Champ
+              disposition="ligne"
+              libelle="Société"
+              type="select"
+              bind:valeur={choix.societe}
+              options={optionsSociete}
+              modifiable={editable}
+              aControler={aControler('societe')}
+            />
+            {#if montrerNumero}
+              <Champ disposition="ligne" libelle="N°" bind:valeur={choix.numero} mono modifiable={editable} aControler={aControler('numero')} />
+            {/if}
+            <Champ disposition="ligne" libelle="Date" type="date" bind:valeur={choix.date} mono modifiable={editable} aControler={aControler('date')}>
+              {#snippet affichage()}
+                {#if choix.date}<span class="num">{dateFr(choix.date)}</span>{:else}<span class="vide-val">Non lue</span>{/if}
+              {/snippet}
+            </Champ>
+            {#if choix.commande || lu.commande}
+              <Champ disposition="ligne" libelle="Commande" bind:valeur={choix.commande} mono modifiable={editable} />
+            {/if}
+            {#if estBl && !lu.ht && !lu.tva && !lu.ttc}
+              <Champ disposition="ligne" libelle="Montant" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable}>
+                {#snippet affichage()}
+                  <span class="doc-pile">
+                    {#if choix.ht === ''}<span>— HT</span><span class="doc-petit">non lu sur le BL</span>{:else}<span>{@render montantLu(choix.ht)} HT</span>{/if}
+                  </span>
+                {/snippet}
+              </Champ>
+            {:else if !estBl || choix.ht || lu.ht || choix.tva || lu.tva || choix.ttc || lu.ttc}
+              {#if remiseTexte}
+                <Champ disposition="ligne" libelle="Remise" valeur={`−${remiseTexte}`} mono />
+              {/if}
+              {#if annexesTexte}
+                <Champ disposition="ligne" libelle="Éco-part., port" valeur={annexesTexte} mono />
+              {/if}
+              <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
+                {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
+                {#snippet apres()}{@render proposer('ht')}{/snippet}
+              </Champ>
+              <Champ disposition="ligne" libelle="TVA" bind:valeur={choix.tva} mono inputmode="decimal" modifiable={editable} aControler={aControler('tva')} indice={tauxTva(ht, tva) ? `(${tauxTva(ht, tva)})` : undefined}>
+                {#snippet affichage()}{@render montantLu(choix.tva)}{/snippet}
+                {#snippet apres()}{@render proposer('tva')}{/snippet}
+              </Champ>
+              <Champ disposition="ligne" libelle="Total TTC" bind:valeur={choix.ttc} mono inputmode="decimal" modifiable={editable} aControler={aControler('ttc')}>
+                {#snippet affichage()}<span class="doc-fort">{@render montantLu(choix.ttc)}</span>{/snippet}
+                {#snippet apres()}{@render proposer('ttc')}{/snippet}
+              </Champ>
+            {/if}
+            {#if estBl && rap}
+              <div class="champ-ligne">
+                <div class="k">Facture liée</div>
+                <div class="v modifiable">
+                  <button type="button" class="val" aria-expanded={ouvrirLiens} onclick={() => (ouvrirLiens = !ouvrirLiens)}>
+                    {#if rap.liens.length}
+                      <span>{rap.liens.map((l) => typeNumero(l.autre.type, l.autre.numero)).join(', ')}</span>
+                    {:else}
+                      <span>{rap.ignore ? 'pas de facture attendue' : 'aucune'}</span>
+                    {/if}
+                  </button>
+                </div>
+              </div>
+            {/if}
+          </div>
+
+          {#if estBl && rap && ouvrirLiens}
+            <div class="doc-panneau" id="{uid}-liens">
+              <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
+            </div>
+          {/if}
+
+          {#if proposerRangement}
             <Bandeau ton="info">
               Toujours ranger {choix.fournisseurNom} dans {nomSocieteChoisie} ?
               {#snippet action()}
                 <button type="button" class="btn sm" class:en-cours={occupe === 'fournisseur'} disabled={occupe !== null} onclick={() => majFournisseur(Number(choix.fournisseur), { societe_defaut_id: Number(choix.societe) }, `${choix.fournisseurNom} sera rangé dans ${nomSocieteChoisie}`)}>Oui</button>
               {/snippet}
             </Bandeau>
-          </div>
+          {/if}
+          {#if modifie && !fige}
+            <p class="petit t2 doc-note">Corrections gardées à la validation.
+              <button type="button" class="btn-lien" onclick={() => (choix = { ...lu })}>Revenir à la lecture</button>
+            </p>
+          {/if}
         {/if}
-        {#if modifie && !fige}
-          <p class="petit t2 doc-note">Corrections gardées à la validation.
-            <button type="button" class="btn-lien" onclick={() => (choix = { ...lu })}>Revenir à la lecture</button>
-          </p>
+
+        <div class="replis doc-liens">
+          {#if d.etat === 'lu' && rap && d.type === 'facture'}
+            <Repli icone="camion" titre={titreLiens(d.type)} resume={resumeLiens(d, rap)} bind:ouvert={ouvrirLiens}>
+              <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
+            </Repli>
+          {/if}
+          {#if d.etat === 'lu' && d.type === 'bl'}
+            <Repli icone="telecharger" titre="Export Phénix" resume={resumeExport(exportPhenix)} ouvert>
+              <DocExportPhenix id={d.id} bind:etat={exportPhenix} onerreur={(m) => (erreur = m)} />
+            </Repli>
+          {/if}
+          {#if d.statut_depot || deposable}
+            <Repli icone="envoyer" titre={titreEnvoi(outil)} resume={resumeEnvoi}>
+              <div class="doc-envoi">
+                {#if d.societe_adresse_depot}
+                  <p>Destination : <span class="num">{d.societe_adresse_depot}</span>{d.societe ? `, ${d.societe}` : ''}</p>
+                {:else}
+                  <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin} <a href="/reglages#societes">Réglages</a>{/if}</p>
+                {/if}
+                {#if d.statut_depot}
+                  <p><Etiquette ton={tonStatutEnvoi(d.statut_depot)}>{libelleStatutEnvoi(d.statut_depot, outil)}</Etiquette>
+                    {#if d.valide_le}<span class="t2 petit">validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}</span>{/if}
+                  </p>
+                {/if}
+              </div>
+              {#if d.envois.length}
+                <table>
+                  <thead><tr><th>Envoi</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
+                  <tbody>
+                    {#each d.envois as e (e.id)}
+                      <tr>
+                        <td class="num">{jourHeure(e.quand)}</td>
+                        <td class="num">{e.adresse}</td>
+                        <td>
+                          <Etiquette ton={e.etat === 'envoye' ? 'ok' : e.etat === 'erreur' ? 'erreur' : 'neutre'}>{e.etat === 'envoye' ? 'Envoyé' : e.etat === 'erreur' ? 'Échec' : 'En cours'}</Etiquette>
+                          {#if e.message}<div class="t2 petit">{e.message}</div>{/if}
+                        </td>
+                        <td class="t2">{e.auteur ?? 'automatique'}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              {:else}
+                <p class="t2 petit">Aucun envoi pour l’instant.</p>
+              {/if}
+            </Repli>
+          {/if}
+          <Repli icone="mail" titre="Mail d’origine" resume="{(estBl ? nomExpediteur(d.mail_expediteur) : adresseExpediteur(d.mail_expediteur)) || 'Expéditeur inconnu'}{`, ${jourHeure(d.recu_le)}`}">
+            <div class="doc-mail">
+              <p><span class="t2">De</span> {d.mail_expediteur || '—'}</p>
+              {#each d.boites as b (b.boite_id)}
+                <p><span class="t2">À</span> {b.adresse}{b.libelle && b.libelle !== b.adresse ? ` (${b.libelle})` : ''}</p>
+              {/each}
+              <p><span class="t2">Objet</span> {d.mail_objet || '(sans objet)'}</p>
+              <p><span class="t2">Pièce</span> {d.nom_fichier}</p>
+              <p><a class="btn sm" href="/mails/{d.mail_id}"><Icone nom="mail" />Ouvrir le mail</a></p>
+            </div>
+          </Repli>
+          {#if d.etat === 'lu' && (rap?.lignes.length || d.texte || corrections.length || admin)}
+            <Repli icone="fichier" titre="Lecture" resume={resumeLecture}>
+              {#if admin && d.voie}
+                <p class="t2 petit">{libelleVoie(d.voie)}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}{d.lu_le ? `, le ${jourHeure(d.lu_le)}` : ''}</p>
+              {/if}
+              {#if corrections.length}
+                <p class="t2 petit">Corrigé à la main : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{NOMS_CHAMPS[champ] ?? champ} ({brut(c.avant)} → {brut(c.apres)}){/each}</p>
+              {/if}
+              {#if rap?.lignes.length}
+                <table>
+                  <thead><tr><th>Réf.</th><th>Désignation</th><th class="n">Qté</th><th class="n">PU HT</th><th class="n">Montant HT</th></tr></thead>
+                  <tbody>
+                    {#each rap.lignes as l (l.rang)}
+                      <tr>
+                        <td class="num">{l.reference ?? '—'}</td>
+                        <td>{l.designation ?? '—'}</td>
+                        <td class="n num">{quantite(l.quantite)}{l.unite ? ` ${l.unite}` : ''}</td>
+                        <td class="n"><Montant valeur={l.prix_unitaire_ht} devise="" /></td>
+                        <td class="n"><Montant valeur={l.montant_ht} devise="" /></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              {/if}
+              {#if d.texte}
+                <details class="doc-texte">
+                  <summary class="t2 petit">Texte lu</summary>
+                  <pre>{d.texte}</pre>
+                </details>
+              {/if}
+            </Repli>
+          {/if}
+          {#if estBl && d.fournisseur_id}
+            <a class="ligne-lien" href="/fournisseurs?fiche={d.fournisseur_id}">
+              <Icone nom="batiment" />
+              <span class="titre-repli">Fiche fournisseur</span>
+              <span class="resume-repli">{d.fournisseur ?? choix.fournisseurNom}</span>
+              <Icone nom="droite" class="chev" />
+            </a>
+          {/if}
+        </div>
+
+        {#if relisible || (d.etat === 'lu' && !voirTN && editable && (!montrerType || !montrerNumero)) || (estBl && rap && d.etat === 'lu')}
+          <div class="doc-actions">
+            {#if estBl && rap && d.etat === 'lu'}
+              <button type="button" class="btn-lien" aria-expanded={ouvrirLiens} onclick={rapprocher}>{rap.liens.length ? 'Voir la facture liée' : 'Rapprocher d’une facture'}</button>
+            {/if}
+            {#if relisible}
+              <button type="button" class="btn-lien" onclick={() => (dlgRelire = true)}>Relire avec Claude</button>
+              <button type="button" class="btn-lien" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>
+            {/if}
+            {#if d.etat === 'lu' && !voirTN && editable && (!montrerType || !montrerNumero)}
+              <button type="button" class="btn-lien" onclick={() => (voirTN = true)}>Corriger le type ou le n°</button>
+            {/if}
+          </div>
         {/if}
       {/if}
+    </div>
 
-      <div class="replis">
-        {#if d.etat === 'lu' && rap && (d.type === 'facture' || d.type === 'bl')}
-          <Repli icone="camion" titre={titreLiens(d.type)} resume={resumeLiens(d, rap)} bind:ouvert={ouvrirLiens}>
-            <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
-          </Repli>
-        {/if}
-        {#if d.etat === 'lu' && d.type === 'bl'}
-          <Repli icone="telecharger" titre="Export Phénix" resume={resumeExport(exportPhenix)} ouvert>
-            <DocExportPhenix id={d.id} bind:etat={exportPhenix} onerreur={(m) => (erreur = m)} />
-          </Repli>
-        {/if}
-        {#if d.statut_depot || deposable}
-          <Repli icone="envoyer" titre={titreEnvoi(outil)} resume={resumeEnvoi}>
-            <div class="doc-envoi">
-              {#if d.societe_adresse_depot}
-                <p>Destination : <span class="num">{d.societe_adresse_depot}</span>{d.societe ? `, ${d.societe}` : ''}</p>
-              {:else}
-                <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin} <a href="/reglages">Réglages</a>{/if}</p>
-              {/if}
-              {#if d.statut_depot}
-                <p><Etiquette ton={tonStatutEnvoi(d.statut_depot)}>{libelleStatutEnvoi(d.statut_depot, outil)}</Etiquette>
-                  {#if d.valide_le}<span class="t2 petit">validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}</span>{/if}
-                </p>
-              {/if}
-            </div>
-            {#if d.envois.length}
-              <table>
-                <thead><tr><th>Envoi</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
-                <tbody>
-                  {#each d.envois as e (e.id)}
-                    <tr>
-                      <td class="num">{jourHeure(e.quand)}</td>
-                      <td class="num">{e.adresse}</td>
-                      <td>
-                        <Etiquette ton={e.etat === 'envoye' ? 'ok' : e.etat === 'erreur' ? 'erreur' : 'neutre'}>{e.etat === 'envoye' ? 'Envoyé' : e.etat === 'erreur' ? 'Échec' : 'En cours'}</Etiquette>
-                        {#if e.message}<div class="t2 petit">{e.message}</div>{/if}
-                      </td>
-                      <td class="t2">{e.auteur ?? 'automatique'}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            {:else}
-              <p class="t2 petit">Aucun envoi pour l’instant.</p>
-            {/if}
-          </Repli>
-        {/if}
-        <Repli icone="mail" titre="Mail d’origine" resume="{nomExpediteur(d.mail_expediteur) || 'Expéditeur inconnu'}{`, ${jourHeure(d.recu_le)}`}">
-          <div class="doc-mail">
-            <p><span class="t2">De</span> {d.mail_expediteur || '—'}</p>
-            {#each d.boites as b (b.boite_id)}
-              <p><span class="t2">À</span> {b.adresse}{b.libelle && b.libelle !== b.adresse ? ` (${b.libelle})` : ''}</p>
-            {/each}
-            <p><span class="t2">Objet</span> {d.mail_objet || '(sans objet)'}</p>
-            <p><span class="t2">Pièce</span> {d.nom_fichier}</p>
-            <p><a class="btn sm" href="/mails/{d.mail_id}"><Icone nom="mail" />Ouvrir le mail</a></p>
-          </div>
-        </Repli>
-        {#if d.etat === 'lu' && (rap?.lignes.length || d.texte || corrections.length || admin)}
-          <Repli icone="fichier" titre="Lecture" resume={rap?.lignes.length ? `${rap.lignes.length} ligne${rap.lignes.length > 1 ? 's' : ''} lue${rap.lignes.length > 1 ? 's' : ''}` : d.lu_le ? `lu le ${jourHeure(d.lu_le)}` : ''}>
-            {#if admin && d.voie}
-              <p class="t2 petit">{libelleVoie(d.voie)}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}{d.lu_le ? `, le ${jourHeure(d.lu_le)}` : ''}</p>
-            {/if}
-            {#if corrections.length}
-              <p class="t2 petit">Corrigé à la main : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{NOMS_CHAMPS[champ] ?? champ} ({brut(c.avant)} → {brut(c.apres)}){/each}</p>
-            {/if}
-            {#if rap?.lignes.length}
-              <table>
-                <thead><tr><th>Réf.</th><th>Désignation</th><th class="n">Qté</th><th class="n">PU HT</th><th class="n">Montant HT</th></tr></thead>
-                <tbody>
-                  {#each rap.lignes as l (l.rang)}
-                    <tr>
-                      <td class="num">{l.reference ?? '—'}</td>
-                      <td>{l.designation ?? '—'}</td>
-                      <td class="n num">{quantite(l.quantite)}{l.unite ? ` ${l.unite}` : ''}</td>
-                      <td class="n"><Montant valeur={l.prix_unitaire_ht} devise="" /></td>
-                      <td class="n"><Montant valeur={l.montant_ht} devise="" /></td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            {/if}
-            {#if d.texte}
-              <details class="doc-texte">
-                <summary class="t2 petit">Texte lu</summary>
-                <pre>{d.texte}</pre>
-              </details>
-            {/if}
-          </Repli>
-        {/if}
-      </div>
+    {#if !erreurChargement}
+      <BarreAction
+        principal={plan.principal}
+        secondaires={plan.secondaires}
+        {ensuite}
+        {sansSuite}
+        toucheEnsuite={pleinEcran && ensuite && onsuivant ? 'J' : undefined}
+      />
     {/if}
-  </div>
+  </section>
 </div>
-
-{#if !erreurChargement}
-  <BarreAction principal={plan.principal} secondaires={plan.secondaires} {ensuite} toucheEnsuite={pleinEcran && ensuite && onsuivant ? 'J' : undefined} aligne={pleinEcran} />
-{/if}
 
 <Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarter}>
   <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
@@ -1049,6 +1185,122 @@
 </Confirmation>
 
 <style>
+  /* trois colonnes avec la liste : aperçu au centre, fiche de 360 px à droite (pied d'action compris) */
+  .doc-corps {
+    overflow: hidden;
+  }
+  .doc-apercu {
+    flex: 1;
+    min-width: 0;
+  }
+  .doc-fiche {
+    flex: none;
+    width: 360px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--line);
+    background: var(--white);
+  }
+  :global(.pleine) .doc-fiche {
+    width: 400px;
+  }
+  .doc-fiche :global(.contenu-fiche) {
+    flex: 1;
+    width: auto;
+    border-left: 0;
+    padding: var(--e6);
+    display: flex;
+    flex-direction: column;
+    gap: var(--e4);
+    overflow: auto;
+  }
+  .doc-fiche :global(.bandeau) {
+    margin: 0;
+  }
+  .doc-fiche :global(.barre-action) {
+    padding: var(--e4) var(--e6);
+  }
+  .doc-tete {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e1);
+  }
+  .doc-nom {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.2;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+  .doc-sous {
+    margin: 0;
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .doc-pile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--e1);
+  }
+  .doc-petit {
+    font-size: 14px;
+    color: var(--text2);
+  }
+  .doc-ligne {
+    flex-basis: 100%;
+  }
+  .doc-fort {
+    font-weight: 500;
+  }
+  .doc-panneau {
+    padding: 0 0 var(--e2);
+  }
+  .doc-liens {
+    margin-top: 0;
+  }
+  /* ligne-lien vers une autre page : même dessin qu'une ligne repliable */
+  .ligne-lien {
+    display: flex;
+    align-items: center;
+    gap: var(--e3);
+    min-height: 48px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line-faint);
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .ligne-lien > :global(svg.i:first-child) {
+    color: var(--text2);
+  }
+  .ligne-lien .titre-repli {
+    flex: none;
+    white-space: nowrap;
+  }
+  .ligne-lien .resume-repli {
+    flex: 0 1 auto;
+    min-width: 0;
+    color: var(--text2);
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ligne-lien :global(.chev) {
+    flex: none;
+    margin-left: auto;
+    color: var(--muted);
+  }
+  .ligne-lien:hover .titre-repli {
+    color: var(--accent);
+  }
+  .doc-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--e2) var(--e4);
+    font-size: 15px;
+  }
   .dernier-essai {
     display: block;
     margin-top: 2px;
@@ -1071,11 +1323,8 @@
     gap: var(--e2);
     margin-top: var(--e2);
   }
-  .doc-question {
-    margin-top: var(--e3);
-  }
   .doc-note {
-    margin: var(--e2) 0 0;
+    margin: 0;
   }
   .doc-envoi p,
   .doc-mail p {
@@ -1096,5 +1345,38 @@
   .doc-texte summary {
     cursor: pointer;
     margin-top: var(--e2);
+  }
+  /* < 1200 px : l'aperçu au-dessus de la fiche, le tout défile */
+  @media (max-width: 1200px) {
+    .doc-corps {
+      flex-direction: column;
+      overflow: auto;
+    }
+    .doc-apercu {
+      flex: none;
+      height: 420px;
+      border-bottom: 1px solid var(--line);
+    }
+    .doc-fiche,
+    :global(.pleine) .doc-fiche {
+      flex: none;
+      width: auto;
+      min-height: auto;
+      border-left: 0;
+    }
+    .doc-fiche :global(.contenu-fiche) {
+      overflow: visible;
+    }
+  }
+  @media (max-width: 760px) {
+    .doc-corps {
+      overflow: visible;
+    }
+    .doc-apercu {
+      height: 300px;
+    }
+    .doc-fiche :global(.contenu-fiche) {
+      padding: var(--e4);
+    }
   }
 </style>

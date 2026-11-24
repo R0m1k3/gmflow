@@ -11,4 +11,9 @@
   ];
 </script>
 
-<ListeDocuments titre="Factures" chemin="/factures" {filtres} rechercheType="facture" videTitre="Aucune facture" singulier="une facture" />
+<ListeDocuments
+  titre="Factures" chemin="/factures" {filtres} rechercheType="facture" videTitre="Aucune facture"
+  singulier="une facture"
+  section="Facture"
+  sansSuite="Aucune autre facture dans cette liste"
+/>

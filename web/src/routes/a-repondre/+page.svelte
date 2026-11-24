@@ -12,8 +12,10 @@
   import type { LigneARepondre } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
+  import Etiquette from '#lib/ui/Etiquette.svelte';
+  import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
-  import MailFiche, { dateMail, nomExpediteur } from '#lib/ui/MailFiche.svelte';
+  import MailFiche, { dateMail, nomLisible } from '#lib/ui/MailFiche.svelte';
   import Vide from '#lib/ui/Vide.svelte';
   import Volets from '#lib/ui/Volets.svelte';
 
@@ -57,11 +59,10 @@
 
 <svelte:head><title>À répondre · GMFlow</title></svelte:head>
 
-<Volets ouvert={!!mailId} libelleListe="Mails à répondre">
+<Volets ouvert={!!mailId} libelleListe="Mails à répondre" largeur={360}>
   {#snippet liste()}
     <div class="liste-h">
-      <h1>À répondre</h1>
-      <span class="num">{lst.total}</span>
+      <h1>À répondre <span class="num">{lst.total}</span></h1>
     </div>
     <div class="liste-s" bind:this={listeEl}>
       {#if lst.erreur}
@@ -75,22 +76,23 @@
       {:else if !lst.elements.length}
         <Vide compact icone="coche" titre="Aucune réponse en attente" texte="Les questions reçues par mail arrivent ici." />
       {:else}
-        {#each lst.elements as m (m.id)}
-          <a class="ligne" class:cur={mailId === m.id} aria-current={mailId === m.id ? 'true' : undefined} href={lien(m.id)} data-id={m.id}>
-            <div class="a">{nomExpediteur(m.expediteur) || '(expéditeur inconnu)'}</div>
-            <div class="r">{#if libellePriorite(m.priorite)}<span class="flag e">{libellePriorite(m.priorite)}</span>{/if}</div>
-            <div class="b">
-              {m.objet || '(sans objet)'}{#if m.resume}<span class="muted"> · {m.resume}</span>{/if}
-            </div>
-            <div class="r2"><span class="num">{dateMail(m.date_mail, false)}</span></div>
-            {#if m.brouillon || m.structures.length}
-              <div class="b c">
-                {#if m.brouillon}<span class="flag">{libelleBrouillon(m.brouillon)}</span>{/if}
-                {#if m.structures.length}<span class="muted">{m.structures.map((s: string) => nomCourtSociete(s)).join(', ')}</span>{/if}
-              </div>
-            {/if}
-          </a>
-        {/each}
+        <div class="groupe">
+          {#each lst.elements as m (m.id)}
+            <a class="ligne tuile" aria-current={mailId === m.id ? 'true' : undefined} href={lien(m.id)} data-id={m.id}>
+              <span class="t1">
+                <span class="de">{nomLisible(m.expediteur) || '(expéditeur inconnu)'}</span>
+                <span class="h num">{dateMail(m.date_mail, false)}</span>
+              </span>
+              <span class="t2"><span class="objet">{m.objet || '(sans objet)'}</span></span>
+              {#if m.resume}<span class="resume">{m.resume}</span>{/if}
+              <span class="t3">
+                {#if libellePriorite(m.priorite)}<Etiquette ton="erreur">{libellePriorite(m.priorite)}</Etiquette>{/if}
+                {#if m.brouillon}<span class="brouillon"><Icone nom="crayon" />{libelleBrouillon(m.brouillon)}</span>{/if}
+                <span>{m.structures.length ? m.structures.map((s: string) => nomCourtSociete(s)).join(', ') : 'Question'}</span>
+              </span>
+            </a>
+          {/each}
+        </div>
         {#if lst.reste > 0}
           <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
             {lst.enCours ? 'Chargement…' : `Afficher la suite (${lst.reste})`}
@@ -114,8 +116,77 @@
 </Volets>
 
 <style>
-  .c {
+  .groupe {
     display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: var(--e4);
+  }
+  .ligne.tuile {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px 16px;
+    min-width: 0;
+  }
+  .t1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--e3);
+    min-width: 0;
+  }
+  .de {
+    font-size: 16px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .h {
+    flex: none;
+    font-size: 14px;
+    color: var(--text2);
+  }
+  .t2 {
+    display: flex;
+    min-width: 0;
+    font-size: 15px;
+    color: var(--text2);
+  }
+  .objet {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .resume {
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .t3 {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
     gap: var(--e2);
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .brouillon {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--e1);
+    color: var(--text2);
+  }
+  .brouillon :global(svg) {
+    width: 14px;
+    height: 14px;
   }
 </style>

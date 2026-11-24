@@ -387,11 +387,15 @@
   .retour {
     margin-bottom: var(--e2);
   }
+  .page-h h1 {
+    font-size: 22px;
+    font-weight: 500;
+  }
   .sub {
     display: flex;
     gap: var(--e5);
-    margin-bottom: var(--e5);
-    font-size: 12px;
+    margin-bottom: var(--e6);
+    font-size: 14px;
     color: var(--muted);
   }
   .sub span {
@@ -408,8 +412,8 @@
   }
   .sub i {
     font-style: normal;
-    font-family: var(--mono);
-    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    font-size: 14px;
   }
   .form {
     display: grid;
@@ -424,11 +428,11 @@
     display: flex;
     gap: 10px;
     align-items: flex-start;
-    padding: 10px var(--e3);
-    border-radius: var(--r2);
+    padding: var(--e3) var(--e4);
+    border-radius: var(--r3);
     background: var(--pane);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: 15px;
+    line-height: 1.45;
     color: var(--text2);
   }
   .detect :global(svg.i) {
@@ -439,7 +443,7 @@
     font-weight: 500;
   }
   .detect .num {
-    font-size: 12px;
+    font-size: 15px;
   }
   .discret {
     color: var(--text2);
@@ -466,13 +470,14 @@
     transform: translateY(-50%);
     color: var(--muted);
     text-decoration: none;
-    font-size: 12px;
+    font-size: 14px;
   }
   .form-f {
     display: flex;
-    gap: var(--e2);
+    gap: var(--e3);
     align-items: center;
-    margin-top: var(--e4);
+    margin-top: var(--e5);
+    flex-wrap: wrap;
   }
   .ecran {
     max-width: 640px;
@@ -481,9 +486,9 @@
     margin-bottom: var(--e4);
   }
   .titre-bloc {
-    font-size: 14px;
+    font-size: 17px;
     font-weight: 500;
-    margin: var(--e6) 0 var(--e1);
+    margin: var(--e6) 0 var(--e2);
   }
   .titre-bloc.premier {
     margin-top: 0;
