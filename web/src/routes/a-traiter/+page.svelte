@@ -336,7 +336,7 @@
               <div class="a">{l.fournisseur ?? 'Fournisseur non reconnu'}</div>
               <div class="r">{#if l.montant_ttc !== null}<Montant valeur={l.montant_ttc} avoir={l.type === 'avoir'} />{/if}</div>
               <div class="b">
-                {libelleType(l.type)}{#if l.numero}<span class="large-seul">{' '}<span class="num">{l.numero}</span></span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}{#if l.remise_ht && l.remise_ht > 0.005}{' '}<span class="flag i">Remise {formatMontant(l.remise_ht)}</span>{/if}
+                {libelleType(l.type)}{#if l.numero}<span class="large-seul">{' '}<span class="num">{l.numero}</span></span>{/if}{l.societe ? `, ${nomCourtSociete(l.societe)}` : ''}{#if f}<span class="flag {f.ton}">&nbsp; {f.texte}</span>{/if}{#if l.articles_ecart}{' '}<span class="flag w">{l.articles_ecart} écart{l.articles_ecart > 1 ? 's' : ''} BL</span>{/if}{#if l.remise_ht && l.remise_ht > 0.005}{' '}<span class="flag i">Remise {formatMontant(l.remise_ht)}</span>{/if}
               </div>
               <div class="r2">{age(l.recu_le)}</div>
             </a>

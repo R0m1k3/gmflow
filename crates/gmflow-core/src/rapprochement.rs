@@ -116,61 +116,156 @@ pub fn correspondance(f: &FactureRef, b: &BlRef) -> Option<Methode> {
     None
 }
 
-/// Écart de quantité sur un article entre la facture et ses BL.
+/// Écart sur un article entre la facture et ses BL : quantité (manquant au BL, livré sans être
+/// facturé) ou prix unitaire différent.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct EcartLigne {
+    /// `manquant` (facturé, moins livré), `en_trop` (livré, moins facturé) ou `prix`.
+    pub genre: &'static str,
     pub reference: Option<String>,
     pub designation: Option<String>,
     pub qte_bl: f64,
     pub qte_facture: f64,
+    /// Prix unitaires HT lus de chaque côté (ou montant / quantité).
+    pub prix_facture: Option<f64>,
+    pub prix_bl: Option<f64>,
+    /// Part de l'écart HT due à cet article : facturé − livré (positif si la facture dépasse).
+    pub montant_ht: Option<f64>,
 }
 
-fn cle(l: &Ligne) -> Option<String> {
-    non_vide(&l.reference).or_else(|| non_vide(&l.designation))
+/// Article d'un côté : lignes de même référence (sinon désignation) regroupées.
+struct Article<'a> {
+    reference: Option<String>,
+    designation: Option<String>,
+    qte: f64,
+    /// Montant HT cumulé, quand chaque ligne en donne un (prix × quantité, ou montant lu).
+    montant: Option<f64>,
+    ligne: &'a Ligne,
 }
 
-/// Quantités par article (référence, sinon désignation), dans l'ordre d'apparition.
-fn quantites(lignes: &[Ligne]) -> Vec<(String, f64, &Ligne)> {
-    let mut v: Vec<(String, f64, &Ligne)> = Vec::new();
+impl Article<'_> {
+    fn prix(&self) -> Option<f64> {
+        self.montant
+            .filter(|_| self.qte.abs() > 0.0005)
+            .map(|m| m / self.qte)
+    }
+}
+
+fn montant_ligne(l: &Ligne) -> Option<f64> {
+    l.montant_ht
+        .or_else(|| Some(l.prix_unitaire_ht? * l.quantite?))
+}
+
+/// Articles d'un côté, dans l'ordre d'apparition.
+fn articles(lignes: &[Ligne]) -> Vec<Article<'_>> {
+    let mut v: Vec<Article> = Vec::new();
     for l in lignes {
-        let (Some(k), Some(q)) = (cle(l), l.quantite) else {
+        let Some(q) = l.quantite else { continue };
+        let (r, d) = (non_vide(&l.reference), non_vide(&l.designation));
+        if r.is_none() && d.is_none() {
             continue;
+        }
+        let m = montant_ligne(l);
+        let meme = |a: &&mut Article| match (&r, &a.reference) {
+            (Some(x), Some(y)) => x == y,
+            (None, None) => d.is_some() && d == a.designation,
+            _ => false,
         };
-        match v.iter_mut().find(|(c, _, _)| *c == k) {
-            Some(e) => e.1 += q,
-            None => v.push((k, q, l)),
+        match v.iter_mut().find(meme) {
+            Some(a) => {
+                a.qte += q;
+                a.montant = a.montant.zip(m).map(|(x, y)| x + y);
+            }
+            None => v.push(Article {
+                reference: r,
+                designation: d,
+                qte: q,
+                montant: m,
+                ligne: l,
+            }),
         }
     }
     v
 }
 
-/// Écarts de quantités entre les lignes d'une facture et celles de ses BL. Vide si l'un des
-/// deux côtés n'a pas de lignes avec quantité (rien à comparer).
-pub fn comparer(facture: &[Ligne], bls: &[Ligne]) -> Vec<EcartLigne> {
-    let (f, b) = (quantites(facture), quantites(bls));
+/// Même prix, ou prix de la facture net de la remise (`taux` %) : pas un changement de prix.
+fn meme_prix(pf: f64, pb: f64, taux: Option<f64>) -> bool {
+    let proche = |a: f64, b: f64| (a - b).abs() <= 0.01_f64.max(b.abs() * 0.001);
+    proche(pf, pb)
+        || taux.is_some_and(|t| {
+            let k = 1.0 - t / 100.0;
+            proche(pf, pb * k) || proche(pf * k, pb)
+        })
+}
+
+fn arrondi(v: f64) -> f64 {
+    (v * 100.0).round() / 100.0
+}
+
+/// Écarts entre les lignes d'une facture et celles de ses BL : articles manquants ou en trop,
+/// prix unitaires différents (hors remise de `remise_taux` %). Un article est retrouvé par sa
+/// référence, sinon par sa désignation (référence fournisseur d'un côté, pas de l'autre). Vide
+/// si l'un des deux côtés n'a pas de lignes avec quantité (rien à comparer).
+pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> Vec<EcartLigne> {
+    let (f, b) = (articles(facture), articles(bls));
     if f.is_empty() || b.is_empty() {
         return Vec::new();
     }
-    let qf: HashMap<&str, f64> = f.iter().map(|(k, q, _)| (k.as_str(), *q)).collect();
-    let qb: HashMap<&str, f64> = b.iter().map(|(k, q, _)| (k.as_str(), *q)).collect();
+    let mut pris = vec![false; b.len()];
     let mut ecarts = Vec::new();
-    let mut vus: Vec<&str> = Vec::new();
-    for (k, _, l) in f.iter().chain(b.iter()) {
-        if vus.contains(&k.as_str()) {
-            continue;
+    let mut ajouter = |fa: Option<&Article>, ba: Option<&Article>| {
+        let (qf, qb) = (fa.map_or(0.0, |a| a.qte), ba.map_or(0.0, |a| a.qte));
+        let (pf, pb) = (fa.and_then(Article::prix), ba.and_then(Article::prix));
+        let genre = if qf - qb > 0.0005 {
+            "manquant"
+        } else if qb - qf > 0.0005 {
+            "en_trop"
+        } else if let (Some(x), Some(y)) = (pf, pb)
+            && !meme_prix(x, y, remise_taux)
+        {
+            "prix"
+        } else {
+            return;
+        };
+        // Part de l'écart : chaque côté à son prix, à défaut au prix de l'autre.
+        let montant = match (pf.or(pb), pb.or(pf)) {
+            (Some(x), Some(y)) => Some(arrondi(qf * x - qb * y)),
+            _ => None,
+        };
+        let l = fa.or(ba).map(|a| a.ligne);
+        ecarts.push(EcartLigne {
+            genre,
+            reference: l.and_then(|l| l.reference.clone()),
+            designation: l.and_then(|l| l.designation.clone()),
+            qte_bl: qb,
+            qte_facture: qf,
+            prix_facture: pf.map(|p| (p * 10_000.0).round() / 10_000.0),
+            prix_bl: pb.map(|p| (p * 10_000.0).round() / 10_000.0),
+            montant_ht: montant,
+        });
+    };
+    for fa in &f {
+        let trouve = |par_ref: bool| {
+            (0..b.len()).find(|&i| {
+                !pris[i]
+                    && if par_ref {
+                        fa.reference.is_some() && fa.reference == b[i].reference
+                    } else {
+                        fa.designation.is_some() && fa.designation == b[i].designation
+                    }
+            })
+        };
+        match trouve(true).or_else(|| trouve(false)) {
+            Some(i) => {
+                pris[i] = true;
+                ajouter(Some(fa), Some(&b[i]));
+            }
+            None => ajouter(Some(fa), None),
         }
-        vus.push(k);
-        let (a, c) = (
-            qb.get(k.as_str()).copied().unwrap_or(0.0),
-            qf.get(k.as_str()).copied().unwrap_or(0.0),
-        );
-        if (a - c).abs() > 0.0005 {
-            ecarts.push(EcartLigne {
-                reference: l.reference.clone(),
-                designation: l.designation.clone(),
-                qte_bl: a,
-                qte_facture: c,
-            });
+    }
+    for (i, ba) in b.iter().enumerate() {
+        if !pris[i] {
+            ajouter(None, Some(ba));
         }
     }
     ecarts
@@ -302,12 +397,13 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
     if bls.is_empty() {
         return Ok(());
     }
-    let ht_facture = sqlx::query_scalar!(
-        "select montant_ht::float8 from document where id = $1",
+    let f = sqlx::query!(
+        "select montant_ht::float8 as ht, remise_taux::float8 as taux from document where id = $1",
         facture_id
     )
     .fetch_one(&mut *c)
     .await?;
+    let ht_facture = f.ht;
     let mut ids: Vec<i64> = bls.iter().map(|b| b.id).collect();
     ids.push(facture_id);
     let mut l = lignes(c, &ids).await?;
@@ -320,7 +416,7 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
         lb.extend(lignes_bl);
     }
     let ecart = ecart_montant(ht_facture, &montants);
-    let ecarts = json!(comparer(&lf, &lb));
+    let ecarts = json!(comparer(&lf, &lb, f.taux));
     sqlx::query!(
         "update rapprochement set ecart_montant = $2::float8::numeric(14, 2), ecarts = $3
          where facture_id = $1 and not rejete",
