@@ -100,6 +100,9 @@ pub struct Extraction {
     /// Taux de la remise en %, quand il est imprimé.
     #[serde(default)]
     pub remise_taux: Option<f64>,
+    /// Total HT des montants annexes compris dans le HT (éco-participation, port…).
+    #[serde(default)]
+    pub annexes_ht: Option<f64>,
     pub confiance: Confiance,
     /// Lignes articles (obligatoires pour un BL, si lisibles pour une facture).
     #[serde(default)]
@@ -140,9 +143,13 @@ const MONTANTS_ANNEXES: &str = "montant_ht, montant_tva et montant_ttc décriven
 const REMISES: &str = "remise_ht = le total HT des remises déduites sur le document (remise \
      globale, remise commerciale, remise de pied, rabais, ristourne, escompte), en nombre \
      positif, null s'il n'y en a pas ; remise_taux = son pourcentage s'il est imprimé (20 pour \
-     « remise globale 20 % »), null sinon. Les montants restent nets : montant_ht est le total \
-     HT après remise. Exemple : Marchandise HT 1 400,80, Ecomaison 40,65, Remise globale 20 % \
-     -280,16, Total HT net 1 161,29 donne montant_ht 1161.29, remise_ht 280.16, remise_taux 20.\n";
+     « remise globale 20 % »), null sinon. annexes_ht = le total HT des montants annexes compris \
+     dans montant_ht (éco-participation, Éco-mobilier, Ecomaison, DEEE, éco-contribution, frais \
+     de port, emballage), qu'ils soient imprimés avant ou après le « Total HT », null s'il n'y en \
+     a pas. Les montants restent nets : montant_ht est le total HT après remise, annexes \
+     comprises. Exemple : Marchandise HT 1 400,80, Ecomaison 40,65, Remise globale 20 % -280,16, \
+     Total HT net 1 161,29 donne montant_ht 1161.29, remise_ht 280.16, remise_taux 20, \
+     annexes_ht 40.65.\n";
 
 /// Schéma JSON de la réponse. `avec_texte` : demande aussi la transcription (scans).
 pub fn schema(avec_texte: bool) -> Value {
@@ -166,6 +173,7 @@ pub fn schema(avec_texte: bool) -> Value {
         "montant_ttc": nombre_ou_null(),
         "remise_ht": nombre_ou_null(),
         "remise_taux": nombre_ou_null(),
+        "annexes_ht": nombre_ou_null(),
         "lignes": {
             "type": "array",
             "items": {
@@ -202,6 +210,7 @@ pub fn schema(avec_texte: bool) -> Value {
         "montant_ttc",
         "remise_ht",
         "remise_taux",
+        "annexes_ht",
         "lignes",
         "numeros_bl",
         "confiance",

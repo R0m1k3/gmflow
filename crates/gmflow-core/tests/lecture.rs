@@ -130,7 +130,7 @@ fn xml_cii_et_ubl() {
         (ubl.montant_ht, ubl.montant_tva, ubl.montant_ttc),
         (Some(10.0), Some(2.0), Some(12.0))
     );
-    assert_eq!(ubl.remise_ht, Some(2.5));
+    assert_eq!((ubl.remise_ht, ubl.annexes_ht), (Some(2.5), Some(1.2)));
     assert_eq!(societe::pour_acheteur(&ubl.acheteur, &societes()), Some(1));
     // Un XML qui n'est pas une facture n'est pas lu.
     assert!(matches!(
@@ -371,6 +371,10 @@ fn remise_lue_a_part() {
         .iter()
         .filter_map(|r| r.as_str())
         .collect();
-    assert!(requis.contains(&"remise_ht") && requis.contains(&"remise_taux"));
+    assert!(
+        ["remise_ht", "remise_taux", "annexes_ht"]
+            .iter()
+            .all(|c| requis.contains(c))
+    );
     assert!(extraction::consigne_nouvel_essai(&[], None, None).contains("remise_ht"));
 }

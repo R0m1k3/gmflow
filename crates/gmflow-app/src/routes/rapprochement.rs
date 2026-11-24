@@ -45,6 +45,8 @@ pub struct DocRap {
     montant_ht: Option<f64>,
     /// Remise HT déduite sur la facture : explique l'écart avec les BL.
     remise_ht: Option<f64>,
+    /// Éco-participation, port… compris dans le HT de la facture, jamais sur un BL.
+    annexes_ht: Option<f64>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
     societe: Option<String>,
@@ -100,9 +102,10 @@ struct Lien {
     ecarts: Value,
 }
 
-fn avec_ecart(ecart: Option<f64>, ecarts: &Value) -> bool {
-    ecart.is_some_and(|e| e.abs() > SEUIL_MONTANT)
-        || ecarts.as_array().is_some_and(|a| !a.is_empty())
+fn avec_ecart(ecart: Option<f64>, ecarts: &Value, f: &DocRap) -> bool {
+    ecart.is_some_and(|e| {
+        e.abs() > SEUIL_MONTANT && !rap::ecart_explique(e, f.remise_ht, f.annexes_ht)
+    }) || ecarts.as_array().is_some_and(|a| !a.is_empty())
 }
 
 /// Vue d'ensemble du rapprochement sur une période.
@@ -116,7 +119,8 @@ pub async fn vue(
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
                   d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.fournisseur_id, fo.nom as "fournisseur?",
+                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                  d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d
            join mail m on m.id = d.mail_id
@@ -211,6 +215,7 @@ pub async fn vue(
                         numero_commande: None,
                         montant_ht: None,
                         remise_ht: None,
+                        annexes_ht: None,
                         fournisseur_id: d.fournisseur_id,
                         fournisseur: d.fournisseur.clone(),
                         societe: None,
@@ -224,7 +229,7 @@ pub async fn vue(
             ecart_montant: ecart,
             ecarts,
         };
-        if avec_ecart(ecart, &element.ecarts) {
+        if avec_ecart(ecart, &element.ecarts, &element.facture) {
             r.factures_avec_ecart += 1;
             avec.push(element);
         } else {
@@ -353,7 +358,8 @@ pub async fn detail(
                 DocRap,
                 r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
                           d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.fournisseur_id,
+                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                  d.fournisseur_id,
                           fo.nom as "fournisseur?", s.raison_sociale as "societe?",
                           p.nom as nom_fichier
                    from document d
@@ -394,7 +400,8 @@ async fn documents(etat: &Etat, acces: &Acces, ids: &[i64]) -> Resultat<Vec<DocR
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
                   d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.fournisseur_id, fo.nom as "fournisseur?",
+                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                  d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d
            join piece_jointe p on p.id = d.piece_jointe_id

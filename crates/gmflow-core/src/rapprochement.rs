@@ -189,6 +189,17 @@ pub fn montant_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Option<f64> {
     total_ht.or_else(|| somme_lignes(lignes))
 }
 
+/// Écart expliqué par la facture elle-même : sa remise (absente des BL valorisés avant remise)
+/// et ses montants annexes (éco-participation, port : jamais sur un BL). Vrai quand, une fois
+/// ces montants retirés, l'écart tombe sous le seuil, que les BL soient avant ou après remise.
+pub fn ecart_explique(ecart: f64, remise: Option<f64>, annexes: Option<f64>) -> bool {
+    let (r, a) = (remise.unwrap_or(0.0), annexes.unwrap_or(0.0));
+    if r <= 0.0 && a <= 0.0 {
+        return false;
+    }
+    (ecart + r - a).abs() <= SEUIL_MONTANT || (ecart - a).abs() <= SEUIL_MONTANT
+}
+
 /// HT de la facture moins la somme des BL, si tous les montants sont connus.
 pub fn ecart_montant(facture_ht: Option<f64>, bls: &[Option<f64>]) -> Option<f64> {
     if bls.is_empty() {

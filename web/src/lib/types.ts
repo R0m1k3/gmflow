@@ -281,6 +281,8 @@ export interface FicheDocument {
   /** Remise HT déduite sur la pièce, en positif, et son taux (%) s'il est imprimé. */
   remise_ht: number | null;
   remise_taux: number | null;
+  /** Éco-participation, port… compris dans le HT (jamais sur un BL). */
+  annexes_ht: number | null;
   confiance: Confiance;
   texte: string | null;
   modele: string | null;
@@ -526,6 +528,8 @@ export interface DocRap {
   montant_ht: number | null;
   /** Remise HT déduite sur la facture (explique l'écart avec les BL). */
   remise_ht: number | null;
+  /** Éco-participation, port… compris dans le HT de la facture. */
+  annexes_ht: number | null;
   fournisseur_id: number | null;
   fournisseur: string | null;
   societe: string | null;

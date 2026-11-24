@@ -185,6 +185,7 @@ pub fn xml_ubl_avoir(numero: &str, tva_acheteur: &str) -> String {
     <cbc:TaxExclusiveAmount currencyID="EUR">10.00</cbc:TaxExclusiveAmount>
     <cbc:TaxInclusiveAmount currencyID="EUR">12.00</cbc:TaxInclusiveAmount>
     <cbc:AllowanceTotalAmount currencyID="EUR">2.50</cbc:AllowanceTotalAmount>
+    <cbc:ChargeTotalAmount currencyID="EUR">1.20</cbc:ChargeTotalAmount>
   </cac:LegalMonetaryTotal>
 </CreditNote>"#
     )
