@@ -2,8 +2,7 @@
   // Connexion à Claude : état, puis « Se connecter avec le compte Claude » en étapes
   // (séance `claude setup-token` sur le serveur), autres moyens repliés (jeton collé, clé API).
   import { api, ErreurApi, message, sonder } from '#lib/api.ts';
-  import { quand } from '#lib/format.ts';
-  import { RUBRIQUES, type Ton } from '#lib/libelles.ts';
+    import { RUBRIQUES, type Ton } from '#lib/libelles.ts';
   import type { EtatClaude, Seance } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
@@ -11,6 +10,7 @@
   import Etiquette from '#lib/ui/Etiquette.svelte';
   import Icone from '#lib/ui/Icone.svelte';
   import Repli from '#lib/ui/Repli.svelte';
+  import { leA } from './outils.ts';
 
   let { onchange }: { onchange: () => Promise<void> } = $props();
 
@@ -225,103 +225,112 @@
 
 <section class="sujet" id="claude">
   <div class="sujet-h"><h2>{RUBRIQUES.claude}</h2></div>
-  <p class="lead">Claude lit les factures, trie les mails et propose les réponses. Il faut un abonnement Claude, ou une clé API.</p>
+  <p class="lead">Claude lit les factures, trie les mails et propose les réponses. Il faut un abonnement Claude ou une clé API.</p>
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
 
   {#if !etat && !erreur}
     <Chargement compact />
   {:else if etat}
-    <div class="filets">
-      <div class="ligne bloc fixe">
-        <div class="a">
-          <Etiquette ton={resume.ton} point>{resume.titre}</Etiquette>
-          {#if resume.texte}<span class="t2 texte-etat">{resume.texte}</span>{/if}
+    <div class="carte-r">
+      <div class="rang">
+        <div class="g">
+          <div class="etat-l">
+            <Etiquette ton={resume.ton}>
+              {#if resume.ton === 'ok'}<Icone nom="coche" />{:else if resume.ton === 'alerte' || resume.ton === 'erreur'}<Icone nom="alerte" />{/if}{resume.titre}
+            </Etiquette>
+            {#if resume.texte}<span class="texte-etat">{resume.texte}</span>{/if}
+          </div>
+          {#if etat.teste_le || etat.utilise_le}
+            <span class="quand-etat num">
+              {#if etat.teste_le}Essayée le {leA(etat.teste_le)}{/if}{#if etat.teste_le && etat.utilise_le}{' '}·{' '}{/if}{#if etat.utilise_le}dernière utilisation le {leA(etat.utilise_le)}{/if}
+            </span>
+          {/if}
         </div>
-        <div class="b">
-          {#if etat.teste_le}Essayée le <span class="num">{quand(etat.teste_le)}</span>{/if}
-          {#if etat.utilise_le}{' '}· dernière utilisation le <span class="num">{quand(etat.utilise_le)}</span>{/if}
-        </div>
-        <div class="r actions-etat">
+        <div class="d">
           {#if etat.etat !== 'absent'}
-            <button type="button" class="btn sm" class:en-cours={etat.etat === 'en_test'} disabled={etat.etat === 'en_test'} onclick={essayer}>
+            <button type="button" class="btn" class:en-cours={etat.etat === 'en_test'} disabled={etat.etat === 'en_test'} onclick={essayer}>
               Essayer la connexion
             </button>
           {/if}
           {#if etat.acces?.mode !== 'cle_api' && (etat.acces?.jeton ?? etat.etat !== 'absent')}
-            <button type="button" class="btn sm fantome" onclick={deconnecter}>Se déconnecter</button>
+            <button type="button" class="lien-a" onclick={deconnecter}>Se déconnecter</button>
           {/if}
         </div>
       </div>
-    </div>
 
-    {#if montrerParcours}
-      <div class="parcours">
-        <h3 class="sous-titre">Se connecter avec le compte Claude</h3>
-        {#if reprise && enCoursSeance}
-          <Bandeau ton="info">Une connexion était déjà commencée : elle reprend ici.</Bandeau>
-        {/if}
-        {#if seance && !enCoursSeance}
-          {#if seance.message === 'annulée'}
-            <Bandeau ton="neutre">Connexion annulée.</Bandeau>
-          {:else if seance.etat === 'terminee'}
-            <Bandeau ton="ok" titre="Compte Claude connecté.">Essai de la connexion en cours.</Bandeau>
-          {:else if seance.etat === 'expiree'}
-            <Bandeau titre="Aucun code reçu à temps.">Recommencez depuis l’étape 1.</Bandeau>
-          {:else}
-            <Bandeau ton="erreur" titre="La connexion a échoué.">{seance.message ?? ''}</Bandeau>
+      {#if montrerParcours}
+        <div class="parcours">
+          <div class="parcours-h">
+            <h3>Se connecter avec le compte Claude</h3>
+            {#if parcours && !enCoursSeance && etat.etat === 'valide'}
+              <button type="button" class="lien-a" onclick={() => (parcours = false)}>Fermer</button>
+            {/if}
+          </div>
+          {#if reprise && enCoursSeance}
+            <Bandeau ton="info">Une connexion était déjà commencée : elle reprend ici.</Bandeau>
           {/if}
-        {/if}
-        <ol class="etapes">
-          <li class:cur={etape === 1} class:fait={etape > 1}>
-            <span class="rond-etape" class:fait={etape > 1} class:cur={etape === 1}>{#if etape > 1}<Icone nom="coche" />{:else}1{/if}</span>
-            <div>
-              <div class="t">Obtenir le lien de connexion</div>
-              {#if enCoursSeance && seance?.url}
-                <a class="btn" href={seance.url} target="_blank" rel="noopener noreferrer">Ouvrir la page de connexion Claude<Icone nom="ouvrir" /></a>
-              {:else if enCoursSeance}
-                <Chargement compact texte="Préparation du lien" />
-              {:else}
-                <button type="button" class="btn principal" class:en-cours={lancement} disabled={lancement} onclick={lancer}>
-                  {seance ? 'Recommencer' : 'Obtenir le lien'}
-                </button>
-              {/if}
-            </div>
-          </li>
-          <li class:cur={etape === 3} class:fait={etape > 3}>
-            <span class="rond-etape" class:fait={etape > 3} class:cur={etape === 3}>{#if etape > 3}<Icone nom="coche" />{:else}2{/if}</span>
-            <div>
-              <div class="t">Se connecter chez Claude</div>
-              <div class="petit t2">Avec le compte Claude de la société. Claude affiche ensuite un code : copiez-le.</div>
-            </div>
-          </li>
-          <li class:cur={etape === 3} class:fait={etape > 3}>
-            <span class="rond-etape" class:fait={etape > 3} class:cur={etape === 3}>{#if etape > 3}<Icone nom="coche" />{:else}3{/if}</span>
-            <div>
-              <div class="t">Coller le code ici</div>
-              {#if etape === 4}
-                <Chargement compact texte="Code reçu, connexion en cours" />
-              {:else}
-                <form class="code" onsubmit={envoyerCode}>
-                  <label class="sr" for="code-claude">Code de connexion</label>
-                  <input id="code-claude" bind:value={code} placeholder="Code donné par Claude" autocomplete="off" required disabled={etape !== 3} />
-                  <button class="btn" disabled={etape !== 3 || !code.trim()}>Valider le code</button>
-                </form>
-              {/if}
-            </div>
-          </li>
-        </ol>
-        {#if enCoursSeance}
-          <div class="form-f"><button type="button" class="btn sm fantome" onclick={annuler}>Annuler la connexion</button></div>
-        {/if}
-      </div>
-    {:else}
-      <div class="form-f">
-        <button type="button" class="btn sm fantome" onclick={() => (parcours = true)}>Se reconnecter avec un autre compte Claude</button>
-      </div>
-    {/if}
+          {#if seance && !enCoursSeance}
+            {#if seance.message === 'annulée'}
+              <Bandeau ton="neutre">Connexion annulée.</Bandeau>
+            {:else if seance.etat === 'terminee'}
+              <Bandeau ton="ok" titre="Compte Claude connecté.">Essai de la connexion en cours.</Bandeau>
+            {:else if seance.etat === 'expiree'}
+              <Bandeau titre="Aucun code reçu à temps.">Recommencez depuis l’étape 1.</Bandeau>
+            {:else}
+              <Bandeau ton="erreur" titre="La connexion a échoué.">{seance.message ?? ''}</Bandeau>
+            {/if}
+          {/if}
+          <ol class="etapes">
+            <li class:cur={etape === 1} class:fait={etape > 1}>
+              <span class="rond-etape" class:fait={etape > 1} class:cur={etape === 1}>{#if etape > 1}<Icone nom="coche" />{:else}1{/if}</span>
+              <div>
+                <div class="t">Obtenir le lien de connexion</div>
+                {#if enCoursSeance && seance?.url}
+                  <a class="btn" href={seance.url} target="_blank" rel="noopener noreferrer">Ouvrir la page de connexion Claude<Icone nom="ouvrir" /></a>
+                {:else if enCoursSeance}
+                  <Chargement compact texte="Préparation du lien" />
+                {:else}
+                  <button type="button" class="btn principal" class:en-cours={lancement} disabled={lancement} onclick={lancer}>
+                    {seance ? 'Recommencer' : 'Obtenir le lien'}
+                  </button>
+                {/if}
+              </div>
+            </li>
+            <li class:cur={etape === 3} class:fait={etape > 3}>
+              <span class="rond-etape" class:fait={etape > 3} class:cur={etape === 3}>{#if etape > 3}<Icone nom="coche" />{:else}2{/if}</span>
+              <div>
+                <div class="t">Se connecter chez Claude</div>
+                <div class="petit t2">Avec le compte Claude de la société. Claude affiche ensuite un code : copiez-le.</div>
+              </div>
+            </li>
+            <li class:cur={etape === 3} class:fait={etape > 3}>
+              <span class="rond-etape" class:fait={etape > 3} class:cur={etape === 3}>{#if etape > 3}<Icone nom="coche" />{:else}3{/if}</span>
+              <div>
+                <div class="t">Coller le code ici</div>
+                {#if etape === 4}
+                  <Chargement compact texte="Code reçu, connexion en cours" />
+                {:else}
+                  <form class="code" onsubmit={envoyerCode}>
+                    <label class="sr" for="code-claude">Code de connexion</label>
+                    <input id="code-claude" bind:value={code} placeholder="Code donné par Claude" autocomplete="off" required disabled={etape !== 3} />
+                    <button class="btn" disabled={etape !== 3 || !code.trim()}>Valider le code</button>
+                  </form>
+                {/if}
+              </div>
+            </li>
+          </ol>
+          {#if enCoursSeance}
+            <div class="form-f"><button type="button" class="btn fantome" onclick={annuler}>Annuler la connexion</button></div>
+          {/if}
+        </div>
+      {:else}
+        <button type="button" class="rang" onclick={() => (parcours = true)}>
+          <span class="s15">Se reconnecter avec un autre compte Claude</span>
+          <Icone nom="droite" class="chev" />
+        </button>
+      {/if}
 
-    <div class="replis">
       <Repli titre="Autres moyens de connexion" resume="jeton collé, clé API">
         <h4>Coller un jeton de connexion</h4>
         <p class="petit t2">Obtenu sur un autre ordinateur avec la commande <code>claude setup-token</code>. Il n’est plus jamais affiché ensuite.</p>
@@ -366,20 +375,33 @@
 {/if}
 
 <style>
-  .texte-etat {
-    font-weight: 400;
-    margin-left: var(--e2);
-  }
-  .ligne .a {
-    white-space: normal;
-  }
-  .actions-etat {
+  .etat-l {
     display: flex;
-    gap: var(--e2);
     align-items: center;
+    gap: var(--e2);
+    flex-wrap: wrap;
+  }
+  .quand-etat {
+    font-size: 14px;
+    color: var(--text2);
+  }
+  .s15 {
+    font-size: 15px;
   }
   .parcours {
-    margin-top: var(--e2);
+    padding: var(--e4) var(--e5) var(--e5);
+  }
+  .parcours-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--e3);
+    margin-bottom: var(--e3);
+  }
+  .parcours-h h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 500;
   }
   .parcours > :global(.bandeau) {
     margin-bottom: var(--e3);
@@ -397,7 +419,7 @@
   }
   .etapes .t {
     font-weight: 500;
-    line-height: 24px;
+    line-height: 28px;
     margin-bottom: var(--e1);
   }
   .etapes li:not(.cur):not(.fait) .t {
@@ -406,17 +428,21 @@
   .code {
     display: flex;
     gap: var(--e2);
-    max-width: 520px;
+    max-width: 560px;
     margin-bottom: var(--e3);
   }
   .code input {
     flex: 1;
     min-width: 0;
+    height: 40px;
   }
   h4 {
-    margin: var(--e2) 0 var(--e1);
-    font-size: 13px;
+    margin: var(--e3) 0 var(--e1);
+    font-size: 15px;
     font-weight: 500;
+  }
+  h4:first-child {
+    margin-top: 0;
   }
   h4 + p {
     margin-bottom: var(--e2);
@@ -436,6 +462,14 @@
   }
   code {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 13px;
+  }
+  @media (max-width: 760px) {
+    .parcours {
+      padding: var(--e4);
+    }
+    .code {
+      flex-wrap: wrap;
+    }
   }
 </style>

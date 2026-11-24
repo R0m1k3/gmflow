@@ -3,14 +3,14 @@
   // adresse d'envoi (serveur SMTP de GMFlow), destinataires des alertes, essai d'envoi.
   import { tick } from 'svelte';
   import { api, message, sonder } from '#lib/api.ts';
-  import { quand } from '#lib/format.ts';
-  import { RUBRIQUES, nomOutil } from '#lib/libelles.ts';
+    import { RUBRIQUES, nomOutil } from '#lib/libelles.ts';
   import type { ExpeditionVue, Societe } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
-  import { portPourSecurite, serveursPour, type Securite } from './outils.ts';
+  import Icone from '#lib/ui/Icone.svelte';
+  import { leA, portPourSecurite, serveursPour, type Securite } from './outils.ts';
 
   let {
     societes,
@@ -150,25 +150,31 @@
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
 
   <h3 class="sous-titre">Adresse de collecte de chaque société</h3>
-  <div class="filets">
-    {#each actives as s (s.id)}
-      <div class="ligne bloc fixe">
-        <div class="a">{s.raison_sociale}</div>
-        <div class="b">
-          {#if s.adresse_depot}
-            {nomOutil(s.outil_depot)} : {s.adresse_depot}{#if s.depot_auto}{' '}· {RUBRIQUES.envoiAuto.toLowerCase()}{/if}
-          {:else}
-            <span class="flag w">Pas d’adresse de collecte : ses factures ne peuvent pas partir</span>
-          {/if}
+  {#if actives.length}
+    <div class="carte-r">
+      {#each actives as s (s.id)}
+        <div class="rang">
+          <div class="g">
+            <span class="t">{s.raison_sociale}</span>
+            {#if s.adresse_depot}
+              <span class="s">{nomOutil(s.outil_depot)} : {s.adresse_depot}{#if s.depot_auto}{' '}· {RUBRIQUES.envoiAuto.toLowerCase()}{/if}</span>
+            {:else}
+              <span class="alerte-l"><Icone nom="alerte" />Pas d’adresse de collecte : ses factures ne peuvent pas partir</span>
+            {/if}
+          </div>
+          <div class="d">
+            {#if s.adresse_depot}
+              <button type="button" class="lien-a" onclick={() => modifierSociete(s.id)}>Modifier</button>
+            {:else}
+              <button type="button" class="btn principal" onclick={() => modifierSociete(s.id)}>Indiquer l’adresse</button>
+            {/if}
+          </div>
         </div>
-        <div class="r">
-          <button type="button" class="btn sm fantome" onclick={() => modifierSociete(s.id)}>{s.adresse_depot ? 'Modifier' : 'Indiquer l’adresse'}</button>
-        </div>
-      </div>
-    {:else}
-      <p class="muted petit vide-l">Aucune société pour l’instant.</p>
-    {/each}
-  </div>
+      {/each}
+    </div>
+  {:else}
+    <p class="muted">Aucune société pour l’instant.</p>
+  {/if}
 
   <h3 class="sous-titre">{RUBRIQUES.adresseEnvoi}</h3>
   {#if !vue}
@@ -222,60 +228,70 @@
     </form>
   {:else}
     {@const x = vue.expedition}
-    <div class="filets">
-      <div class="ligne bloc fixe">
-        <div class="a">{x.nom ? `${x.nom} <${x.adresse}>` : x.adresse}</div>
-        <div class="b">
-          par <span class="num">{x.serveur}:{x.port}</span>{#if !vue.mot_de_passe_enregistre}{' '}· <span class="flag w">pas de mot de passe</span>{/if}
-          · alertes à {vue.alerte_destinataires.length ? vue.alerte_destinataires.join(', ') : 'personne'}
-        </div>
-        <div class="r"><button type="button" class="btn sm fantome" onclick={ouvrir}>Modifier</button></div>
-      </div>
-      <div class="essai">
-        <form
-          class="ligne-essai"
-          onsubmit={(e) => {
-            e.preventDefault();
-            void essayer();
-          }}
-        >
-          <label for="essai-envoi">Envoyer un mail d’essai à</label>
-          <input id="essai-envoi" type="email" bind:value={destinataire} required />
-          <button class="btn sm" class:en-cours={essai} disabled={essai || !destinataire.trim()}>Envoyer l’essai</button>
-        </form>
-        {#if essai}
-          <span class="petit muted">Envoi en cours…</span>
-        {:else if vue.dernier_test}
-          <span class="petit">
-            <Etiquette ton={vue.dernier_test.ok ? 'ok' : 'erreur'}>{vue.dernier_test.ok ? 'Essai réussi' : 'Essai échoué'}</Etiquette>
-            <span class="t2">le <span class="num">{quand(vue.dernier_test.quand)}</span>{vue.dernier_test.message ? ` : ${vue.dernier_test.message}` : ''}</span>
+    <div class="carte-r">
+      <div class="rang">
+        <div class="g">
+          <span class="t">{x.nom ? `${x.nom} <${x.adresse}>` : x.adresse}</span>
+          <span class="s">
+            par <span class="num">{x.serveur}:{x.port}</span>{#if !vue.mot_de_passe_enregistre}{' '}· <span class="flag w">pas de mot de passe</span>{/if}
+            · alertes à {vue.alerte_destinataires.length ? vue.alerte_destinataires.join(', ') : 'personne'}
           </span>
-        {/if}
+        </div>
+        <div class="d"><button type="button" class="lien-a" onclick={ouvrir}>Modifier</button></div>
       </div>
+      <form
+        class="rang"
+        onsubmit={(e) => {
+          e.preventDefault();
+          void essayer();
+        }}
+      >
+        <div class="g">
+          <label for="essai-envoi" class="s15">Envoyer un mail d’essai à</label>
+          {#if essai}
+            <span class="resultat">Envoi en cours…</span>
+          {:else if vue.dernier_test}
+            <span class="resultat">
+              <Etiquette ton={vue.dernier_test.ok ? 'ok' : 'erreur'}>
+                <Icone nom={vue.dernier_test.ok ? 'coche' : 'alerte'} />{vue.dernier_test.ok ? 'Essai réussi' : 'Essai échoué'}
+              </Etiquette>
+              <span class="num">le {leA(vue.dernier_test.quand)}</span>{vue.dernier_test.message ? ` : ${vue.dernier_test.message}` : ''}
+            </span>
+          {/if}
+        </div>
+        <div class="d">
+          <input id="essai-envoi" type="email" bind:value={destinataire} placeholder="adresse e-mail" required />
+          <button class="btn" class:en-cours={essai} disabled={essai}>Envoyer l’essai</button>
+        </div>
+      </form>
     </div>
   {/if}
 </section>
 
 <style>
-  .essai {
-    padding: var(--e3) var(--e2);
-    display: flex;
-    flex-direction: column;
-    gap: var(--e2);
+  .s15 {
+    font-size: 15px;
   }
-  .ligne-essai {
+  .resultat {
     display: flex;
     align-items: center;
     gap: var(--e2);
     flex-wrap: wrap;
+    font-size: 14px;
+    color: var(--text2);
   }
-  .ligne-essai input {
-    width: auto;
-    flex: 1;
-    max-width: 280px;
-    height: 28px;
+  #essai-envoi {
+    width: 240px;
+    height: 40px;
+    font-size: 15px;
   }
-  .ligne .a {
-    white-space: normal;
+  @media (max-width: 760px) {
+    #essai-envoi {
+      width: auto;
+      flex: 1 1 180px;
+    }
+    .d:has(#essai-envoi) {
+      width: 100%;
+    }
   }
 </style>

@@ -205,7 +205,7 @@
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
 
-  <div class="replis">
+  <div class="carte-r">
     <Repli icone="curseurs" titre="Modèles et effort par tâche" resume={resumeModeles}>
       {#if vue && reglages}
         <form onsubmit={enregistrer}>
@@ -361,8 +361,8 @@
     </Repli>
   </div>
 
+  <h3 class="sous-titre zd-titre" id="zone-dangereuse">Zone dangereuse</h3>
   <section class="danger-zone" aria-labelledby="zone-dangereuse">
-    <h3 id="zone-dangereuse">Zone dangereuse</h3>
     <div class="dz-ligne">
       <div class="dz-texte">
         <div class="dz-titre">Tout reprendre de zéro</div>
@@ -429,12 +429,13 @@
     margin-bottom: var(--e3);
   }
   .modeles select {
-    height: 30px;
+    height: 36px;
     max-width: 14rem;
   }
   .modeles tr.groupe td {
     color: var(--muted);
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 500;
     padding-top: var(--e3);
   }
   .case {
@@ -456,7 +457,7 @@
   }
   .filtre select {
     width: auto;
-    height: 30px;
+    height: 36px;
   }
   .quand {
     white-space: nowrap;
@@ -465,22 +466,19 @@
     word-break: break-word;
     max-width: 320px;
   }
+  .zd-titre {
+    margin-top: var(--e4) !important;
+    color: var(--err-ink);
+  }
   .danger-zone {
-    margin: var(--e10) 0;
-    border: 1px solid var(--err-line);
-    border-radius: var(--r2);
+    border-radius: var(--r3);
+    box-shadow: 0 0 0 1px var(--err-line);
     padding: var(--e4) var(--e5);
     background: var(--white);
   }
-  .danger-zone h3 {
-    margin: 0 0 var(--e3);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--err-ink);
-  }
   .dz-ligne {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: var(--e5);
   }
   .dz-texte {
@@ -488,12 +486,13 @@
     min-width: 0;
   }
   .dz-titre {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text);
   }
   .dz-texte p {
     margin: var(--e1) 0 0;
-    color: var(--text);
+    font-size: 15px;
+    color: var(--text2);
     max-width: 64ch;
   }
   .dz-ligne .btn {

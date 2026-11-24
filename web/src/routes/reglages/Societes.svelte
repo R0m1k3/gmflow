@@ -182,35 +182,47 @@
   <p class="lead">Chaque société reçoit ses factures dans ses boîtes mail et les envoie à son outil de collecte, Dext ou Yooz.</p>
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
 
-  <div class="filets">
-    {#if f && f.id === null}{@render formulaire(f)}{/if}
-    {#each triees as s (s.id)}
-      {#if f && f.id === s.id}
-        {@render formulaire(f)}
-      {:else}
-        <div class="ligne bloc fixe">
-          <div class="a">
-            {s.raison_sociale}
-            {#if s.archivee}<Etiquette ton="pale">Archivée</Etiquette>{/if}
+  {#if triees.length || f}
+    <div class="carte-r">
+      {#if f && f.id === null}{@render formulaire(f)}{/if}
+      {#each triees as s (s.id)}
+        {#if f && f.id === s.id}
+          {@render formulaire(f)}
+        {:else}
+          <div class="rang" class:inactive={s.archivee}>
+            <div class="g">
+              <span class="t">
+                {s.raison_sociale}
+                {#if s.archivee}<Etiquette ton="pale">Archivée</Etiquette>{/if}
+              </span>
+              {#if s.autres_noms?.length || s.siret}
+                <span class="s">
+                  {#if s.autres_noms?.length}Aussi : {s.autres_noms.join(', ')}{/if}{#if s.autres_noms?.length && s.siret}{' '}·{' '}{/if}{#if s.siret}SIRET <span class="num">{s.siret}</span>{/if}
+                </span>
+              {/if}
+              {#if s.adresse_depot}
+                <span class="s">{nomOutil(s.outil_depot)} : {s.adresse_depot}{#if s.depot_auto}{' '}· envoi automatique{/if}</span>
+              {:else}
+                <span class="alerte-l"><Icone nom="alerte" />Pas d’adresse de collecte Dext / Yooz</span>
+              {/if}
+            </div>
+            <div class="d"><button type="button" class="lien-a" onclick={() => modifier(s.id)}>Modifier</button></div>
           </div>
-          <div class="b">
-            {#if s.autres_noms?.length}Aussi : {s.autres_noms.join(', ')} · {/if}
-            {#if s.siret}SIRET <span class="num">{s.siret}</span> · {/if}
-            {#if s.adresse_depot}
-              {nomOutil(s.outil_depot)} : {s.adresse_depot}{#if s.depot_auto}{' '}· envoi automatique{/if}
-            {:else}
-              <span class="flag w">Pas d’adresse de collecte Dext / Yooz</span>
-            {/if}
-          </div>
-          <div class="r"><button type="button" class="btn sm fantome" onclick={() => modifier(s.id)}>Modifier</button></div>
-        </div>
-      {/if}
-    {:else}
-      {#if !f}
-        <Vide compact icone="batiment" titre="Aucune société" texte="Commencez par la société qui reçoit les factures.">
-          <button type="button" class="btn sm" onclick={nouvelle}>Ajouter une société</button>
-        </Vide>
-      {/if}
-    {/each}
-  </div>
+        {/if}
+      {/each}
+    </div>
+  {:else}
+    <Vide compact icone="batiment" titre="Aucune société" texte="Commencez par la société qui reçoit les factures.">
+      <button type="button" class="btn sm" onclick={nouvelle}>Ajouter une société</button>
+    </Vide>
+  {/if}
 </section>
+
+<style>
+  .inactive .t {
+    color: var(--text2);
+  }
+  .t :global(.etiquette) {
+    margin-left: var(--e2);
+  }
+</style>
