@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from fournisseur_magasin",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "39f1d772bd7d7e6e6b6f50116988084a15d54a8968c52d9aa405c4ae6a3bd2ed"
+}

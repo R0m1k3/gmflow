@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select nom, domaines, noms_documents from fournisseur where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "domaines",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "domaines"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "noms_documents",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "noms_documents"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b12845f0abf90880ea78d1e4065217affa148361ae4631506c2fab80a01f4bbf"
+}

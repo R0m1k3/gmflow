@@ -451,6 +451,25 @@ export interface ServeurApiVue {
   serveur: { adresse: string; fin: string | null } | null;
   jeton_enregistre: boolean;
   dernier_test: { quand: string; ok: boolean; message: string | null } | null;
+  synchro: { quand: string; ok: boolean; message: string | null; nombre: number | null } | null;
+  /** Fournisseurs du magasin copiés. */
+  nombre: number;
+}
+
+export interface SuggestionCode {
+  code: string;
+  nom: string | null;
+  email: string | null;
+  adresse: string | null;
+  nb_articles: number | null;
+  raison: string | null;
+  score: number;
+  deja_pris_par: string | null;
+}
+
+export interface CodesMagasin {
+  nombre: number;
+  suggestions: SuggestionCode[];
 }
 
 export interface LigneSuivi {

@@ -1,6 +1,7 @@
 <script lang="ts">
-  // Serveur API : adresse et jeton de connexion à l'API du serveur (jeton chiffré, jamais
-  // réaffiché), essai de connexion fait par le worker.
+  // Serveur du magasin (Apiflow) : adresse et clé d'API (chiffrée, jamais réaffichée), essai de
+  // connexion et copie des fournisseurs du magasin faits par le worker (toutes les 12 h, ou à la
+  // demande). Les fiches fournisseurs sans code BO Phénix proposent ensuite les codes du magasin.
   import { api, message, sonder } from '#lib/api.ts';
   import { quand } from '#lib/format.ts';
   import { RUBRIQUES } from '#lib/libelles.ts';
@@ -19,6 +20,8 @@
   let f = $state({ adresse: '', jeton: '' });
   let essai = $state(false);
   let arret: (() => void) | null = null;
+  let copie = $state(false);
+  let arretCopie: (() => void) | null = null;
 
   function remplir(v: ServeurApiVue) {
     f = { adresse: v.serveur?.adresse ?? '', jeton: '' };
@@ -30,7 +33,10 @@
   }
   $effect(() => {
     charger().catch((e) => (erreur = message(e)));
-    return () => arret?.();
+    return () => {
+      arret?.();
+      arretCopie?.();
+    };
   });
 
   async function enregistrer(e: SubmitEvent) {
@@ -45,7 +51,8 @@
       await api.put('/api/admin/serveur-api', corps);
       edition = false;
       await charger();
-      info = 'Connexion enregistrée. Faites un essai pour vérifier.';
+      info = 'Connexion enregistrée : la copie des fournisseurs du magasin démarre.';
+      suivreCopie();
     } catch (err) {
       erreur = message(err);
     } finally {
@@ -54,13 +61,36 @@
   }
 
   async function supprimer() {
-    if (!confirm('Supprimer l’adresse et le jeton du serveur API ?')) return;
+    if (!confirm('Supprimer l’adresse, la clé et la copie des fournisseurs du magasin ?')) return;
     erreur = '';
     info = '';
     try {
       await api.del('/api/admin/serveur-api');
       edition = false;
       await charger();
+    } catch (err) {
+      erreur = message(err);
+    }
+  }
+
+  function suivreCopie() {
+    copie = true;
+    if (vue) vue.synchro = null;
+    arretCopie?.();
+    arretCopie = sonder(async () => {
+      await charger();
+      if (vue?.synchro) {
+        copie = false;
+        return false;
+      }
+    }, 3000);
+  }
+  async function copier() {
+    erreur = '';
+    info = '';
+    try {
+      await api.post('/api/admin/serveur-api/synchro', {});
+      suivreCopie();
     } catch (err) {
       erreur = message(err);
     }
@@ -89,7 +119,10 @@
 
 <section class="sujet" id="serveur-api">
   <div class="sujet-h"><h2>{RUBRIQUES.serveurApi}</h2></div>
-  <p class="lead">Adresse et jeton de connexion à l’API de votre serveur.</p>
+  <p class="lead">
+    L’API Apiflow du magasin : GMFlow y copie la liste des fournisseurs toutes les 12 heures, pour proposer leur code BO Phénix sur
+    les fiches fournisseurs.
+  </p>
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
 
@@ -105,23 +138,23 @@
             bind:valeur={f.adresse}
             requis
             mono
-            placeholder="https://api.mon-serveur.fr"
-            aide="L’essai de connexion appelle cette adresse (GET)."
+            placeholder="https://api.ffnancy.fr"
+            aide="La racine du serveur, sans /api à la fin."
           />
         </div>
         <div class="plein">
           <Champ
-            libelle="Jeton de connexion"
+            libelle="Clé d’API"
             type="password"
             bind:valeur={f.jeton}
             autocomplete="new-password"
             desactive={effacerJeton}
-            placeholder={vue.jeton_enregistre ? 'Enregistré : laisser vide pour le garder' : ''}
-            aide="Envoyé dans l’en-tête Authorization: Bearer. Chiffré, jamais réaffiché."
+            placeholder={vue.jeton_enregistre ? 'Enregistrée : laisser vide pour la garder' : ''}
+            aide="Une des clés API_KEYS d’Apiflow. Chiffrée, jamais réaffichée."
           />
         </div>
         {#if vue.jeton_enregistre}
-          <label class="case plein"><input type="checkbox" bind:checked={effacerJeton} /> Supprimer le jeton enregistré</label>
+          <label class="case plein"><input type="checkbox" bind:checked={effacerJeton} /> Supprimer la clé enregistrée</label>
         {/if}
       </div>
       <div class="form-f">
@@ -137,7 +170,7 @@
       <div class="ligne bloc fixe">
         <div class="a num">{s.adresse}</div>
         <div class="b">
-          {#if vue.jeton_enregistre}jeton enregistré{#if s.fin}{' '}(…<span class="num">{s.fin}</span>){/if}{:else}<span class="flag w">pas de jeton</span>{/if}
+          {#if vue.jeton_enregistre}clé enregistrée{#if s.fin}{' '}(…<span class="num">{s.fin}</span>){/if}{:else}<span class="flag w">pas de clé</span>{/if}
         </div>
         <div class="r">
           <button type="button" class="btn sm fantome" onclick={() => { if (vue) remplir(vue); edition = true; }}>Modifier</button>
@@ -157,6 +190,22 @@
           </span>
         {/if}
       </div>
+      <div class="essai">
+        <div class="ligne-copie">
+          <span>
+            Fournisseurs du magasin copiés : <span class="num">{vue.nombre}</span>
+            {#if vue.synchro && !copie}
+              <span class="t2 petit">· dernière copie le <span class="num">{quand(vue.synchro.quand)}</span></span>
+            {/if}
+          </span>
+          <button type="button" class="btn sm" class:en-cours={copie} disabled={copie} onclick={copier}>Mettre à jour maintenant</button>
+        </div>
+        {#if copie}
+          <span class="petit muted">Copie en cours…</span>
+        {:else if vue.synchro && !vue.synchro.ok}
+          <span class="petit"><Etiquette ton="erreur">Copie échouée</Etiquette> <span class="t2">{vue.synchro.message ?? ''}</span></span>
+        {/if}
+      </div>
     </div>
   {/if}
 </section>
@@ -167,6 +216,12 @@
     display: flex;
     flex-direction: column;
     gap: var(--e2);
+  }
+  .ligne-copie {
+    display: flex;
+    align-items: center;
+    gap: var(--e3);
+    flex-wrap: wrap;
   }
   .ligne .a {
     white-space: normal;

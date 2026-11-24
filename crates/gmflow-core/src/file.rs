@@ -80,6 +80,8 @@ pub enum TacheEnvoi {
     },
     /// Essai de connexion à l'API du serveur (adresse et jeton des réglages).
     TestServeurApi,
+    /// Copie des fournisseurs du serveur du magasin (planifiée toutes les 12 h, ou à la demande).
+    SynchroMagasin,
     /// Alertes de relève (boîte en échec depuis plus de 30 min, puis rétablie).
     Alertes,
     /// Réponse à un mail, depuis la boîte d'origine. Poussée uniquement par le clic « Envoyer »

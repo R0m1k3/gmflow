@@ -174,6 +174,14 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
                 .delete(admin_serveur_api::supprimer),
         )
         .route("/admin/serveur-api/test", post(admin_serveur_api::tester))
+        .route(
+            "/admin/serveur-api/synchro",
+            post(admin_serveur_api::synchroniser),
+        )
+        .route(
+            "/admin/fournisseurs/{id}/codes-magasin",
+            get(admin_serveur_api::codes),
+        )
         .route("/admin/documents/{id}/relire", post(documents::relire))
         .route(
             "/admin/claude/reglages",

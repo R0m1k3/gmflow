@@ -1,0 +1,74 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select code, nom, email, adresse, nb_articles from fournisseur_magasin",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_magasin",
+            "name": "code"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_magasin",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "email",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_magasin",
+            "name": "email"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "adresse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_magasin",
+            "name": "adresse"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "nb_articles",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_magasin",
+            "name": "nb_articles"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "8a6915b5d9a908d92abd79d03ab760fd4f8051eb347a93bf9f52b4daedb3ae8f"
+}
