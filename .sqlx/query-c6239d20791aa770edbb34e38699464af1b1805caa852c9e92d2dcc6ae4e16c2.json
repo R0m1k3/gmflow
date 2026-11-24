@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, gencod from ligne_document where document_id = $1 order by rang",
+  "query": "select id, gencod, reference from ligne_document where document_id = $1 order by rang",
   "describe": {
     "columns": [
       {
@@ -24,6 +24,17 @@
             "name": "gencod"
           }
         }
+      },
+      {
+        "ordinal": 2,
+        "name": "reference",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "reference"
+          }
+        }
       }
     ],
     "parameters": {
@@ -33,8 +44,9 @@
     },
     "nullable": [
       false,
+      true,
       true
     ]
   },
-  "hash": "61c2b3a39e159aec94092dd13f28a84cacdf1bfe046a85b8d9d157be6bcdc123"
+  "hash": "c6239d20791aa770edbb34e38699464af1b1805caa852c9e92d2dcc6ae4e16c2"
 }

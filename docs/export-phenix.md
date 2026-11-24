@@ -30,8 +30,9 @@ modèles du magasin :
 ## Recherche au magasin
 
 Après la lecture d'un BL (et sur « Chercher de nouveau »), le worker cherche chaque ligne sur le
-serveur du magasin (Apiflow, Réglages > Serveur du magasin) par son **gencod** (tous les GTIN de
-l'article, pas seulement le préférentiel). Une ligne sans gencod n'est pas cherchée. Pour un article
+serveur du magasin (Apiflow, Réglages > Serveur du magasin) : par gencod (tous les GTIN de
+l'article), sinon par référence fournisseur chez les codes BO Phénix de la fiche (puis groupe,
+puis marques) — filtre `ref` d'Apiflow, chaque candidat revérifié sur sa fiche. Pour un article
 trouvé, `GET /api/appro/article/:id` donne ses composants s'il est un lot, puis
 `/api/articles/:id/referentiel` le détail de chacun. Le résultat est gardé par ligne
 (`ligne_document.magasin`) ; `document.magasin_demande_le` / `magasin_verifie_le` /

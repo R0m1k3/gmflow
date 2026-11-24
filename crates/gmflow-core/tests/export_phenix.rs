@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::io::Cursor;
 
 use calamine::{Data, Reader, Xlsx};
-use gmflow_core::articles_magasin::{self, ArticleMagasin, Composant, Source};
+use gmflow_core::articles_magasin::{self, ArticleMagasin, Composant, Recherche, Source};
 use gmflow_core::export_phenix::{
     self, COLONNES_MATRICE, COLONNES_TRAME, Cellule, LigneBl, Rangee,
 };
@@ -56,7 +56,7 @@ fn ligne_lot(prix: Option<f64>) -> LigneBl {
         prix_unitaire_ht: prix,
         ecomob_ht: Some(0.19),
         magasin: Some(ArticleMagasin {
-            par: "gencod".into(),
+            par: "reference".into(),
             no_id: "132319".into(),
             codein: Some("440088".into()),
             libelle: Some("BOITE PAULOWNIA TRADI LOT DE 3".into()),
@@ -290,16 +290,25 @@ fn fausse() -> Fausse {
         cle("/articles", &[("ean", "3262313080538"), ("limit", "20")]),
         json!({ "articles": [{ "no_id": "132341", "codein": "440110", "libelle1": "BOITE S", "gtin": "3262313080538" }] }),
     );
-    // Le lot : son gencod n'est pas le GTIN préférentiel, il est sur sa fiche.
+    // Par référence : le lot, sans GTIN ; un Apiflow sans filtre `ref` renverrait aussi
+    // d'autres articles, écartés par la fiche.
     r.insert(
-        cle("/articles", &[("ean", "3700000034840"), ("limit", "20")]),
+        cle(
+            "/articles",
+            &[("codefou", "R0041"), ("limit", "20"), ("ref", "03/3484")],
+        ),
         json!({ "articles": [
-            { "no_id": "132319", "codein": "440088", "libelle1": "BOITE PAULOWNIA TRADI LOT DE 3", "gtin": "3700000099999" }
+            { "no_id": "999", "codein": "AUTRE", "libelle1": "SANS RAPPORT", "ref_fou_principale": "ZZ", "codefou_principal": "R0041" },
+            { "no_id": "132319", "codein": "440088", "libelle1": "BOITE PAULOWNIA TRADI LOT DE 3", "gtin": null }
         ] }),
     );
     r.insert(
+        cle("/articles/999", &[]),
+        json!({ "fournisseurs": [{ "codefou": "R0041", "reference": "ZZ" }] }),
+    );
+    r.insert(
         cle("/articles/132319", &[]),
-        json!({ "gtins": [{ "gtin": "3700000099999", "preferentiel": 1 }, { "gtin": "3700000034840", "preferentiel": 0 }] }),
+        json!({ "fournisseurs": [{ "codefou": "R0041", "reference": "03/3484 " }] }),
     );
     r.insert(
         cle("/appro/article/132319", &[]),
@@ -337,25 +346,40 @@ fn null_eco() -> &'static str {
 }
 
 #[tokio::test]
-async fn recherche_par_gencod_avec_detail_du_lot() {
+async fn recherche_par_gencod_puis_reference_avec_detail_du_lot() {
     let s = fausse();
     let codes = vec!["R0041".to_string()];
     let mut cache = HashMap::new();
 
-    let a = articles_magasin::chercher(&s, Some("3262 3130 80538"), &codes, &mut cache)
-        .await
-        .unwrap()
-        .expect("trouvé par gencod");
+    let a = articles_magasin::chercher(
+        &s,
+        &Recherche {
+            gencod: Some("3262 3130 80538".into()),
+            reference: Some("03/3484-S".into()),
+        },
+        &codes,
+        &mut cache,
+    )
+    .await
+    .unwrap()
+    .expect("trouvé par gencod");
     assert_eq!(a.par, "gencod");
     assert_eq!(a.codein.as_deref(), Some("440110"));
     assert!(a.composants.is_empty());
 
-    let a = articles_magasin::chercher(&s, Some("3700000034840"), &codes, &mut cache)
-        .await
-        .unwrap()
-        .expect("lot trouvé par un gencod non préférentiel");
-    assert_eq!(a.par, "gencod");
-    assert_eq!(a.gencod.as_deref(), Some("3700000034840"));
+    let a = articles_magasin::chercher(
+        &s,
+        &Recherche {
+            gencod: None,
+            reference: Some("03/3484".into()),
+        },
+        &codes,
+        &mut cache,
+    )
+    .await
+    .unwrap()
+    .expect("trouvé par référence");
+    assert_eq!(a.par, "reference");
     assert_eq!(a.codein.as_deref(), Some("440088"));
     assert_eq!(a.composants.len(), 2);
     let l = &a.composants[1];
@@ -371,9 +395,17 @@ async fn recherche_par_gencod_avec_detail_du_lot() {
     assert_eq!(a.composants[0].eco_ht, Some(0.04));
 
     // Inconnu : rien.
-    let a = articles_magasin::chercher(&s, Some("1234567890123"), &codes, &mut cache)
-        .await
-        .unwrap();
+    let a = articles_magasin::chercher(
+        &s,
+        &Recherche {
+            gencod: Some("1234567890123".into()),
+            reference: Some("INCONNUE".into()),
+        },
+        &codes,
+        &mut cache,
+    )
+    .await
+    .unwrap();
     assert!(a.is_none());
 }
 
@@ -400,11 +432,22 @@ async fn vrai_serveur() {
     let s = articles_magasin::Http::new(&adresse, Some(cle));
     let codes = vec!["R0041".to_string()];
     let mut cache = HashMap::new();
-    for g in ["3262313080538"] {
-        let a = articles_magasin::chercher(&s, Some(g), &codes, &mut cache)
-            .await
-            .unwrap();
-        println!("{g} => {}", serde_json::to_string_pretty(&a).unwrap());
+    for (g, r) in [(Some("3262313080538"), None), (None, Some("03/3484"))] {
+        let a = articles_magasin::chercher(
+            &s,
+            &Recherche {
+                gencod: g.map(Into::into),
+                reference: r.map(Into::into),
+            },
+            &codes,
+            &mut cache,
+        )
+        .await
+        .unwrap();
+        println!(
+            "{g:?} {r:?} => {}",
+            serde_json::to_string_pretty(&a).unwrap()
+        );
     }
 }
 
@@ -418,7 +461,7 @@ fn hors_lot_ni_codein_ni_donnees_du_magasin() {
         quantite: Some(4.0),
         prix_unitaire_ht: Some(5.2),
         magasin: Some(ArticleMagasin {
-            par: "gencod".into(),
+            par: "reference".into(),
             no_id: "1".into(),
             codein: Some("565000".into()),
             libelle: Some("SEAU 10 L".into()),

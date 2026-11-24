@@ -1,5 +1,5 @@
-//! Articles d'un BL retrouvés sur le serveur du magasin (Apiflow) par leur gencod, puis, pour
-//! un lot, le détail de ses composants. Le résultat est
+//! Articles d'un BL retrouvés sur le serveur du magasin (Apiflow) : par gencod, sinon par
+//! référence fournisseur, puis, pour un lot, le détail de ses composants. Le résultat est
 //! gardé sur chaque ligne (`ligne_document.magasin`) : l'export vers BO Phénix le lit sans
 //! appel réseau. Les appels partent du worker.
 
@@ -39,7 +39,7 @@ pub struct Composant {
 /// Article d'une ligne de BL retrouvé au magasin.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ArticleMagasin {
-    /// Ce qui a permis de le retrouver (« gencod »).
+    /// « gencod » ou « reference » : ce qui a permis de le retrouver.
     pub par: String,
     pub no_id: String,
     pub codein: Option<String>,
@@ -48,6 +48,13 @@ pub struct ArticleMagasin {
     /// Vide si l'article n'est pas un lot.
     #[serde(default)]
     pub composants: Vec<Composant>,
+}
+
+/// Ce qu'on cherche pour une ligne.
+#[derive(Debug, Clone, Default)]
+pub struct Recherche {
+    pub gencod: Option<String>,
+    pub reference: Option<String>,
 }
 
 /// Lecture d'une route d'Apiflow (`chemin` sous `/api`, paramètres de requête).
@@ -99,6 +106,14 @@ fn nombre(v: &Value, cle: &str) -> Option<f64> {
 /// Identifiant : bigint en texte ou en nombre.
 fn id(v: &Value, cle: &str) -> Option<String> {
     texte(v, cle).or_else(|| v.get(cle).and_then(entier).map(|n| n.to_string()))
+}
+
+/// Référence comparée sans casse ni espaces.
+pub fn normaliser_ref(r: &str) -> String {
+    r.chars()
+        .filter(|c| !c.is_whitespace())
+        .flat_map(char::to_uppercase)
+        .collect()
 }
 
 fn gencod_propre(g: &str) -> Option<String> {
@@ -162,6 +177,59 @@ async fn par_gencod<S: Source>(s: &S, g: &str) -> Result<Option<ArticleMagasin>,
                 r.gencod = Some(g.to_string());
             }
             return Ok(r);
+        }
+    }
+    Ok(None)
+}
+
+/// Article dont la référence fournisseur est `reference`, chez l'un des `codes` (n'importe
+/// quel fournisseur si aucun code). Chaque candidat est revérifié sur sa fiche : un Apiflow
+/// sans filtre `ref` renverrait n'importe quels articles.
+async fn par_reference<S: Source>(
+    s: &S,
+    reference: &str,
+    codes: &[String],
+) -> Result<Option<ArticleMagasin>, String> {
+    let cible = normaliser_ref(reference);
+    let essais: Vec<Option<&str>> = if codes.is_empty() {
+        vec![None]
+    } else {
+        codes.iter().map(|c| Some(c.as_str())).collect()
+    };
+    for code in essais {
+        let mut params = vec![("ref", reference), ("limit", "20")];
+        if let Some(c) = code {
+            params.push(("codefou", c));
+        }
+        let v = s.obtenir("/articles", &params).await?;
+        let mut trouves: Vec<(bool, ArticleMagasin)> = Vec::new();
+        for a in liste(&v, "articles").iter().take(10) {
+            // Liste filtrée sur la référence préférentielle : pas besoin de la fiche.
+            let pref = texte(a, "ref_fou_principale").is_some_and(|r| normaliser_ref(&r) == cible)
+                && code.is_none_or(|c| {
+                    texte(a, "codefou_principal").is_some_and(|x| x.eq_ignore_ascii_case(c))
+                });
+            let ok = pref || {
+                let Some(no_id) = id(a, "no_id") else {
+                    continue;
+                };
+                let d = s.obtenir(&format!("/articles/{no_id}"), &[]).await?;
+                liste(&d, "fournisseurs").iter().any(|f| {
+                    texte(f, "reference").is_some_and(|r| normaliser_ref(&r) == cible)
+                        && code.is_none_or(|c| {
+                            texte(f, "codefou").is_some_and(|x| x.eq_ignore_ascii_case(c))
+                        })
+                })
+            };
+            if ok && let Some(art) = article("reference", a) {
+                let actif = a.get("suspendu").is_none_or(Value::is_null);
+                trouves.push((actif, art));
+            }
+        }
+        // Plusieurs fiches pour une même référence : la première active.
+        trouves.sort_by_key(|(actif, _)| !*actif);
+        if let Some((_, a)) = trouves.into_iter().next() {
+            return Ok(Some(a));
         }
     }
     Ok(None)
@@ -240,18 +308,26 @@ async fn composants<S: Source>(
     Ok(r)
 }
 
-/// Article d'une ligne par son gencod (tous les GTIN du magasin), avec ses composants si
-/// c'est un lot. Sans gencod lisible : rien.
+/// Article d'une ligne : par gencod, sinon par référence ; avec ses composants si c'est un lot.
 pub async fn chercher<S: Source>(
     s: &S,
-    gencod: Option<&str>,
+    r: &Recherche,
     codes: &[String],
     cache: &mut HashMap<String, Value>,
 ) -> Result<Option<ArticleMagasin>, String> {
-    let Some(g) = gencod.and_then(gencod_propre) else {
-        return Ok(None);
-    };
-    let mut a = par_gencod(s, &g).await?;
+    let mut a = None;
+    if let Some(g) = r.gencod.as_deref().and_then(gencod_propre) {
+        a = par_gencod(s, &g).await?;
+    }
+    if a.is_none()
+        && let Some(re) = r
+            .reference
+            .as_deref()
+            .map(str::trim)
+            .filter(|x| !x.is_empty())
+    {
+        a = par_reference(s, re, codes).await?;
+    }
     if let Some(art) = a.as_mut() {
         art.composants = composants(s, &art.no_id, codes, cache).await?;
     }
@@ -309,7 +385,7 @@ pub async fn verifier_document<S: Source>(
 ) -> anyhow::Result<()> {
     let codes = codes_du_document(pool, document_id).await?;
     let lignes = sqlx::query!(
-        "select id, gencod from ligne_document where document_id = $1 order by rang",
+        "select id, gencod, reference from ligne_document where document_id = $1 order by rang",
         document_id
     )
     .fetch_all(pool)
@@ -318,7 +394,11 @@ pub async fn verifier_document<S: Source>(
     let mut resultats = Vec::with_capacity(lignes.len());
     let mut erreur = None;
     for l in &lignes {
-        match chercher(s, l.gencod.as_deref(), &codes, &mut cache).await {
+        let r = Recherche {
+            gencod: l.gencod.clone(),
+            reference: l.reference.clone(),
+        };
+        match chercher(s, &r, &codes, &mut cache).await {
             Ok(a) => resultats.push((l.id, a)),
             Err(m) => {
                 erreur = Some(m);
