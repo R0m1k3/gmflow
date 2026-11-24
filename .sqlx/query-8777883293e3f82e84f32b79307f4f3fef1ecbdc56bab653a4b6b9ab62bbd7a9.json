@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.mail_id, d.type as \"type!\", d.numero, d.date_document,\n                  coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date) as \"date!\",\n                  d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,\n                  d.statut_depot, d.verifie_le is not null as \"verifie!\", d.societe_id,\n                  s.raison_sociale as \"societe?\", s.outil_depot as \"outil?\",\n                  exists (select 1 from rapprochement r\n                          where not r.rejete and (r.bl_id = d.id or r.facture_id = d.id)) as \"rapproche!\",\n                  jsonb_array_length(d.controles)::bigint as \"nb_alertes!\"\n           from document d\n           join mail m on m.id = d.mail_id\n           left join societe s on s.id = d.societe_id\n           where d.fournisseur_id = $3 and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date)\n                 >= (date_trunc('month', now() at time zone 'Europe/Paris') - make_interval(months => $4 - 1))::date\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))\n           order by 6 desc, d.id desc\n           limit 1000",
+  "query": "select d.id, d.mail_id, d.type as \"type!\", d.numero, d.date_document,\n                  coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date) as \"date!\",\n                  d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,\n                  d.remise_ht::float8 as remise_ht,\n                  d.statut_depot, d.verifie_le is not null as \"verifie!\", d.societe_id,\n                  s.raison_sociale as \"societe?\", s.outil_depot as \"outil?\",\n                  exists (select 1 from rapprochement r\n                          where not r.rejete and (r.bl_id = d.id or r.facture_id = d.id)) as \"rapproche!\",\n                  jsonb_array_length(d.controles)::bigint as \"nb_alertes!\"\n           from document d\n           join mail m on m.id = d.mail_id\n           left join societe s on s.id = d.societe_id\n           where d.fournisseur_id = $3 and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date)\n                 >= (date_trunc('month', now() at time zone 'Europe/Paris') - make_interval(months => $4 - 1))::date\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))\n           order by 6 desc, d.id desc\n           limit 1000",
   "describe": {
     "columns": [
       {
@@ -78,6 +78,12 @@
       },
       {
         "ordinal": 8,
+        "name": "remise_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
         "name": "statut_depot",
         "type_info": "Text",
         "origin": {
@@ -88,13 +94,13 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "verifie!",
         "type_info": "Bool",
         "origin": "Expression"
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "societe_id",
         "type_info": "Int8",
         "origin": {
@@ -105,7 +111,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "societe?",
         "type_info": "Text",
         "origin": {
@@ -116,7 +122,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "outil?",
         "type_info": "Text",
         "origin": {
@@ -127,13 +133,13 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "rapproche!",
         "type_info": "Bool",
         "origin": "Expression"
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "nb_alertes!",
         "type_info": "Int8",
         "origin": "Expression"
@@ -156,6 +162,7 @@
       null,
       null,
       null,
+      null,
       true,
       null,
       true,
@@ -165,5 +172,5 @@
       null
     ]
   },
-  "hash": "d5bcf7d71ad71b6053dd4b9f439422a6e6aa88ec1b2b51c3129b101a487a838d"
+  "hash": "8777883293e3f82e84f32b79307f4f3fef1ecbdc56bab653a4b6b9ab62bbd7a9"
 }

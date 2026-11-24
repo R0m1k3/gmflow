@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                  d.montant_ht::float8 as montant_ht, d.fournisseur_id, fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", p.nom as nom_fichier\n           from document d\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = any($1)\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))",
+  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                  d.montant_ht::float8 as montant_ht,\n                  d.remise_ht::float8 as remise_ht, d.fournisseur_id, fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", p.nom as nom_fichier\n           from document d\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = any($1)\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))",
   "describe": {
     "columns": [
       {
@@ -66,6 +66,12 @@
       },
       {
         "ordinal": 6,
+        "name": "remise_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
         "name": "fournisseur_id",
         "type_info": "Int8",
         "origin": {
@@ -76,7 +82,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "fournisseur?",
         "type_info": "Text",
         "origin": {
@@ -87,7 +93,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "societe?",
         "type_info": "Text",
         "origin": {
@@ -98,7 +104,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "nom_fichier",
         "type_info": "Text",
         "origin": {
@@ -122,11 +128,12 @@
       true,
       true,
       null,
+      null,
       true,
       true,
       true,
       false
     ]
   },
-  "hash": "cb13703b253351f8bc2ddc7fd2ead7f288975d6038d26895df10314c21b7118a"
+  "hash": "59b11672b0e28f1690cf23d21f19741c9a3d7f317a99240d5d31421a2d200373"
 }

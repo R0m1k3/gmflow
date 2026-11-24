@@ -48,6 +48,7 @@ pub struct LigneDocument {
     #[serde(with = "date_iso::option")]
     date_document: Option<time::Date>,
     montant_ttc: Option<f64>,
+    remise_ht: Option<f64>,
     message: Option<String>,
     verifie: bool,
     #[serde(with = "time::serde::rfc3339::option")]
@@ -116,7 +117,7 @@ pub async fn lister(
         LigneDocument,
         r#"select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,
                   s.raison_sociale as "societe?", d.fournisseur_nom, d.numero, d.date_document,
-                  d.montant_ttc::float8 as montant_ttc, d.message,
+                  d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht, d.message,
                   d.verifie_le is not null as "verifie!", m.date_mail,
                   d.fournisseur_id, fo.nom as "fournisseur?", d.statut_depot, d.controles
            from document d
@@ -188,6 +189,8 @@ pub struct FicheDocument {
     montant_ht: Option<f64>,
     montant_tva: Option<f64>,
     montant_ttc: Option<f64>,
+    remise_ht: Option<f64>,
+    remise_taux: Option<f64>,
     confiance: Value,
     texte: Option<String>,
     modele: Option<String>,
@@ -282,6 +285,7 @@ pub async fn fiche(
                   d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,
                   d.numero_commande, d.montant_ht::float8 as montant_ht,
                   d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,
+                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,
                   d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,
                   u.identifiant as "verifie_par?", d.type_corrige, d.societe_corrigee,
                   d.fournisseur_id, fo.nom as "fournisseur?", fo.statut as "fournisseur_statut?",

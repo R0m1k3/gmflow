@@ -72,6 +72,7 @@
     phrase,
     quandCourt,
     tauxTva,
+    texteRemise,
     type CleChamp
   } from './DocOutils.ts';
   import Etiquette from './Etiquette.svelte';
@@ -254,6 +255,7 @@
     return c.code !== 'montants' || montantsCoherents;
   }
   let alertes = $derived(d ? d.controles.filter((c) => c.code !== 'doublon' && !levee(c)) : []);
+  let remiseTexte = $derived(d && d.etat === 'lu' && d.type !== 'bl' ? texteRemise(d.remise_ht, d.remise_taux) : '');
   let doublon = $derived(d?.controles.find((c) => c.code === 'doublon') ?? null);
   /** Société non reconnue ou douteuse : bandeau à part, avec le choix de la société ou le rejet. */
   let alerteSociete = $derived(alertes.find((c) => c.code === 'societe') ?? null);
@@ -776,6 +778,11 @@
       {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
         <Bandeau ton="info">Attribué à {nomSocieteChoisie}. Validez pour l’enregistrer.</Bandeau>
       {/if}
+      {#if remiseTexte}
+        <Bandeau ton="info" titre="Remise de {remiseTexte}.">
+          Elle est déduite du total HT de la {d.type === 'avoir' ? 'pièce' : 'facture'} : un écart avec les BL, valorisés avant remise, est normal.
+        </Bandeau>
+      {/if}
       {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
         <Bandeau titre="Lecture incomplète.">
           {phrase(d.message.replace(/^Lecture à vérifier : /, ''))} Vérifiez sur l’aperçu{relisible ? ', ou faites-le relire en détail' : ''}.
@@ -866,6 +873,9 @@
             <Champ disposition="ligne" libelle="Commande" bind:valeur={choix.commande} mono modifiable={editable} />
           {/if}
           {#if !estBl || choix.ht || lu.ht}
+            {#if remiseTexte}
+              <Champ disposition="ligne" libelle="Remise" valeur={`\u2212${remiseTexte}`} mono />
+            {/if}
             <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
               {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
               {#snippet apres()}{@render proposer('ht')}{/snippet}

@@ -113,6 +113,7 @@ fn xml_cii_et_ubl() {
         Aiguillage::Structure { voie, donnees, .. } => {
             assert_eq!(voie, Voie::Xml);
             assert_eq!(donnees.type_doc, "avoir");
+            assert_eq!(donnees.remise_ht, Some(5.0));
             assert_eq!(
                 societe::pour_acheteur(&donnees.acheteur, &societes()),
                 Some(2)
@@ -129,6 +130,7 @@ fn xml_cii_et_ubl() {
         (ubl.montant_ht, ubl.montant_tva, ubl.montant_ttc),
         (Some(10.0), Some(2.0), Some(12.0))
     );
+    assert_eq!(ubl.remise_ht, Some(2.5));
     assert_eq!(societe::pour_acheteur(&ubl.acheteur, &societes()), Some(1));
     // Un XML qui n'est pas une facture n'est pas lu.
     assert!(matches!(
@@ -346,4 +348,21 @@ fn texte_long_garde_le_debut_et_la_fin() {
     assert!(t.contains("caractères du milieu coupés"));
     assert!(t.chars().count() < 3_100);
     assert_eq!(extraction::debut_et_fin("court", 3_000), "court");
+}
+
+#[test]
+fn remise_lue_a_part() {
+    // Ancienne réponse sans les champs de remise : lue quand même.
+    let sans = lecture_facture(Some(1161.29), Some(232.26), Some(1393.55));
+    assert_eq!((sans.remise_ht, sans.remise_taux), (None, None));
+    let mut v = serde_json::to_value(&sans).unwrap();
+    v["remise_ht"] = json!(280.16);
+    v["remise_taux"] = json!(20);
+    let avec: extraction::Extraction = serde_json::from_value(v).unwrap();
+    assert_eq!((avec.remise_ht, avec.remise_taux), (Some(280.16), Some(20.0)));
+    // Le schéma la demande toujours, et la consigne explique que le HT reste net.
+    let schema = extraction::schema(false);
+    let requis: Vec<&str> = schema["required"].as_array().unwrap().iter().filter_map(|r| r.as_str()).collect();
+    assert!(requis.contains(&"remise_ht") && requis.contains(&"remise_taux"));
+    assert!(extraction::consigne_nouvel_essai(&[], None, None).contains("remise_ht"));
 }

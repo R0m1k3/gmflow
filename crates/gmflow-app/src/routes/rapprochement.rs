@@ -43,6 +43,8 @@ pub struct DocRap {
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
     montant_ht: Option<f64>,
+    /// Remise HT déduite sur la facture : explique l'écart avec les BL.
+    remise_ht: Option<f64>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
     societe: Option<String>,
@@ -113,7 +115,8 @@ pub async fn vue(
     let docs = sqlx::query_as!(
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                  d.montant_ht::float8 as montant_ht, d.fournisseur_id, fo.nom as "fournisseur?",
+                  d.montant_ht::float8 as montant_ht,
+                  d.remise_ht::float8 as remise_ht, d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d
            join mail m on m.id = d.mail_id
@@ -207,6 +210,7 @@ pub async fn vue(
                         date_document: None,
                         numero_commande: None,
                         montant_ht: None,
+                        remise_ht: None,
                         fournisseur_id: d.fournisseur_id,
                         fournisseur: d.fournisseur.clone(),
                         societe: None,
@@ -348,7 +352,8 @@ pub async fn detail(
             sqlx::query_as!(
                 DocRap,
                 r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                          d.montant_ht::float8 as montant_ht, d.fournisseur_id,
+                          d.montant_ht::float8 as montant_ht,
+                  d.remise_ht::float8 as remise_ht, d.fournisseur_id,
                           fo.nom as "fournisseur?", s.raison_sociale as "societe?",
                           p.nom as nom_fichier
                    from document d
@@ -388,7 +393,8 @@ async fn documents(etat: &Etat, acces: &Acces, ids: &[i64]) -> Resultat<Vec<DocR
     Ok(sqlx::query_as!(
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                  d.montant_ht::float8 as montant_ht, d.fournisseur_id, fo.nom as "fournisseur?",
+                  d.montant_ht::float8 as montant_ht,
+                  d.remise_ht::float8 as remise_ht, d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d
            join piece_jointe p on p.id = d.piece_jointe_id

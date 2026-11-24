@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,\n                  s.raison_sociale as \"societe?\", d.fournisseur_nom, d.numero, d.date_document,\n                  d.montant_ttc::float8 as montant_ttc, d.message,\n                  d.verifie_le is not null as \"verifie!\", m.date_mail,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\", d.statut_depot, d.controles\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))\n             and ($2::bigint is null or d.societe_id = $2)\n             and ($3::text is null or d.type = $3)\n             and ($4::text is null or d.etat = $4)\n             and (not $5 or d.etat <> 'ignore')\n             and ($6::text is null or d.voie = $6)\n             and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)\n             and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)\n             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)\n             and ($10::bool is null or (d.verifie_le is not null) = $10)\n             and ($11::text is null or d.statut_depot = $11)\n             and ($12::bigint is null or d.fournisseur_id = $12)\n           order by m.date_mail desc nulls last, d.id desc\n           limit $13 offset $14",
+  "query": "select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,\n                  s.raison_sociale as \"societe?\", d.fournisseur_nom, d.numero, d.date_document,\n                  d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht, d.message,\n                  d.verifie_le is not null as \"verifie!\", m.date_mail,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\", d.statut_depot, d.controles\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))\n             and ($2::bigint is null or d.societe_id = $2)\n             and ($3::text is null or d.type = $3)\n             and ($4::text is null or d.etat = $4)\n             and (not $5 or d.etat <> 'ignore')\n             and ($6::text is null or d.voie = $6)\n             and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)\n             and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)\n             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)\n             and ($10::bool is null or (d.verifie_le is not null) = $10)\n             and ($11::text is null or d.statut_depot = $11)\n             and ($12::bigint is null or d.fournisseur_id = $12)\n           order by m.date_mail desc nulls last, d.id desc\n           limit $13 offset $14",
   "describe": {
     "columns": [
       {
@@ -121,6 +121,12 @@
       },
       {
         "ordinal": 11,
+        "name": "remise_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
         "name": "message",
         "type_info": "Text",
         "origin": {
@@ -131,13 +137,13 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "verifie!",
         "type_info": "Bool",
         "origin": "Expression"
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "date_mail",
         "type_info": "Timestamptz",
         "origin": {
@@ -148,7 +154,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "fournisseur_id",
         "type_info": "Int8",
         "origin": {
@@ -159,7 +165,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "fournisseur?",
         "type_info": "Text",
         "origin": {
@@ -170,7 +176,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "statut_depot",
         "type_info": "Text",
         "origin": {
@@ -181,7 +187,7 @@
         }
       },
       {
-        "ordinal": 17,
+        "ordinal": 18,
         "name": "controles",
         "type_info": "Jsonb",
         "origin": {
@@ -222,6 +228,7 @@
       true,
       true,
       null,
+      null,
       true,
       null,
       true,
@@ -231,5 +238,5 @@
       false
     ]
   },
-  "hash": "10ee0b2b87368a71090aa665feb17f66c442e24bbbfe8a5483d9055e6d8df91a"
+  "hash": "8c75e01badd4c7ee4b08d753b837e7bbe9955da90a7cb75c0eca51ebda38024c"
 }

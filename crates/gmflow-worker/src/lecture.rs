@@ -139,6 +139,8 @@ struct Lu {
     ht: Option<f64>,
     tva: Option<f64>,
     ttc: Option<f64>,
+    remise_ht: Option<f64>,
+    remise_taux: Option<f64>,
     confiance: Value,
     /// Lignes articles et n° de BL cités ; `lignes_lues` : les lignes ont été demandées.
     lignes: Vec<extraction::Ligne>,
@@ -176,7 +178,8 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
             montant_ht = $13::float8::numeric(14, 2), montant_tva = $14::float8::numeric(14, 2),
             montant_ttc = $15::float8::numeric(14, 2), confiance = $16, texte = $17,
             resultat = $18, modele = $19, effort = $20, fournisseur_groupe = $21,
-            fournisseur_entite = $22, copie_de = null, pris_le = null,
+            fournisseur_entite = $22, remise_ht = $23::float8::numeric(14, 2),
+            remise_taux = $24::float8::numeric(6, 3), copie_de = null, pris_le = null,
             lu_le = case when $2 in ('lu', 'ignore', 'erreur') then now() else lu_le end
          where id = $1",
         id,
@@ -200,7 +203,9 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
         lu.modele,
         lu.effort,
         lu.fournisseur.groupe,
-        lu.fournisseur.entite
+        lu.fournisseur.entite,
+        lu.remise_ht.filter(|r| *r > 0.0),
+        lu.remise_taux.filter(|t| *t > 0.0 && *t < 100.0)
     )
     .execute(&mut *tx)
     .await?;
@@ -240,11 +245,12 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
         "update document d set (etat, voie, message, type, societe_id, fournisseur_nom,
             fournisseur_siret, fournisseur_tva, numero, date_document, numero_commande, montant_ht,
             montant_tva, montant_ttc, confiance, texte, resultat, modele, effort, numeros_bl,
-            lignes_lues, fournisseur_groupe, fournisseur_entite) =
+            lignes_lues, fournisseur_groupe, fournisseur_entite, remise_ht, remise_taux) =
           (select s.etat, s.voie, s.message, s.type, s.societe_id, s.fournisseur_nom,
             s.fournisseur_siret, s.fournisseur_tva, s.numero, s.date_document, s.numero_commande,
             s.montant_ht, s.montant_tva, s.montant_ttc, s.confiance, s.texte, s.resultat, s.modele,
-            s.effort, s.numeros_bl, s.lignes_lues, s.fournisseur_groupe, s.fournisseur_entite
+            s.effort, s.numeros_bl, s.lignes_lues, s.fournisseur_groupe, s.fournisseur_entite,
+            s.remise_ht, s.remise_taux
             from document s where s.id = $2),
           copie_de = $2, pris_le = null, lu_le = now()
          where d.id = $1",
@@ -302,6 +308,7 @@ fn lu_depuis_xml(
         ht: d.montant_ht,
         tva: d.montant_tva,
         ttc: d.montant_ttc,
+        remise_ht: d.remise_ht.map(f64::abs),
         confiance: confiance_xml(societe_id.is_some()),
         lignes: d.lignes.clone(),
         numeros_bl: d.numeros_bl.clone(),
@@ -347,6 +354,8 @@ fn lu_depuis_extraction(
         ht: e.montant_ht,
         tva: e.montant_tva,
         ttc: e.montant_ttc,
+        remise_ht: e.remise_ht.map(f64::abs),
+        remise_taux: e.remise_taux.map(f64::abs),
         fournisseur: e.fournisseur,
         confiance,
         lignes: e.lignes,
