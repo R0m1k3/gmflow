@@ -148,6 +148,8 @@ export function titreAlerte(c: Pick<Controle, 'code' | 'message'>): string {
       return 'Date douteuse';
     case 'doublon':
       return 'Doublon possible';
+    case 'lignes':
+      return 'Lignes ≠ total HT';
     default:
       return 'À vérifier';
   }
@@ -155,6 +157,14 @@ export function titreAlerte(c: Pick<Controle, 'code' | 'message'>): string {
 /** Détail d'une alerte sous son titre : le message du serveur, sauf s'il ne fait que répéter le titre. */
 export function detailAlerte(c: Pick<Controle, 'code' | 'message'>): string {
   const m = c.message.trim();
+  if (c.code === 'lignes') {
+    // « la somme des lignes (1633.34 €) ne fait pas le total HT (1671.03 €) » : les chiffres seuls
+    const [s, t] = [...m.matchAll(/\((-?[\d.]+) €\)/g)].map((x) => Number(x[1]));
+    if (s !== undefined && t !== undefined) {
+      const e = (n: number) => new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(n);
+      return `lignes ${e(s)}, total HT ${e(t)}, écart ${e(Math.abs(t - s))}`;
+    }
+  }
   if (!m.toLowerCase().startsWith(titreAlerte(c).toLowerCase())) return m;
   return c.code === 'fournisseur' ? 'Vérifiez son nom et son SIRET, puis confirmez la fiche' : '';
 }

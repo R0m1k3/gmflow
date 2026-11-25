@@ -34,6 +34,7 @@
   import { api, message, sonder } from '#lib/api.ts';
   import Bandeau from './Bandeau.svelte';
   import { jourHeure } from './DocOutils.ts';
+  import Etiquette from './Etiquette.svelte';
   import Icone from './Icone.svelte';
 
   let {
@@ -77,6 +78,16 @@
   }
 
   let liste = $derived(etat ? alertes(etat) : []);
+  /** Les deux fichiers : une ligne chacun, le nombre de lignes seulement s'il diffère de celui du BL (lots détaillés). */
+  let fichiers = $derived.by(() => {
+    if (!etat) return [];
+    const e = etat;
+    const n = (r: number) => (r !== e.lignes ? `, ${r} ligne${r > 1 ? 's' : ''}` : '');
+    return [
+      { cle: 'matrice', nom: 'Matrice d’intégration', detail: `la commande${n(e.matrice.rangees)} · fournisseur choisi dans Phénix` },
+      { cle: 'trame', nom: 'Trame BO Phénix', detail: `fiches produits${n(e.trame.rangees)}${e.code_fournisseur ? ` · fournisseur ${e.code_fournisseur}` : ''}` }
+    ];
+  });
 </script>
 
 {#if etat}
@@ -98,28 +109,29 @@
       <Bandeau ton="attention">BL lu avant l’export : ni gencod ni colisage. « Relire en détail » pour les lire, s’ils sont imprimés.</Bandeau>
     {/if}
 
-    <div class="boutons">
-      {#if etat.pret}
-        <a class="btn sm" href="/api/documents/{id}/export-phenix/matrice" download><Icone nom="telecharger" />Matrice d’intégration</a>
-        <a class="btn sm" href="/api/documents/{id}/export-phenix/trame" download><Icone nom="telecharger" />Trame BO Phénix</a>
-      {:else}
-        <button type="button" class="btn sm" disabled><Icone nom="telecharger" />Matrice d’intégration</button>
-        <button type="button" class="btn sm" disabled><Icone nom="telecharger" />Trame BO Phénix</button>
-      {/if}
-    </div>
-    <p class="t2 petit">
-      Matrice : la commande (gencod, référence, quantité, prix d’achat), {etat.matrice.rangees} ligne{etat.matrice.rangees > 1 ? 's' : ''}, fournisseur à choisir dans Phénix.
-      Trame : les fiches produits, {etat.trame.rangees} ligne{etat.trame.rangees > 1 ? 's' : ''}{etat.code_fournisseur ? `, fournisseur ${etat.code_fournisseur}` : ''}.
-    </p>
-    {#if etat.verifie_le && !etat.erreur}
-      <p class="t2 petit">
-        Magasin, le {jourHeure(etat.verifie_le)} :
-        {#if etat.cherchees}
-          {etat.cherchees} lot{etat.cherchees > 1 ? 's' : ''} présumé{etat.cherchees > 1 ? 's' : ''} sur {etat.lignes} ligne{etat.lignes > 1 ? 's' : ''} (« lot » ou « x2 » dans la désignation), {etat.trouves} retrouvé{etat.trouves > 1 ? 's' : ''}{etat.lots ? `, ${etat.lots} remplacé${etat.lots > 1 ? 's' : ''} par ${etat.composants} composants` : ''}.
+    <div class="fichiers">
+      {#each fichiers as f (f.cle)}
+        {#if etat.pret}
+          <a class="fichier" href="/api/documents/{id}/export-phenix/{f.cle}" download>
+            <Icone nom="fichier" /><span class="txt"><span class="nom">{f.nom}</span><span class="det">{f.detail}</span></span><Icone nom="telecharger" class="dl" />
+          </a>
         {:else}
-          aucune ligne ne ressemble à un lot (« lot » ou « x2 » dans la désignation), tout vient du BL.
+          <span class="fichier desactive" aria-disabled="true">
+            <Icone nom="fichier" /><span class="txt"><span class="nom">{f.nom}</span><span class="det">{f.detail}</span></span><Icone nom="telecharger" class="dl" />
+          </span>
         {/if}
-        <button type="button" class="btn-lien" onclick={verifier} disabled={demande || etat.en_cours}>Chercher de nouveau</button>
+      {/each}
+    </div>
+    {#if etat.verifie_le && !etat.erreur}
+      <p class="etat-magasin" title="Lot présumé : « lot » ou un multiple (x2, 3X…) dans la désignation. Seules ces lignes sont cherchées au magasin.">
+        {#if etat.cherchees}
+          <Etiquette ton={etat.trouves < etat.cherchees ? 'alerte' : 'ok'}>{etat.cherchees} lot{etat.cherchees > 1 ? 's' : ''} présumé{etat.cherchees > 1 ? 's' : ''}</Etiquette>
+          <span>{etat.trouves} retrouvé{etat.trouves > 1 ? 's' : ''}{etat.lots ? `, ${etat.lots} remplacé${etat.lots > 1 ? 's' : ''} par ${etat.composants} composants` : ''} · {jourHeure(etat.verifie_le)}</span>
+        {:else}
+          <Etiquette ton="ok">Aucun lot</Etiquette>
+          <span>tout vient du BL · {jourHeure(etat.verifie_le)}</span>
+        {/if}
+        <button type="button" class="btn-lien" onclick={verifier} disabled={demande || etat.en_cours}>Rechercher</button>
       </p>
     {/if}
     {#if liste.length}
@@ -138,18 +150,65 @@
   .export :global(.bandeau) {
     margin-bottom: var(--e2);
   }
-  .boutons {
+  .fichiers {
+    display: grid;
+    gap: var(--e2);
+  }
+  .fichier {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r2);
+    padding: var(--e2) 10px;
+    color: var(--text);
+    text-decoration: none;
+  }
+  a.fichier:hover {
+    background: var(--bg);
+  }
+  .fichier > :global(svg.i:first-child) {
+    color: var(--text2);
+  }
+  .fichier :global(.dl) {
+    margin-left: auto;
+    color: var(--accent);
+  }
+  .fichier.desactive {
+    background: var(--desact-bg);
+    color: var(--desact);
+  }
+  .fichier.desactive :global(.dl) {
+    color: var(--desact);
+  }
+  .txt {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .nom {
+    font-weight: 600;
+  }
+  .det {
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .etat-magasin {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--e2);
-    margin: 0 0 var(--e2);
+    align-items: center;
+    gap: 2px var(--e2);
+    margin: var(--e3) 0 0;
+    font-size: 14px;
+    color: var(--text2);
   }
-  p {
-    margin: 0 0 var(--e2);
+  .etat-magasin .btn-lien {
+    margin-left: auto;
   }
   .alertes {
-    margin: 0;
+    margin: var(--e3) 0 0;
     padding-left: 18px;
+    font-size: 15px;
     color: var(--text2);
   }
   .alertes li {
