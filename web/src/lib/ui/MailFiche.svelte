@@ -114,6 +114,7 @@
   import Bandeau from './Bandeau.svelte';
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
+  import CorpsHtml from './CorpsHtml.svelte';
   import Etiquette from './Etiquette.svelte';
   import Icone from './Icone.svelte';
   import Kbd from './Kbd.svelte';
@@ -787,6 +788,9 @@
         </section>
       {/if}
 
+      {#if m.html}
+        <CorpsHtml id={m.id} />
+      {:else}
       <div class="mailtext">
         {#each corps.paragraphes as p, i (i)}<p>{p}</p>{:else}<p class="muted">(corps vide)</p>{/each}
         {#if corps.cite}
@@ -796,6 +800,7 @@
           {#if citeOuverte}<div class="cite">{corps.cite}</div>{/if}
         {/if}
       </div>
+      {/if}
 
       {#if contexte}
         <div class="ctx">

@@ -1,0 +1,26 @@
+From: info@grossiste.test
+To: compta@frouard.test
+Subject: Nouveautes
+Message-ID: <html-cid-1@grossiste.test>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt"
+
+--alt
+Content-Type: text/plain; charset=utf-8
+
+Version texte.
+--alt
+Content-Type: multipart/related; boundary="rel"
+
+--rel
+Content-Type: text/html; charset=utf-8
+
+<table style="background:#eef"><tr><td><img src="cid:Logo%40grossiste"><img src="CID:inconnu@x"><a href="https://exemple.test">Catalogue</a></td></tr></table>
+--rel
+Content-Type: image/png
+Content-ID: <logo@grossiste>
+Content-Transfer-Encoding: base64
+
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
+--rel--
+--alt--

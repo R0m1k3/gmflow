@@ -5,7 +5,7 @@
 //! chaque partie de `attachments()`, pièces inline comprises, triés. Ces valeurs ne dépendent
 //! pas de la boîte qui reçoit le mail (contrairement aux en-têtes `Received` ou au pied de page).
 
-use mail_parser::{MessageParser, MessagePart};
+use mail_parser::{MessageParser, MessagePart, PartKind};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
@@ -178,4 +178,108 @@ pub fn liste_diffusion(brut: &[u8]) -> bool {
         .parse_headers(brut)
         .map(|m| m.headers().contains("List-Unsubscribe"))
         .unwrap_or(false)
+}
+
+/// Feuille de style par défaut de l'affichage HTML : police lisible et images contenues dans la
+/// largeur. `:where` garde une priorité nulle, le style du mail l'emporte toujours.
+const STYLE_HTML: &str = ":where(html){font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.45;color:#1C2520;word-wrap:break-word}:where(body){margin:0;padding:16px}img{max-width:100%}pre{white-space:pre-wrap}blockquote{margin-left:0;padding-left:12px;border-left:2px solid #d5dbd6}";
+
+/// Le message a un vrai corps HTML (partie `text/html`), et pas seulement du texte.
+pub fn a_corps_html(brut: &[u8]) -> bool {
+    MessageParser::default()
+        .parse(brut)
+        .is_some_and(|m| m.html_body().any(|p| matches!(p.kind(), PartKind::Html)))
+}
+
+/// Page HTML complète du corps d'origine, comme un lecteur de mails l'afficherait : parties
+/// `text/html` du corps dans l'ordre, images intégrées (`cid:`) remplacées par des URI `data:`
+/// (images reconnues seulement), liens ouverts dans un nouvel onglet. `None` sans partie HTML.
+/// Le HTML n'est pas nettoyé : la page doit être servie avec une CSP sans script et affichée
+/// dans un `iframe` `sandbox`.
+pub fn corps_html(brut: &[u8]) -> Result<Option<String>, ErreurEml> {
+    use base64::Engine;
+    let message = MessageParser::default()
+        .parse(brut)
+        .ok_or(ErreurEml::Illisible)?;
+    let mut html = String::new();
+    for part in message.html_body() {
+        if matches!(part.kind(), PartKind::Html)
+            && let Some(t) = part.text()
+        {
+            html.push_str(&t);
+        }
+    }
+    if html.trim().is_empty() {
+        return Ok(None);
+    }
+    let mut images = std::collections::HashMap::new();
+    for part in message.parts() {
+        let Some(cid) = part.content_id() else {
+            continue;
+        };
+        let cid = cid
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>')
+            .trim();
+        if cid.is_empty() {
+            continue;
+        }
+        let contenu = part.decoded();
+        if let Some(t) = type_reel(&contenu).filter(|t| t.starts_with("image/")) {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&contenu);
+            images.insert(cid.to_ascii_lowercase(), format!("data:{t};base64,{b64}"));
+        }
+    }
+    let html = remplacer_cid(&html, &images);
+    Ok(Some(format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"referrer\" content=\"no-referrer\"><base target=\"_blank\"><style>{STYLE_HTML}</style></head><body>{html}</body></html>"
+    )))
+}
+
+/// Remplace chaque `cid:xxx` (insensible à la casse, `%xx` décodés) par son URI `data:` ;
+/// une référence inconnue est laissée telle quelle (l'image ne s'affiche pas).
+fn remplacer_cid(html: &str, images: &std::collections::HashMap<String, String>) -> String {
+    if images.is_empty() {
+        return html.to_string();
+    }
+    let bas = html.to_ascii_lowercase();
+    let mut sortie = String::with_capacity(html.len());
+    let mut i = 0;
+    while let Some(pos) = bas[i..].find("cid:") {
+        let debut = i + pos;
+        let fin = html[debut + 4..]
+            .find(|c: char| matches!(c, '"' | '\'' | ')' | '>' | '<') || c.is_whitespace())
+            .map_or(html.len(), |n| debut + 4 + n);
+        let cle = decoder_pourcent(&html[debut + 4..fin]).to_ascii_lowercase();
+        sortie.push_str(&html[i..debut]);
+        match images.get(&cle) {
+            Some(uri) => sortie.push_str(uri),
+            None => sortie.push_str(&html[debut..fin]),
+        }
+        i = fin;
+    }
+    sortie.push_str(&html[i..]);
+    sortie
+}
+
+fn decoder_pourcent(s: &str) -> String {
+    let o = s.as_bytes();
+    let mut v = Vec::with_capacity(o.len());
+    let mut i = 0;
+    while i < o.len() {
+        if o[i] == b'%'
+            && i + 2 < o.len()
+            && o[i + 1].is_ascii_hexdigit()
+            && o[i + 2].is_ascii_hexdigit()
+            && let Ok(b) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+        {
+            v.push(b);
+            i += 3;
+        } else {
+            v.push(o[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&v).into_owned()
 }

@@ -247,6 +247,8 @@ pub struct FicheMail {
     #[serde(with = "time::serde::rfc3339::option")]
     date_mail: Option<time::OffsetDateTime>,
     corps_texte: String,
+    /// Le mail a un corps HTML d'origine, affiché par `GET /api/mails/{id}/html`.
+    html: bool,
     /// Fiche fournisseur reconnue par le domaine de l'expéditeur (nom affiché, encadré du fil).
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
@@ -284,12 +286,19 @@ pub async fn fiche(
     }
     let m = sqlx::query!(
         "select id, message_id, expediteur, destinataires, objet, date_mail, corps_texte, categorie,
-                categorie_par, resume, priorite, statut_reponse, tri_etat, tri_message
+                categorie_par, resume, priorite, statut_reponse, tri_etat, tri_message, chemin_eml
          from mail where id = $1",
         id
     )
     .fetch_one(&etat.pool)
     .await?;
+    let chemin = gmflow_core::stockage::chemin_absolu(&etat.config.fichiers, &m.chemin_eml);
+    // Un .eml illisible ou absent n'empêche pas la fiche : le texte reste affiché.
+    let html = tokio::task::spawn_blocking(move || {
+        std::fs::read(&chemin).is_ok_and(|brut| gmflow_core::eml::a_corps_html(&brut))
+    })
+    .await
+    .unwrap_or(false);
     let fournisseur = sqlx::query!(
         "select f.id, f.nom from fournisseur f
          where f.fusionne_dans is null and lower(split_part($1, '@', 2)) = any(f.domaines)
@@ -344,6 +353,7 @@ pub async fn fiche(
         objet: m.objet,
         date_mail: m.date_mail,
         corps_texte: m.corps_texte,
+        html,
         fournisseur_id: fournisseur.as_ref().map(|f| f.id),
         fournisseur: fournisseur.map(|f| f.nom),
         pieces,
@@ -357,6 +367,45 @@ pub async fn fiche(
         tri_message: m.tri_message,
         brouillons: super::reponses::brouillons_du_mail(&etat, &acces, id).await?,
     }))
+}
+
+/// CSP du corps HTML : aucun script, aucun formulaire, aucune requête sauf les images
+/// (distantes comme dans un lecteur de mails, ou intégrées en `data:`) et les polices.
+const CSP_HTML: &str = "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
+
+/// `GET /api/mails/{id}/html` : corps HTML d'origine du mail, pour l'`iframe` de la fiche.
+pub async fn html(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Path(id): Path<i64>,
+) -> Resultat<axum::response::Response> {
+    use axum::http::header;
+    use axum::response::IntoResponse;
+    if !mail_visible(&etat, &acces, id).await? {
+        return Err(ErreurApi::Absent);
+    }
+    let rel = sqlx::query_scalar!("select chemin_eml from mail where id = $1", id)
+        .fetch_one(&etat.pool)
+        .await?;
+    let chemin = gmflow_core::stockage::chemin_absolu(&etat.config.fichiers, &rel);
+    let page = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<String>> {
+        let brut = std::fs::read(&chemin)?;
+        Ok(gmflow_core::eml::corps_html(&brut)?)
+    })
+    .await
+    .map_err(|e| ErreurApi::Interne(e.into()))??
+    .ok_or(ErreurApi::Absent)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CONTENT_SECURITY_POLICY, CSP_HTML),
+            (header::REFERRER_POLICY, "no-referrer"),
+            (header::CACHE_CONTROL, "private, no-store"),
+        ],
+        page,
+    )
+        .into_response())
 }
 
 #[derive(Deserialize)]

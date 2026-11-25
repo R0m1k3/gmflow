@@ -79,6 +79,8 @@ export interface FicheMail {
   objet: string;
   date_mail: string | null;
   corps_texte: string;
+  /** Corps HTML d'origine disponible (`/api/mails/{id}/html`), affiché à la place du texte. */
+  html: boolean;
   /** Fiche fournisseur reconnue par le domaine de l'expéditeur. */
   fournisseur_id: number | null;
   fournisseur: string | null;

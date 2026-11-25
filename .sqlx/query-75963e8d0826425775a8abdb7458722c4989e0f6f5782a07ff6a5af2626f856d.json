@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, message_id, expediteur, destinataires, objet, date_mail, corps_texte, categorie,\n                categorie_par, resume, priorite, statut_reponse, tri_etat, tri_message\n         from mail where id = $1",
+  "query": "select id, message_id, expediteur, destinataires, objet, date_mail, corps_texte, categorie,\n                categorie_par, resume, priorite, statut_reponse, tri_etat, tri_message, chemin_eml\n         from mail where id = $1",
   "describe": {
     "columns": [
       {
@@ -156,6 +156,17 @@
             "name": "tri_message"
           }
         }
+      },
+      {
+        "ordinal": 14,
+        "name": "chemin_eml",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "chemin_eml"
+          }
+        }
       }
     ],
     "parameters": {
@@ -177,8 +188,9 @@
       true,
       true,
       true,
-      true
+      true,
+      false
     ]
   },
-  "hash": "3e6f9a71f8f09241b6355a3aca4b2219e9665ba427a65c8639d207c4349b430a"
+  "hash": "75963e8d0826425775a8abdb7458722c4989e0f6f5782a07ff6a5af2626f856d"
 }
