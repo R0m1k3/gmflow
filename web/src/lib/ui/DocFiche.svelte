@@ -90,6 +90,8 @@
   import Kbd from './Kbd.svelte';
   import Montant, { formatMontant } from './Montant.svelte';
   import Repli from './Repli.svelte';
+  import Poignee from './Poignee.svelte';
+  import { largeurGardee } from '#lib/largeurs.ts';
 
   let {
     id,
@@ -125,6 +127,17 @@
     onprecedent?: () => void;
     onsuivant?: () => void;
   } = $props();
+
+  // Fiche élargissable à la souris (poignée entre l'aperçu et la fiche), une largeur pour la vue
+  // en volets et une pour le plein écran.
+  let cleFiche = $derived(pleinEcran ? 'fiche.pleine' : 'fiche');
+  let defautFiche = $derived(pleinEcran ? 400 : 360);
+  let largFiche = $state(360);
+  let ficheChoisie = $state(false);
+  $effect.pre(() => {
+    largFiche = largeurGardee(cleFiche, defautFiche);
+    ficheChoisie = largeurGardee(cleFiche, 0) > 0;
+  });
 
   const uid = $props.id();
   let admin = $derived(session.moi?.role === 'admin');
@@ -789,7 +802,9 @@
     {#if d}<ApercuPiece id={d.piece_id} typeMime={d.type_mime} nom={d.nom_fichier} outils={false} carte {zoom} bind:pages bind:zoomable />{/if}
   </section>
 
-  <section class="doc-fiche" aria-label={estBl ? 'Détails du BL' : 'Détails de la pièce'}>
+  <Poignee bind:largeur={largFiche} bind:choisie={ficheChoisie} defaut={defautFiche} min={300} max={900} cote="droite" cle={cleFiche} libelle="Largeur de la fiche" fiche />
+
+  <section class="doc-fiche" class:choisie={ficheChoisie} style:--larg-choisie="{largFiche}px" aria-label={estBl ? 'Détails du BL' : 'Détails de la pièce'}>
     <div class="contenu-fiche avec-barre">
       {#if annonce}<Bandeau ton="ok" role="status">{annonce}</Bandeau>{/if}
       {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
@@ -1118,7 +1133,7 @@
                 {/if}
               </div>
               {#if d.envois.length}
-                <table>
+                <div class="defile-x"><table>
                   <thead><tr><th>Envoi</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
                   <tbody>
                     {#each d.envois as e (e.id)}
@@ -1133,7 +1148,7 @@
                       </tr>
                     {/each}
                   </tbody>
-                </table>
+                </table></div>
               {:else}
                 <p class="t2 petit">Aucun envoi pour l’instant.</p>
               {/if}
@@ -1160,7 +1175,7 @@
                 {/if}
               </div>
               {#if lf?.livraisons.length}
-                <table>
+                <div class="defile-x"><table>
                   <thead><tr><th>BL</th><th>Livraison</th><th>Résultat</th></tr></thead>
                   <tbody>
                     {#each lf.livraisons as l, i (i)}
@@ -1174,7 +1189,7 @@
                       </tr>
                     {/each}
                   </tbody>
-                </table>
+                </table></div>
               {/if}
               {#if d.logiflow_configure && !(d.logiflow_attendu || (attenteLogiflow && !lf))}
                 <p><button type="button" class="btn sm" onclick={relancerLogiflow}><Icone nom="rafraichir" />Relancer la recherche</button></p>
@@ -1235,7 +1250,7 @@
                 <p class="t2 petit">Corrigé à la main : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{NOMS_CHAMPS[champ] ?? champ} ({brut(c.avant)} → {brut(c.apres)}){/each}</p>
               {/if}
               {#if rap?.lignes.length}
-                <table>
+                <div class="defile-x"><table>
                   <thead><tr><th>Réf.</th><th>Désignation</th><th class="n">Qté</th><th class="n">PU HT</th><th class="n">Montant HT</th></tr></thead>
                   <tbody>
                     {#each rap.lignes as l (l.rang)}
@@ -1248,7 +1263,7 @@
                       </tr>
                     {/each}
                   </tbody>
-                </table>
+                </table></div>
               {/if}
               {#if d.texte}
                 <details class="doc-texte">
@@ -1337,6 +1352,10 @@
   }
   :global(.pleine) .doc-fiche {
     width: 400px;
+  }
+  .doc-fiche.choisie {
+    width: var(--larg-choisie);
+    max-width: calc(100% - 380px); /* l'aperçu garde sa barre d'outils */
   }
   .doc-fiche :global(.contenu-fiche) {
     flex: 1;
@@ -1483,7 +1502,9 @@
       border-bottom: 1px solid var(--line);
     }
     .doc-fiche,
+    .doc-fiche.choisie,
     :global(.pleine) .doc-fiche {
+      max-width: none;
       flex: none;
       width: auto;
       min-height: auto;

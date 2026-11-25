@@ -1168,6 +1168,19 @@ table {
   width: 100%;
   border-collapse: collapse;
 }
+/* tableau dans une colonne étroite (fiche) : il défile en largeur au lieu de déborder */
+.defile-x {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.defile-x td,
+.defile-x th {
+  padding-right: var(--e2);
+}
+.defile-x td:last-child,
+.defile-x th:last-child {
+  padding-right: 0;
+}
 th {
   font-weight: 500;
   color: var(--text2);
@@ -1222,6 +1235,11 @@ tr.cliquable:hover td {
   background: var(--white);
   border-right: 1px solid var(--line);
   min-height: 0;
+}
+/* largeur choisie à la souris (Poignee), prioritaire sur les seuils d'écran sauf téléphone */
+.volet-liste.choisie {
+  width: var(--larg-choisie);
+  max-width: calc(100% - 480px); /* le volet de droite garde 480 px */
 }
 .liste-h {
   flex: none;
@@ -1798,7 +1816,7 @@ dialog.confirmation .dlg-pied {
     --larg-lateral: 232px;
   }
   /* min() : une page peut fixer sa propre largeur de liste (Volets, style en ligne). */
-  .volet-liste {
+  .volet-liste:not(.choisie) {
     width: min(var(--larg-liste), 300px);
   }
 }
@@ -1831,7 +1849,7 @@ dialog.confirmation .dlg-pied {
     height: auto;
     min-height: calc(100dvh - var(--haut-barre));
   }
-  .volet-liste {
+  .volets > .volet-liste {
     width: 100%;
     border-right: 0;
     padding: var(--e4) var(--e3);
