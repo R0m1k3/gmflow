@@ -1,6 +1,7 @@
 //! Logiflow (API externe `/api/ext/v1`) : adresse (en clair) et clé d'API (chiffrée), essai de
 //! connexion, recherche des livraisons d'un BL et écriture de la facture sur la livraison
-//! (référence, HT, TTC), comme la page Rapprochement de Logiflow. Les appels réseau partent
+//! (référence, HT, TTC, échéance), comme la page Rapprochement de Logiflow. Toutes les heures,
+//! le worker retrouve aussi la livraison de chaque BL de GMFlow (`logiflow_livraison`). Les appels réseau partent
 //! toujours du worker ; la clé n'est jamais renvoyée par l'API de GMFlow.
 
 use std::time::Duration;
@@ -18,6 +19,12 @@ pub use crate::serveur_api::{ServeurApi, controler_adresse, fin};
 pub const CLE: &str = "logiflow";
 /// Dernier essai : `{"quand", "ok", "message"}`.
 pub const CLE_TEST: &str = "logiflow_test";
+/// Dernière vérification régulière : `{"quand", "ok", "message"}`.
+pub const CLE_SUIVI: &str = "logiflow_suivi";
+/// Période de la vérification régulière.
+pub const SUIVI_MINUTES: i32 = 60;
+/// BL et factures suivis : ceux reçus depuis ce nombre de jours.
+pub const SUIVI_JOURS: i32 = 60;
 
 /// Racine de l'API externe : `https://logiflow.x`, `…/api` et `…/api/ext/v1` donnent
 /// `…/api/ext/v1`.
@@ -204,6 +211,34 @@ impl Client {
         Ok(livraisons(&v))
     }
 
+    /// Livraisons livrées avec un n° de BL depuis `depuis` (AAAA-MM-JJ), toutes pages lues
+    /// (5 000 au plus).
+    pub async fn livraisons_livrees(&self, depuis: &str) -> Result<Vec<Livraison>, String> {
+        let mut toutes = Vec::new();
+        let mut offset = 0usize;
+        loop {
+            let v = self
+                .obtenir(
+                    "/deliveries",
+                    &[
+                        ("hasBl", "true".into()),
+                        ("from", depuis.to_string()),
+                        ("limit", "500".into()),
+                        ("offset", offset.to_string()),
+                    ],
+                )
+                .await?;
+            let page = livraisons(&v);
+            let n = page.len();
+            toutes.extend(page);
+            offset += n;
+            let total = v.get("total").and_then(Value::as_u64).unwrap_or(0) as usize;
+            if n == 0 || offset >= total || offset >= 5_000 {
+                return Ok(toutes);
+            }
+        }
+    }
+
     /// Écrit la facture sur la livraison ; rend la livraison mise à jour.
     pub async fn ecrire_facture(&self, livraison: i64, corps: &Value) -> Result<Livraison, String> {
         let url = format!("{}/deliveries/{livraison}", self.racine);
@@ -224,6 +259,12 @@ pub struct Livraison {
     pub facture: Option<String>,
     pub rapprochee: bool,
     pub automatique: bool,
+    /// Jour de livraison (sinon jour prévu), AAAA-MM-JJ.
+    pub livree_le: Option<String>,
+    pub montant_bl: Option<f64>,
+    pub facture_ht: Option<f64>,
+    pub facture_ttc: Option<f64>,
+    pub echeance: Option<String>,
 }
 
 impl Livraison {
@@ -245,7 +286,30 @@ impl Livraison {
             facture: t("invoiceReference"),
             rapprochee: v.get("reconciled").and_then(Value::as_bool) == Some(true),
             automatique: v.get("automaticReconciliation").and_then(Value::as_bool) == Some(true),
+            livree_le: t("deliveredDate")
+                .or_else(|| t("scheduledDate"))
+                .filter(|d| d.len() >= 10)
+                .map(|d| d[..10].to_string()),
+            montant_bl: montant(v.get("blAmount")),
+            facture_ht: montant(v.get("invoiceAmount")),
+            facture_ttc: montant(v.get("invoiceAmountTTC")),
+            echeance: t("dueDate"),
         })
+    }
+}
+
+/// Montant en nombre, ou en texte (« 1234.5 », « 1 234,50 »).
+fn montant(v: Option<&Value>) -> Option<f64> {
+    match v? {
+        Value::Number(n) => n.as_f64(),
+        Value::String(s) => s
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            .replace(',', ".")
+            .parse()
+            .ok(),
+        _ => None,
     }
 }
 
@@ -314,6 +378,7 @@ impl Reperes {
 
 /// Résultat du choix pour un n° de BL.
 #[derive(Debug, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum Choix {
     Une(Livraison),
     Aucune,
@@ -347,20 +412,62 @@ pub fn choisir(candidates: Vec<Livraison>, r: &Reperes) -> Choix {
     }
 }
 
-/// Corps du `PATCH` : référence toujours ; HT et TTC seulement quand la facture ne couvre qu'une
-/// livraison (sinon le montant de la facture serait compté sur chaque BL). `reconciled` n'est
-/// jamais envoyé : la validation reste faite dans Logiflow.
-pub fn corps_facture(numero: &str, ht: Option<f64>, ttc: Option<f64>, une_seule: bool) -> Value {
+/// Corps du `PATCH` : référence toujours, montants HT et TTC de la part de la facture qui
+/// revient à ce BL (voir [`repartir`]) quand ils sont connus, échéance si elle est lue (sinon
+/// Logiflow la reprend de NocoDB). `reconciled` n'est jamais envoyé : la validation reste
+/// faite dans Logiflow.
+pub fn corps_facture(numero: &str, montants: Option<(f64, f64)>, echeance: Option<&str>) -> Value {
     let mut c = json!({ "invoiceReference": numero });
-    if une_seule {
-        if let Some(h) = ht {
-            c["invoiceAmount"] = json!(h);
-        }
-        if let Some(t) = ttc {
-            c["invoiceAmountTTC"] = json!(t);
-        }
+    if let Some((h, t)) = montants {
+        c["invoiceAmount"] = json!(h);
+        c["invoiceAmountTTC"] = json!(t);
+    }
+    if let Some(e) = echeance {
+        c["dueDate"] = json!(e);
     }
     c
+}
+
+fn centimes(x: f64) -> i64 {
+    (x * 100.0).round() as i64
+}
+
+/// Part de la facture (HT, TTC) de chaque BL. Un seul BL : toute la facture. Plusieurs : au
+/// prorata du montant de chaque BL, arrondie au centime, le dernier BL prenant le reste (la
+/// somme des parts vaut la facture, remise comprise). `None` si un montant manque, ou si les
+/// BL n'ont pas de montant pour répartir.
+pub fn repartir(
+    ht: Option<f64>,
+    ttc: Option<f64>,
+    montants_bl: &[Option<f64>],
+) -> Option<Vec<(f64, f64)>> {
+    let (ht, ttc) = (ht?, ttc?);
+    if montants_bl.len() == 1 {
+        return Some(vec![(ht, ttc)]);
+    }
+    let bl: Vec<f64> = montants_bl.iter().copied().collect::<Option<_>>()?;
+    let somme: f64 = bl.iter().sum();
+    if bl.is_empty() || somme <= 0.0 || bl.iter().any(|m| *m < 0.0) {
+        return None;
+    }
+    let (th, tt) = (centimes(ht), centimes(ttc));
+    let (mut rh, mut rt) = (th, tt);
+    let mut parts = Vec::with_capacity(bl.len());
+    for (i, m) in bl.iter().enumerate() {
+        let (h, t) = if i + 1 == bl.len() {
+            (rh, rt)
+        } else {
+            let p = m / somme;
+            (
+                (th as f64 * p).round() as i64,
+                (tt as f64 * p).round() as i64,
+            )
+        };
+        rh -= h;
+        rt -= t;
+        parts.push((h as f64 / 100.0, t as f64 / 100.0));
+    }
+    Some(parts)
 }
 
 /// Ligne du résultat, par n° de BL.
@@ -389,6 +496,11 @@ mod tests {
             facture: None,
             rapprochee: false,
             automatique: false,
+            livree_le: None,
+            montant_bl: None,
+            facture_ht: None,
+            facture_ttc: None,
+            echeance: None,
         }
     }
 
@@ -473,12 +585,47 @@ mod tests {
     #[test]
     fn corps() {
         assert_eq!(
-            corps_facture("F1", Some(10.0), Some(12.0), true),
-            json!({"invoiceReference": "F1", "invoiceAmount": 10.0, "invoiceAmountTTC": 12.0})
+            corps_facture("F1", Some((10.0, 12.0)), Some("2026-12-31")),
+            json!({"invoiceReference": "F1", "invoiceAmount": 10.0, "invoiceAmountTTC": 12.0,
+                   "dueDate": "2026-12-31"})
         );
         assert_eq!(
-            corps_facture("F1", Some(10.0), Some(12.0), false),
+            corps_facture("F1", None, None),
             json!({"invoiceReference": "F1"})
         );
+    }
+
+    #[test]
+    fn repartition() {
+        assert_eq!(
+            repartir(Some(100.0), Some(120.0), &[None]),
+            Some(vec![(100.0, 120.0)])
+        );
+        // Remise de 10 % sur deux BL de 60 et 40 : chaque BL reçoit sa part de la facture.
+        assert_eq!(
+            repartir(Some(90.0), Some(108.0), &[Some(60.0), Some(40.0)]),
+            Some(vec![(54.0, 64.8), (36.0, 43.2)])
+        );
+        // Les centimes tombent juste : la somme vaut la facture.
+        let p = repartir(Some(100.0), Some(120.0), &[Some(1.0), Some(1.0), Some(1.0)]).unwrap();
+        let h: f64 = p.iter().map(|x| x.0).sum();
+        let t: f64 = p.iter().map(|x| x.1).sum();
+        assert_eq!(
+            ((h * 100.0).round(), (t * 100.0).round()),
+            (10000.0, 12000.0)
+        );
+        assert_eq!(repartir(Some(100.0), Some(120.0), &[Some(1.0), None]), None);
+        assert_eq!(repartir(None, Some(120.0), &[Some(1.0)]), None);
+        assert_eq!(
+            repartir(Some(1.0), Some(1.2), &[Some(0.0), Some(0.0)]),
+            None
+        );
+    }
+
+    #[test]
+    fn montants_en_texte() {
+        assert_eq!(montant(Some(&json!("1 234,50"))), Some(1234.5));
+        assert_eq!(montant(Some(&json!(12.3))), Some(12.3));
+        assert_eq!(montant(Some(&Value::Null)), None);
     }
 }

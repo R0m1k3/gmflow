@@ -1,7 +1,8 @@
 <script lang="ts">
   // Logiflow : adresse et clé de l'API externe (chiffrée, jamais réaffichée), essai de connexion
-  // fait par le worker. Après chaque envoi d'une facture à Dext/Yooz, GMFlow écrit sa référence
-  // et ses montants sur la livraison de ses BL dans Logiflow.
+  // fait par le worker. Toutes les heures, GMFlow retrouve la livraison de chaque BL ; après
+  // l'envoi d'une facture à Dext/Yooz, il écrit sa référence, ses montants et son échéance sur
+  // la livraison de ses BL.
   import { api, message, sonder } from '#lib/api.ts';
   import { RUBRIQUES } from '#lib/libelles.ts';
   import type { LogiflowVue } from '#lib/types.ts';
@@ -82,6 +83,26 @@
     }
   }
 
+  let suivi = $state(false);
+  async function verifier() {
+    erreur = '';
+    info = '';
+    try {
+      await api.post('/api/admin/logiflow/suivi', {});
+      suivi = true;
+      arret?.();
+      arret = sonder(async () => {
+        await charger();
+        if (vue?.dernier_suivi && vue.dernier_suivi.ok !== null) {
+          suivi = false;
+          return false;
+        }
+      });
+    } catch (err) {
+      erreur = message(err);
+    }
+  }
+
   async function essayer() {
     erreur = '';
     info = '';
@@ -97,9 +118,11 @@
 <section class="sujet" id="logiflow">
   <div class="sujet-h"><h2>{RUBRIQUES.logiflow}</h2></div>
   <p class="lead">
-    Quand une facture part vers Dext ou Yooz, GMFlow cherche la livraison de chacun de ses BL dans Logiflow (même n° de BL, même
-    fournisseur par son code BO Phénix) et y écrit le n° de la facture, son HT et son TTC. La validation du rapprochement se fait
-    toujours dans Logiflow.
+    Toutes les heures, GMFlow retrouve dans Logiflow la livraison de chaque BL reçu (même n° de BL, même fournisseur par son code
+    BO Phénix) et l’affiche sur la fiche du BL. Quand une facture liée à ces BL part vers Dext ou Yooz, GMFlow écrit sur chaque
+    livraison le n° de la facture, sa part du HT et du TTC (au prorata du montant de chaque BL) et son échéance. Une livraison
+    pas encore dans Logiflow est reprise à la vérification suivante. La validation du rapprochement se fait toujours dans
+    Logiflow.
   </p>
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
@@ -161,9 +184,20 @@
               <span class="num">le {leA(vue.dernier_test.quand)}</span>{vue.dernier_test.message ? ` : ${vue.dernier_test.message}` : ''}
             </span>
           {/if}
+          {#if suivi || vue.dernier_suivi?.ok === null}
+            <span class="resultat">Vérification des BL en cours…</span>
+          {:else if vue.dernier_suivi}
+            <span class="resultat">
+              <Etiquette ton={vue.dernier_suivi.ok ? 'ok' : 'erreur'}>
+                <Icone nom={vue.dernier_suivi.ok ? 'coche' : 'alerte'} />{vue.dernier_suivi.ok ? 'Dernière vérification' : 'Vérification échouée'}
+              </Etiquette>
+              <span class="num">le {leA(vue.dernier_suivi.quand)}</span>{vue.dernier_suivi.message ? ` : ${vue.dernier_suivi.message}` : ''}
+            </span>
+          {/if}
         </div>
         <div class="d">
           <button type="button" class="btn" class:en-cours={essai} disabled={essai} onclick={essayer}>Tester la connexion</button>
+          <button type="button" class="btn" class:en-cours={suivi} disabled={suivi} onclick={verifier}>Vérifier maintenant</button>
           <button type="button" class="lien-a" onclick={() => { if (vue) remplir(vue); edition = true; }}>Modifier</button>
           <button type="button" class="lien-a" onclick={supprimer}>Supprimer</button>
         </div>

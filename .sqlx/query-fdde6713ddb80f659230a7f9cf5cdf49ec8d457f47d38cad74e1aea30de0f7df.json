@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.id, d.numero as \"numero!\", d.fournisseur_nom,\n                  fo.id as \"fournisseur_id?\", fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", s.autres_noms as \"autres_noms?\"\n           from document d\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.type = 'bl' and d.etat = 'lu' and d.numero is not null and d.numero <> ''\n             and d.lu_le > now() - make_interval(days => $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "numero!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fournisseur_nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "fournisseur_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "fournisseur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "autres_noms?",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "autres_noms"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "fdde6713ddb80f659230a7f9cf5cdf49ec8d457f47d38cad74e1aea30de0f7df"
+}

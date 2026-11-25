@@ -135,6 +135,7 @@ struct Lu {
     fournisseur: extraction::Fournisseur,
     numero: Option<String>,
     date: Option<time::Date>,
+    echeance: Option<time::Date>,
     commande: Option<String>,
     ht: Option<f64>,
     tva: Option<f64>,
@@ -166,11 +167,12 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
     gmflow_core::rapprochement::ecrire_lignes(&mut tx, id, &lu.lignes).await?;
     sqlx::query!(
         "update document set numeros_bl = $2, lignes_lues = $3, magasin_verifie_le = null,
-                             magasin_erreur = null
+                             magasin_erreur = null, date_echeance = $4
          where id = $1",
         id,
         &lu.numeros_bl,
-        lu.lignes_lues
+        lu.lignes_lues,
+        lu.echeance
     )
     .execute(&mut *tx)
     .await?;
@@ -251,12 +253,13 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
             fournisseur_siret, fournisseur_tva, numero, date_document, numero_commande, montant_ht,
             montant_tva, montant_ttc, confiance, texte, resultat, modele, effort, numeros_bl,
             lignes_lues, fournisseur_groupe, fournisseur_entite, remise_ht, remise_taux,
-            annexes_ht, magasin_verifie_le, magasin_erreur) =
+            annexes_ht, magasin_verifie_le, magasin_erreur, date_echeance) =
           (select s.etat, s.voie, s.message, s.type, s.societe_id, s.fournisseur_nom,
             s.fournisseur_siret, s.fournisseur_tva, s.numero, s.date_document, s.numero_commande,
             s.montant_ht, s.montant_tva, s.montant_ttc, s.confiance, s.texte, s.resultat, s.modele,
             s.effort, s.numeros_bl, s.lignes_lues, s.fournisseur_groupe, s.fournisseur_entite,
-            s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur
+            s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur,
+            s.date_echeance
             from document s where s.id = $2),
           copie_de = $2, pris_le = null, lu_le = now()
          where d.id = $1",
@@ -312,6 +315,7 @@ fn lu_depuis_xml(
         },
         numero: d.numero.clone(),
         date: d.date.as_deref().and_then(extraction::date),
+        echeance: d.echeance.as_deref().and_then(extraction::date),
         commande: d.numero_commande.clone(),
         ht: d.montant_ht,
         tva: d.montant_tva,
@@ -359,6 +363,7 @@ fn lu_depuis_extraction(
         societe_id: societe_code.or(e.societe_id),
         numero: e.numero,
         date: e.date.as_deref().and_then(extraction::date),
+        echeance: e.echeance.as_deref().and_then(extraction::date),
         commande: e.numero_commande,
         ht: e.montant_ht,
         tva: e.montant_tva,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select etat, statut_depot, type, societe_id, fournisseur_id, numero, date_document,\n                  numero_commande, montant_ht::float8 as ht, montant_tva::float8 as tva,\n                  montant_ttc::float8 as ttc, corrections\n           from document where id = $1 for update",
+  "query": "select etat, statut_depot, type, societe_id, fournisseur_id, numero, date_document,\n                  numero_commande, montant_ht::float8 as ht, montant_tva::float8 as tva,\n                  montant_ttc::float8 as ttc, corrections, date_echeance\n           from document where id = $1 for update",
   "describe": {
     "columns": [
       {
@@ -119,6 +119,17 @@
             "name": "corrections"
           }
         }
+      },
+      {
+        "ordinal": 12,
+        "name": "date_echeance",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_echeance"
+          }
+        }
       }
     ],
     "parameters": {
@@ -138,8 +149,9 @@
       null,
       null,
       null,
-      false
+      false,
+      true
     ]
   },
-  "hash": "f838a1fb485657bf98e6a7565b9067358e9cd3486f8988b62c3d8c0729d81401"
+  "hash": "d3da098668acc10dc0a47591509fdbc2c299ba6f38af9161c023f360b6f3240a"
 }

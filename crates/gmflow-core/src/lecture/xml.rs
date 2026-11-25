@@ -21,6 +21,8 @@ pub struct DonneesXml {
     /// AAAA-MM-JJ.
     pub date: Option<String>,
     pub numero_commande: Option<String>,
+    /// Échéance du paiement, AAAA-MM-JJ.
+    pub echeance: Option<String>,
     pub vendeur: Partie,
     pub acheteur: Partie,
     pub montant_ht: Option<f64>,
@@ -275,6 +277,12 @@ fn cii(
                 } else if s == "BuyerOrderReferencedDocument/IssuerAssignedID" {
                     remplir(&mut d.numero_commande, v);
                 }
+            } else if c
+                == "SupplyChainTradeTransaction/ApplicableHeaderTradeSettlement/SpecifiedTradePaymentTerms/DueDateDateTime/DateTimeString"
+            {
+                if d.echeance.is_none() {
+                    d.echeance = date_iso(v)
+                }
             } else if let Some(s) = c.strip_prefix(TOTAUX) {
                 match s {
                     "TaxBasisTotalAmount" => remplir_montant(&mut d.montant_ht, v),
@@ -351,6 +359,11 @@ fn ubl(
         }
         "InvoiceTypeCode" | "CreditNoteTypeCode" => remplir(code_type, v),
         "OrderReference/ID" => remplir(&mut d.numero_commande, v),
+        "DueDate" | "PaymentMeans/PaymentDueDate" => {
+            if d.echeance.is_none() {
+                d.echeance = date_iso(v)
+            }
+        }
         "TaxTotal/TaxAmount" => remplir_montant(&mut d.montant_tva, v),
         "LegalMonetaryTotal/TaxExclusiveAmount" => remplir_montant(&mut d.montant_ht, v),
         "LegalMonetaryTotal/TaxInclusiveAmount" => remplir_montant(&mut d.montant_ttc, v),

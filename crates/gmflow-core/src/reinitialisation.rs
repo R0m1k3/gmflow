@@ -21,6 +21,7 @@ use crate::{file, journal};
 /// gardée ne pointe vers elles : `truncate` sans `cascade` le vérifie à chaque fois.
 pub const TABLES_EFFACEES: &[&str] = &[
     "logiflow_rapprochement",
+    "logiflow_livraison",
     "ligne_document",
     "rapprochement",
     "envoi_depot",

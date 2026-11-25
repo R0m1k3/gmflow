@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from logiflow_livraison where bl_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ccec20a06a6aecc0ae0b20b41bf3b92495af8b42b5338613dc722ddfc5606fe"
+}

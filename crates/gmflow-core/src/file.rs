@@ -89,6 +89,9 @@ pub enum TacheEnvoi {
     RapprocherLogiflow {
         document_id: i64,
     },
+    /// Toutes les heures : livraison Logiflow de chaque BL récent, et nouvel essai pour les
+    /// factures envoyées dont un BL manquait dans Logiflow.
+    SuiviLogiflow,
     /// Recherche des articles d'un BL (et du détail des lots) sur le serveur du magasin, pour
     /// l'export vers BO Phénix. Après la lecture d'un BL, ou à la demande.
     VerifierArticlesBl {

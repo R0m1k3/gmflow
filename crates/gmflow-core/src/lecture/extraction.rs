@@ -115,6 +115,9 @@ pub struct Extraction {
     pub numero: Option<String>,
     pub date: Option<String>,
     pub numero_commande: Option<String>,
+    /// Date d'échéance du paiement (facture), AAAA-MM-JJ. Absente des anciennes réponses.
+    #[serde(default)]
+    pub echeance: Option<String>,
     pub montant_ht: Option<f64>,
     pub montant_tva: Option<f64>,
     pub montant_ttc: Option<f64>,
@@ -162,6 +165,11 @@ const MONTANTS_ANNEXES: &str = "montant_ht, montant_tva et montant_ttc décriven
      TVA Ecomaison 2,49, Total TTC 2 028,25 donne montant_ht 1690.21, montant_tva 338.04, \
      montant_ttc 2028.25.\n";
 
+/// Échéance du paiement, recopiée dans Logiflow avec la facture.
+const ECHEANCE: &str = "echeance = la date d'échéance du paiement imprimée (« Échéance », « Date \
+     d'échéance », « À payer avant le », « Date limite de paiement »), AAAA-MM-JJ ; null si \
+     seule une condition est donnée (« 30 jours fin de mois ») ou pour un BL.\n";
+
 /// Remises : le HT reste le net imprimé, la remise est notée à part pour expliquer l'écart
 /// avec les bons de livraison (valorisés avant remise).
 const REMISES: &str = "remise_ht = le total HT des remises déduites sur le document (remise \
@@ -206,6 +214,7 @@ pub fn schema(avec_texte: bool) -> Value {
         "numero": chaine_ou_null(),
         "date": chaine_ou_null(),
         "numero_commande": chaine_ou_null(),
+        "echeance": chaine_ou_null(),
         "montant_ht": nombre_ou_null(),
         "montant_tva": nombre_ou_null(),
         "montant_ttc": nombre_ou_null(),
@@ -249,6 +258,7 @@ pub fn schema(avec_texte: bool) -> Value {
         "numero",
         "date",
         "numero_commande",
+        "echeance",
         "montant_ht",
         "montant_tva",
         "montant_ttc",
@@ -365,6 +375,7 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     p.push_str(DETAIL_LIGNES);
     p.push_str(MONTANTS_ANNEXES);
     p.push_str(REMISES);
+    p.push_str(ECHEANCE);
     p.push('\n');
     p.push_str(&format!(
         "Mail qui accompagne le document :\nDe : {}\nObjet : {}\n{}\n\nFichier : {}\n\n",
@@ -440,6 +451,10 @@ pub fn depuis_reponse(
     controler(&e, societes)?;
     e.lignes = lignes_utiles(std::mem::take(&mut e.lignes));
     e.numeros_bl = numeros_utiles(std::mem::take(&mut e.numeros_bl));
+    // Une échéance mal formée ne fait pas échouer la lecture : elle est oubliée.
+    if e.echeance.as_deref().is_some_and(|d| date(d).is_none()) {
+        e.echeance = None;
+    }
     Ok(e)
 }
 
@@ -553,6 +568,7 @@ pub fn consigne_nouvel_essai(
     );
     s.push_str(MONTANTS_ANNEXES);
     s.push_str(REMISES);
+    s.push_str(ECHEANCE);
     if let Some(f) = fichier {
         s.push_str(&format!(
             "Le fichier d'origine est aussi le fichier {f} du dossier courant : lis-le avec \

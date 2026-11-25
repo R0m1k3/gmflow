@@ -140,6 +140,7 @@ async fn tache_envoi(
                 TacheEnvoi::TestServeurApi => serveur_api::tester(&ctx).await?,
                 TacheEnvoi::SynchroMagasin => serveur_api::synchroniser(&ctx).await?,
                 TacheEnvoi::TestLogiflow => logiflow::tester(&ctx).await?,
+                TacheEnvoi::SuiviLogiflow => logiflow::suivre(&ctx).await?,
                 TacheEnvoi::RapprocherLogiflow { document_id } => {
                     logiflow::rapprocher(&ctx, document_id).await?
                 }

@@ -19,6 +19,8 @@ pub struct Vue {
     serveur: Option<ServeurApi>,
     jeton_enregistre: bool,
     dernier_test: Option<Value>,
+    /// Dernière vérification régulière : `{"quand", "ok", "message"}` (`ok` null : en cours).
+    dernier_suivi: Option<Value>,
 }
 
 pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue>> {
@@ -31,6 +33,7 @@ pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue
             .await?
             .is_some(),
         dernier_test: parametre::lire(&etat.pool, logiflow::CLE_TEST).await?,
+        dernier_suivi: parametre::lire(&etat.pool, logiflow::CLE_SUIVI).await?,
     }))
 }
 
@@ -146,6 +149,37 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
         &etat.pool,
         Some(a.utilisateur_id),
         "test",
+        "logiflow",
+        None,
+        json!({}),
+    )
+    .await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// « Vérifier maintenant » : la vérification régulière part tout de suite.
+pub async fn suivre(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resultat<StatusCode> {
+    if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
+        return Err(ErreurApi::Conflit(
+            "adresse de Logiflow non configurée".into(),
+        ));
+    }
+    parametre::ecrire(
+        &etat.pool,
+        logiflow::CLE_SUIVI,
+        &json!({ "quand": time::OffsetDateTime::now_utc()
+                     .format(&time::format_description::well_known::Rfc3339)
+                     .unwrap_or_default(),
+                 "ok": null, "message": "vérification demandée" }),
+    )
+    .await?;
+    file::pousser_envoi(&etat.pool, file::TacheEnvoi::SuiviLogiflow)
+        .await
+        .map_err(ErreurApi::Interne)?;
+    journal::ecrire(
+        &etat.pool,
+        Some(a.utilisateur_id),
+        "suivi",
         "logiflow",
         None,
         json!({}),
