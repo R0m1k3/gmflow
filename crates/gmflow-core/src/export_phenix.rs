@@ -128,9 +128,6 @@ pub const COLONNES_TRAME: [&str; 105] = [
     "Artchamp20",
 ];
 
-/// TVA appliquée quand le BL n'en précise pas d'autre.
-pub const TVA_DEFAUT: f64 = 20.0;
-
 /// Ligne de BL telle que lue, avec l'article retrouvé au magasin.
 #[derive(Debug, Clone, Default)]
 pub struct LigneBl {
@@ -376,10 +373,10 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
     for l in lignes {
         controler(l, &mut e.alertes);
         let (pa, _) = prix_achat(l);
-        let tva = nombre(Some(l.taux_tva.filter(|t| *t >= 0.0).unwrap_or(TVA_DEFAUT)));
+        // N° de ligne et TVA laissés vides : le magasin les saisit dans Phénix. Le numéro sert
+        // seulement à rattacher les composants d'un lot à leur ligne mère (NUM LOT VENTE).
         numero += 1;
         let mut r = Rangee::new();
-        pousser(&mut r, "NUMERO LIGNE", nombre(Some(numero as f64)));
         // Codein et données du magasin pour un lot seulement ; sinon tout vient du BL.
         let mere = lot(l);
         pousser(
@@ -408,7 +405,6 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             ),
         );
         pousser(&mut r, "Colisage", nombre(l.pcb.filter(|p| *p > 0.0)));
-        pousser(&mut r, "TauxTva", tva.clone());
         pousser(&mut r, "PV_Conseille", nombre(l.pv_conseille));
         let Some(a) = mere else {
             if l.magasin.is_none() && crate::articles_magasin::semble_lot(l.designation.as_deref())
@@ -443,7 +439,6 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
         for (c, p) in a.composants.iter().zip(prix_composants(pa, &a.composants)) {
             numero += 1;
             let mut r = Rangee::new();
-            pousser(&mut r, "NUMERO LIGNE", nombre(Some(numero as f64)));
             pousser(&mut r, "NUM LOT VENTE", nombre(Some(num_mere as f64)));
             pousser(&mut r, "Codein", texte(c.codein.as_deref()));
             pousser(&mut r, "Fournisseur", fou());
@@ -456,7 +451,6 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             pousser(&mut r, "Prix de Vente", nombre(c.pv));
             pousser(&mut r, "CodeFamille", texte(c.famille.as_deref()));
             pousser(&mut r, "PV_Conseille", nombre(c.pv_conseille));
-            pousser(&mut r, "TauxTva", tva.clone());
             if let Some(col) = eco {
                 pousser(&mut r, col, nombre(c.eco_ht));
             }

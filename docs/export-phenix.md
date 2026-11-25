@@ -6,16 +6,15 @@ modèles du magasin :
 | Fichier | Sert à | Colonnes remplies |
 |---|---|---|
 | **Matrice d'intégration** (onglet `Feuil1`) | intégrer la commande ; le fournisseur se choisit dans Phénix | `CODEIN`, `GENCOD`, `REFERENCE`, `QTECDE`, `PA`, `REMISE ` (avec l'espace du modèle) |
-| **Trame BO Phénix** (onglet `TRAME MODELE`, en premier) | créer ou mettre à jour les fiches produits | n° de ligne, Codein, Fournisseur (code BO Phénix), réf., gencod, libellé, colisage, prix d'achat, TVA, DEEE HT, Ecomob HT, PV conseillé ; pour les lots : composants détaillés |
+| **Trame BO Phénix** (onglet `TRAME MODELE`, en premier) | créer ou mettre à jour les fiches produits | Codein, Fournisseur (code BO Phénix), réf., gencod, libellé, colisage, prix d'achat, DEEE HT, Ecomob HT, PV conseillé ; pour les lots : composants détaillés. N° de ligne et TVA laissés vides : le magasin les saisit |
 
 ## Règles
 
 - **Pas de code article (Codein) hors lot** : seuls le gencod et la référence imprimés sur le BL
   identifient l'article. Le Codein n'est écrit que pour un lot et ses composants (Phénix n'écrase
   rien sur une fiche existante).
-- **Tout vient du BL** : prix d'achat brut HT, remise de ligne, quantités, TVA (20 % si le BL ne
-  dit rien), DEEE / Ecomob (selon ce que le BL imprime), PV conseillé. Le prix de vente et la
-  famille d'un nouveau produit restent vides : le magasin les fixe.
+- **Tout vient du BL** : prix d'achat brut HT, remise de ligne, quantités, DEEE / Ecomob
+  (selon ce que le BL imprime), PV conseillé. Le prix de vente et la famille d'un nouveau produit restent vides : le magasin les fixe.
 - **Quantité** en unités = colis × PCB quand le BL donne les deux, sinon la quantité imprimée.
 - **Prix par colis** : ramené à l'unité quand le montant de la ligne montre que le prix imprimé
   est celui du colis. Sans prix unitaire : montant ÷ quantité (déjà net, sans remise en plus).
