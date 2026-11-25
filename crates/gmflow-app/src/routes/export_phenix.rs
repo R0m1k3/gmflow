@@ -34,6 +34,8 @@ pub struct EtatExport {
     pub pret: bool,
     pub code_fournisseur: Option<String>,
     pub lignes: usize,
+    /// Lignes cherchées au magasin : celles qui ressemblent à un lot.
+    pub cherchees: usize,
     pub trouves: usize,
     pub lots: usize,
     pub composants: usize,
@@ -110,6 +112,10 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
         pret,
         code_fournisseur: code.clone(),
         lignes: lignes.len(),
+        cherchees: lignes
+            .iter()
+            .filter(|l| articles_magasin::semble_lot(l.designation.as_deref()))
+            .count(),
         trouves: lignes.iter().filter(|l| l.magasin.is_some()).count(),
         lots: lignes
             .iter()

@@ -113,7 +113,12 @@
     </p>
     {#if etat.verifie_le && !etat.erreur}
       <p class="t2 petit">
-        Magasin, le {jourHeure(etat.verifie_le)} : {etat.trouves} article{etat.trouves > 1 ? 's' : ''} sur {etat.lignes} retrouvé{etat.trouves > 1 ? 's' : ''}{etat.lots ? `, ${etat.lots} lot${etat.lots > 1 ? 's' : ''} remplacé${etat.lots > 1 ? 's' : ''} par ${etat.composants} composants` : ''}.
+        Magasin, le {jourHeure(etat.verifie_le)} :
+        {#if etat.cherchees}
+          {etat.cherchees} lot{etat.cherchees > 1 ? 's' : ''} présumé{etat.cherchees > 1 ? 's' : ''} sur {etat.lignes} ligne{etat.lignes > 1 ? 's' : ''} (« lot » ou « x2 » dans la désignation), {etat.trouves} retrouvé{etat.trouves > 1 ? 's' : ''}{etat.lots ? `, ${etat.lots} remplacé${etat.lots > 1 ? 's' : ''} par ${etat.composants} composants` : ''}.
+        {:else}
+          aucune ligne ne ressemble à un lot (« lot » ou « x2 » dans la désignation), tout vient du BL.
+        {/if}
         <button type="button" class="btn-lien" onclick={verifier} disabled={demande || etat.en_cours}>Chercher de nouveau</button>
       </p>
     {/if}

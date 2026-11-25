@@ -1032,6 +1032,7 @@ export interface EtatExportPhenix {
   pret: boolean;
   code_fournisseur: string | null;
   lignes: number;
+  cherchees: number;
   trouves: number;
   lots: number;
   composants: number;

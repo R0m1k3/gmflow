@@ -1,11 +1,15 @@
 //! Articles d'un BL retrouvés sur le serveur du magasin (Apiflow) : par gencod, sinon par
-//! référence fournisseur, puis, pour un lot, le détail de ses composants. Le résultat est
+//! référence fournisseur, puis, pour un lot, le détail de ses composants. Seules les lignes
+//! qui ressemblent à un lot (`semble_lot`) sont cherchées : les autres viennent du BL. Le résultat est
 //! gardé sur chaque ligne (`ligne_document.magasin`) : l'export vers BO Phénix le lit sans
 //! appel réseau. Les appels partent du worker.
 
 use std::collections::HashMap;
 use std::future::Future;
+use std::sync::LazyLock;
 use std::time::Duration;
+
+use regex::Regex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -114,6 +118,19 @@ pub fn normaliser_ref(r: &str) -> String {
         .filter(|c| !c.is_whitespace())
         .flat_map(char::to_uppercase)
         .collect()
+}
+
+/// Désignation d'un lot présumé : le mot « lot », ou un multiple (« X2 », « x 3 », « 4X »,
+/// « (x6) »). Les dimensions (« 30x40 ») ne comptent pas.
+pub fn semble_lot(designation: Option<&str>) -> bool {
+    static DIMENSION: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\d+(?:[.,]\d+)?\s?x\s?\d+(?:[.,]\d+)?").expect("motif de dimension")
+    });
+    static LOT: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?i)\blots?\b|(?:^|[^\p{L}\d.,])(?:x\s?\d+|\d+\s?x)(?:$|[^\p{L}\d])")
+            .expect("motif de lot")
+    });
+    designation.is_some_and(|d| LOT.is_match(&DIMENSION.replace_all(d, " ")))
 }
 
 fn gencod_propre(g: &str) -> Option<String> {
@@ -385,7 +402,8 @@ pub async fn verifier_document<S: Source>(
 ) -> anyhow::Result<()> {
     let codes = codes_du_document(pool, document_id).await?;
     let lignes = sqlx::query!(
-        "select id, gencod, reference from ligne_document where document_id = $1 order by rang",
+        "select id, gencod, reference, designation from ligne_document
+         where document_id = $1 order by rang",
         document_id
     )
     .fetch_all(pool)
@@ -394,6 +412,11 @@ pub async fn verifier_document<S: Source>(
     let mut resultats = Vec::with_capacity(lignes.len());
     let mut erreur = None;
     for l in &lignes {
+        // Pas un lot : rien à prendre au magasin, tout vient du BL.
+        if !semble_lot(l.designation.as_deref()) {
+            resultats.push((l.id, None));
+            continue;
+        }
         let r = Recherche {
             gencod: l.gencod.clone(),
             reference: l.reference.clone(),

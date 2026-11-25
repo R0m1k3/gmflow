@@ -411,11 +411,12 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
         pousser(&mut r, "TauxTva", tva.clone());
         pousser(&mut r, "PV_Conseille", nombre(l.pv_conseille));
         let Some(a) = mere else {
-            if l.magasin.is_none() {
+            if l.magasin.is_none() && crate::articles_magasin::semble_lot(l.designation.as_deref())
+            {
                 alerte(
                     &mut e.alertes,
                     l,
-                    "article inconnu du magasin : nouveau produit, prix de vente et famille à fixer",
+                    "lot présumé inconnu du magasin : composants non détaillés, prix de vente et famille à fixer",
                 );
             }
             pousser(&mut r, "PrixAchat", nombre(pa));
