@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, gencod, reference from ligne_document where document_id = $1 order by rang",
+  "query": "select id, gencod, reference, designation from ligne_document\n         where document_id = $1 order by rang",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "reference"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "designation",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "designation"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       true,
+      true,
       true
     ]
   },
-  "hash": "c6239d20791aa770edbb34e38699464af1b1805caa852c9e92d2dcc6ae4e16c2"
+  "hash": "a8a44ea1c60cc1a3a94b895b15139cecaccb124d123f980609110a8365c77238"
 }

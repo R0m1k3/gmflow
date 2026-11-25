@@ -219,10 +219,23 @@ fn trame_lot_de_vente_et_nouveau_produit() {
     assert_eq!(num(n, "DEEE HT"), Some(0.1));
     assert_eq!(num(n, "PV_Conseille"), Some(19.99));
     assert_eq!(num(n, "Colisage"), Some(6.0));
+    // Pas un lot : pas cherché au magasin, donc pas d'alerte « inconnu ».
+    assert!(
+        e.alertes.iter().all(|a| a.rang != Some(1)),
+        "{:?}",
+        e.alertes
+    );
+    // Lot présumé absent du magasin : alerte.
+    let inconnu = LigneBl {
+        rang: 2,
+        designation: Some("BOUGIES PARFUMEES X4".into()),
+        ..Default::default()
+    };
+    let e = export_phenix::trame(&[inconnu], Some("R0041"));
     assert!(
         e.alertes
             .iter()
-            .any(|a| a.rang == Some(1) && a.message.contains("nouveau produit"))
+            .any(|a| a.rang == Some(2) && a.message.contains("lot présumé inconnu"))
     );
     // Sans code BO Phénix : alerte générale.
     let e = export_phenix::trame(&[ligne_lot(Some(18.0))], None);
@@ -481,4 +494,31 @@ fn hors_lot_ni_codein_ni_donnees_du_magasin() {
     assert_eq!(txt(r, "Codein"), None);
     assert_eq!(txt(r, "Gencod"), None);
     assert_eq!(txt(r, "LIBELLE"), Some("SEAU"));
+}
+
+#[test]
+fn lots_presumes_selon_la_designation() {
+    for d in [
+        "BOITE PAULOWNIA LOT DE 3",
+        "Lot 2 bougies",
+        "BOUGIES PARFUMEES X4",
+        "Verre x 6",
+        "Assiette 4X",
+        "Torchons (x3)",
+        "SET 2x COUSSINS",
+    ] {
+        assert!(articles_magasin::semble_lot(Some(d)), "{d}");
+    }
+    for d in [
+        "Porte Billets Mariage Félicitations",
+        "CADRE 30x40",
+        "Tapis 60 X 90 cm",
+        "LAMPE LED",
+        "Lotion mains",
+        "Box Xmas",
+        "Pilotis",
+    ] {
+        assert!(!articles_magasin::semble_lot(Some(d)), "{d}");
+    }
+    assert!(!articles_magasin::semble_lot(None));
 }
