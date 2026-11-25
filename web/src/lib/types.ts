@@ -279,6 +279,8 @@ export interface FicheDocument {
   numero: string | null;
   date_document: string | null;
   numero_commande: string | null;
+  /** Échéance du paiement (facture), AAAA-MM-JJ. */
+  date_echeance: string | null;
   montant_ht: number | null;
   montant_tva: number | null;
   montant_ttc: number | null;
@@ -321,6 +323,26 @@ export interface FicheDocument {
   logiflow_configure: boolean;
   /** Facture envoyée à l'instant : le résultat Logiflow arrive. */
   logiflow_attendu: boolean;
+  /** BL : sa livraison retrouvée dans Logiflow par la vérification de chaque heure. */
+  logiflow_livraison: LivraisonLogiflow | null;
+}
+
+export interface LivraisonLogiflow {
+  vu_le: string;
+  /** trouve : une livraison ; ambigu : plusieurs possibles. */
+  etat: 'trouve' | 'ambigu';
+  possibles: number;
+  livraison_id: number | null;
+  magasin: string | null;
+  fournisseur: string | null;
+  bl: string | null;
+  livree_le: string | null;
+  montant_bl: number | null;
+  facture: string | null;
+  facture_ht: number | null;
+  facture_ttc: number | null;
+  echeance: string | null;
+  rapprochee: boolean;
 }
 
 export type EtatLivraisonLogiflow = 'complete' | 'deja_fait' | 'deja_rapproche' | 'autre_facture' | 'introuvable' | 'ambigu' | 'erreur';
@@ -483,6 +505,8 @@ export interface LogiflowVue {
   serveur: { adresse: string; fin: string | null } | null;
   jeton_enregistre: boolean;
   dernier_test: { quand: string; ok: boolean; message: string | null } | null;
+  /** Dernière vérification régulière (toutes les heures) ; `ok` null : en cours. */
+  dernier_suivi: { quand: string; ok: boolean | null; message: string | null } | null;
 }
 
 export interface SuggestionCode {
@@ -724,6 +748,7 @@ export interface CorrectionDocument {
   montant_ht: number | null;
   montant_tva: number | null;
   montant_ttc: number | null;
+  date_echeance: string | null;
 }
 
 export interface DemandeValidation {

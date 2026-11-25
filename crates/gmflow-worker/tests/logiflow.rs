@@ -1,6 +1,7 @@
 //! Logiflow contre un faux serveur local : essai de connexion, puis report d'une facture
 //! envoyée sur la livraison de son BL (n° exact, n° écrit autrement, autre fournisseur,
-//! livraison déjà liée à une autre facture, plusieurs BL).
+//! livraison déjà liée à une autre facture, plusieurs BL) ; vérification régulière (livraison
+//! de chaque BL, montants répartis entre les BL, échéance, nouvel essai).
 
 mod commun;
 
@@ -86,6 +87,18 @@ fn livraisons() -> Vec<Value> {
             false,
         ),
     ]
+    .into_iter()
+    .map(|mut l| {
+        // Montants des BL saisis dans Logiflow.
+        l["blAmount"] = match l["id"].as_i64() {
+            Some(5) => json!(60),
+            Some(6) => json!("40,00"),
+            _ => Value::Null,
+        };
+        l["deliveredDate"] = json!("2026-11-20T07:00:00.000Z");
+        l
+    })
+    .collect()
 }
 
 fn autorise(h: &HeaderMap) -> bool {
@@ -303,5 +316,158 @@ async fn facture_envoyee_reportee_sur_la_livraison() {
             .await,
         0
     );
+    b.fermer().await;
+}
+
+async fn bl(b: &Banc, societe: i64, fournisseur: i64, numero: &str, ht: f64) -> i64 {
+    let eml = gmflow_core::fixtures::eml(
+        &format!("bl-{numero}@test"),
+        numero,
+        &[(&format!("{numero}.pdf"), "application/pdf", b"%PDF-1.4 bl")],
+        false,
+    );
+    let mail = commun::mail(b, societe, &eml).await;
+    sqlx::query_scalar(
+        "insert into document (piece_jointe_id, mail_id, sha256, etat, voie, type, societe_id,
+             fournisseur_id, numero, montant_ht, lu_le)
+         select id, mail_id, sha256, 'lu', 'pdf_texte', 'bl', $2, $3, $4, $5, now()
+         from piece_jointe where mail_id = $1 returning id",
+    )
+    .bind(mail)
+    .bind(societe)
+    .bind(fournisseur)
+    .bind(numero)
+    .bind(ht)
+    .fetch_one(b.pool())
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn verification_reguliere() {
+    let (base, ecrits) = faux_logiflow().await;
+    let b = Banc::new().await;
+    let frouard = b.societe("Frouard").await;
+    let jja: i64 = sqlx::query_scalar(
+        "insert into fournisseur (nom, nom_normalise, statut, code_gestion) values ('JJA SA', 'jja sa', 'valide', 'J009') returning id",
+    )
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    let bl100 = bl(&b, frouard, jja, "BL 100", 10.0).await;
+    let bl401 = bl(&b, frouard, jja, "BL-401", 60.0).await;
+    let bl777 = bl(&b, frouard, jja, "BL-777", 5.0).await;
+
+    // Pas configuré : rien n'est fait, et la vérification n'est pas due.
+    gmflow_worker::logiflow::suivre(&b.ctx).await.unwrap();
+    assert!(!gmflow_worker::logiflow::suivi_du(b.pool()).await.unwrap());
+    assert_eq!(
+        b.compter("select count(*) from logiflow_livraison").await,
+        0
+    );
+
+    parametre::ecrire(
+        b.pool(),
+        logiflow::CLE,
+        &json!({ "adresse": base, "fin": "bon" }),
+    )
+    .await
+    .unwrap();
+    parametre::ecrire_secret(b.pool(), logiflow::CLE, &b.ctx.chiffreur.chiffrer(b"bon"))
+        .await
+        .unwrap();
+    assert!(gmflow_worker::logiflow::suivi_du(b.pool()).await.unwrap());
+
+    // Facture de deux BL avec remise : chaque livraison reçoit sa part, avec l'échéance.
+    let f5 = facture(&b, frouard, jja, "F-5", &["BL-401", "BL-402"]).await;
+    // Un BL manque dans Logiflow : référence seule, nouvel essai au passage suivant.
+    let f6 = facture(&b, frouard, jja, "F-6", &["BL-100", "BL-999"]).await;
+    sqlx::query(
+        "update document set montant_ht = 90, montant_ttc = 108, date_echeance = '2026-12-31'
+         where id = $1",
+    )
+    .bind(f5)
+    .execute(b.pool())
+    .await
+    .unwrap();
+
+    gmflow_worker::logiflow::suivre(&b.ctx).await.unwrap();
+    assert!(!gmflow_worker::logiflow::suivi_du(b.pool()).await.unwrap());
+    let suivi = parametre::lire(b.pool(), logiflow::CLE_SUIVI)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(suivi["ok"], true, "{suivi}");
+    assert!(
+        suivi["message"].as_str().unwrap().starts_with("2 BL sur 3"),
+        "{suivi}"
+    );
+
+    // BL retrouvés : celui du même fournisseur parmi deux « BL-100 » ; BL-777 absent.
+    let livraison = |id: i64| {
+        let pool = b.pool().clone();
+        async move {
+            sqlx::query_as::<_, (String, Option<i64>, Option<f64>)>(
+                "select etat, livraison_id, montant_bl::float8 from logiflow_livraison where bl_id = $1",
+            )
+            .bind(id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap()
+        }
+    };
+    assert_eq!(
+        livraison(bl100).await,
+        Some(("trouve".into(), Some(1), None))
+    );
+    assert_eq!(
+        livraison(bl401).await,
+        Some(("trouve".into(), Some(5), Some(60.0)))
+    );
+    assert_eq!(livraison(bl777).await, None);
+
+    let mut e = ecrits.lock().unwrap().clone();
+    e.sort_by_key(|x| x.0);
+    assert_eq!(
+        e,
+        vec![
+            (1, json!({ "invoiceReference": "F-6" })),
+            (
+                5,
+                json!({ "invoiceReference": "F-5", "invoiceAmount": 54.0,
+                        "invoiceAmountTTC": 64.8, "dueDate": "2026-12-31" })
+            ),
+            (
+                6,
+                json!({ "invoiceReference": "F-5", "invoiceAmount": 36.0,
+                        "invoiceAmountTTC": 43.2, "dueDate": "2026-12-31" })
+            ),
+        ]
+    );
+    let (ok, _, _) = resultat(&b, f5).await;
+    assert!(ok);
+    let (ok, _, l) = resultat(&b, f6).await;
+    assert!(!ok);
+    assert_eq!(l[1]["etat"], "introuvable", "{l}");
+
+    // Passage suivant : seule la facture incomplète est reprise.
+    ecrits.lock().unwrap().clear();
+    sqlx::query("delete from parametre where cle = $1")
+        .bind(logiflow::CLE_SUIVI)
+        .execute(b.pool())
+        .await
+        .unwrap();
+    gmflow_worker::logiflow::suivre(&b.ctx).await.unwrap();
+    let e = ecrits.lock().unwrap().clone();
+    assert_eq!(e, vec![(1, json!({ "invoiceReference": "F-6" }))]);
+
+    // BL disparu de Logiflow (n° corrigé) : le lien est retiré.
+    sqlx::query("update document set numero = 'BL-778' where id = $1")
+        .bind(bl401)
+        .execute(b.pool())
+        .await
+        .unwrap();
+    gmflow_worker::logiflow::suivre(&b.ctx).await.unwrap();
+    assert_eq!(livraison(bl401).await, None);
     b.fermer().await;
 }

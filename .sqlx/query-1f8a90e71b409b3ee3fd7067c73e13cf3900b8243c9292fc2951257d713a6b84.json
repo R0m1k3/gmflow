@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document d set (etat, voie, message, type, societe_id, fournisseur_nom,\n            fournisseur_siret, fournisseur_tva, numero, date_document, numero_commande, montant_ht,\n            montant_tva, montant_ttc, confiance, texte, resultat, modele, effort, numeros_bl,\n            lignes_lues, fournisseur_groupe, fournisseur_entite, remise_ht, remise_taux,\n            annexes_ht, magasin_verifie_le, magasin_erreur, date_echeance) =\n          (select s.etat, s.voie, s.message, s.type, s.societe_id, s.fournisseur_nom,\n            s.fournisseur_siret, s.fournisseur_tva, s.numero, s.date_document, s.numero_commande,\n            s.montant_ht, s.montant_tva, s.montant_ttc, s.confiance, s.texte, s.resultat, s.modele,\n            s.effort, s.numeros_bl, s.lignes_lues, s.fournisseur_groupe, s.fournisseur_entite,\n            s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur,\n            s.date_echeance\n            from document s where s.id = $2),\n          copie_de = $2, pris_le = null, lu_le = now()\n         where d.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1f8a90e71b409b3ee3fd7067c73e13cf3900b8243c9292fc2951257d713a6b84"
+}

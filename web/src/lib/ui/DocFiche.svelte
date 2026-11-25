@@ -139,11 +139,12 @@
     numero: string;
     date: string;
     commande: string;
+    echeance: string;
     ht: string;
     tva: string;
     ttc: string;
   };
-  const VIDE: Choix = { type: '', societe: '', fournisseur: '', fournisseurNom: '', numero: '', date: '', commande: '', ht: '', tva: '', ttc: '' };
+  const VIDE: Choix = { type: '', societe: '', fournisseur: '', fournisseurNom: '', numero: '', date: '', commande: '', echeance: '', ht: '', tva: '', ttc: '' };
 
   let d = $state<FicheDocument | null>(null);
   let rap = $state<DetailRapprochement | null>(null);
@@ -168,6 +169,7 @@
       numero: v.numero ?? '',
       date: v.date_document ?? '',
       commande: v.numero_commande ?? '',
+      echeance: v.date_echeance ?? '',
       ht: ecrireMontant(v.montant_ht),
       tva: ecrireMontant(v.montant_tva),
       ttc: ecrireMontant(v.montant_ttc)
@@ -388,7 +390,8 @@
       numero_commande: ou(choix.commande),
       montant_ht: lire(choix.ht, 'Total HT'),
       montant_tva: lire(choix.tva, 'TVA'),
-      montant_ttc: lire(choix.ttc, 'Total TTC')
+      montant_ttc: lire(choix.ttc, 'Total TTC'),
+      date_echeance: ou(choix.echeance)
     };
   }
 
@@ -674,6 +677,7 @@
     numero: 'n°',
     date_document: 'date',
     numero_commande: 'n° de commande',
+    date_echeance: 'échéance',
     montant_ht: 'HT',
     montant_tva: 'TVA',
     montant_ttc: 'TTC'
@@ -1005,6 +1009,13 @@
             {#if choix.commande || lu.commande}
               <Champ disposition="ligne" libelle="Commande" bind:valeur={choix.commande} mono modifiable={editable} />
             {/if}
+            {#if choix.type === 'facture'}
+              <Champ disposition="ligne" libelle="Échéance" type="date" bind:valeur={choix.echeance} mono modifiable={editable}>
+                {#snippet affichage()}
+                  {#if choix.echeance}<span class="num">{dateFr(choix.echeance)}</span>{:else}<span class="vide-val">Non lue</span>{/if}
+                {/snippet}
+              </Champ>
+            {/if}
             {#if estBl && !lu.ht && !lu.tva && !lu.ttc}
               <Champ disposition="ligne" libelle="Montant" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable}>
                 {#snippet affichage()}
@@ -1157,6 +1168,40 @@
               {#if d.logiflow_configure && !(d.logiflow_attendu || (attenteLogiflow && !lf))}
                 <p><button type="button" class="btn sm" onclick={relancerLogiflow}><Icone nom="rafraichir" />Relancer la recherche</button></p>
               {/if}
+            </Repli>
+          {/if}
+          {#if estBl && (d.logiflow_configure || d.logiflow_livraison)}
+            {@const ll = d.logiflow_livraison}
+            <Repli
+              icone="camion"
+              titre="Logiflow"
+              resume={!ll ? 'pas encore dans Logiflow' : ll.etat === 'ambigu' ? `${ll.possibles} livraisons possibles` : ll.facture ? `livraison n° ${ll.livraison_id}, facture ${ll.facture}` : `livraison n° ${ll.livraison_id}, sans facture`}
+            >
+              <div class="doc-envoi">
+                {#if !ll}
+                  <p class="t2 petit">Aucune livraison livrée avec ce n° de BL dans Logiflow pour l’instant. GMFlow vérifie toutes les heures.</p>
+                {:else if ll.etat === 'ambigu'}
+                  <p>
+                    <Etiquette ton="alerte">À rapprocher dans Logiflow</Etiquette>
+                    <span class="t2 petit">{ll.possibles} livraisons portent ce n° de BL : GMFlow n’en choisit aucune.</span>
+                  </p>
+                {:else}
+                  <p>
+                    <Etiquette ton={ll.rapprochee ? 'ok' : ll.facture ? 'ok' : 'neutre'}>{ll.rapprochee ? 'Rapprochée' : ll.facture ? 'Facture saisie' : 'Sans facture'}</Etiquette>
+                    <span class="t2 petit">vu le {jourHeure(ll.vu_le)}</span>
+                  </p>
+                  <p><span class="t2">Livraison</span> n° <span class="num">{ll.livraison_id}</span>{ll.magasin ? `, ${ll.magasin}` : ''}{ll.livree_le ? `, livrée le ${dateFr(ll.livree_le)}` : ''}</p>
+                  {#if ll.fournisseur}<p><span class="t2">Fournisseur</span> {ll.fournisseur}</p>{/if}
+                  {#if ll.montant_bl !== null}<p><span class="t2">Montant du BL</span> <Montant valeur={ll.montant_bl} /></p>{/if}
+                  {#if ll.facture}
+                    <p>
+                      <span class="t2">Facture</span> <span class="num">{ll.facture}</span>{#if ll.facture_ht !== null}, HT <Montant valeur={ll.facture_ht} />{/if}{#if ll.facture_ttc !== null}, TTC <Montant valeur={ll.facture_ttc} />{/if}{#if ll.echeance}, échéance <span class="num">{dateFr(ll.echeance)}</span>{/if}
+                    </p>
+                  {:else}
+                    <p class="t2 petit">La facture sera écrite dans Logiflow quand une facture liée à ce BL sera envoyée à Dext/Yooz.</p>
+                  {/if}
+                {/if}
+              </div>
             </Repli>
           {/if}
           <Repli icone="mail" titre="Mail d’origine" resume="{(estBl ? nomExpediteur(d.mail_expediteur) : adresseExpediteur(d.mail_expediteur)) || 'Expéditeur inconnu'}{`, ${jourHeure(d.recu_le)}`}">

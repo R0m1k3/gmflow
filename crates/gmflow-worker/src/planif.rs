@@ -1,6 +1,6 @@
 //! Toutes les 5 minutes (heure ronde, UTC) : battement du worker, une relève par boîte active
 //! et non en pause, les pompes de lecture et de tri, la tâche d'alertes et, toutes les 12 h, la
-//! copie des fournisseurs du magasin ; une fois par
+//! copie des fournisseurs du magasin, toutes les heures la vérification Logiflow ; une fois par
 //! jour, la purge des publicités de plus de 90 jours.
 
 use std::time::Duration;
@@ -33,6 +33,9 @@ pub async fn tour(pool: &PgPool) -> anyhow::Result<usize> {
     file::pousser_envoi(pool, file::TacheEnvoi::Alertes).await?;
     if crate::serveur_api::synchro_due(pool).await? {
         file::pousser_envoi(pool, file::TacheEnvoi::SynchroMagasin).await?;
+    }
+    if crate::logiflow::suivi_du(pool).await? {
+        file::pousser_envoi(pool, file::TacheEnvoi::SuiviLogiflow).await?;
     }
     Ok(boites.len())
 }

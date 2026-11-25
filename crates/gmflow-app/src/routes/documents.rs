@@ -190,6 +190,8 @@ pub struct FicheDocument {
     #[serde(with = "date_iso::option")]
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
+    #[serde(with = "date_iso::option")]
+    date_echeance: Option<time::Date>,
     montant_ht: Option<f64>,
     montant_tva: Option<f64>,
     montant_ttc: Option<f64>,
@@ -264,6 +266,8 @@ pub struct FicheComplete {
     logiflow_configure: bool,
     /// Facture envoyée il y a moins de 10 min, résultat Logiflow pas encore là : la fiche attend.
     logiflow_attendu: bool,
+    /// BL : livraison Logiflow retrouvée (`logiflow_livraison`), ou rien.
+    logiflow_livraison: Option<Value>,
 }
 
 async fn mail_du_document(etat: &Etat, id: i64) -> Resultat<i64> {
@@ -294,7 +298,7 @@ pub async fn fiche(
                   p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,
                   d.type, d.societe_id, s.raison_sociale as "societe?", d.fournisseur_nom,
                   d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,
-                  d.numero_commande, d.montant_ht::float8 as montant_ht,
+                  d.numero_commande, d.date_echeance, d.montant_ht::float8 as montant_ht,
                   d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,
                   d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,
                   d.annexes_ht::float8 as annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,
@@ -360,6 +364,20 @@ pub async fn fiche(
     let logiflow_configure = parametre::lire(&etat.pool, gmflow_core::logiflow::CLE)
         .await?
         .is_some();
+    // BL : sa livraison retrouvée dans Logiflow par la vérification régulière.
+    let logiflow_livraison = sqlx::query_scalar!(
+        r#"select jsonb_build_object('vu_le', vu_le, 'etat', etat, 'possibles', possibles,
+                                     'livraison_id', livraison_id, 'magasin', magasin,
+                                     'fournisseur', fournisseur, 'bl', bl, 'livree_le', livree_le,
+                                     'montant_bl', montant_bl::float8, 'facture', facture,
+                                     'facture_ht', facture_ht::float8,
+                                     'facture_ttc', facture_ttc::float8, 'echeance', echeance,
+                                     'rapprochee', rapprochee) as "v!"
+           from logiflow_livraison where bl_id = $1"#,
+        id
+    )
+    .fetch_optional(&etat.pool)
+    .await?;
     let logiflow_attendu = logiflow_configure
         && logiflow.is_none()
         && d.r#type.as_deref() == Some("facture")
@@ -379,6 +397,7 @@ pub async fn fiche(
         logiflow,
         logiflow_configure,
         logiflow_attendu,
+        logiflow_livraison,
     }))
 }
 
@@ -656,6 +675,14 @@ pub struct Correction {
     montant_ht: Option<f64>,
     montant_tva: Option<f64>,
     montant_ttc: Option<f64>,
+    /// Absente : l'échéance lue est gardée ; `null` : effacée.
+    #[serde(default, deserialize_with = "present")]
+    date_echeance: Option<Option<String>>,
+}
+
+/// Champ présent (même `null`) : `Some`.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
 }
 
 fn texte_net(v: &Option<String>) -> Option<String> {
@@ -678,6 +705,8 @@ pub(crate) struct CorrectionNette {
     ht: Option<f64>,
     tva: Option<f64>,
     ttc: Option<f64>,
+    /// `None` : échéance inchangée.
+    echeance: Option<Option<time::Date>>,
 }
 
 async fn nettoyer_correction(
@@ -718,6 +747,10 @@ async fn nettoyer_correction(
         ht: centimes(c.montant_ht),
         tva: centimes(c.montant_tva),
         ttc: centimes(c.montant_ttc),
+        echeance: match &c.date_echeance {
+            Some(e) => Some(date(e)?),
+            None => None,
+        },
         r#type: c.r#type,
         societe_id: c.societe_id,
         fournisseur_id: c.fournisseur_id,
@@ -735,7 +768,7 @@ async fn appliquer_correction(
     let a = sqlx::query!(
         r#"select etat, statut_depot, type, societe_id, fournisseur_id, numero, date_document,
                   numero_commande, montant_ht::float8 as ht, montant_tva::float8 as tva,
-                  montant_ttc::float8 as ttc, corrections
+                  montant_ttc::float8 as ttc, corrections, date_echeance
            from document where id = $1 for update"#,
         id
     )
@@ -778,6 +811,12 @@ async fn appliquer_correction(
     noter("montant_ht", json!(centimes(a.ht)), json!(c.ht));
     noter("montant_tva", json!(centimes(a.tva)), json!(c.tva));
     noter("montant_ttc", json!(centimes(a.ttc)), json!(c.ttc));
+    let echeance = c.echeance.unwrap_or(a.date_echeance);
+    noter(
+        "date_echeance",
+        json!(a.date_echeance.map(|d| d.to_string())),
+        json!(echeance.map(|d| d.to_string())),
+    );
     let corrections = fusionner_corrections(&a.corrections, &changements);
     let type_change = changements.iter().any(|(c, _, _)| *c == "type");
     let societe_change = changements.iter().any(|(c, _, _)| *c == "societe_id");
@@ -788,7 +827,8 @@ async fn appliquer_correction(
             montant_ttc = $10::float8::numeric(14, 2),
             corrections = $11, corrige_le = case when $12 then now() else corrige_le end,
             verifie_le = now(), verifie_par = $13,
-            type_corrige = type_corrige or $14, societe_corrigee = societe_corrigee or $15
+            type_corrige = type_corrige or $14, societe_corrigee = societe_corrigee or $15,
+            date_echeance = $16
          where id = $1",
         id,
         c.r#type,
@@ -804,7 +844,8 @@ async fn appliquer_correction(
         !changements.is_empty(),
         acces.utilisateur_id,
         type_change,
-        societe_change
+        societe_change,
+        echeance
     )
     .execute(&mut *tx)
     .await?;

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.id from document d\n           left join logiflow_rapprochement lr on lr.document_id = d.id\n           where d.type = 'facture' and d.statut_depot = 'depose'\n             and coalesce(d.valide_le, d.lu_le) > now() - make_interval(days => $1)\n             and (lr.document_id is null\n                  or (not lr.ok\n                      and (lr.livraisons = '[]'::jsonb\n                           or exists (select 1 from jsonb_array_elements(lr.livraisons) e\n                                      where e->>'etat' in ('introuvable', 'ambigu', 'erreur')))))\n           order by d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "23530980906e40fd88e51a68fe58c44c9fddb65fe99ea39caa4f1b5affba6bd9"
+}

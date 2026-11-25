@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.type, d.statut_depot, d.numero, d.numeros_bl,\n                  d.montant_ht::float8 as ht, d.montant_ttc::float8 as ttc, d.fournisseur_nom,\n                  fo.id as \"fournisseur_id?\", fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", s.autres_noms as \"autres_noms?\"\n           from document d\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = $1",
+  "query": "select d.type, d.statut_depot, d.numero, d.numeros_bl,\n                  d.montant_ht::float8 as ht, d.montant_ttc::float8 as ttc, d.fournisseur_nom,\n                  d.date_echeance, fo.id as \"fournisseur_id?\", fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", s.autres_noms as \"autres_noms?\"\n           from document d\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = $1",
   "describe": {
     "columns": [
       {
@@ -72,6 +72,17 @@
       },
       {
         "ordinal": 7,
+        "name": "date_echeance",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_echeance"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "fournisseur_id?",
         "type_info": "Int8",
         "origin": {
@@ -82,7 +93,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "fournisseur?",
         "type_info": "Text",
         "origin": {
@@ -93,7 +104,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "societe?",
         "type_info": "Text",
         "origin": {
@@ -104,7 +115,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "autres_noms?",
         "type_info": "TextArray",
         "origin": {
@@ -131,8 +142,9 @@
       true,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "1569d60028406b330c3ba3a0da31541c2faf27c4f955481776027fbae2a922a4"
+  "hash": "92aae3a48fd81038511865bb307489300fd5a6ee0678dbbe0c31a08c6d373cb2"
 }

@@ -202,6 +202,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
                 .delete(admin_logiflow::supprimer),
         )
         .route("/admin/logiflow/test", post(admin_logiflow::tester))
+        .route("/admin/logiflow/suivi", post(admin_logiflow::suivre))
         .route(
             "/admin/fournisseurs/{id}/codes-magasin",
             get(admin_serveur_api::codes),
