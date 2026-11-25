@@ -31,8 +31,17 @@ pub struct Filtre {
 pub struct Compteurs {
     bloque: i64,
     a_valider: i64,
+    /// Détail de `a_valider` par type : badges de Factures, Avoirs et BL.
+    a_valider_types: ParType,
     a_repondre: i64,
     total: i64,
+}
+
+#[derive(Serialize)]
+pub struct ParType {
+    facture: i64,
+    avoir: i64,
+    bl: i64,
 }
 
 #[derive(Serialize)]
@@ -170,7 +179,22 @@ async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<C
                                 and ((d.verifie_le is null
                                       and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
                                      or (d.verifie_le is not null and d.valide_le is null
-                                         and d.statut_depot in ('a_verifier', 'pret')))) as "a_valider!"
+                                         and d.statut_depot in ('a_verifier', 'pret')))) as "a_valider!",
+             count(*) filter (where d.etat = 'lu' and d.type = 'facture'
+                                and ((d.verifie_le is null
+                                      and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
+                                     or (d.verifie_le is not null and d.valide_le is null
+                                         and d.statut_depot in ('a_verifier', 'pret')))) as "facture!",
+             count(*) filter (where d.etat = 'lu' and d.type = 'avoir'
+                                and ((d.verifie_le is null
+                                      and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
+                                     or (d.verifie_le is not null and d.valide_le is null
+                                         and d.statut_depot in ('a_verifier', 'pret')))) as "avoir!",
+             count(*) filter (where d.etat = 'lu' and d.type = 'bl'
+                                and ((d.verifie_le is null
+                                      and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
+                                     or (d.verifie_le is not null and d.valide_le is null
+                                         and d.statut_depot in ('a_verifier', 'pret')))) as "bl!"
            from document d
            where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
@@ -213,6 +237,11 @@ async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<C
     Ok(Compteurs {
         bloque,
         a_valider: docs.a_valider,
+        a_valider_types: ParType {
+            facture: docs.facture,
+            avoir: docs.avoir,
+            bl: docs.bl,
+        },
         a_repondre,
         total: bloque + docs.a_valider + a_repondre,
     })

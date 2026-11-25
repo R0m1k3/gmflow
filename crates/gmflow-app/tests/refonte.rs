@@ -470,8 +470,26 @@ async fn file_a_traiter_et_compteurs() {
     assert_eq!(fiche.json["fournisseur_id"], json!(m.durand));
     assert_eq!(
         r.json["compteurs"],
-        json!({ "bloque": 5, "a_valider": 6, "a_repondre": 2, "total": 13 })
+        json!({
+            "bloque": 5,
+            "a_valider": 6,
+            "a_valider_types": { "facture": 5, "avoir": 0, "bl": 1 },
+            "a_repondre": 2,
+            "total": 13
+        })
     );
+    // Le filtre « À valider » des listes (badges du menu) compte comme la file.
+    for (t, n) in [("facture", 5), ("bl", 1)] {
+        let l = app
+            .requete(
+                "GET",
+                &format!("/api/documents?type={t}&verifie=non"),
+                None,
+                Some(&m.c_admin),
+            )
+            .await;
+        assert_eq!(l.json["total"], n, "{t}");
+    }
     let c = app
         .requete("GET", "/api/a-traiter/compteurs", None, Some(&m.c_admin))
         .await;
@@ -515,7 +533,7 @@ async fn file_a_traiter_et_compteurs() {
     assert_eq!(ids(&r.json["a_repondre"]), vec![f.mail_a]);
     assert_eq!(
         r.json["compteurs"],
-        json!({ "bloque": 3, "a_valider": 4, "a_repondre": 1, "total": 8 })
+        json!({ "bloque": 3, "a_valider": 4, "a_valider_types": { "facture": 3, "avoir": 0, "bl": 1 }, "a_repondre": 1, "total": 8 })
     );
     let c = app
         .requete("GET", "/api/a-traiter/compteurs", None, Some(&m.c_resp_a))

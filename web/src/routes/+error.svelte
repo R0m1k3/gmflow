@@ -14,13 +14,13 @@
     <h1>{introuvable ? 'Cette page n’existe pas.' : 'La page n’a pas pu s’ouvrir.'}</h1>
     <p>
       {introuvable
-        ? 'Le lien est peut-être ancien. Tout ce qui attend une action est dans À valider et À répondre.'
+        ? 'Le lien est peut-être ancien. Ce qui attend une action est sur l’accueil, et signalé par un badge dans le menu.'
         : (page.error?.message ?? 'Réessayez dans un instant.')}
     </p>
     <div class="actions">
       <a class="btn principal" href="/">Retour à l’accueil</a>
       {#if introuvable}
-        <a class="btn" href="/a-traiter">À valider</a>
+        <a class="btn" href="/factures?filtre=a-valider">Factures à valider</a>
       {:else}
         <button type="button" class="btn" onclick={() => location.reload()}>Réessayer</button>
       {/if}
