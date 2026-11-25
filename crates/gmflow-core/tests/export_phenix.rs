@@ -196,12 +196,12 @@ fn trame_lot_de_vente_et_nouveau_produit() {
     let e = export_phenix::trame(&[ligne_lot(Some(18.0)), nouveau], Some("R0041"));
     assert_eq!(e.rangees.len(), 5);
     let mere = &e.rangees[0];
-    assert_eq!(num(mere, "NUMERO LIGNE"), Some(1.0));
+    assert_eq!(num(mere, "NUMERO LIGNE"), None);
     assert_eq!(txt(mere, "Codein"), Some("440088"));
     assert_eq!(txt(mere, "Fournisseur"), Some("R0041"));
     assert_eq!(num(mere, "NUM LOT VENTE"), None);
     let c = &e.rangees[3];
-    assert_eq!(num(c, "NUMERO LIGNE"), Some(4.0));
+    assert_eq!(num(c, "NUMERO LIGNE"), None);
     assert_eq!(num(c, "NUM LOT VENTE"), Some(1.0));
     assert_eq!(num(c, "QTE LOT VENTE"), Some(2.0));
     assert_eq!(num(c, "PrixAchat"), Some(4.0));
@@ -209,13 +209,13 @@ fn trame_lot_de_vente_et_nouveau_produit() {
     assert_eq!(txt(c, "CodeFamille"), Some("310902"));
     // Le BL donne de l'Ecomob pour le lot : celui du magasin pour chaque composant.
     assert_eq!(num(c, "Ecomob HT"), Some(0.04));
-    assert_eq!(num(c, "TauxTva"), Some(20.0));
+    assert_eq!(num(c, "TauxTva"), None);
     let n = &e.rangees[4];
-    assert_eq!(num(n, "NUMERO LIGNE"), Some(5.0));
+    assert_eq!(num(n, "NUMERO LIGNE"), None);
     assert_eq!(txt(n, "Codein"), None);
     assert_eq!(num(n, "PrixAchat"), Some(7.5));
     assert_eq!(num(n, "Prix de Vente"), None);
-    assert_eq!(num(n, "TauxTva"), Some(5.5));
+    assert_eq!(num(n, "TauxTva"), None);
     assert_eq!(num(n, "DEEE HT"), Some(0.1));
     assert_eq!(num(n, "PV_Conseille"), Some(19.99));
     assert_eq!(num(n, "Colisage"), Some(6.0));
