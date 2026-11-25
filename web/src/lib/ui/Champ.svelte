@@ -1,7 +1,8 @@
 <script lang="ts">
   // Champ de saisie, en deux dispositions :
   // - « bloc » (formulaires, réglages) : libellé au-dessus, saisie, aide dessous ;
-  // - « ligne » (fiche document) : clé à gauche, valeur à droite entre deux filets.
+  // - « ligne » (fiche document) : clé à gauche, valeur à droite entre deux filets ;
+  // - « tuile » (montants de la fiche) : libellé au-dessus, valeur en gros, dans une tuile.
   //   Avec `modifiable`, la valeur se lit, et un clic (ou Entrée) ouvre la saisie :
   //   Entrée valide (`onvalider`), Échap annule.
   // `aControler` surligne le champ en ambre (valeur douteuse) ; une chaîne sert d'explication.
@@ -36,7 +37,7 @@
   }: {
     libelle: string;
     valeur?: string;
-    disposition?: 'bloc' | 'ligne';
+    disposition?: 'bloc' | 'ligne' | 'tuile';
     type?: 'text' | 'email' | 'password' | 'date' | 'number' | 'url' | 'select' | 'textarea';
     options?: Option[];
     aide?: string;
@@ -165,6 +166,22 @@
     {@render controle('valeur')}
     {#if erreur}<div class="erreur-champ" id="{id}-erreur" role="alert">{erreur}</div>{/if}
     {#if explication}<div class="aide" class:alerte={!!aControler} id="{id}-aide">{explication}</div>{/if}
+  </div>
+{:else if disposition === 'tuile'}
+  <div class="champ-tuile" class:a-controler={!!aControler} class:vide={!edition && !affichage && valeur === ''}>
+    {#if edition}
+      <label class="k" for={id}>{libelle}</label>
+      <div class="v edition">{@render controle('brouillon')}</div>
+    {:else}
+      <div class="k">{libelle}</div>
+      {#if modifiable && !desactive}
+        <button type="button" class="v val modifiable" onclick={ouvrir} aria-label="Modifier {libelle}">{@render lecture()}</button>
+      {:else}
+        <span class="v val">{@render lecture()}</span>
+      {/if}
+      {#if apres}<div class="apres">{@render apres()}</div>{/if}
+    {/if}
+    {#if explication && !edition}<div class="aide">{explication}</div>{/if}
   </div>
 {:else}
   <div class="champ-ligne" class:a-controler={!!aControler}>

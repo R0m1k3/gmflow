@@ -69,7 +69,6 @@
   import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
   import type { EtatExportPhenix } from '#lib/types.ts';
   import {
-    adresseExpediteur,
     typeNumero,
     champsDeLAlerte,
     champsPeuSurs,
@@ -809,7 +808,7 @@
         <div class="doc-tete">
           <h1 class="doc-nom">{nomFiche}</h1>
           <p class="doc-sous">
-            {typeNumero((choix.type || null) as TypeDocument | null, choix.numero)}, reçu{feminin ? 'e' : ''} le {jourAHeure(d.recu_le)}{d.mail_expediteur ? ` de ${adresseExpediteur(d.mail_expediteur)}` : ''}{#if d.valide_le}, validation le {jourAHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}{:else if d.verifie_le}, validation le {jourAHeure(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}{/if}
+            {typeNumero((choix.type || null) as TypeDocument | null, choix.numero)}, reçu{feminin ? 'e' : ''} le {jourAHeure(d.recu_le)}{#if d.valide_le}, validation le {jourAHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}{:else if d.verifie_le}, validation le {jourAHeure(d.verifie_le)}{d.verifie_par ? ` par ${d.verifie_par}` : ''}{/if}
             {#if d.copie_de}<span class="petit">· même fichier que le <a href="/documents/{d.copie_de}">document {d.copie_de}</a></span>{/if}
           </p>
         </div>
@@ -930,6 +929,8 @@
 
         {#if d.etat === 'lu'}
           {@const ctrlF = aControler('fournisseur')}
+          <div class="carte-fiche">
+          <h3 class="titre-carte">Pièce</h3>
           <div class="lignes-champs">
             {#if montrerType}
               <Champ
@@ -1016,34 +1017,6 @@
                 {/snippet}
               </Champ>
             {/if}
-            {#if estBl && !lu.ht && !lu.tva && !lu.ttc}
-              <Champ disposition="ligne" libelle="Montant" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable}>
-                {#snippet affichage()}
-                  <span class="doc-pile">
-                    {#if choix.ht === ''}<span>— HT</span><span class="doc-petit">non lu sur le BL</span>{:else}<span>{@render montantLu(choix.ht)} HT</span>{/if}
-                  </span>
-                {/snippet}
-              </Champ>
-            {:else if !estBl || choix.ht || lu.ht || choix.tva || lu.tva || choix.ttc || lu.ttc}
-              {#if remiseTexte}
-                <Champ disposition="ligne" libelle="Remise" valeur={`−${remiseTexte}`} mono />
-              {/if}
-              {#if annexesTexte}
-                <Champ disposition="ligne" libelle="Éco-part., port" valeur={annexesTexte} mono />
-              {/if}
-              <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
-                {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
-                {#snippet apres()}{@render proposer('ht')}{/snippet}
-              </Champ>
-              <Champ disposition="ligne" libelle="TVA" bind:valeur={choix.tva} mono inputmode="decimal" modifiable={editable} aControler={aControler('tva')} indice={tauxTva(ht, tva) ? `(${tauxTva(ht, tva)})` : undefined}>
-                {#snippet affichage()}{@render montantLu(choix.tva)}{/snippet}
-                {#snippet apres()}{@render proposer('tva')}{/snippet}
-              </Champ>
-              <Champ disposition="ligne" libelle="Total TTC" bind:valeur={choix.ttc} mono inputmode="decimal" modifiable={editable} aControler={aControler('ttc')}>
-                {#snippet affichage()}<span class="doc-fort">{@render montantLu(choix.ttc)}</span>{/snippet}
-                {#snippet apres()}{@render proposer('ttc')}{/snippet}
-              </Champ>
-            {/if}
             {#if estBl && rap}
               <div class="champ-ligne">
                 <div class="k">Facture liée</div>
@@ -1059,12 +1032,46 @@
               </div>
             {/if}
           </div>
-
           {#if estBl && rap && ouvrirLiens}
             <div class="doc-panneau" id="{uid}-liens">
               <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
             </div>
           {/if}
+          </div>
+
+          <div class="carte-fiche">
+            <h3 class="titre-carte">Montants</h3>
+            {#if estBl && !lu.ht && !lu.tva && !lu.ttc}
+              <div class="tuiles une">
+                <Champ disposition="tuile" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable}>
+                  {#snippet affichage()}
+                    {#if choix.ht === ''}<span class="vide-val">Non lu sur le BL</span>{:else}{@render montantLu(choix.ht)}{/if}
+                  {/snippet}
+                </Champ>
+              </div>
+            {:else}
+              <div class="tuiles">
+                <Champ disposition="tuile" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
+                  {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
+                  {#snippet apres()}{@render proposer('ht')}{/snippet}
+                </Champ>
+                <Champ disposition="tuile" libelle="TVA" bind:valeur={choix.tva} mono inputmode="decimal" modifiable={editable} aControler={aControler('tva')} indice={tauxTva(ht, tva) || undefined}>
+                  {#snippet affichage()}{@render montantLu(choix.tva)}{/snippet}
+                  {#snippet apres()}{@render proposer('tva')}{/snippet}
+                </Champ>
+                <Champ disposition="tuile" libelle="TTC" bind:valeur={choix.ttc} mono inputmode="decimal" modifiable={editable} aControler={aControler('ttc')}>
+                  {#snippet affichage()}{@render montantLu(choix.ttc)}{/snippet}
+                  {#snippet apres()}{@render proposer('ttc')}{/snippet}
+                </Champ>
+              </div>
+              {#if remiseTexte || annexesTexte}
+                <p class="annexes-montants">
+                  {#if remiseTexte}Remise <span class="num">−{remiseTexte}</span>{/if}{#if remiseTexte && annexesTexte}{' · '}{/if}{#if annexesTexte}Éco-part., port <span class="num">{annexesTexte}</span>{/if}
+                </p>
+              {/if}
+            {/if}
+          </div>
+
 
           {#if proposerRangement}
             <Bandeau ton="info">
@@ -1081,15 +1088,19 @@
           {/if}
         {/if}
 
+        {#if d.etat === 'lu' && d.type === 'bl'}
+          <div class="carte-fiche">
+            <h3 class="titre-carte">Export Phénix {#if exportPhenix}<span class="etiquette-carte">{resumeExport(exportPhenix)}</span>{/if}</h3>
+            <DocExportPhenix id={d.id} bind:etat={exportPhenix} onerreur={(m) => (erreur = m)} />
+          </div>
+        {/if}
+
+        <div class="carte-fiche">
+        <h3 class="titre-carte">Suivi</h3>
         <div class="replis doc-liens">
           {#if d.etat === 'lu' && rap && d.type === 'facture'}
             <Repli icone="camion" titre={titreLiens(d.type)} resume={resumeLiens(d, rap)} bind:ouvert={ouvrirLiens}>
               <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
-            </Repli>
-          {/if}
-          {#if d.etat === 'lu' && d.type === 'bl'}
-            <Repli icone="telecharger" titre="Export Phénix" resume={resumeExport(exportPhenix)} ouvert>
-              <DocExportPhenix id={d.id} bind:etat={exportPhenix} onerreur={(m) => (erreur = m)} />
             </Repli>
           {/if}
           {#if d.statut_depot || deposable}
@@ -1175,7 +1186,7 @@
             <Repli
               icone="camion"
               titre="Logiflow"
-              resume={!ll ? 'pas encore dans Logiflow' : ll.etat === 'ambigu' ? `${ll.possibles} livraisons possibles` : ll.facture ? `livraison n° ${ll.livraison_id}, facture ${ll.facture}` : `livraison n° ${ll.livraison_id}, sans facture`}
+              resume={!ll ? 'pas encore' : ll.etat === 'ambigu' ? `${ll.possibles} livraisons possibles` : ll.facture ? `livraison n° ${ll.livraison_id}, facture ${ll.facture}` : `livraison n° ${ll.livraison_id}, sans facture`}
             >
               <div class="doc-envoi">
                 {#if !ll}
@@ -1204,7 +1215,7 @@
               </div>
             </Repli>
           {/if}
-          <Repli icone="mail" titre="Mail d’origine" resume="{(estBl ? nomExpediteur(d.mail_expediteur) : adresseExpediteur(d.mail_expediteur)) || 'Expéditeur inconnu'}{`, ${jourHeure(d.recu_le)}`}">
+          <Repli icone="mail" titre="Mail" resume="{nomExpediteur(d.mail_expediteur) || 'expéditeur inconnu'}, {jourHeure(d.recu_le)}">
             <div class="doc-mail">
               <p><span class="t2">De</span> {d.mail_expediteur || '—'}</p>
               {#each d.boites as b (b.boite_id)}
@@ -1250,11 +1261,12 @@
           {#if estBl && d.fournisseur_id}
             <a class="ligne-lien" href="/fournisseurs?fiche={d.fournisseur_id}">
               <Icone nom="batiment" />
-              <span class="titre-repli">Fiche fournisseur</span>
+              <span class="titre-repli">Fournisseur</span>
               <span class="resume-repli">{d.fournisseur ?? choix.fournisseurNom}</span>
               <Icone nom="droite" class="chev" />
             </a>
           {/if}
+        </div>
         </div>
 
         {#if relisible || (d.etat === 'lu' && !voirTN && editable && (!montrerType || !montrerNumero)) || (estBl && rap && d.etat === 'lu')}
@@ -1359,20 +1371,12 @@
     font-size: 15px;
     color: var(--text2);
   }
-  .doc-pile {
-    display: flex;
-    flex-direction: column;
-    gap: var(--e1);
-  }
   .doc-petit {
     font-size: 14px;
     color: var(--text2);
   }
   .doc-ligne {
     flex-basis: 100%;
-  }
-  .doc-fort {
-    font-weight: 500;
   }
   .doc-panneau {
     padding: 0 0 var(--e2);
