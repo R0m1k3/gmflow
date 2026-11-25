@@ -137,16 +137,17 @@
 {/if}
 
 {#if rap.liens.length || rap.candidats.length}
-  <table>
+  <div class="defile-x"><table>
     <thead>
-      <tr><th>{facture ? 'BL' : 'Facture'}</th><th>{facture ? 'Livré le' : 'Date'}</th><th>Lien</th><th class="n">HT</th><th></th></tr>
+      <tr><th>{facture ? 'BL' : 'Facture'}</th><th class="n">HT</th><th><span class="sr">Action</span></th></tr>
     </thead>
     <tbody>
       {#each rap.liens as l (l.id)}
         <tr>
-          <td><a class="num" href="/documents/{l.autre.id}">{l.autre.numero ?? l.autre.nom_fichier}</a></td>
-          <td class="num">{dateFr(l.autre.date_document, true) || '—'}</td>
-          <td class="t2">{libelleMethode(l.methode)}{l.auteur ? ` (${l.auteur})` : ''}</td>
+          <td>
+            <a class="num" href="/documents/{l.autre.id}">{l.autre.numero ?? l.autre.nom_fichier}</a>
+            <span class="t2 petit doc-lien">{#if l.autre.date_document}<span class="num">{dateFr(l.autre.date_document, true)}</span>{' · '}{/if}{libelleMethode(l.methode)}{l.auteur ? ` (${l.auteur})` : ''}</span>
+          </td>
           <td class="n"><Montant valeur={l.autre.montant_ht} /></td>
           <td class="n">
             <button type="button" class="btn sm fantome" class:en-cours={occupe === l.id} disabled={occupe !== null} onclick={() => delier(l.id, l.autre)}>Délier</button>
@@ -155,9 +156,10 @@
       {/each}
       {#each rap.candidats as c, i (c.id)}
         <tr class="cand">
-          <td><a class="num" href="/documents/{c.id}">{c.numero ?? c.nom_fichier}</a></td>
-          <td class="num">{dateFr(c.date_document, true) || '—'}</td>
-          <td class="t2">{raison(c)}</td>
+          <td>
+            <a class="num" href="/documents/{c.id}">{c.numero ?? c.nom_fichier}</a>
+            <span class="t2 petit doc-lien">{#if c.date_document}<span class="num">{dateFr(c.date_document, true)}</span>{' · '}{/if}{raison(c)}</span>
+          </td>
           <td class="n"><Montant valeur={c.montant_ht} /></td>
           <td class="n">
             <button type="button" class="btn sm" class:en-cours={occupe === c.id} disabled={occupe !== null} onclick={() => lier(c)}>
@@ -167,7 +169,7 @@
         </tr>
       {/each}
     </tbody>
-  </table>
+  </table></div>
 {:else}
   <p class="t2">
     {#if rap.ignore}
@@ -263,5 +265,10 @@
   }
   td a.num {
     color: inherit;
+    overflow-wrap: anywhere;
+  }
+  .doc-lien {
+    display: block;
+    overflow-wrap: anywhere;
   }
 </style>
