@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select chemin_eml from mail where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chemin_eml",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "chemin_eml"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "76792868fb803e5ce8f5d596f3dd2a4f5ef25a897961697e4765893c297cf028"
+}

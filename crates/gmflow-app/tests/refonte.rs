@@ -2351,3 +2351,57 @@ async fn doublons_meme_groupe_et_regroupement() {
     assert!(r.json["deplaces"].is_number());
     m.app.fermer().await;
 }
+
+#[tokio::test]
+async fn corps_html_du_mail() {
+    let m = monde().await;
+    let app = &m.app;
+    let html = app
+        .mail_vu(&commun::fixture("html-cid.eml"), &[m.boite_b])
+        .await;
+    let texte = app
+        .mail_vu(&commun::fixture("simple.eml"), &[m.boite_a])
+        .await;
+    let admin = Some(m.c_admin.as_str());
+
+    let r = app
+        .requete("GET", &format!("/api/mails/{html}"), None, admin)
+        .await;
+    assert_eq!(r.json["html"], true);
+    let r = app
+        .requete("GET", &format!("/api/mails/{texte}"), None, admin)
+        .await;
+    assert_eq!(r.json["html"], false);
+
+    let r = app
+        .requete("GET", &format!("/api/mails/{html}/html"), None, admin)
+        .await;
+    assert_eq!(r.code, StatusCode::OK);
+    let entete = |n: &str| r.entetes.get(n).unwrap().to_str().unwrap().to_string();
+    assert!(entete("content-type").starts_with("text/html"));
+    let csp = entete("content-security-policy");
+    assert!(
+        csp.contains("default-src 'none'") && csp.contains("sandbox"),
+        "{csp}"
+    );
+    assert!(
+        !csp.contains("script-src") && !csp.contains("allow-scripts"),
+        "{csp}"
+    );
+    assert!(String::from_utf8_lossy(&r.octets).contains("data:image/png;base64,"));
+
+    // Mail texte seul : pas de page HTML ; mail d'une autre société : invisible.
+    let r = app
+        .requete("GET", &format!("/api/mails/{texte}/html"), None, admin)
+        .await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/mails/{html}/html"),
+            None,
+            Some(m.c_resp_a.as_str()),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::NOT_FOUND);
+}

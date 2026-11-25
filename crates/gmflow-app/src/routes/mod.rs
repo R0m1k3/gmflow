@@ -82,6 +82,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/boites", get(mails::boites))
         .route("/mails", get(mails::lister))
         .route("/mails/{id}", get(mails::fiche))
+        .route("/mails/{id}/html", get(mails::html))
         .route(
             "/mails/{id}/hors-societe",
             post(mails::masquer).delete(mails::demasquer),

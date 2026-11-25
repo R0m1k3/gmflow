@@ -79,3 +79,31 @@ fn empreintes() {
     assert_eq!(x.message_id, y.message_id);
     assert_ne!(x.empreinte_contenu, y.empreinte_contenu);
 }
+
+#[test]
+fn corps_html_avec_images_integrees() {
+    use gmflow_core::eml::{a_corps_html, corps_html};
+    let brut = fixture("html-cid.eml");
+    assert!(a_corps_html(&brut));
+    let page = corps_html(&brut).unwrap().unwrap();
+    assert!(
+        page.contains(r#"<table style="background:#eef">"#),
+        "{page}"
+    );
+    assert!(
+        page.contains(r#"<img src="data:image/png;base64,iVBOR"#),
+        "{page}"
+    );
+    assert!(page.contains(r#"src="CID:inconnu@x""#), "{page}");
+    assert!(page.contains(r#"<base target="_blank">"#));
+    assert!(!page.contains("Version texte"));
+}
+
+#[test]
+fn texte_seul_sans_corps_html() {
+    use gmflow_core::eml::{a_corps_html, corps_html};
+    let brut = fixture("simple.eml");
+    assert!(!a_corps_html(&brut));
+    assert!(corps_html(&brut).unwrap().is_none());
+    assert!(a_corps_html(&fixture("html-seul.eml")));
+}
