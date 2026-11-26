@@ -172,6 +172,19 @@ async fn essai_de_connexion() {
     assert!(c.essayer().await.unwrap_err().contains("401"));
 }
 
+#[tokio::test]
+async fn redirection_jamais_suivie() {
+    let (base, recus) = commun::redirecteur().await;
+    let c = logiflow::Client::new(&base, Some("bon")).unwrap();
+    let e = c.essayer().await.unwrap_err();
+    assert!(e.contains("redirige (HTTP 307)"), "{e}");
+    assert_eq!(
+        recus.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "clé partie ailleurs"
+    );
+}
+
 async fn facture(b: &Banc, societe: i64, fournisseur: i64, numero: &str, bls: &[&str]) -> i64 {
     let eml = gmflow_core::fixtures::eml(
         &format!("{numero}@test"),

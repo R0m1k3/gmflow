@@ -78,6 +78,18 @@ async fn essai_de_connexion() {
     assert!(e.contains("connexion impossible"), "{e}");
 }
 
+#[tokio::test]
+async fn redirection_jamais_suivie() {
+    let (base, recus) = commun::redirecteur().await;
+    let e = serveur_api::essayer(&base, Some("bon")).await.unwrap_err();
+    assert!(e.contains("redirige (HTTP 307)"), "{e}");
+    assert_eq!(
+        recus.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "clé partie ailleurs"
+    );
+}
+
 async fn fiche(b: &Banc, nom: &str, domaines: &[&str], code: Option<&str>) -> i64 {
     let d: Vec<String> = domaines.iter().map(|s| s.to_string()).collect();
     sqlx::query_scalar(
