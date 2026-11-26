@@ -416,7 +416,7 @@
         {#if montantEcart === null}<span class="muted petit">écart non calculable</span>
         {:else}<span class:etiquette={ecartNet(montantEcart)} class:att={ecartNet(montantEcart)}>Écart <Montant valeur={montantEcart} /></span>{/if}
       {:else}
-        <Montant valeur={d.montant_ht} /> HT
+        {#if d.montant_ht === null}<span class="muted petit">HT non lu</span>{:else}<Montant valeur={d.montant_ht} /> HT{/if}
       {/if}
     </span>
     <Icone nom="droite" class="chev" />

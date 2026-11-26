@@ -91,6 +91,12 @@
   });
 </script>
 
+{#snippet noteBlanc()}
+  <p class="note-blanc petit muted">
+    Aperçu blanc ? <a href={src} target="_blank" rel="noopener">Ouvrez le fichier</a> ou <a href={telecharger} download={nom ?? true}>téléchargez-le</a>.
+  </p>
+{/snippet}
+
 <div class="apercu">
   {#if outils}
     <div class="apercu-outils">
@@ -106,10 +112,12 @@
     <div class="apercu-cadre en-carte">
       <iframe class="page-carte" src={srcCarte} title="Aperçu de {nom ?? 'la pièce'}" style:--zoom={zoom} onerror={() => (echec = true)}></iframe>
     </div>
+    {@render noteBlanc()}
   {:else if genre === 'pdf' && !echec}
     <div class="apercu-cadre sans-marge">
       <iframe {src} title="Aperçu de {nom ?? 'la pièce'}" onerror={() => (echec = true)}></iframe>
     </div>
+    {@render noteBlanc()}
   {:else if genre === 'tableur' && !erreurTableur}
     {#if !feuilles}
       <Chargement />
@@ -216,5 +224,15 @@
   }
   .marge {
     padding: var(--e3);
+  }
+  .note-blanc {
+    flex: none;
+    margin: 0;
+    padding: var(--e2) var(--e3);
+    text-align: center;
+    font-size: 14px;
+  }
+  .note-blanc a {
+    color: var(--accent);
   }
 </style>
