@@ -469,9 +469,10 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
 pub async fn recalculer(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
     let Some(d) = sqlx::query!(
-        "select etat, type, fournisseur_id, societe_id, numero, numero_commande, numeros_bl,
-                rapprochement_ignore, montant_ht::float8 as ht, left(texte, $2) as texte
-         from document where id = $1",
+        r#"select etat, type, fournisseur_id, societe_id, numero, numero_commande, numeros_bl,
+                rapprochement_ignore, montant_ht::float8 as ht, left(texte, $2) as texte,
+                coalesce(confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!"
+         from document where id = $1"#,
         document_id,
         TEXTE_CITATION
     )
@@ -505,7 +506,9 @@ pub async fn recalculer(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
     let type_doc = d.r#type.as_deref().unwrap_or("");
     if type_doc == "bl" && d.etat == "lu" {
         let l = lignes(&mut tx, &[document_id]).await?;
-        let c = controle_bl(l.get(&document_id).map_or(&[][..], |v| v), d.ht);
+        // HT calculé depuis les lignes (éco-participations comprises) : rien à contrôler.
+        let total = d.ht.filter(|_| !d.ht_calcule);
+        let c = controle_bl(l.get(&document_id).map_or(&[][..], |v| v), total);
         sqlx::query!(
             "update document set controles = $2 where id = $1",
             document_id,

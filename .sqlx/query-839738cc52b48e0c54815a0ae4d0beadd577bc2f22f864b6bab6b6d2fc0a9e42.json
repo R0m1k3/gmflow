@@ -1,0 +1,91 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select rang, quantite::float8 as quantite, prix_unitaire_ht::float8 as prix,\n                      montant_ht::float8 as montant, colis::float8 as colis, pcb::float8 as pcb,\n                      remise_taux::float8 as remise, taux_tva::float8 as taux_tva,\n                      deee_ht::float8 as deee, ecomob_ht::float8 as ecomob\n               from ligne_document where document_id = $1 order by rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rang",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "quantite",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "prix",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "montant",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "colis",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "pcb",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "remise",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "taux_tva",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "deee",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "ecomob",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "839738cc52b48e0c54815a0ae4d0beadd577bc2f22f864b6bab6b6d2fc0a9e42"
+}

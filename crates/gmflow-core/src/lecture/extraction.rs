@@ -97,6 +97,75 @@ pub fn lignes_utiles(lignes: Vec<Ligne>) -> Vec<Ligne> {
         .collect()
 }
 
+/// Taux de TVA d'une ligne qui ne le précise pas.
+pub const TVA_PAR_DEFAUT: f64 = 20.0;
+
+fn centimes(m: f64) -> f64 {
+    (m * 100.0).round() / 100.0
+}
+
+/// BL qui n'imprime pas ses totaux (tableur : quantité et prix unitaire seulement) : complète
+/// le montant des lignes (quantité × prix unitaire, moins la remise de la ligne ; colis × PCB
+/// sans quantité), puis le HT, la TVA et le TTC qui manquent. HT = lignes + éco-participations
+/// (DEEE, éco-mobilier par unité) ; TVA au taux de la ligne, 20 % sinon. Rien si une ligne
+/// reste sans montant (un total partiel tromperait). Rend les montants calculés (« ht »,
+/// « tva », « ttc »).
+pub fn completer_montants_bl(
+    lignes: &mut [Ligne],
+    ht: &mut Option<f64>,
+    tva: &mut Option<f64>,
+    ttc: &mut Option<f64>,
+) -> Vec<&'static str> {
+    let quantite = |l: &Ligne| {
+        l.quantite.or(match (l.colis, l.pcb) {
+            (Some(c), Some(p)) => Some(c * p),
+            _ => None,
+        })
+    };
+    for l in lignes.iter_mut().filter(|l| l.montant_ht.is_none()) {
+        if let (Some(q), Some(pu)) = (quantite(l), l.prix_unitaire_ht) {
+            let remise = l
+                .remise_taux
+                .filter(|r| *r > 0.0 && *r < 100.0)
+                .unwrap_or(0.0);
+            l.montant_ht = Some(centimes(q * pu * (1.0 - remise / 100.0)));
+        }
+    }
+    if lignes.is_empty()
+        || (ht.is_some() && tva.is_some() && ttc.is_some())
+        || lignes.iter().any(|l| l.montant_ht.is_none())
+    {
+        return Vec::new();
+    }
+    let (mut ht_lignes, mut tva_lignes) = (0.0, 0.0);
+    for l in lignes.iter() {
+        let eco =
+            quantite(l).unwrap_or(0.0) * (l.deee_ht.unwrap_or(0.0) + l.ecomob_ht.unwrap_or(0.0));
+        let base = l.montant_ht.unwrap_or(0.0) + eco;
+        ht_lignes += base;
+        tva_lignes += base * l.taux_tva.unwrap_or(TVA_PAR_DEFAUT) / 100.0;
+    }
+    let calcules: Vec<&'static str> = [
+        ("ht", ht.is_none()),
+        ("tva", tva.is_none()),
+        ("ttc", ttc.is_none()),
+    ]
+    .into_iter()
+    .filter_map(|(c, manque)| manque.then_some(c))
+    .collect();
+    let h = *ht.get_or_insert(centimes(ht_lignes));
+    let t = *tva.get_or_insert_with(|| {
+        // HT imprimé mais pas la TVA : taux moyen des lignes appliqué au HT imprimé.
+        if ht_lignes.abs() > 0.005 {
+            centimes(h * tva_lignes / ht_lignes)
+        } else {
+            centimes(h * TVA_PAR_DEFAUT / 100.0)
+        }
+    });
+    ttc.get_or_insert(centimes(h + t));
+    calcules
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Confiance {
     pub r#type: f64,
@@ -609,6 +678,90 @@ pub fn numeros_utiles(numeros: Vec<String>) -> Vec<String> {
         }
     }
     v
+}
+
+#[cfg(test)]
+mod tests_montants_bl {
+    use super::*;
+
+    fn ligne(q: f64, pu: Option<f64>) -> Ligne {
+        Ligne {
+            reference: None,
+            designation: Some("Article".into()),
+            quantite: Some(q),
+            unite: None,
+            prix_unitaire_ht: pu,
+            montant_ht: None,
+            gencod: None,
+            colis: None,
+            pcb: None,
+            remise_taux: None,
+            taux_tva: None,
+            deee_ht: None,
+            ecomob_ht: None,
+            pv_conseille: None,
+        }
+    }
+
+    #[test]
+    fn bl_sans_totaux() {
+        // Lignes du BL LL1261103672 : PARURE 4 × 14,90 ; RIDEAU 6 × 4,50 + éco 0,11 ;
+        // COUSSIN 6 × 2,20 + éco 0,30.
+        let mut l = vec![
+            ligne(4.0, Some(14.9)),
+            ligne(6.0, Some(4.5)),
+            ligne(6.0, Some(2.2)),
+        ];
+        l[1].deee_ht = Some(0.11);
+        l[2].ecomob_ht = Some(0.3);
+        let (mut ht, mut tva, mut ttc) = (None, None, None);
+        assert_eq!(
+            completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc),
+            ["ht", "tva", "ttc"]
+        );
+        assert_eq!(l[0].montant_ht, Some(59.6));
+        assert_eq!(l[1].montant_ht, Some(27.0));
+        // 59,60 + 27,00 + 0,66 + 13,20 + 1,80
+        assert_eq!(ht, Some(102.26));
+        assert_eq!(tva, Some(20.45));
+        assert_eq!(ttc, Some(122.71));
+    }
+
+    #[test]
+    fn remise_taux_et_ht_imprime() {
+        let mut l = vec![ligne(10.0, Some(10.0)), ligne(2.0, Some(50.0))];
+        l[0].remise_taux = Some(10.0);
+        l[1].taux_tva = Some(5.5);
+        let (mut ht, mut tva, mut ttc) = (None, None, None);
+        assert_eq!(
+            completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc).len(),
+            3
+        );
+        assert_eq!(ht, Some(190.0));
+        assert_eq!(tva, Some(23.5)); // 90 × 20 % + 100 × 5,5 %
+        assert_eq!(ttc, Some(213.5));
+        // HT imprimé : gardé, seuls TVA et TTC sont calculés.
+        let (mut ht, mut tva, mut ttc) = (Some(100.0), None, None);
+        let mut l = vec![ligne(1.0, Some(100.0))];
+        assert_eq!(
+            completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc),
+            ["tva", "ttc"]
+        );
+        assert_eq!((ht, tva, ttc), (Some(100.0), Some(20.0), Some(120.0)));
+    }
+
+    #[test]
+    fn rien_si_une_ligne_sans_prix_ou_tout_imprime() {
+        let mut l = vec![ligne(4.0, Some(14.9)), ligne(6.0, None)];
+        let (mut ht, mut tva, mut ttc) = (None, None, None);
+        assert!(completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc).is_empty());
+        assert_eq!((ht, tva, ttc), (None, None, None));
+        let mut l = vec![ligne(1.0, Some(10.0))];
+        let (mut ht, mut tva, mut ttc) = (Some(11.0), Some(2.2), Some(13.2));
+        assert!(completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc).is_empty());
+        assert_eq!(ht, Some(11.0));
+        assert!(completer_montants_bl(&mut [], &mut None, &mut None, &mut None).is_empty());
+    }
 }
 
 #[cfg(test)]

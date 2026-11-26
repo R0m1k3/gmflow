@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set montant_ht = $2::float8::numeric(14, 2),\n                   montant_tva = $3::float8::numeric(14, 2), montant_ttc = $4::float8::numeric(14, 2),\n                   confiance = coalesce(confiance, '{}'::jsonb) || jsonb_build_object('montants_calcules', $5::jsonb)\n               where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8f81821289b1cbd75d9f388bc25131a429878de24851712586392f941ddb8962"
+}

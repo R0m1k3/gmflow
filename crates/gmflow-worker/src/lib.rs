@@ -302,6 +302,14 @@ pub async fn lancer(config: Config) -> anyhow::Result<()> {
     setup_token::fermer_seances_ouvertes(&ctx.pool).await?;
     envoi::envois_interrompus(&ctx.pool).await?;
     reponse::interrompus(&ctx.pool).await?;
+    match lecture::completer_bl_sans_totaux(&ctx.pool).await {
+        Ok(0) => {}
+        Ok(n) => tracing::info!(
+            bl = n,
+            "totaux des BL sans montants calculés depuis les lignes"
+        ),
+        Err(e) => tracing::warn!(erreur = %e, "calcul des totaux des BL sans montants"),
+    }
     tokio::spawn(planif::boucle(
         ctx.pool.clone(),
         ctx.config.fichiers.clone(),
