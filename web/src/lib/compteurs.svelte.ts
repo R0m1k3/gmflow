@@ -13,6 +13,9 @@ export interface Compteurs {
   bl: number;
   /** Mails qui attendent une réponse : onglet « À répondre ». */
   aRepondre: number;
+  /** Envois à Dext / Yooz en échec, par type : pastille rouge de Factures et Avoirs. */
+  echecsFactures: number;
+  echecsAvoirs: number;
   /** Problèmes à débloquer (admins), `null` si inconnu ou non admin. */
   problemes: number | null;
 }
@@ -25,17 +28,33 @@ interface ReponseCompteurs {
   total: number;
 }
 
+/** Nombre d'envois en échec d'un type (liste des documents, `statut_depot=erreur` : seul le total compte). */
+async function echecs(type: 'facture' | 'avoir', parametreSociete: string): Promise<number> {
+  try {
+    const r = await api.get<{ total: number }>(
+      `/api/documents?type=${type}&statut_depot=erreur${parametreSociete ? `&${parametreSociete}` : ''}`
+    );
+    return r.total;
+  } catch {
+    return 0;
+  }
+}
+
 async function lireCompteurs(parametreSociete: string, admin: boolean): Promise<Compteurs> {
   const q = parametreSociete ? `?${parametreSociete}` : '';
-  const r = await api.get<ReponseCompteurs>(`/api/a-traiter/compteurs${q}`);
-  return { aTraiter: r.total, factures: r.a_valider_types.facture,
+  const [r, echecsFactures, echecsAvoirs] = await Promise.all([
+    api.get<ReponseCompteurs>(`/api/a-traiter/compteurs${q}`),
+    echecs('facture', parametreSociete),
+    echecs('avoir', parametreSociete)
+  ]);
+  return { echecsFactures, echecsAvoirs, aTraiter: r.total, factures: r.a_valider_types.facture,
     avoirs: r.a_valider_types.avoir,
     bl: r.a_valider_types.bl,
     aRepondre: r.a_repondre, problemes: admin ? r.bloque : null };
 }
 
 /** Valeurs affichées dans la barre du haut. */
-export const compteurs = $state<Compteurs & { charge: boolean }>({ aTraiter: 0, factures: 0, avoirs: 0, bl: 0, aRepondre: 0, problemes: null, charge: false });
+export const compteurs = $state<Compteurs & { charge: boolean }>({ aTraiter: 0, factures: 0, avoirs: 0, bl: 0, aRepondre: 0, echecsFactures: 0, echecsAvoirs: 0, problemes: null, charge: false });
 
 let parametreCourant = '';
 let adminCourant = false;
@@ -54,6 +73,8 @@ export async function rafraichirCompteurs(parametreSociete?: string, admin?: boo
     compteurs.avoirs = c.avoirs;
     compteurs.bl = c.bl;
     compteurs.aRepondre = c.aRepondre;
+    compteurs.echecsFactures = c.echecsFactures;
+    compteurs.echecsAvoirs = c.echecsAvoirs;
     compteurs.problemes = c.problemes;
     compteurs.charge = true;
   } catch {

@@ -133,7 +133,7 @@
   // ---------- Menu ----------
   // Rangé par groupes : le courrier, les pièces, le suivi. `tel` : présent dans les onglets du bas sur téléphone.
   // `compteur` : badge (choses à faire) ; `aFaire` : où mène le lien quand il y en a (le filtre « À contrôler »).
-  type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number; aFaire?: string };
+  type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number; aFaire?: string; echecs?: () => number; echec?: string };
   type Groupe = { titre: string; liens: Lien[] };
   const groupes: Groupe[] = [
     { titre: '', liens: [{ href: '/', texte: 'Accueil', court: 'Accueil', icone: 'maison', tel: true }] },
@@ -147,8 +147,8 @@
     {
       titre: 'Pièces',
       liens: [
-        { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true, compteur: () => compteurs.factures, aFaire: '/factures?filtre=a-valider' },
-        { href: '/avoirs', texte: 'Avoirs', court: 'Avoirs', icone: 'avoir', tel: false, compteur: () => compteurs.avoirs, aFaire: '/avoirs?filtre=a-valider' },
+        { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true, compteur: () => compteurs.factures, aFaire: '/factures?filtre=a-valider', echecs: () => compteurs.echecsFactures, echec: '/factures?filtre=echec' },
+        { href: '/avoirs', texte: 'Avoirs', court: 'Avoirs', icone: 'avoir', tel: false, compteur: () => compteurs.avoirs, aFaire: '/avoirs?filtre=a-valider', echecs: () => compteurs.echecsAvoirs, echec: '/avoirs?filtre=echec' },
         { href: '/bl', texte: 'Bons de livraison', court: 'BL', icone: 'camion', tel: true, compteur: () => compteurs.bl, aFaire: '/bl?filtre=a-valider' }
       ]
     },
@@ -259,8 +259,10 @@
             {#if g.titre}<div class="g-titre">{g.titre}</div>{/if}
             {#each g.liens as l (l.href)}
               {@const n = l.compteur?.() ?? 0}
-              <a class="lien" href={n > 0 && l.aFaire ? l.aFaire : l.href} title={n > 0 && l.aFaire ? `${n} à contrôler` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+              {@const e = l.echecs?.() ?? 0}
+              <a class="lien" href={n > 0 && l.aFaire ? l.aFaire : e > 0 && l.echec ? l.echec : l.href} title={n > 0 && l.aFaire ? `${n} à contrôler` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
                 <Icone nom={l.icone} /><span class="t">{l.texte}</span>
+                {#if e > 0}<span class="echec-point" role="img" aria-label="{e} envoi{e > 1 ? 's' : ''} en échec" title="{e} envoi{e > 1 ? 's' : ''} en échec"></span>{/if}
                 {#if n > 0}<span class="compteur">{n}</span>{/if}
               </a>
             {/each}
@@ -276,9 +278,10 @@
   <nav class="onglets" aria-label="Raccourcis">
     {#each onglets as l (l.href)}
       {@const n = l.compteur?.() ?? 0}
-      <a href={n > 0 && l.aFaire ? l.aFaire : l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+      {@const e = l.echecs?.() ?? 0}
+      <a href={n > 0 && l.aFaire ? l.aFaire : e > 0 && l.echec ? l.echec : l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
         <Icone nom={l.icone} />
-        <span>{l.court}{#if n > 0}&nbsp;<span class="compteur">{n}</span>{/if}</span>
+        <span>{l.court}{#if e > 0}&nbsp;<span class="echec-point" role="img" aria-label="{e} envoi{e > 1 ? 's' : ''} en échec"></span>{/if}{#if n > 0}&nbsp;<span class="compteur">{n}</span>{/if}</span>
       </a>
     {/each}
   </nav>
@@ -497,6 +500,20 @@
   }
   .lien .compteur {
     margin-left: auto;
+  }
+  .echec-point {
+    flex: none;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--err);
+  }
+  .lien .echec-point {
+    margin-left: auto;
+  }
+  .lien .echec-point + .compteur {
+    margin-left: var(--e2);
   }
 
   .etat {
