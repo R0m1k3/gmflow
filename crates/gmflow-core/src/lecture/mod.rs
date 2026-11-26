@@ -45,8 +45,14 @@ pub enum Aiguillage {
         /// Couche texte du PDF quand il y en a une (pour la recherche et le contrôle).
         texte: Option<String>,
     },
-    /// Texte lu par le code, à faire classer et extraire par Claude.
-    Texte { voie: Voie, texte: String },
+    /// Texte lu par le code, à faire classer et extraire par Claude. `tronque` : le texte
+    /// donné à Claude n'est pas complet (tableur coupé, texte plus long que `TEXTE_MAX`), des
+    /// lignes articles peuvent manquer.
+    Texte {
+        voie: Voie,
+        texte: String,
+        tronque: bool,
+    },
     /// Fichier à faire lire par Claude (scan, photo), sous ce nom d'extension.
     Scan {
         extension: &'static str,
@@ -113,6 +119,11 @@ fn genre(nom: &str, mime: &str, c: &[u8]) -> Genre {
     Genre::Autre
 }
 
+/// Texte que Claude ne recevra pas en entier (`extraction::debut_et_fin`).
+fn trop_long(t: &str) -> bool {
+    t.chars().count() > extraction::TEXTE_MAX
+}
+
 fn texte_utile(t: &str) -> usize {
     t.chars().filter(|c| c.is_alphanumeric()).count()
 }
@@ -151,6 +162,7 @@ pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) 
             match pdf::texte(contenu) {
                 Some(t) if texte_utile(&t) >= TEXTE_UTILE_MIN => Aiguillage::Texte {
                     voie: Voie::PdfTexte,
+                    tronque: trop_long(&t),
                     texte: t,
                 },
                 _ => Aiguillage::Scan {
@@ -168,17 +180,19 @@ pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) 
             None => Aiguillage::Ignore("XML non reconnu comme facture".into()),
         },
         Genre::Classeur => match tableur::texte_classeur(contenu) {
-            Some(t) if texte_utile(&t) > 0 => Aiguillage::Texte {
+            Some((t, coupe)) if texte_utile(&t) > 0 => Aiguillage::Texte {
                 voie: Voie::Tableur,
+                tronque: coupe || trop_long(&t),
                 texte: t,
             },
             _ => Aiguillage::Ignore("classeur vide ou illisible".into()),
         },
         Genre::Csv => {
-            let t = tableur::texte_csv(contenu);
+            let (t, coupe) = tableur::texte_csv(contenu);
             if texte_utile(&t) > 0 {
                 Aiguillage::Texte {
                     voie: Voie::Tableur,
+                    tronque: coupe || trop_long(&t),
                     texte: t,
                 }
             } else {

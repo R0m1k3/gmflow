@@ -153,7 +153,12 @@ fn pdf_texte_et_scan() {
         "Total HT 50,00  TVA 10,00  TTC 60,00",
     ]);
     match aiguiller("f.pdf", "application/pdf", &pdf, false) {
-        Aiguillage::Texte { voie, texte } => {
+        Aiguillage::Texte {
+            voie,
+            texte,
+            tronque,
+        } => {
+            assert!(!tronque);
             assert_eq!(voie, Voie::PdfTexte);
             assert!(texte.contains("2026-501"), "{texte}");
             assert_eq!(societe::dans_texte(&texte, &societes()), Some(1));
@@ -176,9 +181,30 @@ fn tableurs() {
         &["A12", "Bougie parfumée", "24"],
     ]);
     match aiguiller("bl.xlsx", "application/octet-stream", &x, false) {
-        Aiguillage::Texte { voie, texte } => {
+        Aiguillage::Texte {
+            voie,
+            texte,
+            tronque,
+        } => {
             assert_eq!(voie, Voie::Tableur);
             assert!(texte.contains("A12;Bougie parfumée;24"), "{texte}");
+            assert!(!tronque);
+        }
+        a => panic!("aiguillage inattendu : {a:?}"),
+    }
+    // Tableur de plus de 400 lignes : coupé, et signalé.
+    let lignes: Vec<Vec<String>> = (0..450)
+        .map(|i| vec![format!("R{i}"), "Article".to_string(), "1".to_string()])
+        .collect();
+    let lignes: Vec<Vec<&str>> = lignes
+        .iter()
+        .map(|l| l.iter().map(String::as_str).collect())
+        .collect();
+    let lignes: Vec<&[&str]> = lignes.iter().map(Vec::as_slice).collect();
+    match aiguiller("bl.xlsx", "", &fixtures::xlsx(&lignes), false) {
+        Aiguillage::Texte { tronque, texte, .. } => {
+            assert!(tronque);
+            assert!(!texte.contains("R449"));
         }
         a => panic!("aiguillage inattendu : {a:?}"),
     }
@@ -531,4 +557,41 @@ fn montants_cherches_parmi_les_nombres_du_texte() {
         "Base 5,5 % 100,00 TVA 5,50\nBase 20 % 100,00 TVA 20,00\nTotal HT 200,00\nTotal TTC 225,50";
     let e = lecture_facture(Some(200.0), Some(25.5), Some(225.5));
     assert!(extraction::anomalies(&e, Some(texte)).is_empty());
+}
+
+#[test]
+fn lignes_coupees_signalees() {
+    let s = societes();
+    let ligne =
+        |i: usize| json!({ "reference": format!("R{i}"), "designation": "Vase", "quantite": 1 });
+    let mut r = reponse_valide();
+    r["lignes"] = json!((0..10).map(ligne).collect::<Vec<_>>());
+    let e = extraction::depuis_reponse(&json!({ "structured_output": r }), &s).unwrap();
+    assert!(!e.lignes_tronquees);
+    let mut r = reponse_valide();
+    r["lignes"] = json!(
+        (0..extraction::LIGNES_MAX + 5)
+            .map(ligne)
+            .collect::<Vec<_>>()
+    );
+    let e = extraction::depuis_reponse(&json!({ "structured_output": r }), &s).unwrap();
+    assert!(e.lignes_tronquees);
+    assert_eq!(e.lignes.len(), extraction::LIGNES_MAX);
+}
+
+#[test]
+fn xml_de_plus_de_200_lignes_signale() {
+    let refs: Vec<String> = (0..extraction::LIGNES_MAX + 3)
+        .map(|i| format!("R{i}"))
+        .collect();
+    let lignes: Vec<fixtures::LigneTest<'_>> = refs
+        .iter()
+        .map(|r| (r.as_str(), "Vase", 1.0, 2.0))
+        .collect();
+    let x = fixtures::xml_cii_lignes("F-9", SIRET_A, "20261112", "C-1", None, &lignes);
+    let d = xml::lire(x.as_bytes()).unwrap();
+    assert!(d.lignes_tronquees);
+    assert_eq!(d.lignes.len(), extraction::LIGNES_MAX);
+    let x = fixtures::xml_cii_lignes("F-9", SIRET_A, "20261112", "C-1", None, &lignes[..5]);
+    assert!(!xml::lire(x.as_bytes()).unwrap().lignes_tronquees);
 }

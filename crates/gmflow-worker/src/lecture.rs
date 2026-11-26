@@ -148,6 +148,8 @@ struct Lu {
     lignes: Vec<extraction::Ligne>,
     numeros_bl: Vec<String>,
     lignes_lues: bool,
+    /// La lecture n'a pas tout pris : des lignes peuvent manquer (`extraction::LIGNES_TRONQUEES`).
+    lignes_tronquees: bool,
     texte: Option<String>,
     resultat: Option<Value>,
     modele: Option<String>,
@@ -173,8 +175,14 @@ fn avoir_en_positif(lu: &mut Lu) {
 
 async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
     avoir_en_positif(&mut lu);
-    // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels.
-    if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") {
+    if lu.lignes_tronquees
+        && let Some(c) = lu.confiance.as_object_mut()
+    {
+        c.insert(extraction::LIGNES_TRONQUEES.into(), json!(true));
+    }
+    // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels. Pas
+    // depuis des lignes incomplètes : le total serait faux.
+    if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") && !lu.lignes_tronquees {
         let calcules =
             extraction::completer_montants_bl(&mut lu.lignes, &mut lu.ht, &mut lu.tva, &mut lu.ttc);
         if let (false, Some(c)) = (calcules.is_empty(), lu.confiance.as_object_mut()) {
@@ -248,6 +256,7 @@ pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
            from document d
            where d.etat = 'lu' and d.type = 'bl'
              and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)
+             and not coalesce((d.confiance->>'lignes_tronquees')::boolean, false)
              and exists (select 1 from ligne_document l where l.document_id = d.id)
              and not exists (select 1 from ligne_document l where l.document_id = d.id
                              and l.montant_ht is null and l.prix_unitaire_ht is null)"#
@@ -430,6 +439,7 @@ fn lu_depuis_xml(
         lignes: d.lignes.clone(),
         numeros_bl: d.numeros_bl.clone(),
         lignes_lues: true,
+        lignes_tronquees: d.lignes_tronquees,
         texte,
         resultat: serde_json::to_value(&d).ok(),
         ..Default::default()
@@ -477,6 +487,7 @@ fn lu_depuis_extraction(
         annexes_ht: e.annexes_ht.map(f64::abs),
         fournisseur: e.fournisseur,
         confiance,
+        lignes_tronquees: e.lignes_tronquees,
         lignes: e.lignes,
         numeros_bl: e.numeros_bl,
         lignes_lues: true,
@@ -684,7 +695,11 @@ async fn lire_pris(
             donnees,
             texte,
         } => lu_depuis_xml(voie, *donnees, texte, &soc),
-        Aiguillage::Texte { voie, texte } => {
+        Aiguillage::Texte {
+            voie,
+            texte,
+            tronque,
+        } => {
             let societe_code = societe::dans_texte(&texte, &soc);
             let mail = ContexteMail {
                 expediteur: &e.expediteur,
@@ -704,7 +719,9 @@ async fn lire_pris(
             };
             match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, src).await? {
                 Lecture::Faite(ex, reglage, an) => {
-                    let lu = lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
+                    let mut lu =
+                        lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
+                    lu.lignes_tronquees |= tronque;
                     avec_anomalies(lu, an)
                 }
                 Lecture::Reportee => return Ok(()),

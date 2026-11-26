@@ -38,6 +38,8 @@ pub struct DonneesXml {
     pub numeros_bl: Vec<String>,
     /// Devise des montants (`EUR`…), quand le XML la donne.
     pub devise: Option<String>,
+    /// Plus de `LIGNES_MAX` lignes : les suivantes ne sont pas gardées.
+    pub lignes_tronquees: bool,
     /// Quantité de base du prix de chaque ligne (prix pour 100 unités…), dans l'ordre des lignes.
     #[serde(skip)]
     bases: Vec<Option<f64>>,
@@ -199,6 +201,7 @@ pub fn lire(xml: &[u8]) -> Option<DonneesXml> {
             p.siret = secours;
         }
     }
+    d.lignes_tronquees = d.lignes.iter().filter(|l| !l.vide()).count() > LIGNES_MAX;
     d.lignes = lignes_utiles(std::mem::take(&mut d.lignes));
     d.numeros_bl = numeros_utiles(std::mem::take(&mut d.numeros_bl));
     Some(d)

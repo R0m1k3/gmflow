@@ -318,6 +318,17 @@ pub fn controle_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Vec<Value> {
     }
 }
 
+/// Contrôle d'un BL lu en partie seulement (`extraction::LIGNES_TRONQUEES`), à la place de la
+/// somme des lignes.
+pub fn controle_lignes_tronquees() -> Value {
+    json!({
+        "code": "lignes_tronquees",
+        "message": "BL trop long pour être lu en entier : des lignes articles manquent \
+                    (totaux non calculés, pas de comparaison avec la facture, export Phénix \
+                    incomplet)",
+    })
+}
+
 /// Lignes de plusieurs documents.
 pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i64, Vec<Ligne>>> {
     let r = sqlx::query!(
@@ -422,9 +433,11 @@ pub async fn ecrire_lignes(
 /// Recalcule les écarts de tous les liens d'une facture.
 pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::Result<()> {
     let bls = sqlx::query!(
-        "select b.id, b.montant_ht::float8 as ht from rapprochement r
-         join document b on b.id = r.bl_id
-         where r.facture_id = $1 and not r.rejete order by b.id",
+        r#"select b.id, b.montant_ht::float8 as ht,
+                  coalesce((b.confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
+           from rapprochement r
+           join document b on b.id = r.bl_id
+           where r.facture_id = $1 and not r.rejete order by b.id"#,
         facture_id
     )
     .fetch_all(&mut *c)
@@ -433,7 +446,9 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
         return Ok(());
     }
     let f = sqlx::query!(
-        "select montant_ht::float8 as ht, remise_taux::float8 as taux from document where id = $1",
+        r#"select montant_ht::float8 as ht, remise_taux::float8 as taux,
+                  coalesce((confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
+           from document where id = $1"#,
         facture_id
     )
     .fetch_one(&mut *c)
@@ -447,11 +462,19 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
     let mut montants = Vec::new();
     for b in &bls {
         let lignes_bl = l.remove(&b.id).unwrap_or_default();
-        montants.push(montant_bl(&lignes_bl, b.ht));
+        // Lignes incomplètes : leur somme n'est pas le montant du BL.
+        montants.push(montant_bl(if b.tronque { &[] } else { &lignes_bl }, b.ht));
         lb.extend(lignes_bl);
     }
     let ecart = ecart_montant(ht_facture, &montants);
-    let ecarts = json!(comparer(&lf, &lb, f.taux));
+    // Des lignes manquent d'un côté : les comparer fabriquerait des articles « en trop » ou
+    // « manquants ».
+    let tronque = f.tronque || bls.iter().any(|b| b.tronque);
+    let ecarts = if tronque {
+        json!([])
+    } else {
+        json!(comparer(&lf, &lb, f.taux))
+    };
     sqlx::query!(
         "update rapprochement set ecart_montant = $2::float8::numeric(14, 2), ecarts = $3
          where facture_id = $1 and not rejete",
@@ -471,7 +494,8 @@ pub async fn recalculer(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
     let Some(d) = sqlx::query!(
         r#"select etat, type, fournisseur_id, societe_id, numero, numero_commande, numeros_bl,
                 rapprochement_ignore, montant_ht::float8 as ht, left(texte, $2) as texte,
-                coalesce(confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!"
+                coalesce(confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!",
+                coalesce((confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
          from document where id = $1"#,
         document_id,
         TEXTE_CITATION
@@ -508,7 +532,11 @@ pub async fn recalculer(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
         let l = lignes(&mut tx, &[document_id]).await?;
         // HT calculé depuis les lignes (éco-participations comprises) : rien à contrôler.
         let total = d.ht.filter(|_| !d.ht_calcule);
-        let c = controle_bl(l.get(&document_id).map_or(&[][..], |v| v), total);
+        let c = if d.tronque {
+            vec![controle_lignes_tronquees()]
+        } else {
+            controle_bl(l.get(&document_id).map_or(&[][..], |v| v), total)
+        };
         sqlx::query!(
             "update document set controles = $2 where id = $1",
             document_id,

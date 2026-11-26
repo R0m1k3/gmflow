@@ -13,6 +13,11 @@ pub const TEXTE_MAX: usize = 20_000;
 /// Lignes articles gardées par document (les suivantes sont ignorées).
 pub const LIGNES_MAX: usize = 200;
 
+/// Clé de `document.confiance` : la lecture n'a pas tout pris (texte ou tableur coupé, plus de
+/// `LIGNES_MAX` lignes), des lignes articles peuvent manquer. Les totaux d'un BL ne sont alors
+/// pas calculés depuis ses lignes, ni les lignes comparées entre facture et BL.
+pub const LIGNES_TRONQUEES: &str = "lignes_tronquees";
+
 pub const PROMPT_SYSTEME: &str = "Tu lis des documents reçus par mail par des magasins : factures, \
 avoirs, bons de livraison (BL), relances, devis. Tu réponds uniquement avec la sortie structurée \
 demandée, selon le schéma. Seuls les factures, avoirs et bons de livraison nous intéressent : \
@@ -212,6 +217,9 @@ pub struct Extraction {
     /// Date lue mais impossible ou mal formée (« 2026-11-31 ») : `date` est alors vide.
     #[serde(skip)]
     pub date_illisible: Option<String>,
+    /// Lignes coupées à `LIGNES_MAX` (Claude en rend au plus autant).
+    #[serde(skip)]
+    pub lignes_tronquees: bool,
 }
 
 fn chaine_ou_null() -> Value {
@@ -537,6 +545,8 @@ pub fn depuis_reponse(
             e.date_illisible = Some(d);
         }
     }
+    // Claude s'arrête à LIGNES_MAX lignes (consigne) : autant de lignes, c'est sans doute coupé.
+    e.lignes_tronquees = e.lignes.iter().filter(|l| !l.vide()).count() >= LIGNES_MAX;
     e.lignes = lignes_utiles(std::mem::take(&mut e.lignes));
     e.numeros_bl = numeros_utiles(std::mem::take(&mut e.numeros_bl));
     // Une échéance mal formée ne fait pas échouer la lecture : elle est oubliée.
