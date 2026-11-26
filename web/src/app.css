@@ -1863,6 +1863,31 @@ dialog.confirmation .dlg-pied {
   .volets .sec-h {
     top: var(--haut-barre); /* la liste défile avec la page, sous la barre du haut */
   }
+  /* Au toucher : cibles de 44 px au moins (boutons, icônes, puces de filtre, résumés de blocs repliés) */
+  .btn,
+  .btn.sm,
+  .btn.principal.sm,
+  .puces .btn,
+  .btn-icone,
+  .plus {
+    min-height: 44px;
+  }
+  .btn-icone {
+    min-width: 44px;
+  }
+  .retour {
+    min-height: 44px;
+  }
+  .sec-h {
+    min-height: 44px;
+    align-items: center;
+  }
+  .repli > summary {
+    min-height: 44px;
+  }
+  :where(input:not([type='checkbox'], [type='radio']), select) {
+    height: 44px;
+  }
   .volets.ouvert > .volet-liste,
   .volets:not(.ouvert) > .volet {
     display: none;
