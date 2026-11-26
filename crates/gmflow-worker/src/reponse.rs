@@ -180,7 +180,7 @@ pub async fn envoyer(
             let mut s =
                 imap::connecter(&e.serveur, port, &e.identifiant, &mdp, ctx.transport).await?;
             let r = imap::ajouter(&mut s, dossier, &rep.brut).await;
-            let _ = s.logout().await;
+            imap::deconnecter(&mut s).await;
             anyhow::Ok(r?)
         };
         if let Err(err) = copie.await {

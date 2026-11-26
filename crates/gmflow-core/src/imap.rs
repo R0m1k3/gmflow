@@ -117,6 +117,11 @@ pub async fn connecter(
         .map_err(|_| ErreurImap::Autre(format!("délai de {} s dépassé", DELAI.as_secs())))?
 }
 
+/// LOGOUT poli, en 15 s au plus : un serveur muet ne retient pas la tâche.
+pub async fn deconnecter(session: &mut Session) {
+    let _ = timeout(DELAI, session.logout()).await;
+}
+
 /// Texte de la réponse du serveur, sans l'enrobage d'async-imap
 /// (« code: None, info: Some("[AUTHENTICATIONFAILED] …") » donne « [AUTHENTICATIONFAILED] … »).
 fn texte_serveur(m: String) -> String {

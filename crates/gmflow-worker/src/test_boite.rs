@@ -32,7 +32,7 @@ pub async fn tester(ctx: &Contexte, boite_id: i64) -> anyhow::Result<()> {
         let dossiers = imap::dossiers_detail(&mut s)
             .await
             .map_err(|e| gmflow_core::essai_boite::message_imap(&e))?;
-        let _ = s.logout().await;
+        imap::deconnecter(&mut s).await;
         Ok::<_, (String, String)>(dossiers)
     }
     .await;
@@ -105,7 +105,7 @@ pub async fn essayer(ctx: &Contexte, essai_id: uuid::Uuid) -> anyhow::Result<()>
                         imap::connecter(&p.serveur, p.port, &essai.identifiant, mdp, ctx.transport)
                             .await?;
                     let d = imap::dossiers_detail(&mut s).await;
-                    let _ = s.logout().await;
+                    imap::deconnecter(&mut s).await;
                     d
                 }
                 .await;
