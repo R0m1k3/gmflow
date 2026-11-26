@@ -271,3 +271,23 @@ fn prix_change_entre_bl_et_facture() {
     ];
     assert!(comparer(&f2, &bls_nets, Some(20.0)).is_empty());
 }
+
+#[test]
+fn articles_retrouves_par_gencod_et_colis() {
+    // Facture : référence fournisseur et gencod, quantité en unités. BL : autre référence (code
+    // du transporteur) mais même gencod, livré en colis sans quantité.
+    let mut f1 = ligne(Some("AB-12"), "Bougie vanille", 12.0, Some(24.0));
+    f1.gencod = Some("3123450000011".into());
+    let f2 = ligne(Some("CD-34"), "Vase", 2.0, Some(10.0));
+    let mut b1 = ligne(Some("998877"), "BOUGIE VANILLE 200G", 0.0, None);
+    b1.quantite = None;
+    b1.gencod = Some("03123450000011".into()); // GTIN-14 du même article
+    b1.colis = Some(2.0);
+    b1.pcb = Some(6.0);
+    let b2 = ligne(Some("CD-34"), "Vase", 2.0, None);
+    assert!(comparer(&[f1.clone(), f2.clone()], &[b1.clone(), b2.clone()], None).is_empty());
+    // Gencod à la clé fausse : ignoré, l'article est cherché par sa référence (absente du BL).
+    b1.gencod = Some("03123450000012".into());
+    let e = comparer(&[f1, f2], &[b1, b2], None);
+    assert_eq!(e.len(), 2, "{e:?}");
+}

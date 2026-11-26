@@ -578,3 +578,65 @@ async fn liste_de_diffusion_images_ignorees_et_lecture_auto_coupee() {
     assert!(faux.appels().is_empty());
     b.fermer().await;
 }
+
+#[tokio::test]
+async fn panne_de_claude_trois_fois_de_suite_le_document_passe_en_erreur() {
+    // Faux Claude toujours en panne (sortie en erreur, sans refus d'usage).
+    let dossier = gmflow_core::claude::DossierTemp::creer("faux-claude-panne").unwrap();
+    let chemin = dossier.0.join("claude");
+    std::fs::write(&chemin, "#!/bin/sh\necho 'connexion perdue' >&2\nexit 1\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&chemin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut b = Banc::new().await;
+    let mut config = (*b.ctx.config).clone();
+    config.claude_bin = chemin.display().to_string();
+    b.ctx.config = std::sync::Arc::new(config);
+    let a = societe(&b, "Magasin Frouard", SIRET_A).await;
+    jeton(&b).await;
+    let pdf = fixtures::pdf_texte(&[
+        "FACTURE F-1 du 12 novembre 2026",
+        "Client Magasin Frouard, zone commerciale de Frouard",
+        "Total HT 50,00 TVA 10,00 TTC 60,00",
+    ]);
+    let m = mail(
+        &b,
+        a,
+        &fixtures::eml(
+            "panne@test",
+            "Facture",
+            &[("f.pdf", "application/pdf", &pdf)],
+            false,
+        ),
+    )
+    .await;
+    lecture::pompe(b.pool()).await.unwrap();
+    let id = docs(&b, m).await[0].id;
+    for essai in 1..=lecture::ESSAIS_PANNE_MAX {
+        lecture::lire(&b.ctx, id, false, false, false)
+            .await
+            .unwrap();
+        let d = &docs(&b, m).await[0];
+        if essai < lecture::ESSAIS_PANNE_MAX {
+            // Remis en attente : la pompe le relancera dans 30 minutes.
+            assert_eq!(d.etat, "a_lire", "essai {essai}");
+        } else {
+            assert_eq!(d.etat, "erreur");
+            assert_eq!(
+                d.message.as_deref(),
+                Some(
+                    "Lecture abandonnée après 3 essais : Claude était en panne ou injoignable. \
+                     Relancez la lecture pour réessayer."
+                )
+            );
+        }
+    }
+    // Compteur remis à zéro : une relecture demandée repart pour trois essais.
+    assert_eq!(
+        b.compter(&format!(
+            "select essais_lecture::bigint from document where id = {id}"
+        ))
+        .await,
+        0
+    );
+    b.fermer().await;
+}

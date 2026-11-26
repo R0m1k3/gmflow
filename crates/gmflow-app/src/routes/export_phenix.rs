@@ -68,7 +68,8 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
     let d = sqlx::query!(
         r#"select d.type, d.numero, coalesce(f.nom, d.fournisseur_nom) as fournisseur,
                   d.magasin_demande_le, d.magasin_verifie_le, d.magasin_erreur,
-                  coalesce(f.colonnes_export, g.colonnes_export) as colonnes
+                  coalesce(f.colonnes_export, g.colonnes_export) as colonnes,
+                  coalesce((d.confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
            from document d left join fournisseur f on f.id = d.fournisseur_id
            left join fournisseur g on g.id = f.groupe_id
            where d.id = $1"#,
@@ -97,6 +98,15 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
     let colonnes = Colonnes::depuis(d.colonnes.as_deref());
     let mut m = export_phenix::matrice(&lignes, colonnes);
     let mut t = export_phenix::trame(&lignes, code.as_deref(), colonnes);
+    if d.tronque {
+        let a = Alerte {
+            rang: None,
+            article: None,
+            message: "BL trop long pour être lu en entier : des articles manquent dans les fichiers, à compléter dans Phénix".into(),
+        };
+        m.alertes.insert(0, a.clone());
+        t.alertes.insert(0, a);
+    }
     if !serveur {
         let a = Alerte {
             rang: None,

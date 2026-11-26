@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.montant_ht::float8 as ht, d.montant_tva::float8 as tva,\n                  d.montant_ttc::float8 as ttc\n           from document d\n           where d.etat = 'lu' and d.type = 'bl'\n             and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)\n             and exists (select 1 from ligne_document l where l.document_id = d.id)\n             and not exists (select 1 from ligne_document l where l.document_id = d.id\n                             and l.montant_ht is null and l.prix_unitaire_ht is null)",
+  "query": "select d.id, d.montant_ht::float8 as ht, d.montant_tva::float8 as tva,\n                  d.montant_ttc::float8 as ttc\n           from document d\n           where d.etat = 'lu' and d.type = 'bl'\n             and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)\n             and not coalesce((d.confiance->>'lignes_tronquees')::boolean, false)\n             and exists (select 1 from ligne_document l where l.document_id = d.id)\n             and not exists (select 1 from ligne_document l where l.document_id = d.id\n                             and l.montant_ht is null and l.prix_unitaire_ht is null)",
   "describe": {
     "columns": [
       {
@@ -43,5 +43,5 @@
       null
     ]
   },
-  "hash": "7292e63875210aa77a0d31d038571bc1594046fb4cac7b30f10ee1852b87c735"
+  "hash": "cfe66d20f1477c1a7cace06dbda221abb9c25e723e955da5eefd943c9b276937"
 }

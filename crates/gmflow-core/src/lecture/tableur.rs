@@ -26,14 +26,32 @@ fn cellule(d: &Data) -> String {
     }
 }
 
-/// Texte d'un classeur : une section par feuille, cellules séparées par « ; ».
-pub fn texte_classeur(octets: &[u8]) -> Option<String> {
+fn ligne_vide(ligne: &[Data]) -> bool {
+    ligne.iter().all(|c| cellule(c).is_empty())
+}
+
+/// Texte d'un classeur : une section par feuille, cellules séparées par « ; ». Vrai en second :
+/// des cellules non vides ont été laissées de côté (au-delà de `LIGNES_MAX` lignes ou de
+/// `FEUILLES_MAX` feuilles).
+pub fn texte_classeur(octets: &[u8]) -> Option<(String, bool)> {
     let mut classeur = open_workbook_auto_from_rs(Cursor::new(octets.to_vec())).ok()?;
     let mut sortie = String::new();
-    for nom in classeur.sheet_names().into_iter().take(FEUILLES_MAX) {
+    let mut coupe = false;
+    let noms = classeur.sheet_names();
+    for nom in noms.iter().skip(FEUILLES_MAX) {
+        if let Ok(plage) = classeur.worksheet_range(nom)
+            && plage.rows().any(|l| !ligne_vide(l))
+        {
+            coupe = true;
+        }
+    }
+    for nom in noms.into_iter().take(FEUILLES_MAX) {
         let Ok(plage) = classeur.worksheet_range(&nom) else {
             continue;
         };
+        if plage.rows().skip(LIGNES_MAX).any(|l| !ligne_vide(l)) {
+            coupe = true;
+        }
         sortie.push_str(&format!("## Feuille {nom}\n"));
         for ligne in plage.rows().take(LIGNES_MAX) {
             let cellules: Vec<String> = ligne.iter().map(cellule).collect();
@@ -45,7 +63,7 @@ pub fn texte_classeur(octets: &[u8]) -> Option<String> {
             sortie.push('\n');
         }
     }
-    Some(sortie)
+    Some((sortie, coupe))
 }
 
 /// Feuille d'un tableur pour l'aperçu à l'écran.
@@ -110,7 +128,7 @@ pub fn apercu_classeur(octets: &[u8]) -> Option<Vec<Feuille>> {
 
 /// Un CSV en une feuille : séparateur deviné (« ; », tabulation ou « , »), guillemets gérés.
 pub fn apercu_csv(octets: &[u8]) -> Feuille {
-    let texte = texte_csv(octets);
+    let (texte, _) = texte_csv(octets);
     let premiere = texte.lines().next().unwrap_or("");
     let sep = [';', '\t', ',']
         .into_iter()
@@ -146,17 +164,23 @@ fn decouper_csv(ligne: &str, sep: char) -> Vec<String> {
     v
 }
 
-/// Texte d'un CSV : UTF-8, sinon Windows-1252 (exports de logiciels de caisse).
-pub fn texte_csv(octets: &[u8]) -> String {
+/// Texte d'un CSV : UTF-8, sinon Windows-1252 (exports de logiciels de caisse). Vrai en
+/// second : des lignes non vides ont été laissées de côté (au-delà de 2 × `LIGNES_MAX`).
+pub fn texte_csv(octets: &[u8]) -> (String, bool) {
     let texte = match std::str::from_utf8(octets) {
         Ok(s) => s.trim_start_matches('\u{feff}').to_string(),
         Err(_) => octets.iter().map(|&b| windows_1252(b)).collect(),
     };
-    texte
+    let coupe = texte
+        .lines()
+        .skip(LIGNES_MAX * 2)
+        .any(|l| !l.trim().trim_matches([';', ',', '\t']).is_empty());
+    let t = texte
         .lines()
         .take(LIGNES_MAX * 2)
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+    (t, coupe)
 }
 
 fn windows_1252(b: u8) -> char {
@@ -192,5 +216,21 @@ mod tests_apercu {
         assert_eq!(f.lignes[1], vec!["12", "Bol; bleu", "3"]);
         let f = apercu_csv(b"a,b\n1,2\n");
         assert_eq!(f.lignes[1], vec!["1", "2"]);
+    }
+}
+
+#[cfg(test)]
+mod tests_coupure {
+    use super::*;
+
+    #[test]
+    fn csv_coupe_signale() {
+        let court = "a;b\n1;2\n;;\n".repeat(10);
+        assert!(!texte_csv(court.as_bytes()).1);
+        let long = "a;b\n".repeat(LIGNES_MAX * 2 + 1);
+        assert!(texte_csv(long.as_bytes()).1);
+        // Lignes vides au-delà : rien de perdu.
+        let vide = format!("{}{}", "a;b\n".repeat(LIGNES_MAX * 2), ";;\n".repeat(50));
+        assert!(!texte_csv(vide.as_bytes()).1);
     }
 }

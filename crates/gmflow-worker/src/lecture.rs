@@ -148,6 +148,8 @@ struct Lu {
     lignes: Vec<extraction::Ligne>,
     numeros_bl: Vec<String>,
     lignes_lues: bool,
+    /// La lecture n'a pas tout pris : des lignes peuvent manquer (`extraction::LIGNES_TRONQUEES`).
+    lignes_tronquees: bool,
     texte: Option<String>,
     resultat: Option<Value>,
     modele: Option<String>,
@@ -162,9 +164,25 @@ fn tronquer(s: String, n: usize) -> String {
     .replace('\0', "")
 }
 
+/// Avoir : montants toujours positifs (certains fournisseurs les impriment en négatif).
+fn avoir_en_positif(lu: &mut Lu) {
+    if lu.type_doc.as_deref() == Some("avoir") {
+        for m in [&mut lu.ht, &mut lu.tva, &mut lu.ttc] {
+            *m = m.map(f64::abs);
+        }
+    }
+}
+
 async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
-    // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels.
-    if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") {
+    avoir_en_positif(&mut lu);
+    if lu.lignes_tronquees
+        && let Some(c) = lu.confiance.as_object_mut()
+    {
+        c.insert(extraction::LIGNES_TRONQUEES.into(), json!(true));
+    }
+    // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels. Pas
+    // depuis des lignes incomplètes : le total serait faux.
+    if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") && !lu.lignes_tronquees {
         let calcules =
             extraction::completer_montants_bl(&mut lu.lignes, &mut lu.ht, &mut lu.tva, &mut lu.ttc);
         if let (false, Some(c)) = (calcules.is_empty(), lu.confiance.as_object_mut()) {
@@ -175,7 +193,7 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
     gmflow_core::rapprochement::ecrire_lignes(&mut tx, id, &lu.lignes).await?;
     sqlx::query!(
         "update document set numeros_bl = $2, lignes_lues = $3, magasin_verifie_le = null,
-                             magasin_erreur = null, date_echeance = $4
+                             magasin_erreur = null, date_echeance = $4, essais_lecture = 0
          where id = $1",
         id,
         &lu.numeros_bl,
@@ -238,6 +256,7 @@ pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
            from document d
            where d.etat = 'lu' and d.type = 'bl'
              and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)
+             and not coalesce((d.confiance->>'lignes_tronquees')::boolean, false)
              and exists (select 1 from ligne_document l where l.document_id = d.id)
              and not exists (select 1 from ligne_document l where l.document_id = d.id
                              and l.montant_ht is null and l.prix_unitaire_ht is null)"#
@@ -328,6 +347,51 @@ async fn remettre(pool: &PgPool, id: i64, voie: Voie, message: &str) -> anyhow::
     Ok(())
 }
 
+/// Essais de suite en échec technique (délai dépassé, panne) avant que le document passe en
+/// erreur, au lieu d'être relancé toutes les 30 minutes sans fin.
+pub const ESSAIS_PANNE_MAX: i32 = 3;
+
+/// Appel de lecture en échec technique. Refus (limite d'usage, jeton refusé) : le document
+/// attend la reprise, sans compter d'essai. Délai dépassé ou panne : un essai de plus ; au
+/// `ESSAIS_PANNE_MAX`e, erreur avec une phrase lisible (le détail part au journal).
+async fn apres_panne(
+    pool: &PgPool,
+    id: i64,
+    voie: Voie,
+    e: &ErreurClaude,
+) -> anyhow::Result<Lecture> {
+    if claude::refus(e).is_none() {
+        let n = sqlx::query_scalar!(
+            "update document set essais_lecture = essais_lecture + 1 where id = $1
+             returning essais_lecture",
+            id
+        )
+        .fetch_one(pool)
+        .await?;
+        if n >= ESSAIS_PANNE_MAX {
+            tracing::warn!(document = id, essais = n, erreur = %e, "lecture abandonnée après des pannes");
+            return Ok(Lecture::Echec(Lu {
+                etat: "erreur",
+                voie: Some(voie.code()),
+                message: Some(message_abandon(n, e)),
+                confiance: json!({}),
+                ..Default::default()
+            }));
+        }
+    }
+    remettre(pool, id, voie, &message_echec(pool, e).await).await?;
+    Ok(Lecture::Reportee)
+}
+
+/// Phrase d'un document abandonné après `n` pannes.
+fn message_abandon(n: i32, e: &ErreurClaude) -> String {
+    let cause = match e {
+        ErreurClaude::Delai(_) => "Claude n’a pas répondu à temps (délai dépassé)",
+        _ => "Claude était en panne ou injoignable",
+    };
+    format!("Lecture abandonnée après {n} essais : {cause}. Relancez la lecture pour réessayer.")
+}
+
 /// Reprend le résultat d'un document au contenu identique déjà lu. Rend vrai si c'est fait.
 async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Result<bool> {
     let Some(source) = sqlx::query_scalar!(
@@ -355,7 +419,7 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
             s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur,
             s.date_echeance
             from document s where s.id = $2),
-          copie_de = $2, pris_le = null, lu_le = now()
+          copie_de = $2, pris_le = null, lu_le = now(), essais_lecture = 0
          where d.id = $1",
         id,
         source
@@ -420,6 +484,7 @@ fn lu_depuis_xml(
         lignes: d.lignes.clone(),
         numeros_bl: d.numeros_bl.clone(),
         lignes_lues: true,
+        lignes_tronquees: d.lignes_tronquees,
         texte,
         resultat: serde_json::to_value(&d).ok(),
         ..Default::default()
@@ -467,6 +532,7 @@ fn lu_depuis_extraction(
         annexes_ht: e.annexes_ht.map(f64::abs),
         fournisseur: e.fournisseur,
         confiance,
+        lignes_tronquees: e.lignes_tronquees,
         lignes: e.lignes,
         numeros_bl: e.numeros_bl,
         lignes_lues: true,
@@ -674,7 +740,11 @@ async fn lire_pris(
             donnees,
             texte,
         } => lu_depuis_xml(voie, *donnees, texte, &soc),
-        Aiguillage::Texte { voie, texte } => {
+        Aiguillage::Texte {
+            voie,
+            texte,
+            tronque,
+        } => {
             let societe_code = societe::dans_texte(&texte, &soc);
             let mail = ContexteMail {
                 expediteur: &e.expediteur,
@@ -694,7 +764,9 @@ async fn lire_pris(
             };
             match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, src).await? {
                 Lecture::Faite(ex, reglage, an) => {
-                    let lu = lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
+                    let mut lu =
+                        lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
+                    lu.lignes_tronquees |= tronque;
                     avec_anomalies(lu, an)
                 }
                 Lecture::Reportee => return Ok(()),
@@ -868,9 +940,9 @@ async fn lire_par_claude(
                 None
             }
             Err(e) => {
-                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
-                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
-                return Ok(Lecture::Reportee);
+                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes (au
+                // plus ESSAIS_PANNE_MAX fois de suite pour une panne).
+                return apres_panne(pool, id, voie, &e).await;
             }
         }
     };
@@ -948,8 +1020,7 @@ async fn lire_par_claude(
         Err(e) => {
             tracing::warn!(document = id, erreur = %e, "nouvel essai de lecture impossible");
             if premiere.is_none() && !matches!(e, ErreurClaude::JsonInvalide) {
-                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
-                return Ok(Lecture::Reportee);
+                return apres_panne(pool, id, voie, &e).await;
             }
             e.to_string()
         }
@@ -966,4 +1037,39 @@ async fn lire_par_claude(
         confiance: json!({}),
         ..Default::default()
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn avoir_toujours_en_positif() {
+        let mut lu = Lu {
+            type_doc: Some("avoir".into()),
+            ht: Some(-10.0),
+            tva: Some(-2.0),
+            ttc: Some(-12.0),
+            ..Default::default()
+        };
+        avoir_en_positif(&mut lu);
+        assert_eq!((lu.ht, lu.tva, lu.ttc), (Some(10.0), Some(2.0), Some(12.0)));
+        // Une facture garde son signe (facture négative : à voir par un humain).
+        let mut lu = Lu {
+            type_doc: Some("facture".into()),
+            ttc: Some(-12.0),
+            ..Default::default()
+        };
+        avoir_en_positif(&mut lu);
+        assert_eq!(lu.ttc, Some(-12.0));
+    }
+
+    #[test]
+    fn phrase_d_abandon_lisible() {
+        assert_eq!(
+            message_abandon(3, &ErreurClaude::Delai(300)),
+            "Lecture abandonnée après 3 essais : Claude n’a pas répondu à temps (délai dépassé). \
+             Relancez la lecture pour réessayer."
+        );
+    }
 }

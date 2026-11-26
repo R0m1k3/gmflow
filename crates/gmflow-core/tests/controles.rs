@@ -25,6 +25,7 @@ fn bonne() -> Facture<'static> {
         tva: Some(20.0),
         ttc: Some(120.0),
         adresse_depot: true,
+        ..Default::default()
     }
 }
 
@@ -55,13 +56,21 @@ fn facture_conforme() {
 #[test]
 fn chaque_controle() {
     let mut f = bonne();
-    f.ttc = Some(120.03);
+    f.ttc = Some(120.06);
     assert_eq!(codes(&f, jour()), ["montants"]);
-    f.ttc = Some(120.02);
-    assert!(codes(&f, jour()).is_empty(), "0,02 € toléré");
+    f.ttc = Some(120.05);
+    assert!(
+        codes(&f, jour()).is_empty(),
+        "0,05 € toléré (seuil partagé)"
+    );
 
     let mut f = bonne();
     f.fournisseur_siret = Some("55210055400014");
+    assert_eq!(codes(&f, jour()), ["identifiants"]);
+    // SIREN seul (9 chiffres), demandé à la lecture à défaut de SIRET : accepté s'il est juste.
+    f.fournisseur_siret = Some("552 100 554");
+    assert!(codes(&f, jour()).is_empty(), "SIREN valide accepté");
+    f.fournisseur_siret = Some("552100555");
     assert_eq!(codes(&f, jour()), ["identifiants"]);
 
     let mut f = bonne();
@@ -148,4 +157,85 @@ fn messages_dans_le_vocabulaire_de_l_ecran() {
     f.adresse_depot = false;
     let e = controler(&f, jour());
     assert!(!e[0].message.contains("structure") && e[0].message.contains("Dext"));
+}
+
+#[test]
+fn controles_de_coherence() {
+    // Échéance avant la date du document.
+    let mut f = bonne();
+    f.echeance = Some(time::macros::date!(2026 - 11 - 01));
+    assert_eq!(codes(&f, jour()), ["echeance"]);
+    assert_eq!(
+        controler(&f, jour())[0].message,
+        "Échéance du 01/11/2026 avant la date du document (12/11/2026)"
+    );
+    f.echeance = Some(time::macros::date!(2026 - 12 - 12));
+    assert!(codes(&f, jour()).is_empty());
+
+    // SIRET et TVA lus ≠ fiche fournisseur ; un autre établissement (même SIREN) passe.
+    let mut f = bonne();
+    f.siret_lu = Some("73282932000074");
+    f.sirets_fiche = vec!["55210055400013"];
+    assert_eq!(codes(&f, jour()), ["identite"]);
+    f.siret_lu = Some("552 100 554");
+    assert!(codes(&f, jour()).is_empty(), "même SIREN");
+    f.sirets_fiche = vec![];
+    f.siret_lu = Some("73282932000074");
+    assert!(
+        codes(&f, jour()).is_empty(),
+        "fiche sans SIRET : rien à comparer"
+    );
+    let mut f = bonne();
+    f.tva_lue = Some("FR 89 380129866");
+    f.tvas_fiche = vec!["FR96552100554"];
+    assert_eq!(codes(&f, jour()), ["identite"]);
+    f.tvas_fiche = vec!["FR96552100554", "FR89380129866"];
+    assert!(codes(&f, jour()).is_empty(), "TVA du groupe");
+
+    // Devise.
+    let mut f = bonne();
+    f.devise = Some("USD");
+    assert_eq!(codes(&f, jour()), ["devise"]);
+    f.devise = Some("EUR");
+    assert!(codes(&f, jour()).is_empty());
+
+    // TVA au-dessus de 20 % du HT.
+    let mut f = bonne();
+    f.tva = Some(25.0);
+    f.ttc = Some(125.0);
+    assert_eq!(codes(&f, jour()), ["tva"]);
+}
+
+#[test]
+fn somme_des_lignes_et_ht() {
+    let mut f = bonne();
+    f.somme_lignes = Some(100.0);
+    assert!(codes(&f, jour()).is_empty());
+    f.somme_lignes = Some(90.0);
+    assert_eq!(codes(&f, jour()), ["lignes"]);
+    // Remise de pied de 10 % déduite après les lignes : expliqué.
+    let mut f = bonne();
+    f.somme_lignes = Some(111.11);
+    f.remise_ht = Some(11.11);
+    assert!(codes(&f, jour()).is_empty());
+    f.remise_ht = None;
+    f.remise_taux = Some(10.0);
+    f.somme_lignes = Some(111.1);
+    assert!(codes(&f, jour()).is_empty(), "remise en taux");
+    // Éco-participation ajoutée au HT (annexes lues à part, ou par unité sur les lignes).
+    let mut f = bonne();
+    f.somme_lignes = Some(97.5);
+    f.annexes_ht = Some(2.5);
+    assert!(codes(&f, jour()).is_empty());
+    f.annexes_ht = None;
+    f.eco_lignes = 2.5;
+    assert!(codes(&f, jour()).is_empty());
+    // Remise et port ensemble.
+    let mut f = bonne();
+    f.somme_lignes = Some(105.0);
+    f.remise_ht = Some(10.0);
+    f.annexes_ht = Some(5.0);
+    assert!(codes(&f, jour()).is_empty());
+    f.somme_lignes = Some(150.0);
+    assert_eq!(codes(&f, jour()), ["lignes"]);
 }

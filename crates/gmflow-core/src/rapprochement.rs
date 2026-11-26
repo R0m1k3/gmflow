@@ -15,10 +15,8 @@ use sqlx::{PgConnection, PgPool};
 
 use crate::lecture::extraction::{Ligne, eco_lignes};
 
-/// Écart de montant HT au-delà duquel une facture est signalée.
-pub const SEUIL_MONTANT: f64 = 0.05;
-/// Écart toléré entre la somme des lignes d'un BL et son total HT.
-pub const SEUIL_LIGNES_BL: f64 = 0.05;
+use crate::controles::SEUIL_ECART;
+
 /// Clé de verrou consultatif (avec l'id du fournisseur) : un calcul à la fois par fournisseur.
 const VERROU: i32 = 0x0052_4150;
 /// Texte d'un BL parcouru pour y chercher le n° d'une facture.
@@ -133,8 +131,9 @@ pub struct EcartLigne {
     pub montant_ht: Option<f64>,
 }
 
-/// Article d'un côté : lignes de même référence (sinon désignation) regroupées.
+/// Article d'un côté : lignes de même gencod (sinon référence, sinon désignation) regroupées.
 struct Article<'a> {
+    gencod: Option<String>,
     reference: Option<String>,
     designation: Option<String>,
     qte: f64,
@@ -143,7 +142,23 @@ struct Article<'a> {
     ligne: &'a Ligne,
 }
 
+/// Ce qui retrouve un article de l'autre côté, du plus sûr au moins sûr.
+#[derive(Clone, Copy)]
+enum Cle {
+    Gencod,
+    Reference,
+    Designation,
+}
+
 impl Article<'_> {
+    fn cle(&self, c: Cle) -> &Option<String> {
+        match c {
+            Cle::Gencod => &self.gencod,
+            Cle::Reference => &self.reference,
+            Cle::Designation => &self.designation,
+        }
+    }
+
     fn prix(&self) -> Option<f64> {
         self.montant
             .filter(|_| self.qte.abs() > 0.0005)
@@ -156,19 +171,39 @@ fn montant_ligne(l: &Ligne) -> Option<f64> {
         .or_else(|| Some(l.prix_unitaire_ht? * l.quantite?))
 }
 
+/// Gencod comparable : clé GS1 juste, zéros de tête retirés (GTIN-14 « 0… » = EAN-13).
+fn cle_gencod(l: &Ligne) -> Option<String> {
+    let g: String = l.gencod.as_deref()?.split_whitespace().collect();
+    crate::lecture::xml::gencod_valide(&g).then(|| g.trim_start_matches('0').to_string())
+}
+
+/// Quantité livrée ou facturée en unités : colis × PCB quand la ligne donne les deux (comme
+/// l'export Phénix), sinon la quantité.
+fn quantite(l: &Ligne) -> Option<f64> {
+    match (l.colis, l.pcb) {
+        (Some(c), Some(p)) if c > 0.0 && p > 0.0 => Some(c * p),
+        _ => l.quantite,
+    }
+}
+
 /// Articles d'un côté, dans l'ordre d'apparition.
 fn articles(lignes: &[Ligne]) -> Vec<Article<'_>> {
     let mut v: Vec<Article> = Vec::new();
     for l in lignes {
-        let Some(q) = l.quantite else { continue };
-        let (r, d) = (non_vide(&l.reference), non_vide(&l.designation));
-        if r.is_none() && d.is_none() {
+        let Some(q) = quantite(l) else { continue };
+        let (g, r, d) = (
+            cle_gencod(l),
+            non_vide(&l.reference),
+            non_vide(&l.designation),
+        );
+        if g.is_none() && r.is_none() && d.is_none() {
             continue;
         }
         let m = montant_ligne(l);
-        let meme = |a: &&mut Article| match (&r, &a.reference) {
-            (Some(x), Some(y)) => x == y,
-            (None, None) => d.is_some() && d == a.designation,
+        let meme = |a: &&mut Article| match (&g, &a.gencod, &r, &a.reference) {
+            (Some(x), Some(y), _, _) => x == y,
+            (_, _, Some(x), Some(y)) => x == y,
+            (_, _, None, None) => d.is_some() && d == a.designation,
             _ => false,
         };
         match v.iter_mut().find(meme) {
@@ -177,6 +212,7 @@ fn articles(lignes: &[Ligne]) -> Vec<Article<'_>> {
                 a.montant = a.montant.zip(m).map(|(x, y)| x + y);
             }
             None => v.push(Article {
+                gencod: g,
                 reference: r,
                 designation: d,
                 qte: q,
@@ -203,8 +239,9 @@ fn arrondi(v: f64) -> f64 {
 }
 
 /// Écarts entre les lignes d'une facture et celles de ses BL : articles manquants ou en trop,
-/// prix unitaires différents (hors remise de `remise_taux` %). Un article est retrouvé par sa
-/// référence, sinon par sa désignation (référence fournisseur d'un côté, pas de l'autre). Vide
+/// prix unitaires différents (hors remise de `remise_taux` %). Un article est retrouvé par son
+/// gencod, sinon sa référence, sinon sa désignation (référence fournisseur d'un côté, pas de
+/// l'autre) ; une ligne en colis compte colis × PCB unités. Vide
 /// si l'un des deux côtés n'a pas de lignes avec quantité (rien à comparer).
 pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> Vec<EcartLigne> {
     let (f, b) = (articles(facture), articles(bls));
@@ -245,17 +282,14 @@ pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> V
         });
     };
     for fa in &f {
-        let trouve = |par_ref: bool| {
-            (0..b.len()).find(|&i| {
-                !pris[i]
-                    && if par_ref {
-                        fa.reference.is_some() && fa.reference == b[i].reference
-                    } else {
-                        fa.designation.is_some() && fa.designation == b[i].designation
-                    }
-            })
+        let trouve = |cle: Cle| {
+            (0..b.len())
+                .find(|&i| !pris[i] && fa.cle(cle).is_some() && fa.cle(cle) == b[i].cle(cle))
         };
-        match trouve(true).or_else(|| trouve(false)) {
+        match trouve(Cle::Gencod)
+            .or_else(|| trouve(Cle::Reference))
+            .or_else(|| trouve(Cle::Designation))
+        {
             Some(i) => {
                 pris[i] = true;
                 ajouter(Some(fa), Some(&b[i]));
@@ -309,7 +343,7 @@ pub fn ecart_explique(
     if r <= 0.0 && a <= 0.0 {
         return false;
     }
-    (ecart + r - a).abs() <= SEUIL_MONTANT || (ecart - a).abs() <= SEUIL_MONTANT
+    (ecart + r - a).abs() <= SEUIL_ECART || (ecart - a).abs() <= SEUIL_ECART
 }
 
 /// HT de la facture moins la somme des BL, si tous les montants sont connus.
@@ -325,7 +359,7 @@ pub fn ecart_montant(facture_ht: Option<f64>, bls: &[Option<f64>]) -> Option<f64
 /// deux existent.
 pub fn controle_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Vec<Value> {
     match (somme_lignes(lignes), total_ht) {
-        (Some(s), Some(t)) if (s - t).abs() > SEUIL_LIGNES_BL => vec![json!({
+        (Some(s), Some(t)) if (s - t).abs() > SEUIL_ECART => vec![json!({
             "code": "lignes",
             "message": format!(
                 "la somme des lignes ({s:.2} €) ne fait pas le total HT ({t:.2} €)"
@@ -335,11 +369,22 @@ pub fn controle_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Vec<Value> {
     }
 }
 
+/// Contrôle d'un BL lu en partie seulement (`extraction::LIGNES_TRONQUEES`), à la place de la
+/// somme des lignes.
+pub fn controle_lignes_tronquees() -> Value {
+    json!({
+        "code": "lignes_tronquees",
+        "message": "BL trop long pour être lu en entier : des lignes articles manquent \
+                    (totaux non calculés, pas de comparaison avec la facture, export Phénix \
+                    incomplet)",
+    })
+}
+
 /// Lignes de plusieurs documents.
 pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i64, Vec<Ligne>>> {
     let r = sqlx::query!(
         "select document_id, reference, designation, quantite::float8 as quantite, unite,
-                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant,
+                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant, gencod,
                 colis::float8 as colis, pcb::float8 as pcb,
                 deee_ht::float8 as deee_ht, ecomob_ht::float8 as ecomob_ht
          from ligne_document where document_id = any($1) order by document_id, rang",
@@ -356,6 +401,7 @@ pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i
             unite: l.unite,
             prix_unitaire_ht: l.prix,
             montant_ht: l.montant,
+            gencod: l.gencod,
             colis: l.colis,
             pcb: l.pcb,
             deee_ht: l.deee_ht,
@@ -449,10 +495,11 @@ pub async fn ecrire_lignes(
 pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::Result<()> {
     let bls = sqlx::query!(
         r#"select b.id, b.montant_ht::float8 as ht,
-                coalesce(b.confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!"
-         from rapprochement r
-         join document b on b.id = r.bl_id
-         where r.facture_id = $1 and not r.rejete order by b.id"#,
+                  coalesce(b.confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!",
+                  coalesce((b.confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
+           from rapprochement r
+           join document b on b.id = r.bl_id
+           where r.facture_id = $1 and not r.rejete order by b.id"#,
         facture_id
     )
     .fetch_all(&mut *c)
@@ -461,7 +508,9 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
         return Ok(());
     }
     let f = sqlx::query!(
-        "select montant_ht::float8 as ht, remise_taux::float8 as taux from document where id = $1",
+        r#"select montant_ht::float8 as ht, remise_taux::float8 as taux,
+                  coalesce((confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
+           from document where id = $1"#,
         facture_id
     )
     .fetch_one(&mut *c)
@@ -476,7 +525,8 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
     let mut eco = 0.0;
     for b in &bls {
         let lignes_bl = l.remove(&b.id).unwrap_or_default();
-        montants.push(montant_bl(&lignes_bl, b.ht));
+        // Lignes incomplètes : leur somme n'est pas le montant du BL.
+        montants.push(montant_bl(if b.tronque { &[] } else { &lignes_bl }, b.ht));
         if b.ht_calcule && b.ht.is_some() {
             eco += eco_lignes(&lignes_bl);
         }
@@ -484,7 +534,14 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
     }
     let eco_bl = (eco > 0.005).then(|| (eco * 100.0).round() / 100.0);
     let ecart = ecart_montant(ht_facture, &montants);
-    let ecarts = json!(comparer(&lf, &lb, f.taux));
+    // Des lignes manquent d'un côté : les comparer fabriquerait des articles « en trop » ou
+    // « manquants ».
+    let tronque = f.tronque || bls.iter().any(|b| b.tronque);
+    let ecarts = if tronque {
+        json!([])
+    } else {
+        json!(comparer(&lf, &lb, f.taux))
+    };
     sqlx::query!(
         "update rapprochement set ecart_montant = $2::float8::numeric(14, 2), ecarts = $3,
                 eco_bl = $4::float8::numeric(14, 2)
@@ -506,7 +563,8 @@ pub async fn recalculer(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
     let Some(d) = sqlx::query!(
         r#"select etat, type, fournisseur_id, societe_id, numero, numero_commande, numeros_bl,
                 rapprochement_ignore, montant_ht::float8 as ht, left(texte, $2) as texte,
-                coalesce(confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!"
+                coalesce(confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!",
+                coalesce((confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
          from document where id = $1"#,
         document_id,
         TEXTE_CITATION
@@ -543,7 +601,11 @@ pub async fn recalculer(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
         let l = lignes(&mut tx, &[document_id]).await?;
         // HT calculé depuis les lignes (éco-participations comprises) : rien à contrôler.
         let total = d.ht.filter(|_| !d.ht_calcule);
-        let c = controle_bl(l.get(&document_id).map_or(&[][..], |v| v), total);
+        let c = if d.tronque {
+            vec![controle_lignes_tronquees()]
+        } else {
+            controle_bl(l.get(&document_id).map_or(&[][..], |v| v), total)
+        };
         sqlx::query!(
             "update document set controles = $2 where id = $1",
             document_id,

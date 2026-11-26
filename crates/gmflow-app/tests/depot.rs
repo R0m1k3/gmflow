@@ -165,8 +165,8 @@ async fn correction_droits_et_controles_relances() {
     // Correction des montants sur son propre document : enregistrée avec la valeur lue.
     let mut c = correction.clone();
     c["numero"] = json!("F-1");
-    c["montant_ht"] = json!(40.0);
-    c["montant_tva"] = json!(20.0);
+    c["montant_ht"] = json!(50.5);
+    c["montant_tva"] = json!(9.5);
     let r = app
         .requete("PUT", &format!("/api/documents/{doc}"), Some(c), resp)
         .await;
@@ -175,7 +175,7 @@ async fn correction_droits_et_controles_relances() {
         .requete("GET", &format!("/api/documents/{doc}"), None, resp)
         .await;
     assert_eq!(r.json["corrections"]["montant_ht"]["avant"], 50.0);
-    assert_eq!(r.json["corrections"]["montant_ht"]["apres"], 40.0);
+    assert_eq!(r.json["corrections"]["montant_ht"]["apres"], 50.5);
     assert!(r.json["verifie_le"].is_string());
     let codes: Vec<&str> = r.json["controles"]
         .as_array()
@@ -398,4 +398,107 @@ async fn doublon_lu_avant_l_original() {
         .unwrap();
     assert_ne!(statut(app, original).await.as_deref(), Some("doublon"));
     assert_eq!(statut(app, copie).await.as_deref(), Some("doublon"));
+}
+
+#[tokio::test]
+async fn doublon_sur_numero_normalise_et_meme_type() {
+    let m = monde().await;
+    let app = &m.app;
+    let original = facture(&m, &[m.boite_a], m.sa, "FA 2026-001").await;
+    assert_ne!(statut(app, original).await.as_deref(), Some("doublon"));
+    // Même numéro écrit autrement : doublon.
+    let copie = facture(&m, &[m.boite_a], m.sa, "fa2026/001").await;
+    assert_eq!(statut(app, copie).await.as_deref(), Some("doublon"));
+    // Un avoir au même numéro (et même montant) n'est pas un doublon de la facture.
+    let avoir = facture_lue(&m, &[m.boite_a], m.sa, "FA2026001").await;
+    sqlx::query("update document set type = 'avoir' where id = $1")
+        .bind(avoir)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    gmflow_core::depot::evaluer(app.pool(), avoir)
+        .await
+        .unwrap();
+    assert_ne!(statut(app, avoir).await.as_deref(), Some("doublon"));
+}
+
+#[tokio::test]
+async fn controles_de_la_facture_en_base() {
+    let m = monde().await;
+    let app = &m.app;
+    let id = facture_lue(&m, &[m.boite_a], m.sa, "F-50").await;
+    // Échéance avant la date, SIRET lu d'une autre société que la fiche, lignes trop courtes,
+    // devise d'une facture électronique.
+    sqlx::query(
+        "update document set date_echeance = current_date - 10, fournisseur_siret = '73282932000074',
+                resultat = '{\"devise\": \"USD\"}' where id = $1;",
+    )
+    .bind(id)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "insert into ligne_document (document_id, rang, designation, quantite, montant_ht)
+         values ($1, 0, 'Seau', 2, 20), ($1, 1, 'Balai', 1, 10)",
+    )
+    .bind(id)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    gmflow_core::depot::evaluer(app.pool(), id).await.unwrap();
+    let controles: serde_json::Value =
+        sqlx::query_scalar("select controles from document where id = $1")
+            .bind(id)
+            .fetch_one(app.pool())
+            .await
+            .unwrap();
+    let codes: Vec<&str> = controles
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|c| c["code"].as_str())
+        .collect();
+    for c in ["echeance", "identite", "lignes", "devise"] {
+        assert!(codes.contains(&c), "{c} absent de {codes:?}");
+    }
+    assert_eq!(statut(app, id).await.as_deref(), Some("a_verifier"));
+    // Lignes complètes (50 € HT) : plus d'alerte sur la somme.
+    sqlx::query("update ligne_document set montant_ht = 30 where document_id = $1 and rang = 1")
+        .bind(id)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    gmflow_core::depot::evaluer(app.pool(), id).await.unwrap();
+    let n: i64 = sqlx::query_scalar(
+        "select count(*) from document, jsonb_array_elements(controles) c
+         where id = $1 and c->>'code' = 'lignes'",
+    )
+    .bind(id)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    assert_eq!(n, 0);
+    // Lignes coupées à la lecture : pas de contrôle de la somme.
+    sqlx::query("update ligne_document set montant_ht = 1 where document_id = $1")
+        .bind(id)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "update document set confiance = confiance || '{\"lignes_tronquees\": true}' where id = $1",
+    )
+    .bind(id)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    gmflow_core::depot::evaluer(app.pool(), id).await.unwrap();
+    let n: i64 = sqlx::query_scalar(
+        "select count(*) from document, jsonb_array_elements(controles) c
+         where id = $1 and c->>'code' = 'lignes'",
+    )
+    .bind(id)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    assert_eq!(n, 0);
 }

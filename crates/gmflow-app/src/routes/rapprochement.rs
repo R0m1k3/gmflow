@@ -8,7 +8,8 @@ use std::collections::{BTreeMap, HashMap};
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use gmflow_core::rapprochement::{self as rap, ErreurLien, SEUIL_MONTANT};
+use gmflow_core::controles::SEUIL_ECART;
+use gmflow_core::rapprochement::{self as rap, ErreurLien};
 use gmflow_core::{file, journal};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -107,7 +108,7 @@ struct Lien {
 
 fn avec_ecart(ecart: Option<f64>, eco_bl: Option<f64>, ecarts: &Value, f: &DocRap) -> bool {
     ecart.is_some_and(|e| {
-        e.abs() > SEUIL_MONTANT && !rap::ecart_explique(e, f.remise_ht, f.annexes_ht, eco_bl)
+        e.abs() > SEUIL_ECART && !rap::ecart_explique(e, f.remise_ht, f.annexes_ht, eco_bl)
     }) || ecarts.as_array().is_some_and(|a| !a.is_empty())
 }
 
