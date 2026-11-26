@@ -26,7 +26,10 @@
     void societe.id;
     untrack(() => void lst.lire());
     return sonder(async () => {
-      if (document.visibilityState === 'visible') await lst.lire(true);
+      if (document.visibilityState !== 'visible') return;
+      // Ne pas faire bouger les lignes sous la souris ou le focus : on relira au prochain passage.
+      if (listeEl && (listeEl.matches(':hover') || listeEl.contains(document.activeElement))) return;
+      await lst.lire(true);
     }, 60_000);
   });
 
