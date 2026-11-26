@@ -231,6 +231,65 @@ async fn compte_desactive_et_responsable() {
 }
 
 #[tokio::test]
+async fn identifiant_unique_sans_tenir_compte_de_la_casse() {
+    let app = Appli::new().await;
+    let soc = app.societe("Frouard").await;
+    app.utilisateur("michael", MDP, "admin", None).await;
+    let marie = app
+        .utilisateur("Marie", MDP, "responsable", Some(soc))
+        .await;
+    let c = app.connecter("michael", MDP).await;
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/utilisateurs",
+            Some(json!({"identifiant": " marie ", "mot_de_passe": MDP, "role": "responsable", "societe_id": soc})),
+            Some(&c),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST, "{:?}", r.json);
+    assert_eq!(r.json["champ"], "identifiant");
+    // Renommer un autre compte en « MARIE » : refusé ; changer la casse du sien : permis.
+    let r = app
+        .requete(
+            "PUT",
+            &format!("/api/admin/utilisateurs/{marie}"),
+            Some(json!({"identifiant": "marie", "role": "responsable", "societe_id": soc})),
+            Some(&c),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
+    let r = app
+        .requete(
+            "POST",
+            "/api/admin/utilisateurs",
+            Some(json!({"identifiant": "paul", "mot_de_passe": MDP, "role": "responsable", "societe_id": soc})),
+            Some(&c),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
+    let paul = r.json["id"].as_i64().unwrap();
+    let r = app
+        .requete(
+            "PUT",
+            &format!("/api/admin/utilisateurs/{paul}"),
+            Some(json!({"identifiant": "MARIE", "role": "responsable", "societe_id": soc})),
+            Some(&c),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::BAD_REQUEST, "{:?}", r.json);
+    // La base refuse aussi (index sur lower(identifiant)).
+    let e = sqlx::query(
+        "insert into utilisateur (identifiant, hash_mdp, role) values ('MICHAEL', 'x', 'admin')",
+    )
+    .execute(app.pool())
+    .await
+    .unwrap_err();
+    assert!(e.as_database_error().unwrap().is_unique_violation(), "{e}");
+    app.fermer().await;
+}
+
+#[tokio::test]
 async fn entetes_de_securite() {
     let app = Appli::new().await;
     for chemin in ["/health", "/api/moi", "/api/inconnue"] {
