@@ -12,6 +12,7 @@
   import { quandCourt } from '#lib/ui/DocOutils.ts';
   import Icone, { type NomIcone } from '#lib/ui/Icone.svelte';
   import AideClavier from '#lib/ui/AideClavier.svelte';
+  import AnnulerEnvoi from '#lib/ui/AnnulerEnvoi.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
 
   let { children } = $props();
@@ -307,7 +308,7 @@
   </nav>
 {/if}
 
-{#if session.moi && !publique}<AideClavier bind:ouvert={aideClavier} />{/if}
+{#if session.moi && !publique}<AideClavier bind:ouvert={aideClavier} /><AnnulerEnvoi />{/if}
 
 <style>
   /* Ordinateur (≥ 1024 px) : barre latérale sauge à gauche, colonne blanche à droite (maquette Sauge). */

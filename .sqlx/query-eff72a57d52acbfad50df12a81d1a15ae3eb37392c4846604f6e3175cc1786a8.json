@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select greatest(extract(epoch from prevu_pour - now()), 0)::float8 as \"s!\"\n           from envoi_prevu where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "s!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "eff72a57d52acbfad50df12a81d1a15ae3eb37392c4846604f6e3175cc1786a8"
+}

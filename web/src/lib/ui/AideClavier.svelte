@@ -23,8 +23,9 @@
     {
       titre: 'Dans une fiche document',
       lignes: [
-        { touches: [['Enter']], texte: 'Valider (le bouton principal)' },
+        { touches: [['Enter']], texte: 'Valider (le bouton principal), ou remettre à contrôler une pièce écartée' },
         { touches: [['E']], texte: 'Écarter' },
+        { touches: [['Ctrl', 'Z']], texte: 'Annuler la dernière validation, tant que l’envoi n’est pas parti' },
         { touches: [['F']], texte: 'Ouvrir en pleine page' }
       ]
     },

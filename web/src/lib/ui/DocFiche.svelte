@@ -27,11 +27,14 @@
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
-  import { api, ecarterDocument, ErreurApi, message, modifierFournisseur, sonder, urlApercu, validerDocument } from '#lib/api.ts';
+  import { api, ecarterDocument, ErreurApi, message, modifierFournisseur, remettreDocument, sonder, urlApercu, validerDocument } from '#lib/api.ts';
+  import { annulations } from '#lib/annulations.svelte.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import {
     libelleEtat,
+    libelleMotif,
+    MOTIFS_ECARTEMENT,
     libelleStatutEnvoi,
     libelleStatutFournisseur,
     libelleType,
@@ -57,6 +60,7 @@
     ChangementsFournisseur,
     Fournisseur,
     LigneFournisseur,
+    MotifEcartement,
     Page,
     TypeDocument
   } from '#lib/types.ts';
@@ -167,7 +171,7 @@
   let erreur = $state('');
   let info = $state('');
   let refus = $state<{ code: CodeRefus | undefined; message: string } | null>(null);
-  let occupe = $state<'valider' | 'forcer' | 'ecarter' | 'relire' | 'fournisseur' | null>(null);
+  let occupe = $state<'valider' | 'forcer' | 'ecarter' | 'remettre' | 'relire' | 'fournisseur' | null>(null);
   let choix = $state<Choix>({ ...VIDE });
   let lu = $state<Choix>({ ...VIDE });
   /** Maillons dépliés de la chaîne (DocChaine). */
@@ -534,10 +538,12 @@
     try {
       const r = await validerDocument(d.id, { corrections, forcer: forcer || undefined }, societe.id);
       void rafraichirCompteurs();
+      // Envoi différé côté serveur : message « Annuler » en bas de l'écran, la suite s'ouvre.
+      if (r.annulation) annulations.annoncer(r.annulation, `${quoi} validée`, nomOutil(outil));
       onfait({
         id: d.id,
         suivant: r.suivant,
-        info: r.envoi ? `Envoi à ${nomOutil(outil)} demandé : ${quoi}` : `Validé : ${quoi}`
+        info: r.annulation ? '' : r.envoi ? `Envoi à ${nomOutil(outil)} demandé : ${quoi}` : `Validé : ${quoi}`
       });
     } catch (e) {
       if (e instanceof ErreurApi && e.code === 409) {
@@ -549,15 +555,43 @@
     }
   }
 
-  async function ecarter() {
+  /** Motif choisi dans le dialogue « Écarter » (facultatif). */
+  let motifEcart = $state<MotifEcartement | null>(null);
+  let texteEcart = $state('');
+  $effect(() => {
+    if (dlgEcarter) {
+      motifEcart = null;
+      texteEcart = '';
+    }
+  });
+
+  async function ecarter(motif: MotifEcartement | null = null, texte = '') {
     if (!d || occupe) return;
     occupe = 'ecarter';
     erreur = '';
     const quoi = titreDoc;
     try {
-      const r = await ecarterDocument(d.id, societe.id);
+      const r = await ecarterDocument(d.id, societe.id, { motif, texte: texte.trim() || null });
       void rafraichirCompteurs();
       onfait({ id: d.id, suivant: r.suivant, info: `Écarté : ${quoi}` });
+    } catch (e) {
+      erreur = message(e);
+    } finally {
+      occupe = null;
+    }
+  }
+
+  /** « Remettre à contrôler » une pièce écartée : elle retrouve son état d'avant l'écartement. */
+  async function remettre() {
+    if (!d || occupe) return;
+    occupe = 'remettre';
+    erreur = '';
+    try {
+      await remettreDocument(d.id);
+      info = 'De nouveau à contrôler.';
+      await charger(d.id, true);
+      onchange?.();
+      void rafraichirCompteurs();
     } catch (e) {
       erreur = message(e);
     } finally {
@@ -638,6 +672,15 @@
     !!d && d.etat === 'lu' && (d.type === 'facture' || d.type === 'avoir') && d.montant_ttc === null && d.statut_depot !== 'depose'
   );
 
+  /** Écartée par un humain (ou doublon écarté) : « Remettre à contrôler » possible. */
+  let ecartee = $derived(!!d && (d.etat === 'ignore' || (d.statut_depot === 'doublon' && !!d.verifie_le && !!d.ecartement)));
+  let phraseEcartement = $derived.by(() => {
+    const e = d?.ecartement;
+    if (!e) return '';
+    const m = libelleMotif(e.motif);
+    return `Écartée le ${jourHeure(e.le)}${e.par_nom ? ` par ${e.par_nom}` : ''}.${m ? ` Motif : ${m}${e.texte ? `, ${e.texte}` : ''}.` : e.texte ? ` ${e.texte}` : ''}`;
+  });
+
   // Plan de la barre d'action selon l'état du document.
   type Plan = { principal: Action; secondaires: Action[]; ecarter?: () => void };
   let plan = $derived.by((): Plan => {
@@ -645,13 +688,12 @@
     if (!d) return { principal: { libelle: libelleValider(null, null), desactive: true }, secondaires: [] };
     if (d.etat === 'a_lire' || d.etat === 'en_cours') return { principal: { libelle: libelleEtat(d.etat), enCours: true }, secondaires: [] };
     if (d.etat === 'erreur') {
-      const e = { libelle: 'Écarter', touche: 'Enter', onclick: ecarter, enCours: occupe === 'ecarter', desactive: occ };
-      return { principal: e, secondaires: [], ecarter };
+      const e = { libelle: 'Écarter', touche: 'Enter', onclick: () => ecarter(), enCours: occupe === 'ecarter', desactive: occ };
+      return { principal: e, secondaires: [], ecarter: () => ecarter() };
     }
-    if (d.etat === 'ignore') {
-      return admin
-        ? { principal: { libelle: 'Relire avec Claude', onclick: () => (dlgRelire = true) }, secondaires: [] }
-        : { principal: { libelle: `Retour à ${retourLibelle}`, href: retour }, secondaires: [] };
+    if (ecartee) {
+      const r: Action = { libelle: 'Remettre à contrôler', touche: 'Enter', onclick: remettre, enCours: occupe === 'remettre', desactive: occ };
+      return { principal: r, secondaires: admin && d.etat === 'ignore' ? [{ libelle: 'Relire avec Claude', onclick: () => (dlgRelire = true), desactive: occ }] : [] };
     }
     if (d.statut_depot === 'en_envoi') return { principal: { libelle: libelleStatutEnvoi('en_envoi'), enCours: true }, secondaires: [] };
     if (d.statut_depot === 'depose' || envoiDemande(d) || d.envoi_relance) return { principal: { libelle: `Retour à ${retourLibelle}`, href: retour }, secondaires: [] };
@@ -659,7 +701,7 @@
       const sec: Action[] = admin
         ? [{ libelle: 'Envoyer quand même', danger: true, onclick: () => (dlgForcer = true), enCours: occupe === 'forcer', desactive: occ }]
         : [];
-      return { principal: { libelle: 'Écarter le doublon', touche: 'Enter', onclick: ecarter, enCours: occupe === 'ecarter', desactive: occ }, secondaires: sec, ecarter };
+      return { principal: { libelle: 'Écarter le doublon', touche: 'Enter', onclick: () => ecarter('doublon'), enCours: occupe === 'ecarter', desactive: occ }, secondaires: sec, ecarter: () => ecarter('doublon') };
     }
     if (d.statut_depot === 'erreur') {
       return {
@@ -1073,7 +1115,9 @@
         {:else if d.etat === 'erreur'}
           <Bandeau ton="erreur" titre="Illisible.">{d.message ? phrase(d.message) : 'La lecture a échoué.'}{admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}</Bandeau>
         {:else if d.etat === 'ignore'}
-          <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}</Bandeau>
+          <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">{#if d.ecartement}{phraseEcartement}{:else}Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}{/if}</Bandeau>
+        {:else if ecartee}
+          <Bandeau ton="neutre" titre="Doublon écarté.">{phraseEcartement}</Bandeau>
         {:else if d.statut_depot === 'en_envoi'}
           <Bandeau ton="info" titre="{libelleStatutEnvoi('en_envoi')}.">La fiche se met à jour toute seule.</Bandeau>
         {:else if envoiDemande(d)}
@@ -1383,10 +1427,19 @@
   </section>
 </div>
 
-<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarter}>
-  <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
+<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={() => ecarter(motifEcart, texteEcart)}>
+  <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la liste. Il reste visible dans la recherche.</p>
+  <fieldset class="motif-ecart">
+    <legend>Pourquoi ? (facultatif)</legend>
+    {#each MOTIFS_ECARTEMENT as m (m.valeur)}
+      <label class="case"><input type="radio" name="motif-ecart" value={m.valeur} bind:group={motifEcart} /> {m.libelle}</label>
+    {/each}
+    <label class="champ"
+      ><span class="libelle">Précision</span><input type="text" maxlength="500" bind:value={texteEcart} placeholder="Facultatif" /></label
+    >
+  </fieldset>
 </Confirmation>
-<Confirmation bind:ouvert={dlgRejeter} titre="Rejeter ce document ?" libelle="Rejeter" danger onconfirmer={ecarter}>
+<Confirmation bind:ouvert={dlgRejeter} titre="Rejeter ce document ?" libelle="Rejeter" danger onconfirmer={() => ecarter('pas_pour_nous')}>
   <p>{titreDoc} n’est pour aucune de vos sociétés : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
 </Confirmation>
 <Confirmation bind:ouvert={dlgForcer} titre="Envoyer ce doublon quand même ?" libelle="Envoyer quand même" danger onconfirmer={() => valider(true)}>
@@ -1403,6 +1456,28 @@
 </Confirmation>
 
 <style>
+  .motif-ecart {
+    border: 0;
+    margin: var(--e4) 0 0;
+    padding: 0;
+    display: grid;
+    gap: var(--e2);
+  }
+  .motif-ecart legend {
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: var(--e2);
+    padding: 0;
+  }
+  .motif-ecart .champ {
+    margin-top: var(--e2);
+  }
+  @media (max-width: 760px) {
+    .motif-ecart .case {
+      min-height: 44px;
+      align-items: center;
+    }
+  }
   /* trois colonnes avec la liste : aperçu au centre, fiche de 360 px à droite (pied d'action compris) */
   .doc-corps {
     overflow: hidden;

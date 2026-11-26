@@ -10,6 +10,7 @@
   import { page } from '$app/state';
   import { untrack } from 'svelte';
   import { requete, sonder } from '#lib/api.ts';
+  import { annulations } from '#lib/annulations.svelte.ts';
   import { deplacer, fleche, montrer, raccourcis, type Gestionnaire } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libelleStatutEnvoi, nomCourtSociete, tonEtat, tonStatutEnvoi, type Ton } from '#lib/libelles.ts';
@@ -88,6 +89,8 @@
       if (lst.total !== avant) majListe = `Liste mise à jour : ${lst.total} ${lst.total > 1 ? 'éléments' : 'élément'}`;
     }, 60_000);
   });
+  // Validation annulée depuis le message du bas : la pièce revient dans la liste.
+  $effect(() => annulations.surAnnulation(() => void lst.lire(true)));
   /** Annonce aux lecteurs d'écran, quand la liste change toute seule. */
   let majListe = $state('');
 

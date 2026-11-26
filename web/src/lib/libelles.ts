@@ -4,6 +4,7 @@ import type {
   Categorie,
   Controle,
   EtatDocument,
+  MotifEcartement,
   Priorite,
   StatutBrouillon,
   StatutDepot,
@@ -338,3 +339,13 @@ export const AIDES = {
   }
 } as const;
 export type SujetAide = keyof typeof AIDES;
+
+/** Motifs rapides d'« Écarter » (fiche). */
+export const MOTIFS_ECARTEMENT: { valeur: MotifEcartement; libelle: string }[] = [
+  { valeur: 'doublon', libelle: 'Doublon' },
+  { valeur: 'pas_pour_nous', libelle: 'Pas pour nous' },
+  { valeur: 'autre', libelle: 'Autre' }
+];
+export function libelleMotif(m: MotifEcartement | null | undefined): string {
+  return MOTIFS_ECARTEMENT.find((x) => x.valeur === m)?.libelle ?? '';
+}

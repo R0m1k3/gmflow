@@ -315,6 +315,8 @@ export interface FicheDocument {
   recu_le: string;
   /** Envoi en échec relancé il y a moins de 30 min, pas encore repris : ne pas renvoyer. */
   envoi_relance: boolean;
+  /** Écartée par un humain : quand, par qui, pourquoi. */
+  ecartement: Ecartement | null;
   envois: Envoi[];
   /** Boîtes de réception du mail d'origine (visibles). */
   boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
@@ -773,6 +775,32 @@ export interface ResultatValidation {
   envoi: boolean;
   /** Document suivant de la file, ou null : « Tout est validé ». */
   suivant: number | null;
+  /** Envoi demandé : il part après `delai_s` secondes, sauf « Annuler ». */
+  annulation?: Annulable;
+}
+
+/** Envoi à Dext/Yooz encore annulable (délai donné par le serveur). */
+export interface Annulable {
+  lot: string;
+  delai_s: number;
+}
+
+/** Réponse de `POST /api/documents/annuler-envoi`. */
+export interface ResultatAnnulation {
+  annulees: number;
+  deja_parties: number;
+  pieces: { id: number; issue: 'annulee' | 'deja_partie' | 'rien_a_annuler' }[];
+}
+
+export type MotifEcartement = 'doublon' | 'pas_pour_nous' | 'autre';
+
+/** Écartement d'une pièce par un humain (fiche). */
+export interface Ecartement {
+  le: string;
+  par: number | null;
+  par_nom: string | null;
+  motif: MotifEcartement | null;
+  texte: string | null;
 }
 
 export interface EtatFournisseur {

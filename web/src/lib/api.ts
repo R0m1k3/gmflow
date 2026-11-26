@@ -14,7 +14,9 @@ import type {
   Fournisseur,
   LigneFournisseur,
   MiseEnRoute,
+  MotifEcartement,
   Page,
+  ResultatAnnulation,
   ResultatValidation,
   ResultatsRecherche
 } from './types';
@@ -127,9 +129,15 @@ export const aTraiter = {
 export const validerDocument = (id: number, demande: DemandeValidation = {}, societe?: number | null) =>
   api.post<ResultatValidation>(`/api/documents/${id}/valider${requete({ societe })}`, demande);
 
-/** « Écarter » : un doublon (gardé comme doublon), ou tout document lu ou illisible (« Écarté »). */
-export const ecarterDocument = (id: number, societe?: number | null) =>
-  api.post<ResultatValidation>(`/api/documents/${id}/ecarter${requete({ societe })}`);
+/** « Écarter » : un doublon (gardé comme doublon), ou tout document lu ou illisible (« Écarté »), avec un motif facultatif. */
+export const ecarterDocument = (id: number, societe?: number | null, motif?: { motif?: MotifEcartement | null; texte?: string | null }) =>
+  api.post<ResultatValidation>(`/api/documents/${id}/ecarter${requete({ societe })}`, motif ?? {});
+
+/** « Remettre à contrôler » une pièce écartée : elle retrouve son état d'avant. */
+export const remettreDocument = (id: number) => api.post<{ id: number; etat: string; statut_depot: string | null }>(`/api/documents/${id}/remettre`);
+
+/** « Annuler » : les envois d'une validation (ou d'un lot) pas encore partis sont annulés. */
+export const annulerEnvoi = (lot: string) => api.post<ResultatAnnulation>('/api/documents/annuler-envoi', { lot });
 
 export const fournisseurs = (p: { societe?: number | null; q?: string; statut?: string; page?: number } = {}) =>
   api.get<Page<LigneFournisseur>>(`/api/fournisseurs${requete(p)}`);

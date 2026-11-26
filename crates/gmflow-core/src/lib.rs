@@ -10,6 +10,7 @@ pub mod crypto;
 pub mod db;
 pub mod depot;
 pub mod eml;
+pub mod envoi_prevu;
 pub mod essai_boite;
 pub mod expedition;
 pub mod export_phenix;

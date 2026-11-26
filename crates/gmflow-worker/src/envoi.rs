@@ -2,7 +2,7 @@
 //! par mail, le fichier d'origine en pièce jointe), test de l'expédition et alertes.
 
 use gmflow_core::expedition::{self, PieceJointe};
-use gmflow_core::{depot, eml, file, journal, parametre, stockage};
+use gmflow_core::{depot, eml, envoi_prevu, file, journal, parametre, stockage};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -76,6 +76,34 @@ pub async fn deposer(
     forcer: bool,
     auteur_id: Option<i64>,
 ) -> anyhow::Result<()> {
+    deposer_avec(ctx, document_id, forcer, auteur_id, None).await
+}
+
+/// Dépôt d'une validation faite dans l'interface (`envoi_prevu`) : attend l'heure prévue (fin
+/// du délai d'annulation), puis dépose seulement si l'envoi est pris avant toute annulation.
+pub async fn deposer_prevu(
+    ctx: &Contexte,
+    prevu_id: i64,
+    document_id: i64,
+    forcer: bool,
+    auteur_id: Option<i64>,
+) -> anyhow::Result<()> {
+    let Some(s) = envoi_prevu::attente_restante(&ctx.pool, prevu_id).await? else {
+        return Ok(());
+    };
+    if s > 0.0 {
+        tokio::time::sleep(std::time::Duration::from_secs_f64(s)).await;
+    }
+    deposer_avec(ctx, document_id, forcer, auteur_id, Some(prevu_id)).await
+}
+
+async fn deposer_avec(
+    ctx: &Contexte,
+    document_id: i64,
+    forcer: bool,
+    auteur_id: Option<i64>,
+    prevu: Option<i64>,
+) -> anyhow::Result<()> {
     let pool = &ctx.pool;
     // Doublon revérifié juste avant l'envoi (la file `envoi` traite une tâche à la fois).
     let doublon = if forcer {
@@ -104,11 +132,36 @@ pub async fn deposer(
     else {
         return Ok(());
     };
+    // Envoi prévu par une validation : il ne part que si le worker le prend ici, avant une
+    // annulation (même verrou sur le document, passage `attente` → `pris` unique). Sans envoi
+    // prévu : un envoi prévu en attente passe d'abord (son délai et son annulation comptent).
+    match prevu {
+        Some(p) => {
+            if !envoi_prevu::prendre(&mut tx, p, document_id).await? {
+                tracing::info!(
+                    document = document_id,
+                    prevu = p,
+                    "dépôt ignoré (validation annulée)"
+                );
+                return Ok(());
+            }
+        }
+        None => {
+            if envoi_prevu::en_attente(&mut *tx, document_id).await? {
+                tracing::info!(
+                    document = document_id,
+                    "dépôt ignoré (envoi prévu en attente)"
+                );
+                return Ok(());
+            }
+        }
+    }
     let statut = d.statut_depot.as_deref().unwrap_or("");
     let autorise = if d.valide {
         matches!(statut, "a_verifier" | "pret" | "erreur") || (statut == "doublon" && forcer)
     } else {
-        statut == "pret" && d.auto
+        // Validation annulée par un humain : pas d'envoi automatique sans nouvelle validation.
+        statut == "pret" && d.auto && !envoi_prevu::annulee(&mut *tx, document_id).await?
     };
     if !autorise {
         tracing::info!(
@@ -116,7 +169,20 @@ pub async fn deposer(
             statut,
             "dépôt ignoré (statut ou validation)"
         );
+        if let Some(p) = prevu {
+            envoi_prevu::sans_suite(&mut tx, p).await?;
+            tx.commit().await?;
+        }
         return Ok(());
+    }
+    if let (Some(p), true) = (
+        prevu,
+        doublon.is_some()
+            || d.societe_id.is_none()
+            || d.adresse.as_deref().is_none_or(|a| a.trim().is_empty()),
+    ) {
+        // Rien ne partira (doublon, société ou adresse manquante) : noté sans suite.
+        envoi_prevu::sans_suite(&mut tx, p).await?;
     }
     if let Some((autre, _)) = doublon {
         let echec = json!([{ "code": "doublon", "message": format!("Même facture que le document {autre}") }]);
