@@ -16,6 +16,7 @@ pub mod documents;
 pub mod export_phenix;
 pub mod fichiers;
 pub mod fournisseurs;
+pub mod lot;
 pub mod mails;
 pub mod mise_en_route;
 pub mod rapprochement;
@@ -149,9 +150,11 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/documents/{id}/valider", post(documents::valider))
         .route("/documents/{id}/ecarter", post(documents::ecarter))
         .route("/documents/{id}/logiflow", post(admin_logiflow::relancer))
-        // Retour en arrière (routes/retour.rs).
+        // Retour en arrière et validation par lot (routes/retour.rs, routes/lot.rs).
         .route("/documents/annuler-envoi", post(retour::annuler_envoi))
         .route("/documents/{id}/remettre", post(retour::remettre))
+        .route("/documents/lot/eligibilite", post(lot::eligibilite))
+        .route("/documents/lot/valider", post(lot::valider))
         .route("/a-traiter", get(a_traiter::file))
         .route("/recherche", get(recherche::chercher))
         .route("/a-traiter/compteurs", get(a_traiter::compteurs))

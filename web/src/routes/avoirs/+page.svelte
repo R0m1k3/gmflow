@@ -12,4 +12,4 @@
   ];
 </script>
 
-<ListeDocuments titre="Avoirs" chemin="/avoirs" {filtres} rechercheType="avoir" videTitre="Aucun avoir" singulier="un avoir" section="Avoir" sansSuite="Aucun autre avoir dans cette liste" />
+<ListeDocuments titre="Avoirs" chemin="/avoirs" {filtres} rechercheType="avoir" videTitre="Aucun avoir" singulier="un avoir" section="Avoir" sansSuite="Aucun autre avoir dans cette liste" filtreLot="a-valider" />

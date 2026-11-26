@@ -7,6 +7,7 @@ import type {
   CompteursATraiter,
   DemandeEssaiBoite,
   DemandeValidation,
+  EligibiliteLot,
   EntreeBoite,
   EssaiBoite,
   FileATraiter,
@@ -17,6 +18,7 @@ import type {
   MotifEcartement,
   Page,
   ResultatAnnulation,
+  ResultatLot,
   ResultatValidation,
   ResultatsRecherche
 } from './types';
@@ -138,6 +140,12 @@ export const remettreDocument = (id: number) => api.post<{ id: number; etat: str
 
 /** « Annuler » : les envois d'une validation (ou d'un lot) pas encore partis sont annulés. */
 export const annulerEnvoi = (lot: string) => api.post<ResultatAnnulation>('/api/documents/annuler-envoi', { lot });
+
+/** Pièces cochables pour une validation par lot (100 au plus). */
+export const eligibiliteLot = (ids: number[]) => api.post<EligibiliteLot[]>('/api/documents/lot/eligibilite', { ids });
+
+/** « Valider N pièces » : chaque pièce sans alerte est validée, les autres laissées à contrôler. */
+export const validerLot = (ids: number[]) => api.post<ResultatLot>('/api/documents/lot/valider', { ids });
 
 export const fournisseurs = (p: { societe?: number | null; q?: string; statut?: string; page?: number } = {}) =>
   api.get<Page<LigneFournisseur>>(`/api/fournisseurs${requete(p)}`);

@@ -1029,25 +1029,42 @@ pub struct DemandeValidation {
     /// Administrateur seulement : envoyer un doublon quand même.
     #[serde(default)]
     forcer: bool,
+    /// Validation par lot (`routes::lot`), jamais lue du corps : envois regroupés sous ce lot,
+    /// et seulement une pièce sans alerte.
+    #[serde(skip)]
+    pub(crate) lot: Option<uuid::Uuid>,
+    #[serde(skip)]
+    pub(crate) sans_alerte: bool,
+}
+
+impl DemandeValidation {
+    /// Validation d'une pièce d'un lot : sans correction, sans forçage, sans alerte.
+    pub(crate) fn pour_lot(lot: uuid::Uuid) -> Self {
+        Self {
+            lot: Some(lot),
+            sans_alerte: true,
+            ..Default::default()
+        }
+    }
 }
 
 /// Société choisie dans l'interface, pour donner le document suivant de la même file.
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct ContexteFile {
     societe: Option<i64>,
 }
 
 #[derive(Serialize)]
 pub struct Validation {
-    id: i64,
-    statut_depot: Option<String>,
+    pub(crate) id: i64,
+    pub(crate) statut_depot: Option<String>,
     /// L'envoi à Dext/Yooz a été demandé (facture ou avoir).
-    envoi: bool,
+    pub(crate) envoi: bool,
     /// Document suivant de la file « À valider » (même ordre que `GET /api/a-traiter`).
     suivant: Option<i64>,
     /// Envoi demandé : il part après ce délai, sauf « Annuler » (`POST /api/documents/annuler-envoi`).
     #[serde(skip_serializing_if = "Option::is_none")]
-    annulation: Option<super::retour::Annulable>,
+    pub(crate) annulation: Option<super::retour::Annulable>,
 }
 
 fn refus(code: &'static str, message: &str) -> ErreurApi {
@@ -1093,8 +1110,13 @@ pub async fn valider(
             "document déjà envoyé ou en cours d'envoi",
         ));
     }
-    // État d'avant la validation, remis par « Annuler ».
+    // État d'avant la validation, remis par « Annuler » ; lot : pièce sans alerte seulement.
     let avant = gmflow_core::envoi_prevu::photo_avant(&mut tx, id).await?;
+    if dv.sans_alerte
+        && let Some(r) = super::lot::raison_hors_lot(&mut tx, id).await?
+    {
+        return Err(refus("alertes", &r));
+    }
     match &correction {
         Some(c) => appliquer_correction(&mut tx, &acces, id, c).await?,
         None => {
@@ -1119,6 +1141,9 @@ pub async fn valider(
     let statut = depot::evaluer_dans(&mut tx, id)
         .await
         .map_err(ErreurApi::Interne)?;
+    if dv.sans_alerte && statut.as_deref() != Some("pret") {
+        return Err(refus("alertes", "alertes à lire"));
+    }
     let type_doc = sqlx::query_scalar!("select type from document where id = $1", id)
         .fetch_one(&mut *tx)
         .await?;
@@ -1182,7 +1207,7 @@ pub async fn valider(
         .await?;
     }
     // Envoi après le délai d'annulation (`envoi_prevu`), noté dans la transaction.
-    let lot = uuid::Uuid::new_v4();
+    let lot = dv.lot.unwrap_or_else(uuid::Uuid::new_v4);
     let prevu = if envoi {
         Some(
             gmflow_core::envoi_prevu::prevoir(

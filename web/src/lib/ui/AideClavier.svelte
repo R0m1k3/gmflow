@@ -17,6 +17,7 @@
         { touches: [['K'], ['ArrowUp']], texte: 'Document ou mail précédent' },
         { touches: [['Enter']], texte: 'Ouvrir le premier de la liste' },
         { touches: [['Escape']], texte: 'Fermer la fiche' },
+        { touches: [['Espace']], texte: 'Factures et avoirs à contrôler : cocher ou décocher la pièce ouverte' },
         { touches: [['/']], texte: 'Chercher' }
       ]
     },

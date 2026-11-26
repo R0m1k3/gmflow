@@ -10,7 +10,6 @@ use serde_json::{Value, json};
 
 const MDP: &str = "un mot de passe solide";
 
-#[allow(dead_code)]
 struct Monde {
     app: Appli,
     c_admin: String,
@@ -224,6 +223,123 @@ async fn valider_puis_annuler_remet_l_etat_d_avant() {
     assert_eq!(r.json["annulees"], 0);
     assert_eq!(r.json["deja_parties"], 1);
     assert_eq!(doc(app, f).await["valide"], true);
+    m.app.fermer().await;
+}
+
+#[tokio::test]
+async fn validation_par_lot_sans_alerte_seulement() {
+    let m = monde().await;
+    let app = &m.app;
+    let resp = Some(m.c_resp_a.as_str());
+    let pret1 = facture(&m, m.boite_a, m.sa, "L-1", true).await;
+    let pret2 = facture(&m, m.boite_a, m.sa, "L-2", true).await;
+    let alerte = facture(&m, m.boite_a, m.sa, "L-3", false).await;
+    let ailleurs = facture(&m, m.boite_b, m.sb, "L-4", true).await;
+    assert_eq!(doc(app, pret1).await["statut_depot"], "pret");
+    // Écart d'article avec un BL : alerte de la fiche, hors lot aussi.
+    let ecart = facture(&m, m.boite_a, m.sa, "L-5", true).await;
+    let bl = facture(&m, m.boite_a, m.sa, "BL-5", true).await;
+    sqlx::query("update document set type = 'bl' where id = $1")
+        .bind(bl)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    sqlx::query(
+        "insert into rapprochement (facture_id, bl_id, methode, ecarts)
+         values ($1, $2, 'manuel', '[{\"genre\": \"prix\"}]')",
+    )
+    .bind(ecart)
+    .bind(bl)
+    .execute(app.pool())
+    .await
+    .unwrap();
+
+    let ids = json!({ "ids": [pret1, pret2, alerte, ailleurs, ecart] });
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/lot/eligibilite",
+            Some(ids.clone()),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let el = r.json.as_array().unwrap();
+    assert_eq!(
+        el.len(),
+        4,
+        "la pièce de Houdemont n'est pas rendue : {}",
+        r.json
+    );
+    let de = |id: i64| el.iter().find(|e| e["id"] == id).unwrap().clone();
+    assert_eq!(de(pret1)["possible"], true);
+    assert_eq!(de(alerte)["possible"], false);
+    assert_eq!(de(alerte)["raison"], "1 alerte à lire");
+    assert_eq!(de(ecart)["raison"], "1 alerte à lire");
+
+    // Bornes.
+    let trop: Vec<i64> = (1..=101).collect();
+    assert_eq!(
+        app.requete(
+            "POST",
+            "/api/documents/lot/valider",
+            Some(json!({ "ids": trop })),
+            resp
+        )
+        .await
+        .code,
+        StatusCode::BAD_REQUEST
+    );
+
+    // Valider le lot : le serveur revérifie chaque pièce.
+    let r = app
+        .requete("POST", "/api/documents/lot/valider", Some(ids), resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["validees"], 2, "{}", r.json);
+    assert_eq!(r.json["laissees"], 3);
+    let piece = |id: i64| {
+        r.json["pieces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(piece(alerte)["raison"], "1 alerte à lire");
+    assert_eq!(piece(ailleurs)["validee"], false);
+    assert_eq!(doc(app, ailleurs).await["valide"], false);
+    assert_eq!(doc(app, alerte).await["valide"], false);
+    assert_eq!(doc(app, alerte).await["verifie"], false, "rien d'écrit");
+    assert_eq!(doc(app, pret1).await["valide"], true);
+    let lot = r.json["annulation"]["lot"].as_str().unwrap().to_string();
+    assert_eq!(
+        app.compter(&format!(
+            "select count(*) from envoi_prevu where lot = '{lot}' and etat = 'attente'"
+        ))
+        .await,
+        2
+    );
+
+    // Une pièce du lot déjà partie : les autres s'annulent, résumé de ce qui est parti.
+    sqlx::query("update envoi_prevu set etat = 'pris' where document_id = $1")
+        .bind(pret2)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/annuler-envoi",
+            Some(json!({ "lot": lot })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.json["annulees"], 1, "{}", r.json);
+    assert_eq!(r.json["deja_parties"], 1);
+    assert_eq!(doc(app, pret1).await["valide"], false);
+    assert_eq!(doc(app, pret1).await["statut_depot"], "pret");
     m.app.fermer().await;
 }
 

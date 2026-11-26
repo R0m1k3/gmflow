@@ -18,4 +18,5 @@
   singulier="une facture"
   section="Facture"
   sansSuite="Aucune autre facture dans cette liste"
+  filtreLot="a-valider"
 />

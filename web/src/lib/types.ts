@@ -672,7 +672,8 @@ export type CodeRefus =
   | 'doublon'
   | 'sans_adresse'
   | 'smtp_absent'
-  | 'essai';
+  | 'essai'
+  | 'alertes';
 
 export interface CompteursATraiter {
   bloque: number;
@@ -801,6 +802,24 @@ export interface Ecartement {
   par_nom: string | null;
   motif: MotifEcartement | null;
   texte: string | null;
+}
+
+/** `POST /api/documents/lot/eligibilite` : la pièce peut-elle être validée avec les autres. */
+export interface EligibiliteLot {
+  id: number;
+  possible: boolean;
+  /** « 2 alertes à lire », « Doublon possible : à ouvrir »… */
+  raison: string | null;
+}
+
+/** Réponse de `POST /api/documents/lot/valider`. */
+export interface ResultatLot {
+  validees: number;
+  laissees: number;
+  pieces: { id: number; validee: boolean; raison: string | null }[];
+  annulation?: Annulable;
+  /** Outil de dépôt des pièces validées, s'il n'y en a qu'un. */
+  outil: string | null;
 }
 
 export interface EtatFournisseur {
