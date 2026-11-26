@@ -325,9 +325,14 @@ fn anomalies_de_lecture() {
     let texte = "FACTURE FA00066497\nTotal HT 1 279,50\nTVA 255,90\nNet à payer 1 535,40 €";
     let bonne = lecture_facture(Some(1279.5), Some(255.9), Some(1535.4));
     assert!(extraction::anomalies(&bonne, Some(texte)).is_empty());
-    // Formats 1.535,40 et 1535.40 reconnus aussi.
-    assert!(extraction::anomalies(&bonne, Some("Total 1.535,40")).is_empty());
-    assert!(extraction::anomalies(&bonne, Some("total;1535.4")).is_empty());
+    // Formats 1.535,40, 1,535.40 et 1535.4 (tableur) reconnus aussi.
+    for t in [
+        "HT 1.279,50 TVA 255,90 Total 1.535,40",
+        "HT 1,279.50 TVA 255.90 Total 1,535.40",
+        "ht;1279.5;tva;255.9;total;1535.4",
+    ] {
+        assert!(extraction::anomalies(&bonne, Some(t)).is_empty(), "{t}");
+    }
 
     let sans_ttc = lecture_facture(Some(1279.5), Some(255.9), None);
     assert_eq!(
@@ -390,7 +395,9 @@ fn remise_lue_a_part() {
     );
     assert!(extraction::consigne_nouvel_essai(&[], None, None).contains("remise_ht"));
     // Avoirs : montants demandés en positif, au premier essai comme au nouvel essai.
-    assert!(extraction::consigne_nouvel_essai(&[], None, None).contains(extraction::AVOIRS_POSITIFS));
+    assert!(
+        extraction::consigne_nouvel_essai(&[], None, None).contains(extraction::AVOIRS_POSITIFS)
+    );
 }
 
 const UBL_ENTETE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -488,4 +495,40 @@ fn cle_des_gencods() {
     assert!(xml::gencod_valide("96385074")); // EAN-8
     assert!(xml::gencod_valide("03123450000011")); // GTIN-14
     assert!(!xml::gencod_valide("REF-12"));
+}
+
+#[test]
+fn montants_cherches_parmi_les_nombres_du_texte() {
+    let n = extraction::nombres("Qté 2 15,00 € ; total 1 535,40 ; 12 345 678,90 ; 1'250.00");
+    for x in [2.0, 15.0, 1535.4, 535.4, 12_345_678.9, 1250.0] {
+        assert!(n.iter().any(|v| (v - x).abs() < 0.001), "{x} dans {n:?}");
+    }
+    // « 2 15,00 » n'est pas « 215,00 » (15 n'est pas un groupe de milliers).
+    assert!(!n.iter().any(|v| (v - 215.0).abs() < 0.001));
+
+    // TTC inventé dont les chiffres se retrouvent collés dans le texte : signalé.
+    let texte = "FACTURE FA00066497 du 12/11/2026\nRéf 15 354 Qté 0\nTotal HT 1 279,50\nTVA 255,90\nNet à payer 1 535,41";
+    let e = lecture_facture(Some(1279.5), Some(255.9), Some(1535.4));
+    let a = extraction::anomalies(&e, Some(texte));
+    assert!(
+        a.iter().any(|x| x.contains("TTC 1535.40 n'apparaît pas")),
+        "{a:?}"
+    );
+    // HT inventé (TVA et TTC imprimés, HT + TVA = TTC faux) : signalé.
+    let e = lecture_facture(Some(1279.0), Some(255.9), Some(1535.41));
+    let a = extraction::anomalies(&e, Some(texte));
+    assert!(a.iter().any(|x| x.contains("HT 1279.00")), "{a:?}");
+
+    // Éco-participation ajoutée au HT et à la TVA (règle de lecture) : HT − annexes imprimé,
+    // TVA déduite du HT et du TTC imprimés ; rien n'est signalé.
+    let texte =
+        "Total HT 1 677,74\nTVA 335,55\nEcomaison 12,47\nTVA Ecomaison 2,49\nTotal TTC 2 028,25";
+    let mut e = lecture_facture(Some(1690.21), Some(338.04), Some(2028.25));
+    e.annexes_ht = Some(12.47);
+    assert!(extraction::anomalies(&e, Some(texte)).is_empty());
+    // Plusieurs taux, total de TVA non imprimé : déduit, rien n'est signalé.
+    let texte =
+        "Base 5,5 % 100,00 TVA 5,50\nBase 20 % 100,00 TVA 20,00\nTotal HT 200,00\nTotal TTC 225,50";
+    let e = lecture_facture(Some(200.0), Some(25.5), Some(225.5));
+    assert!(extraction::anomalies(&e, Some(texte)).is_empty());
 }

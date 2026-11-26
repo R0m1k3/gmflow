@@ -581,9 +581,82 @@ pub fn date(s: &str) -> Option<time::Date> {
     .ok()
 }
 
-/// Chiffres seuls d'un montant au centime (1535.4 -> « 153540 »).
-fn chiffres_montant(m: f64) -> String {
-    format!("{:.2}", m.abs()).replace('.', "")
+fn espace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\u{a0}' | '\u{202f}')
+}
+
+/// Lectures possibles d'un nombre sans espace : le dernier « . » ou « , » est la virgule
+/// décimale, les autres séparent les milliers ; suivi de 3 chiffres, il peut aussi séparer les
+/// milliers (« 1.535 »).
+fn lectures(s: &str) -> Vec<f64> {
+    let s: String = s.chars().filter(|c| *c != '\'').collect();
+    let Some(pos) = s.rfind(['.', ',']) else {
+        return s.parse().ok().into_iter().collect();
+    };
+    let entier: String = s[..pos].chars().filter(char::is_ascii_digit).collect();
+    let dec = &s[pos + 1..];
+    let mut v = Vec::new();
+    let e = if entier.is_empty() { "0" } else { &entier };
+    if let Ok(x) = format!("{e}.{dec}").parse() {
+        v.push(x);
+    }
+    if dec.len() == 3
+        && let Ok(x) = format!("{entier}{dec}").parse()
+    {
+        v.push(x);
+    }
+    v
+}
+
+/// Nombres imprimés dans un texte, sous toutes leurs lectures possibles : « 1 535,40 »,
+/// « 1.535,40 », « 1,535.40 », « 1535.4 », « 1'535.40 ». Des groupes de 3 chiffres séparés
+/// par des espaces (« 12 345 678,90 ») sont aussi lus d'un seul tenant.
+pub fn nombres(texte: &str) -> Vec<f64> {
+    // Morceaux de chiffres et de séparateurs ; vrai : séparé du précédent par des espaces seuls.
+    let mut morceaux: Vec<(String, bool)> = Vec::new();
+    let mut cur = String::new();
+    let (mut colle, mut apres_morceau) = (false, false);
+    for c in texte.chars().chain(std::iter::once('\n')) {
+        if c.is_ascii_digit() || (!cur.is_empty() && matches!(c, '.' | ',' | '\'')) {
+            if cur.is_empty() {
+                colle = apres_morceau;
+            }
+            cur.push(c);
+            continue;
+        }
+        if !cur.is_empty() {
+            morceaux.push((cur.trim_end_matches(['.', ',', '\'']).to_string(), colle));
+            cur.clear();
+            apres_morceau = espace(c);
+        } else if !espace(c) {
+            apres_morceau = false;
+        }
+    }
+    let chiffres_en_tete = |m: &str| m.chars().take_while(char::is_ascii_digit).count();
+    let mut v = Vec::new();
+    for (i, (m, _)) in morceaux.iter().enumerate() {
+        v.extend(lectures(m));
+        if !(1..=3).contains(&m.len()) || chiffres_en_tete(m) != m.len() {
+            continue;
+        }
+        let mut s = m.clone();
+        for (suite, colle) in &morceaux[i + 1..] {
+            if !colle || chiffres_en_tete(suite) != 3 {
+                break;
+            }
+            s.push_str(suite);
+            v.extend(lectures(&s));
+            if suite.len() > 3 {
+                break;
+            }
+        }
+    }
+    v
+}
+
+/// Le montant (au centime, signe ignoré) est-il l'un des nombres du texte ?
+fn figure(m: f64, nombres: &[f64]) -> bool {
+    nombres.iter().any(|n| (n - m.abs()).abs() < 0.005)
 }
 
 /// Ce qui manque ou ne tient pas debout dans une lecture de facture, d'avoir ou de BL (vide si
@@ -608,21 +681,8 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
                 ),
                 _ => {}
             }
-            if let (Some(ttc), Some(t)) = (e.montant_ttc, texte) {
-                // Chiffres seuls des deux côtés : 1 535,40 / 1.535,40 / 1535.40 se retrouvent.
-                let chiffres: String = t.chars().filter(char::is_ascii_digit).collect();
-                // Tableurs : 1535.4 sans le zéro final.
-                let court: String = ttc
-                    .abs()
-                    .to_string()
-                    .chars()
-                    .filter(char::is_ascii_digit)
-                    .collect();
-                if !chiffres.contains(&chiffres_montant(ttc)) && !chiffres.contains(&court) {
-                    a.push(format!(
-                        "le montant TTC {ttc:.2} n'apparaît pas dans le texte du document"
-                    ));
-                }
+            if let Some(t) = texte {
+                verifier_dans_le_texte(e, &nombres(t), &mut a);
             }
         }
         "bl" if e.lignes.is_empty() => {
@@ -631,6 +691,35 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
         _ => {}
     }
     a
+}
+
+/// HT, TVA et TTC lus doivent être des nombres du texte. Le HT peut comprendre des montants
+/// annexes ajoutés au total HT imprimé (HT − annexes imprimé), et le HT ou la TVA se déduire des
+/// deux autres montants quand ceux-ci sont dans le texte et que HT + TVA = TTC (plusieurs taux,
+/// TVA des annexes) : seul un montant qui ne vient de nulle part est signalé.
+fn verifier_dans_le_texte(e: &Extraction, n: &[f64], a: &mut Vec<String>) {
+    let vu = |m: Option<f64>| m.is_some_and(|m| figure(m, n));
+    let (ht, tva, ttc) = (e.montant_ht, e.montant_tva, e.montant_ttc);
+    let coherent = matches!((ht, tva, ttc), (Some(h), Some(t), Some(c))
+        if (h + t - c).abs() <= 0.05);
+    let ttc_vu = vu(ttc);
+    let ht_vu = vu(ht)
+        || ht
+            .zip(e.annexes_ht)
+            .is_some_and(|(h, x)| vu(Some(h - x.abs())))
+        || (coherent && ttc_vu && vu(tva));
+    let tva_vu = vu(tva) || (coherent && ttc_vu && ht_vu);
+    for (nom, m, ok) in [
+        ("TTC", ttc, ttc_vu),
+        ("HT", ht, ht_vu),
+        ("de TVA", tva, tva_vu),
+    ] {
+        if let (Some(m), false) = (m, ok) {
+            a.push(format!(
+                "le montant {nom} {m:.2} n'apparaît pas dans le texte du document"
+            ));
+        }
+    }
 }
 
 /// Consigne ajoutée au prompt du nouvel essai : ce que la première lecture a manqué, et le
