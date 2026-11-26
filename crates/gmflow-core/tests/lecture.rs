@@ -68,6 +68,7 @@ fn autres_noms_dans_le_prompt() {
     assert!(p.contains(
         "Magasin Frouard (aussi appelée : Frouard Distribution | La Foir'Fouille Frouard)"
     ));
+    assert!(p.contains(extraction::AVOIRS_POSITIFS));
 }
 
 #[test]
@@ -388,4 +389,6 @@ fn remise_lue_a_part() {
             .all(|c| requis.contains(c))
     );
     assert!(extraction::consigne_nouvel_essai(&[], None, None).contains("remise_ht"));
+    // Avoirs : montants demandés en positif, au premier essai comme au nouvel essai.
+    assert!(extraction::consigne_nouvel_essai(&[], None, None).contains(extraction::AVOIRS_POSITIFS));
 }

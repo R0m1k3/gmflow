@@ -162,7 +162,17 @@ fn tronquer(s: String, n: usize) -> String {
     .replace('\0', "")
 }
 
+/// Avoir : montants toujours positifs (certains fournisseurs les impriment en négatif).
+fn avoir_en_positif(lu: &mut Lu) {
+    if lu.type_doc.as_deref() == Some("avoir") {
+        for m in [&mut lu.ht, &mut lu.tva, &mut lu.ttc] {
+            *m = m.map(f64::abs);
+        }
+    }
+}
+
 async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
+    avoir_en_positif(&mut lu);
     // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels.
     if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") {
         let calcules =
@@ -966,4 +976,30 @@ async fn lire_par_claude(
         confiance: json!({}),
         ..Default::default()
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn avoir_toujours_en_positif() {
+        let mut lu = Lu {
+            type_doc: Some("avoir".into()),
+            ht: Some(-10.0),
+            tva: Some(-2.0),
+            ttc: Some(-12.0),
+            ..Default::default()
+        };
+        avoir_en_positif(&mut lu);
+        assert_eq!((lu.ht, lu.tva, lu.ttc), (Some(10.0), Some(2.0), Some(12.0)));
+        // Une facture garde son signe (facture négative : à voir par un humain).
+        let mut lu = Lu {
+            type_doc: Some("facture".into()),
+            ttc: Some(-12.0),
+            ..Default::default()
+        };
+        avoir_en_positif(&mut lu);
+        assert_eq!(lu.ttc, Some(-12.0));
+    }
 }

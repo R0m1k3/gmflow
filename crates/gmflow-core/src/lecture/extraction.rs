@@ -255,6 +255,12 @@ const REMISES: &str = "remise_ht = le total HT des remises déduites sur le docu
      Total HT net 1 161,29 donne montant_ht 1161.29, remise_ht 280.16, remise_taux 20, \
      annexes_ht 40.65.\n";
 
+/// Signe des avoirs : toujours en positif, le type dit que c'est un avoir.
+pub const AVOIRS_POSITIFS: &str = "Pour un avoir, tous les montants (montant_ht, montant_tva, \
+     montant_ttc, remise_ht, annexes_ht et ceux des lignes) sont donnés en positif, sans signe \
+     moins, même s'ils sont imprimés en négatif : le type « avoir » suffit à dire qu'ils sont \
+     à rendre.\n";
+
 /// Détail des lignes, surtout pour les BL (fiches produits et commande dans le logiciel du magasin).
 const DETAIL_LIGNES: &str = "Pour chaque ligne, recopie aussi ce que le document imprime, \
      null sinon : gencod = le code-barres EAN/GTIN de l'article (8, 12, 13 ou 14 chiffres, \
@@ -447,6 +453,7 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     p.push_str(DETAIL_LIGNES);
     p.push_str(MONTANTS_ANNEXES);
     p.push_str(REMISES);
+    p.push_str(AVOIRS_POSITIFS);
     p.push_str(ECHEANCE);
     p.push('\n');
     p.push_str(&format!(
@@ -646,6 +653,7 @@ pub fn consigne_nouvel_essai(
     );
     s.push_str(MONTANTS_ANNEXES);
     s.push_str(REMISES);
+    s.push_str(AVOIRS_POSITIFS);
     s.push_str(ECHEANCE);
     if let Some(f) = fichier {
         s.push_str(&format!(
