@@ -462,6 +462,23 @@ async fn quota_atteint_ou_jeton_absent_le_document_attend() {
         "{:?}",
         d.message
     );
+    // `lire_tout` rend la main dès le message écrit, avant que la tâche soit marquée finie : tant
+    // qu'apalis la voit en cours, la pompe ne repousse pas le document (cause de l'instabilité
+    // en CI : document resté « a_lire » à la fin).
+    let pool = b.pool().clone();
+    assert!(
+        attendre(Duration::from_secs(30), || {
+            let pool = pool.clone();
+            async move {
+                gmflow_core::file::documents_en_file(&pool)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            }
+        })
+        .await,
+        "tâche de lecture jamais finie"
+    );
     // Jeton présent mais quota à 0 : toujours en attente, sans appel.
     jeton(&b).await;
     quota(&b, 0).await;
