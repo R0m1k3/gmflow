@@ -126,6 +126,8 @@
     if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
     const e = d.type === 'avoir' ? '' : 'e';
     if (d.statut_depot === 'depose') return { texte: `Envoyé${e}`, ton: 'ok' };
+    // Prête à partir mais pas encore validée par un humain : encore à contrôler.
+    if (d.statut_depot === 'pret' && !d.verifie) return { texte: 'À contrôler', ton: 'alerte' };
     if (d.statut_depot === 'pret' && !e) return { texte: 'Validé', ton: tonStatutEnvoi('pret') };
     if (d.statut_depot) return { texte: libelleStatutEnvoi(d.statut_depot), ton: tonStatutEnvoi(d.statut_depot) };
     return d.verifie ? { texte: `Validé${e}`, ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };

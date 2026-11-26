@@ -32,6 +32,9 @@
   let resultat = $state('');
   let ton = $state<'ok' | 'attention' | 'erreur'>('ok');
 
+  // Lot annulé depuis le message du bas : son résumé n'est plus vrai.
+  $effect(() => annulations.surAnnulation(() => (resultat = '')));
+
   function basculerTout() {
     if (tout) sel.rien();
     else sel.toutCocher(ids);
@@ -45,7 +48,10 @@
       const r = await sel.valider(ids);
       resultat = resumeLot(r);
       ton = r.laissees ? 'attention' : 'ok';
-      if (r.annulation) annulations.annoncer(r.annulation, `${r.validees} pièce${r.validees > 1 ? 's' : ''} validée${r.validees > 1 ? 's' : ''}`, nomOutil(r.outil));
+      if (r.annulation) {
+        const quoi = `${r.validees} pièce${r.validees > 1 ? 's' : ''}`;
+        annulations.annoncer(r.annulation, quoi, `${quoi} validée${r.validees > 1 ? 's' : ''}`, nomOutil(r.outil));
+      }
       void rafraichirCompteurs();
       onvalide?.();
     } catch (e) {
@@ -73,21 +79,27 @@
   {/if}
 {:else}
   <div class="sr-seul" role="status" aria-live="polite">{resultat}</div>
-  {#if n > 0}
-    <div class="barre-lot">
-      <span class="compte">{n} cochée{n > 1 ? 's' : ''}</span>
-      <button type="button" class="btn fantome sm" onclick={() => sel.rien()} disabled={enCours}>Tout décocher</button>
-      <span class="sp"></span>
-      <button type="button" class="btn principal" class:en-cours={enCours} disabled={enCours} onclick={valider}>
-        Valider {n} pièce{n > 1 ? 's' : ''}
-      </button>
-    </div>
-  {:else if resultat}
-    <div class="resultat-lot" aria-hidden="true">
-      <Bandeau {ton}>
-        {resultat}
-        {#snippet action()}<button type="button" class="btn sm fantome" onclick={() => (resultat = '')}>Fermer</button>{/snippet}
-      </Bandeau>
+  {#if n > 0 || resultat}
+    <div class="pied-lot">
+      {#if resultat}
+        <div class="resultat-lot" aria-hidden="true">
+          <Bandeau {ton}>
+            {resultat}
+            {#snippet action()}<button type="button" class="btn sm fantome" onclick={() => (resultat = '')}>Fermer</button>{/snippet}
+          </Bandeau>
+        </div>
+      {/if}
+      {#if n > 0}
+        <div class="barre-lot">
+          <div class="haut-barre">
+            <span class="compte">{n} cochée{n > 1 ? 's' : ''}</span>
+            <button type="button" class="btn-lien" onclick={() => sel.rien()} disabled={enCours}>Tout décocher</button>
+          </div>
+          <button type="button" class="btn principal" class:en-cours={enCours} disabled={enCours} onclick={valider}>
+            Valider {n} pièce{n > 1 ? 's' : ''}
+          </button>
+        </div>
+      {/if}
     </div>
   {/if}
 {/if}
@@ -114,17 +126,17 @@
     color: var(--muted);
     font-size: 14px;
   }
-  .barre-lot,
-  .resultat-lot {
+  .pied-lot {
     position: sticky;
     bottom: 0;
     z-index: 5;
     margin-top: var(--e3);
+    display: grid;
+    gap: var(--e2);
   }
   .barre-lot {
-    display: flex;
-    align-items: center;
-    gap: var(--e3);
+    display: grid;
+    gap: var(--e2);
     padding: 12px 16px;
     border-radius: var(--r2);
     background: var(--pane);
@@ -134,16 +146,22 @@
     margin-bottom: 0;
     box-shadow: var(--ombre-page);
   }
+  .haut-barre {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--e3);
+  }
+  .barre-lot .btn.principal {
+    width: 100%;
+    justify-content: center;
+  }
   .compte {
     font-weight: 500;
     font-variant-numeric: tabular-nums;
   }
-  .sp {
-    flex: 1;
-  }
   @media (max-width: 760px) {
-    .barre-lot,
-    .resultat-lot {
+    .pied-lot {
       bottom: calc(68px + env(safe-area-inset-bottom));
     }
     .tete-lot .case {

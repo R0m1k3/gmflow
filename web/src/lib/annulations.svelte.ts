@@ -13,8 +13,10 @@ export type EtatMessage = 'attente' | 'annulation' | 'fini';
 export interface MessageEnvoi {
   cle: number;
   lot: string;
-  /** « Facture Vileda F-12 validée », « 14 factures validées ». */
+  /** « Facture Vileda F-12 validée », « 14 pièces validées ». */
   titre: string;
+  /** « Facture Vileda F-12 », « 14 pièces » : repris dans le résultat. */
+  quoi: string;
   /** « Dext », « Yooz ». */
   outil: string;
   /** Fin du délai (horloge du navigateur, d'après le délai du serveur). */
@@ -38,11 +40,12 @@ class Annulations {
   #apres = new Set<() => void>();
 
   /** Une validation vient d'être faite : son message et son compte à rebours. */
-  annoncer(a: Annulable, titre: string, outil: string) {
+  annoncer(a: Annulable, quoi: string, titre: string, outil: string) {
     const m: MessageEnvoi = {
       cle: suivante++,
       lot: a.lot,
       titre,
+      quoi,
       outil,
       fin: Date.now() + a.delai_s * 1000,
       etat: 'attente',
@@ -82,12 +85,14 @@ class Annulations {
       const r = await annulerEnvoi(m.lot);
       const n = r.annulees;
       if (n > 0 && r.deja_parties === 0) {
-        resultat = r.pieces.length > 1 ? `Validation annulée : ${n} pièces de nouveau à contrôler.` : 'Validation annulée : de nouveau à contrôler.';
+        resultat =
+          r.pieces.length > 1 ? `Validation annulée : ${n} pièces de nouveau à contrôler.` : `Validation annulée : ${m.quoi}, de nouveau à contrôler.`;
       } else if (n > 0) {
         resultat = `${n} validation${n > 1 ? 's' : ''} annulée${n > 1 ? 's' : ''}. Trop tard pour ${r.deja_parties} : déjà partie${r.deja_parties > 1 ? 's' : ''} à ${m.outil}.`;
         ton = 'attention';
       } else if (r.deja_parties > 0) {
-        resultat = `Trop tard : déjà partie${r.deja_parties > 1 ? 's' : ''} à ${m.outil}.`;
+        resultat =
+          r.pieces.length > 1 ? `Trop tard : les ${r.deja_parties} pièces sont déjà parties à ${m.outil}.` : `Trop tard : l’envoi à ${m.outil} est déjà parti (${m.quoi}).`;
         ton = 'attention';
       } else {
         resultat = 'Rien à annuler.';

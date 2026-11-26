@@ -34,7 +34,7 @@
   {#each visibles as m (m.cle)}
     <div class="message">
       {#if m.etat === 'fini'}
-        <Bandeau ton={m.ton === 'info' ? 'ok' : m.ton} titre={m.titre}>
+        <Bandeau ton={m.ton === 'info' ? 'ok' : m.ton}>
           <span>{m.resultat}</span>
           {#snippet action()}
             <button type="button" class="btn sm fantome" onclick={() => annulations.fermer(m.cle)}>Fermer</button>

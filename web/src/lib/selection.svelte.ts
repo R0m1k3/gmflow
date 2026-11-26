@@ -82,10 +82,8 @@ export function resumeLot(r: ResultatLot): string {
 }
 
 function motCle(raison: string | null): string {
-  const r = (raison ?? '').toLowerCase();
-  if (r.includes('alerte')) return 'alertes';
-  if (r.includes('doublon')) return 'doublon';
-  if (r.includes('déjà')) return 'déjà validée';
-  if (r.includes('société')) return 'autre société';
-  return 'à ouvrir';
+  const r = (raison ?? '').trim();
+  if (/alerte/i.test(r)) return 'alertes';
+  if (!r) return 'à ouvrir';
+  return r.charAt(0).toLowerCase() + r.slice(1);
 }
