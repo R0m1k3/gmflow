@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "test": "node --test 'src/lib/ui/*.test.ts'"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^4.0.1",
