@@ -175,5 +175,5 @@ export async function attendreEssai(id: string, ms = 1500, max = 40): Promise<Es
     if (e.etat === 'termine') return e;
     await new Promise((r) => setTimeout(r, ms));
   }
-  throw new ErreurApi(504, "L'essai ne répond pas : le worker est-il démarré ?");
+  throw new ErreurApi(504, "L'essai ne répond pas. Le traitement automatique (worker) est-il démarré ?");
 }

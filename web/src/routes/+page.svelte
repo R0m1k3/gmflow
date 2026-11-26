@@ -1,6 +1,6 @@
 <script lang="ts">
   // Accueil (maquette Sauge P3) : la date et une phrase de synthèse ; ce qui est bloqué (#bloque :
-  // boîte, Claude, envoi échoué, doublon, illisible, avec l'action qui débloque) ; la carte « À valider »
+  // boîte, Claude, envoi échoué, doublon, illisible, avec l'action qui débloque) ; la carte « À contrôler »
   // (vignette de la pièce choisie, J/K, Entrée ouvre, E écarte) ; le courrier du jour (avec pièce
   // jointe, pour information, notifications regroupées, publicités masquées) ; à droite les
   // chiffres du jour, ce qui attend une réponse et le réglage qui manque (admins).
@@ -9,7 +9,7 @@
   import { page } from '$app/state';
   import { aTraiter, api, ecarterDocument, ErreurApi, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
   import { deplacer, raccourcis } from '#lib/clavier.ts';
-  import { compteurs, rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
+  import { compteurs, rafraichirCompteurs, releverMaintenant } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libellePriorite, nomCourtSociete, nomOutil } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
@@ -33,7 +33,7 @@
   import { formatMontant } from '#lib/ui/Montant.svelte';
   import Vide from '#lib/ui/Vide.svelte';
 
-  /** Pièces montrées dans la carte À valider ; au-delà, un lien vers la file. */
+  /** Pièces montrées dans la carte À contrôler ; au-delà, un lien vers la file. */
   const NB_PIECES = 6;
   /** Mails montrés par groupe du courrier du jour. */
   const NB_MAILS = 8;
@@ -119,6 +119,22 @@
     });
   });
 
+  // Dernière relève des boîtes et relève à la demande (admins : la liste des boîtes est réservée).
+  let releveEnCours = $state(false);
+  let releveInfo = $state('');
+  async function relever() {
+    releveEnCours = true;
+    releveInfo = '';
+    try {
+      const n = await releverMaintenant();
+      releveInfo = n ? 'Relève demandée. Les nouveaux mails arrivent dans quelques instants.' : 'Aucune boîte active à relever.';
+    } catch (e) {
+      releveInfo = message(e);
+    } finally {
+      releveEnCours = false;
+    }
+  }
+
   // ---------- Synthèse ----------
   const aujourdhui = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
   const jour = aujourdhui.charAt(0).toUpperCase() + aujourdhui.slice(1);
@@ -135,24 +151,21 @@
     if (!d) return '';
     const p = d.file.compteurs.a_valider;
     const r = d.file.compteurs.a_repondre;
-    if (p === 0 && r === 0) return 'Tout est à jour : aucune pièce à valider, aucun mail en attente de réponse.';
-    const pieces =
-      p === 0
-        ? 'Aucune pièce n’attend votre validation.'
-        : `${majuscule(enLettres(p, true))} pièce${p > 1 ? 's attendent' : ' attend'} votre validation.`;
+    if (p === 0 && r === 0) return 'Tout est à jour : aucune pièce à contrôler, aucun mail en attente de réponse.';
+    const pieces = p === 0 ? 'Aucune pièce à contrôler.' : `${majuscule(enLettres(p, true))} pièce${p > 1 ? 's' : ''} à contrôler.`;
     const mails =
       r === 0 ? 'Aucun mail n’attend de réponse.' : `${majuscule(enLettres(r))} mail${r > 1 ? 's attendent' : ' attend'} une réponse.`;
     return `${pieces} ${mails}`;
   });
 
-  // ---------- À valider ----------
+  // ---------- À contrôler ----------
   let pieces = $derived(d ? d.file.a_valider.slice(0, NB_PIECES) : []);
   let autres = $derived(d ? d.file.compteurs.a_valider - pieces.length : 0);
   let choixId = $state<number | null>(null);
   let choix = $derived(pieces.find((l) => l.id === choixId) ?? pieces[0] ?? null);
   let indice = $derived(choix ? pieces.indexOf(choix) : -1);
 
-  /** La pièce s'ouvre dans sa liste, filtre « À valider » (suivant, précédent, puis la suivante après validation). */
+  /** La pièce s'ouvre dans sa liste, filtre « À contrôler » (suivant, précédent, puis la suivante après validation). */
   const listeType = (t: DocumentAValider['type']) => (t === 'bl' ? '/bl' : t === 'avoir' ? '/avoirs' : '/factures');
   const ouvrirHref = (l: DocumentAValider) => `${listeType(l.type)}?filtre=a-valider&doc=${l.id}`;
   /** Au-delà des pièces montrées : un lien par liste qui en a encore. */
@@ -197,8 +210,15 @@
     return /^\d\d:\d\d$/.test(q) || q === 'hier' ? `depuis ${q}` : `depuis le ${q}`;
   }
 
-  function texteBloque(b: Bloque): { a: string; b: string } {
+  const ARRET_SIMPLE = 'Le traitement automatique est arrêté. Prévenez l’administrateur.';
+
+  /** `detail` : le texte technique, rangé sous « Détails pour l'administrateur » (employés). */
+  function texteBloque(b: Bloque): { a: string; b: string; detail?: string } {
     const msg = b.message ?? '';
+    if (!admin && b.genre === 'claude' && b.motif !== 'limite')
+      return { a: ARRET_SIMPLE, b: '', detail: [msg, 'Les documents ne sont plus lus ni les mails triés.'].filter(Boolean).join(' ') };
+    if (!admin && b.genre === 'boite')
+      return { a: ARRET_SIMPLE, b: '', detail: [`Boîte ${b.libelle ?? ''} ${b.motif === 'pause_auto' ? 'arrêtée' : 'en échec'}.`, msg, depuis(b.depuis)].filter(Boolean).join(' ') };
     switch (b.genre) {
       case 'envoi_erreur':
         return { a: `Envoi à Dext / Yooz échoué : ${nomCourtDocument(b)}`, b: msg };
@@ -427,6 +447,13 @@
   <header class="tete">
     <h1>{jour}</h1>
     {#if synthese}<p>{synthese}</p>{/if}
+    {#if admin && compteurs.boitesActives > 0}
+      <p class="releve">
+        {compteurs.derniereReleve ? `Dernière relève des boîtes : ${quandCourt(compteurs.derniereReleve)}.` : 'Aucune relève des boîtes pour l’instant.'}
+        <button type="button" class="btn sm" class:en-cours={releveEnCours} disabled={releveEnCours} onclick={relever}>Relever maintenant</button>
+      </p>
+      {#if releveInfo}<p class="releve" role="status">{releveInfo}</p>{/if}
+    {/if}
   </header>
 
   {#if bloques.length}
@@ -443,8 +470,16 @@
             <div class="b-t">
               {#if b.document_id !== null}<a href="/documents/{b.document_id}">{t.a}</a>{:else}<b>{t.a}</b>{/if}
               {#if t.b}<span>{t.b}</span>{/if}
+              {#if t.detail}
+                <details class="detail-admin">
+                  <summary>Détails pour l’administrateur</summary>
+                  <span>{t.detail}</span>
+                </details>
+              {/if}
             </div>
-            {#if b.genre === 'boite' && b.boite_id !== null}
+            {#if !admin && (b.genre === 'boite' || (b.genre === 'claude' && b.motif !== 'limite'))}
+              <!-- rien à faire pour l'employé : prévenir l'administrateur -->
+            {:else if b.genre === 'boite' && b.boite_id !== null}
               <a class="btn-blanc" href="/reglages/boites/{b.boite_id}">Corriger</a>
             {:else if b.genre === 'claude' && b.motif === 'limite'}
               <a class="btn-blanc" href="/reglages#claude">Voir Claude</a>
@@ -476,7 +511,7 @@
   {:else}
     <section class="carte-s valider" aria-labelledby="titre-valider">
       <div class="carte-h">
-        <h2 id="titre-valider">À valider</h2>
+        <h2 id="titre-valider">À contrôler</h2>
         {#if pieces.length > 1}<span class="aide large-seul"><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>{/if}
       </div>
 
@@ -547,7 +582,7 @@
             {/each}
             {#if autres > 0}
               <p class="plus-l">
-                {autres === 1 ? 'Une autre pièce à valider.' : `${majuscule(enLettres(autres, true))} autres pièces à valider.`} Tout voir :
+                {autres === 1 ? 'Une autre pièce à contrôler.' : `${majuscule(enLettres(autres, true))} autres pièces à contrôler.`} Tout voir :
                 {#each suiteListes as x, i (x.href)}{i ? ', ' : ''}<a href={x.href}>{x.n} {x.l}{x.n > 1 && x.l !== 'BL' ? 's' : ''}</a>{/each}
               </p>
             {/if}
@@ -601,8 +636,8 @@
           <h2 id="titre-jour">Aujourd’hui</h2>
           <a class="chiffre" href="/mails"><span>Mails reçus</span><b class="num">{d.mailsDuJour}</b></a>
           <a class="chiffre" href="/a-repondre"><span>À répondre</span><b class="num" class:att={d.file.compteurs.a_repondre > 0}>{d.file.compteurs.a_repondre}</b></a>
-          <a class="chiffre" href="/factures?filtre=a-valider"><span>Factures à valider</span><b class="num" class:att={d.facturesAValider > 0}>{d.facturesAValider}</b></a>
-          <a class="chiffre" href="/bl?filtre=a-valider"><span>BL à valider</span><b class="num" class:att={d.blAValider > 0}>{d.blAValider}</b></a>
+          <a class="chiffre" href="/factures?filtre=a-valider"><span>Factures à contrôler</span><b class="num" class:att={d.facturesAValider > 0}>{d.facturesAValider}</b></a>
+          <a class="chiffre" href="/bl?filtre=a-valider"><span>BL à contrôler</span><b class="num" class:att={d.blAValider > 0}>{d.blAValider}</b></a>
         </section>
 
         {#if d.file.a_repondre.length}
@@ -670,6 +705,14 @@
     font-size: 32px;
     font-weight: 500;
     line-height: 1.15;
+  }
+  .tete p.releve {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--e3);
+    font-size: 15px;
+    color: var(--muted);
   }
   .tete p {
     margin: 0;
@@ -739,7 +782,7 @@
     color: var(--err-ink);
   }
 
-  /* ---------- À valider ---------- */
+  /* ---------- À contrôler ---------- */
   .valider-corps {
     display: flex;
     gap: var(--e6);
@@ -1205,6 +1248,18 @@
   .b-t span {
     color: var(--text2);
     font-size: 14px;
+  }
+  .detail-admin summary {
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 14px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+  }
+  .detail-admin[open] span {
+    display: block;
+    padding-bottom: var(--e2);
   }
 
   /* < 1024 px : colonnes empilées */

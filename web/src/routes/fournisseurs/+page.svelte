@@ -5,6 +5,7 @@
   import { page } from '$app/state';
   import { api, fournisseurs, message } from '#lib/api.ts';
   import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
+  import { jourListeDe } from '#lib/format.ts';
   import { nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
@@ -132,13 +133,7 @@
     })
   );
 
-  const court = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
-  const courtAnnee = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: '2-digit', timeZone: 'UTC' });
-  function dateCourte(j: string | null): string {
-    if (!j) return '';
-    const d = new Date(`${j}T12:00:00Z`);
-    return (d.getUTCFullYear() === new Date().getFullYear() ? court : courtAnnee).format(d);
-  }
+  const dateCourte = (j: string | null): string => jourListeDe(j);
 
   let titreVide = $derived(
     qActif

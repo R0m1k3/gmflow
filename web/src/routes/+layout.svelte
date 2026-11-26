@@ -9,7 +9,9 @@
   import { societe } from '#lib/societe.svelte.ts';
   import { libelleRole } from '#lib/libelles.ts';
   import type { Moi } from '#lib/types.ts';
+  import { quandCourt } from '#lib/ui/DocOutils.ts';
   import Icone, { type NomIcone } from '#lib/ui/Icone.svelte';
+  import AideClavier from '#lib/ui/AideClavier.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
 
   let { children } = $props();
@@ -74,9 +76,11 @@
     champRecherche?.blur();
     void goto(q ? `/recherche?q=${encodeURIComponent(q)}` : '/recherche');
   }
+  let aideClavier = $state(false);
   $effect(() => {
     if (!session.moi) return;
     return raccourcis({
+      '?': () => (aideClavier = !aideClavier),
       '/': () => {
         // Champ de la barre du haut masqué (écran étroit, page Recherche) : celui de la page Recherche.
         if (surRecherche) document.getElementById('champ-recherche')?.focus();
@@ -132,8 +136,8 @@
 
   // ---------- Menu ----------
   // Rangé par groupes : le courrier, les pièces, le suivi. `tel` : présent dans les onglets du bas sur téléphone.
-  // `compteur` : badge (choses à faire) ; `aFaire` : où mène le lien quand il y en a (le filtre « À valider »).
-  type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number; aFaire?: string };
+  // `compteur` : badge (choses à faire) ; `aFaire` : où mène le lien quand il y en a (le filtre « À contrôler »).
+  type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number; aFaire?: string; echecs?: () => number; echec?: string };
   type Groupe = { titre: string; liens: Lien[] };
   const groupes: Groupe[] = [
     { titre: '', liens: [{ href: '/', texte: 'Accueil', court: 'Accueil', icone: 'maison', tel: true }] },
@@ -147,8 +151,8 @@
     {
       titre: 'Pièces',
       liens: [
-        { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true, compteur: () => compteurs.factures, aFaire: '/factures?filtre=a-valider' },
-        { href: '/avoirs', texte: 'Avoirs', court: 'Avoirs', icone: 'avoir', tel: false, compteur: () => compteurs.avoirs, aFaire: '/avoirs?filtre=a-valider' },
+        { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true, compteur: () => compteurs.factures, aFaire: '/factures?filtre=a-valider', echecs: () => compteurs.echecsFactures, echec: '/factures?filtre=echec' },
+        { href: '/avoirs', texte: 'Avoirs', court: 'Avoirs', icone: 'avoir', tel: false, compteur: () => compteurs.avoirs, aFaire: '/avoirs?filtre=a-valider', echecs: () => compteurs.echecsAvoirs, echec: '/avoirs?filtre=echec' },
         { href: '/bl', texte: 'Bons de livraison', court: 'BL', icone: 'camion', tel: true, compteur: () => compteurs.bl, aFaire: '/bl?filtre=a-valider' }
       ]
     },
@@ -170,7 +174,23 @@
   let etat = $derived.by(() => {
     if (!admin || compteurs.problemes === null) return null;
     const n = compteurs.problemes;
-    return n === 0 ? { ok: true, texte: 'Tout fonctionne' } : { ok: false, texte: `${n} problème${n > 1 ? 's' : ''}` };
+    if (n > 0) return { ok: false, texte: `${n} problème${n > 1 ? 's' : ''}`, href: '/#bloque', titre: 'Voir ce qui est bloqué' };
+    // Aucun blocage, mais aucune relève récente : pas de vert trompeur (la relève part toutes les 5 minutes).
+    const r = compteurs.derniereReleve;
+    const ancienne = !r || Date.now() - new Date(r).getTime() > 30 * 60_000;
+    if (compteurs.boitesActives > 0 && ancienne)
+      return {
+        ok: false,
+        texte: 'Pas de relève récente',
+        href: '/reglages#traitements',
+        titre: r ? `Dernière relève : ${quandCourt(r)}` : 'Aucune relève pour l’instant'
+      };
+    return {
+      ok: true,
+      texte: 'Tout fonctionne',
+      href: '/',
+      titre: r ? `Boîtes, Claude et envois fonctionnent. Dernière relève : ${quandCourt(r)}` : 'Boîtes, Claude et envois fonctionnent'
+    };
   });
 </script>
 
@@ -204,8 +224,8 @@
       <a class="btn-icone etroit-seul" href="/recherche" aria-label="Chercher"><Icone nom="chercher" /></a>
 
       {#if etat}
-        <a class="etat" class:ok={etat.ok} href={etat.ok ? '/' : '/#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'} aria-label={etat.texte}>
-          <span class="pastille"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok}<span class="etat-n">{compteurs.problemes}</span>{/if}
+        <a class="etat" class:ok={etat.ok} href={etat.href} title={etat.titre} aria-label={etat.texte}>
+          <span class="pastille"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok && compteurs.problemes}<span class="etat-n">{compteurs.problemes}</span>{/if}
         </a>
       {/if}
       {#if admin}
@@ -259,8 +279,10 @@
             {#if g.titre}<div class="g-titre">{g.titre}</div>{/if}
             {#each g.liens as l (l.href)}
               {@const n = l.compteur?.() ?? 0}
-              <a class="lien" href={n > 0 && l.aFaire ? l.aFaire : l.href} title={n > 0 && l.aFaire ? `${n} à valider` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+              {@const e = l.echecs?.() ?? 0}
+              <a class="lien" href={n > 0 && l.aFaire ? l.aFaire : e > 0 && l.echec ? l.echec : l.href} title={n > 0 && l.aFaire ? `${n} à contrôler` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
                 <Icone nom={l.icone} /><span class="t">{l.texte}</span>
+                {#if e > 0}<span class="echec-point" role="img" aria-label="{e} envoi{e > 1 ? 's' : ''} en échec" title="{e} envoi{e > 1 ? 's' : ''} en échec"></span>{/if}
                 {#if n > 0}<span class="compteur">{n}</span>{/if}
               </a>
             {/each}
@@ -276,13 +298,16 @@
   <nav class="onglets" aria-label="Raccourcis">
     {#each onglets as l (l.href)}
       {@const n = l.compteur?.() ?? 0}
-      <a href={n > 0 && l.aFaire ? l.aFaire : l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+      {@const e = l.echecs?.() ?? 0}
+      <a href={n > 0 && l.aFaire ? l.aFaire : e > 0 && l.echec ? l.echec : l.href} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
         <Icone nom={l.icone} />
-        <span>{l.court}{#if n > 0}&nbsp;<span class="compteur">{n}</span>{/if}</span>
+        <span>{l.court}{#if e > 0}&nbsp;<span class="echec-point" role="img" aria-label="{e} envoi{e > 1 ? 's' : ''} en échec"></span>{/if}{#if n > 0}&nbsp;<span class="compteur">{n}</span>{/if}</span>
       </a>
     {/each}
   </nav>
 {/if}
+
+{#if session.moi && !publique}<AideClavier bind:ouvert={aideClavier} />{/if}
 
 <style>
   /* Ordinateur (≥ 1024 px) : barre latérale sauge à gauche, colonne blanche à droite (maquette Sauge). */
@@ -497,6 +522,20 @@
   }
   .lien .compteur {
     margin-left: auto;
+  }
+  .echec-point {
+    flex: none;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--err);
+  }
+  .lien .echec-point {
+    margin-left: auto;
+  }
+  .lien .echec-point + .compteur {
+    margin-left: var(--e2);
   }
 
   .etat {

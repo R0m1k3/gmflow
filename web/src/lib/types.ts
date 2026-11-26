@@ -742,7 +742,7 @@ export interface FileATraiter {
   bloque: Bloque[];
   a_valider: DocumentAValider[];
   a_repondre: MailARepondre[];
-  /** Premier document à valider (« Commencer »). */
+  /** Premier document à contrôler (« Commencer »). */
   suivant: number | null;
 }
 

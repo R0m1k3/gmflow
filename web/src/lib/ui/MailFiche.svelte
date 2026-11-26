@@ -3,12 +3,14 @@
   // Utilisée par /mails/[id] ; peut aussi s'ouvrir dans le volet de droite des listes
   // (`ouvrir` dit où aller après un envoi ou un classement).
 
+  import { dateListe } from '#lib/format.ts';
+
   const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
-  const jourMois = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit' });
-  const jourMoisAn = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: '2-digit' });
+  const jourMois = { format: (d: Date) => dateListe(d) };
+  const jourMoisAn = { format: (d: Date) => dateListe(d) };
   const cleJour = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' });
 
-  /** « aujourd’hui 09:41 », « hier 17:02 », « 14/11 08:57 », « 14/11/25 » (heure de Paris). */
+  /** « aujourd’hui 09:41 », « hier 17:02 », « 14 nov. 08:57 », « 14 nov. 2025 » (heure de Paris). */
   export function dateMail(iso: string | null | undefined, avecHeure = true): string {
     if (!iso) return '';
     const d = new Date(iso);
@@ -580,7 +582,7 @@
       const ton = st === 'erreur' || st === 'doublon' ? 'erreur' : st === 'a_verifier' ? 'alerte' : 'neutre';
       return { texte: avec(s ? s.charAt(0).toLowerCase() + s.slice(1) : 'lue'), ton };
     }
-    if (p.document_type === 'bl') return p.document_verifie ? { texte: avec('validé'), ton: 'ok' } : { texte: avec('à valider'), ton: 'alerte' };
+    if (p.document_type === 'bl') return p.document_verifie ? { texte: avec('validé'), ton: 'ok' } : { texte: avec('à contrôler'), ton: 'alerte' };
     return { texte: avec('lu'), ton: 'neutre' };
   }
 
@@ -806,7 +808,7 @@
         <div class="ctx">
           <h3><a href="/fournisseurs/{contexte.fournisseurId}">{contexte.nom}</a>{contexte.societe ? ` chez ${contexte.societe}` : ''}</h3>
           <div><span>Factures ce mois</span><span class="num">{contexte.etat.factures_mois}</span></div>
-          {#if contexte.etat.a_valider}<div><span>À valider</span><span class="num">{contexte.etat.a_valider}</span></div>{/if}
+          {#if contexte.etat.a_valider}<div><span>À contrôler</span><span class="num">{contexte.etat.a_valider}</span></div>{/if}
           <div><span>BL en attente de facture</span><span class="num">{contexte.etat.bl_sans_facture}</span></div>
         </div>
       {/if}

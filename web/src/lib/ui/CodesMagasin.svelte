@@ -3,6 +3,7 @@
   // ressemblants, et recherche par code ou par nom. « Associer » remplit le code de la fiche.
   // Rien ne s'affiche tant que les fournisseurs du magasin ne sont pas copiés.
   import { api, message, modifierFournisseur } from '#lib/api.ts';
+  import Aide from './Aide.svelte';
   import type { CodesMagasin } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
 
@@ -47,7 +48,7 @@
 {#if codes && codes.nombre > 0}
   <section class="codes" aria-label="Code BO Phénix à associer">
     <div class="tete">
-      <h3>Code BO Phénix à associer</h3>
+      <h3>Code BO Phénix à associer<Aide sujet="code_bo" /></h3>
       <span class="t2 nb"><span class="num">{codes.nombre}</span> fournisseurs au magasin</span>
     </div>
     {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
