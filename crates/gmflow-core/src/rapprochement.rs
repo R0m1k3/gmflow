@@ -15,10 +15,8 @@ use sqlx::{PgConnection, PgPool};
 
 use crate::lecture::extraction::Ligne;
 
-/// Écart de montant HT au-delà duquel une facture est signalée.
-pub const SEUIL_MONTANT: f64 = 0.05;
-/// Écart toléré entre la somme des lignes d'un BL et son total HT.
-pub const SEUIL_LIGNES_BL: f64 = 0.05;
+use crate::controles::SEUIL_ECART;
+
 /// Clé de verrou consultatif (avec l'id du fournisseur) : un calcul à la fois par fournisseur.
 const VERROU: i32 = 0x0052_4150;
 /// Texte d'un BL parcouru pour y chercher le n° d'une facture.
@@ -328,7 +326,7 @@ pub fn ecart_explique(ecart: f64, remise: Option<f64>, annexes: Option<f64>) -> 
     if r <= 0.0 && a <= 0.0 {
         return false;
     }
-    (ecart + r - a).abs() <= SEUIL_MONTANT || (ecart - a).abs() <= SEUIL_MONTANT
+    (ecart + r - a).abs() <= SEUIL_ECART || (ecart - a).abs() <= SEUIL_ECART
 }
 
 /// HT de la facture moins la somme des BL, si tous les montants sont connus.
@@ -344,7 +342,7 @@ pub fn ecart_montant(facture_ht: Option<f64>, bls: &[Option<f64>]) -> Option<f64
 /// deux existent.
 pub fn controle_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Vec<Value> {
     match (somme_lignes(lignes), total_ht) {
-        (Some(s), Some(t)) if (s - t).abs() > SEUIL_LIGNES_BL => vec![json!({
+        (Some(s), Some(t)) if (s - t).abs() > SEUIL_ECART => vec![json!({
             "code": "lignes",
             "message": format!(
                 "la somme des lignes ({s:.2} €) ne fait pas le total HT ({t:.2} €)"

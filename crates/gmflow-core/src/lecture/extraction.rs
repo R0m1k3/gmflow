@@ -686,9 +686,13 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
             }
             match (e.montant_ht, e.montant_tva, e.montant_ttc) {
                 (_, _, None) => a.push("le montant TTC manque".to_string()),
-                (Some(ht), Some(tva), Some(ttc)) if (ht + tva - ttc).abs() > 0.05 => a.push(
-                    format!("HT + TVA ({ht:.2} + {tva:.2}) ne donne pas le TTC ({ttc:.2})"),
-                ),
+                (Some(ht), Some(tva), Some(ttc))
+                    if (ht + tva - ttc).abs() > crate::controles::SEUIL_ECART + 1e-9 =>
+                {
+                    a.push(format!(
+                        "HT + TVA ({ht:.2} + {tva:.2}) ne donne pas le TTC ({ttc:.2})"
+                    ))
+                }
                 _ => {}
             }
             if let Some(t) = texte {
@@ -711,7 +715,7 @@ fn verifier_dans_le_texte(e: &Extraction, n: &[f64], a: &mut Vec<String>) {
     let vu = |m: Option<f64>| m.is_some_and(|m| figure(m, n));
     let (ht, tva, ttc) = (e.montant_ht, e.montant_tva, e.montant_ttc);
     let coherent = matches!((ht, tva, ttc), (Some(h), Some(t), Some(c))
-        if (h + t - c).abs() <= 0.05);
+        if (h + t - c).abs() <= crate::controles::SEUIL_ECART + 1e-9);
     let ttc_vu = vu(ttc);
     let ht_vu = vu(ht)
         || ht

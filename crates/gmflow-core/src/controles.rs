@@ -3,8 +3,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Écart toléré entre HT + TVA et TTC.
-pub const TOLERANCE_MONTANTS: f64 = 0.02;
+/// Écart de montant toléré partout (arrondis) : HT + TVA = TTC au dépôt et à la lecture,
+/// somme des lignes = HT, facture = BL au rapprochement.
+pub const SEUIL_ECART: f64 = 0.05;
+/// Taux de TVA le plus haut en France (%).
+pub const TAUX_TVA_MAX: f64 = 20.0;
 /// Confiance minimale sur la société destinataire.
 pub const CONFIANCE_SOCIETE_MIN: f64 = 0.9;
 /// Âge maximal d'une facture, en jours (12 mois).
@@ -170,6 +173,65 @@ pub struct Facture<'a> {
     pub ttc: Option<f64>,
     /// La structure a une adresse de dépôt.
     pub adresse_depot: bool,
+    /// Échéance du paiement lue.
+    pub echeance: Option<time::Date>,
+    /// SIRET (ou SIREN) et n° de TVA lus sur le document, sans ceux de la fiche.
+    pub siret_lu: Option<&'a str>,
+    pub tva_lue: Option<&'a str>,
+    /// SIRET et n° de TVA de la fiche fournisseur et de son groupe.
+    pub sirets_fiche: Vec<&'a str>,
+    pub tvas_fiche: Vec<&'a str>,
+    /// Somme des montants HT des lignes, quand toutes en ont un et qu'aucune ne manque (facture
+    /// lue en entier) ; `eco_lignes` : éco-participations par unité × quantité des lignes.
+    pub somme_lignes: Option<f64>,
+    pub eco_lignes: f64,
+    /// Remise et montants annexes lus à part (`document.remise_ht`, `remise_taux`, `annexes_ht`).
+    pub remise_ht: Option<f64>,
+    pub remise_taux: Option<f64>,
+    pub annexes_ht: Option<f64>,
+    /// Devise des montants quand le document la donne (facture électronique).
+    pub devise: Option<&'a str>,
+}
+
+/// La somme des lignes redonne-t-elle le HT, d'une des façons dont une facture le compose :
+/// remise de pied déduite ou non, montants annexes (port, éco-participation) et
+/// éco-participations des lignes ajoutés ou non (règle de lecture : ils vont dans le HT) ?
+pub fn lignes_font_le_ht(
+    somme: f64,
+    eco_lignes: f64,
+    ht: f64,
+    remise_ht: Option<f64>,
+    remise_taux: Option<f64>,
+    annexes_ht: Option<f64>,
+) -> bool {
+    let remise = remise_ht
+        .map(f64::abs)
+        .or_else(|| {
+            remise_taux
+                .filter(|t| *t > 0.0 && *t < 100.0)
+                .map(|t| somme * t / 100.0)
+        })
+        .unwrap_or(0.0);
+    let annexes = annexes_ht.map(f64::abs).unwrap_or(0.0);
+    let tolerance = SEUIL_ECART.max(ht.abs() * 0.001) + 1e-9;
+    [0.0, remise].iter().any(|r| {
+        [0.0, annexes].iter().any(|a| {
+            [0.0, eco_lignes]
+                .iter()
+                .any(|e| (somme - r + a + e - ht).abs() <= tolerance)
+        })
+    })
+}
+
+/// SIREN d'un SIRET ou d'un SIREN valide.
+fn siren_de(s: &str) -> Option<String> {
+    let c = chiffres(s);
+    (siret_valide(s) || siren_valide(s)).then(|| c[..9].to_string())
+}
+
+/// Pourcentage à la française : « 25,3 % ».
+fn pourcentage_fr(v: f64) -> String {
+    format!("{v:.1}\u{a0}%").replace('.', ",")
 }
 
 /// Contrôles en échec (vide : la facture peut partir). `aujourdhui` : date du jour (Paris).
@@ -208,7 +270,7 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
     match (f.ht, f.tva, f.ttc) {
         (Some(ht), Some(tva), Some(ttc)) => {
             let ecart = (ht + tva - ttc).abs();
-            if ecart > TOLERANCE_MONTANTS + 1e-9 {
+            if ecart > SEUIL_ECART + 1e-9 {
                 let mut x = echec(
                     "montants",
                     format!(
@@ -287,6 +349,90 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
             }
         }
     }
+    // Identifiants lus ≠ fiche fournisseur (fiche mal rattachée, ou RIB et coordonnées d'un
+    // autre) : comparés seulement quand les deux côtés sont valides. SIREN : un autre
+    // établissement de la même société n'est pas signalé.
+    if let Some(lu) = f.siret_lu.and_then(siren_de) {
+        let fiche: Vec<String> = f.sirets_fiche.iter().filter_map(|s| siren_de(s)).collect();
+        if !fiche.is_empty() && !fiche.contains(&lu) {
+            e.push(echec(
+                "identite",
+                format!(
+                    "SIRET lu « {} » différent de celui de la fiche fournisseur « {} »",
+                    f.siret_lu.unwrap_or_default().trim(),
+                    f.sirets_fiche
+                        .iter()
+                        .find(|s| siren_de(s).is_some())
+                        .copied()
+                        .unwrap_or_default()
+                ),
+                &["fournisseur_id"],
+            ));
+        }
+    }
+    if let Some(lu) = f.tva_lue.filter(|t| tva_valide(t)) {
+        let fiche: Vec<&str> = f
+            .tvas_fiche
+            .iter()
+            .copied()
+            .filter(|t| tva_valide(t))
+            .collect();
+        if !fiche.is_empty() && !fiche.iter().any(|t| tva_compacte(t) == tva_compacte(lu)) {
+            e.push(echec(
+                "identite",
+                format!(
+                    "N° de TVA lu « {} » différent de celui de la fiche fournisseur « {} »",
+                    lu.trim(),
+                    fiche[0]
+                ),
+                &["fournisseur_id"],
+            ));
+        }
+    }
+    if let (Some(s), Some(ht)) = (f.somme_lignes, f.ht)
+        && !lignes_font_le_ht(
+            s,
+            f.eco_lignes,
+            ht,
+            f.remise_ht,
+            f.remise_taux,
+            f.annexes_ht,
+        )
+    {
+        e.push(echec(
+            "lignes",
+            format!(
+                "La somme des lignes ({}) ne fait pas le HT ({}) : lignes ou HT mal lus",
+                montant_fr(s),
+                montant_fr(ht)
+            ),
+            &["montant_ht"],
+        ));
+    }
+    if let (Some(ht), Some(tva)) = (f.ht, f.tva)
+        && ht > 0.0
+        && tva > ht * TAUX_TVA_MAX / 100.0 + SEUIL_ECART.max(ht * 0.002)
+    {
+        e.push(echec(
+            "tva",
+            format!(
+                "TVA de {} du HT : plus que le taux normal de 20\u{a0}%",
+                pourcentage_fr(tva / ht * 100.0)
+            ),
+            &["montant_tva"],
+        ));
+    }
+    if let Some(d) = f
+        .devise
+        .map(str::trim)
+        .filter(|d| !d.is_empty() && !d.eq_ignore_ascii_case("EUR"))
+    {
+        e.push(echec(
+            "devise",
+            format!("Montants en {d}, pas en euros"),
+            &["montant_ttc"],
+        ));
+    }
     match f.societe_id {
         None => e.push(echec(
             "societe",
@@ -334,6 +480,19 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
                 "date",
                 format!("Date du {} : plus de 12 mois", date_fr(d)),
                 &["date_document"],
+            ));
+        }
+        if let Some(ech) = f.echeance
+            && ech < d
+        {
+            e.push(echec(
+                "echeance",
+                format!(
+                    "Échéance du {} avant la date du document ({})",
+                    date_fr(ech),
+                    date_fr(d)
+                ),
+                &[],
             ));
         }
     }
