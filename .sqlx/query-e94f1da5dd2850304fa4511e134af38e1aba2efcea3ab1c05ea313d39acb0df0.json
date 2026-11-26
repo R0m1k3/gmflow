@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into envoi_depot_archive\n             (envoi_id, document_id, societe_id, adresse, outil, quand, etat, message,\n              message_id_smtp, auteur_id, document_type, document_numero, document_date,\n              montant_ttc, fournisseur_nom, nom_fichier)\n         select e.id, e.document_id, e.societe_id, e.adresse, e.outil, e.quand, e.etat, e.message,\n                e.message_id_smtp, e.auteur_id, d.type, d.numero, d.date_document, d.montant_ttc,\n                f.nom, p.nom\n         from envoi_depot e\n         join document d on d.id = e.document_id\n         left join fournisseur f on f.id = d.fournisseur_id\n         left join piece_jointe p on p.id = d.piece_jointe_id\n         order by e.id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e94f1da5dd2850304fa4511e134af38e1aba2efcea3ab1c05ea313d39acb0df0"
+}

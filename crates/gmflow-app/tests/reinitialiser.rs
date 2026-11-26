@@ -160,13 +160,44 @@ async fn efface_les_donnees_et_garde_la_configuration() {
     assert_eq!(r.json["boites_relancees"], 2);
 
     for t in gmflow_core::reinitialisation::TABLES_EFFACEES {
-        let attendu = if *t == "journal" { 1 } else { 0 };
         assert_eq!(
             app.compter(&format!("select count(*) from {t}")).await,
-            attendu,
+            0,
             "{t}"
         );
     }
+    // Preuves gardées : l'historique (avec la réinitialisation), les appels à Claude, et les
+    // dépôts copiés avec ce qui désigne la pièce.
+    assert!(
+        app.compter(
+            "select count(*) from journal where action = 'creation' and objet_type = 'societe'"
+        )
+        .await
+            >= 1,
+        "historique d'avant gardé"
+    );
+    assert_eq!(app.compter("select count(*) from appel_claude").await, 1);
+    let (adresse, etat_envoi, societe, type_doc, fournisseur, fichier): (
+        String,
+        String,
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "select adresse, etat, societe_id, document_type, fournisseur_nom, nom_fichier
+         from envoi_depot_archive",
+    )
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        (adresse.as_str(), etat_envoi.as_str(), type_doc.as_deref()),
+        ("x@dext.cc", "envoye", Some("facture"))
+    );
+    assert!(societe > 0);
+    assert_eq!(fournisseur.as_deref(), Some("Vileda"));
+    assert!(fichier.is_some());
     // Gardés : sociétés, boîtes, utilisateurs, réglages, expéditeurs publicitaires, sessions.
     assert_eq!(app.compter("select count(*) from societe").await, 1);
     assert_eq!(app.compter("select count(*) from boite_mail").await, 2);
@@ -219,16 +250,18 @@ async fn efface_les_donnees_et_garde_la_configuration() {
     );
 
     // Une ligne d'historique : qui, et combien.
-    let (action, auteur, details): (String, Option<i64>, serde_json::Value) =
-        sqlx::query_as("select action, auteur_id, details from journal")
-            .fetch_one(app.pool())
-            .await
-            .unwrap();
+    let (action, auteur, details): (String, Option<i64>, serde_json::Value) = sqlx::query_as(
+        "select action, auteur_id, details from journal where action = 'reinitialisation'",
+    )
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
     assert_eq!(action, "reinitialisation");
     assert!(auteur.is_some());
     assert_eq!(details["mails"], 1);
     assert_eq!(details["documents"], 1);
     assert_eq!(details["fournisseurs"], 2);
+    assert_eq!(details["envois_archives"], 1);
     app.fermer().await;
 }
 
