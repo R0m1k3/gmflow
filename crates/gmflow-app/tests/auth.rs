@@ -229,3 +229,27 @@ async fn compte_desactive_et_responsable() {
     );
     app.fermer().await;
 }
+
+#[tokio::test]
+async fn entetes_de_securite() {
+    let app = Appli::new().await;
+    for chemin in ["/health", "/api/moi", "/api/inconnue"] {
+        let r = app.requete("GET", chemin, None, None).await;
+        let h = |n: &str| {
+            r.entetes
+                .get(n)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(h("x-content-type-options"), "nosniff", "{chemin}");
+        assert_eq!(h("referrer-policy"), "same-origin", "{chemin}");
+        assert_eq!(h("x-frame-options"), "SAMEORIGIN", "{chemin}");
+        assert_eq!(
+            h("content-security-policy"),
+            gmflow_app::routes::CSP_PAR_DEFAUT,
+            "{chemin}"
+        );
+    }
+    app.fermer().await;
+}

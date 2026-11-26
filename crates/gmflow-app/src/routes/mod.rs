@@ -61,6 +61,29 @@ async fn api_inconnue() -> ErreurApi {
     ErreurApi::Absent
 }
 
+/// CSP de toute réponse qui n'a pas la sienne (pages du front, JSON). Modeste à dessein :
+/// l'`index.html` de SvelteKit démarre par un script en ligne et l'interface pose des styles en
+/// ligne, et les aperçus (PDF en `iframe`, mail HTML) ont leur propre CSP plus stricte.
+pub const CSP_PAR_DEFAUT: &str = "frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
+
+/// En-têtes de sécurité, sans écraser ceux posés par une route.
+async fn entetes_securite(req: Request, next: Next) -> Response {
+    use axum::http::{HeaderValue, header};
+    let mut r = next.run(req).await;
+    let h = r.headers_mut();
+    for (nom, valeur) in [
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::REFERRER_POLICY, "same-origin"),
+        (header::X_FRAME_OPTIONS, "SAMEORIGIN"),
+        (header::CONTENT_SECURITY_POLICY, CSP_PAR_DEFAUT),
+    ] {
+        if !h.contains_key(&nom) {
+            h.insert(nom, HeaderValue::from_static(valeur));
+        }
+    }
+    r
+}
+
 pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router {
     let inactivite = time::Duration::seconds(etat.durees.inactivite.as_secs() as i64);
     let sessions = SessionManagerLayer::new(store)
@@ -291,6 +314,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         let index = web.join("index.html");
         app = app.fallback_service(ServeDir::new(web).fallback(ServeFile::new(index)));
     }
-    app.layer(tower_http::trace::TraceLayer::new_for_http())
+    app.layer(middleware::from_fn(entetes_securite))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(etat)
 }
