@@ -133,8 +133,9 @@ pub struct EcartLigne {
     pub montant_ht: Option<f64>,
 }
 
-/// Article d'un côté : lignes de même référence (sinon désignation) regroupées.
+/// Article d'un côté : lignes de même gencod (sinon référence, sinon désignation) regroupées.
 struct Article<'a> {
+    gencod: Option<String>,
     reference: Option<String>,
     designation: Option<String>,
     qte: f64,
@@ -143,7 +144,23 @@ struct Article<'a> {
     ligne: &'a Ligne,
 }
 
+/// Ce qui retrouve un article de l'autre côté, du plus sûr au moins sûr.
+#[derive(Clone, Copy)]
+enum Cle {
+    Gencod,
+    Reference,
+    Designation,
+}
+
 impl Article<'_> {
+    fn cle(&self, c: Cle) -> &Option<String> {
+        match c {
+            Cle::Gencod => &self.gencod,
+            Cle::Reference => &self.reference,
+            Cle::Designation => &self.designation,
+        }
+    }
+
     fn prix(&self) -> Option<f64> {
         self.montant
             .filter(|_| self.qte.abs() > 0.0005)
@@ -156,19 +173,39 @@ fn montant_ligne(l: &Ligne) -> Option<f64> {
         .or_else(|| Some(l.prix_unitaire_ht? * l.quantite?))
 }
 
+/// Gencod comparable : clé GS1 juste, zéros de tête retirés (GTIN-14 « 0… » = EAN-13).
+fn cle_gencod(l: &Ligne) -> Option<String> {
+    let g: String = l.gencod.as_deref()?.split_whitespace().collect();
+    crate::lecture::xml::gencod_valide(&g).then(|| g.trim_start_matches('0').to_string())
+}
+
+/// Quantité livrée ou facturée en unités : colis × PCB quand la ligne donne les deux (comme
+/// l'export Phénix), sinon la quantité.
+fn quantite(l: &Ligne) -> Option<f64> {
+    match (l.colis, l.pcb) {
+        (Some(c), Some(p)) if c > 0.0 && p > 0.0 => Some(c * p),
+        _ => l.quantite,
+    }
+}
+
 /// Articles d'un côté, dans l'ordre d'apparition.
 fn articles(lignes: &[Ligne]) -> Vec<Article<'_>> {
     let mut v: Vec<Article> = Vec::new();
     for l in lignes {
-        let Some(q) = l.quantite else { continue };
-        let (r, d) = (non_vide(&l.reference), non_vide(&l.designation));
-        if r.is_none() && d.is_none() {
+        let Some(q) = quantite(l) else { continue };
+        let (g, r, d) = (
+            cle_gencod(l),
+            non_vide(&l.reference),
+            non_vide(&l.designation),
+        );
+        if g.is_none() && r.is_none() && d.is_none() {
             continue;
         }
         let m = montant_ligne(l);
-        let meme = |a: &&mut Article| match (&r, &a.reference) {
-            (Some(x), Some(y)) => x == y,
-            (None, None) => d.is_some() && d == a.designation,
+        let meme = |a: &&mut Article| match (&g, &a.gencod, &r, &a.reference) {
+            (Some(x), Some(y), _, _) => x == y,
+            (_, _, Some(x), Some(y)) => x == y,
+            (_, _, None, None) => d.is_some() && d == a.designation,
             _ => false,
         };
         match v.iter_mut().find(meme) {
@@ -177,6 +214,7 @@ fn articles(lignes: &[Ligne]) -> Vec<Article<'_>> {
                 a.montant = a.montant.zip(m).map(|(x, y)| x + y);
             }
             None => v.push(Article {
+                gencod: g,
                 reference: r,
                 designation: d,
                 qte: q,
@@ -203,8 +241,9 @@ fn arrondi(v: f64) -> f64 {
 }
 
 /// Écarts entre les lignes d'une facture et celles de ses BL : articles manquants ou en trop,
-/// prix unitaires différents (hors remise de `remise_taux` %). Un article est retrouvé par sa
-/// référence, sinon par sa désignation (référence fournisseur d'un côté, pas de l'autre). Vide
+/// prix unitaires différents (hors remise de `remise_taux` %). Un article est retrouvé par son
+/// gencod, sinon sa référence, sinon sa désignation (référence fournisseur d'un côté, pas de
+/// l'autre) ; une ligne en colis compte colis × PCB unités. Vide
 /// si l'un des deux côtés n'a pas de lignes avec quantité (rien à comparer).
 pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> Vec<EcartLigne> {
     let (f, b) = (articles(facture), articles(bls));
@@ -245,17 +284,14 @@ pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> V
         });
     };
     for fa in &f {
-        let trouve = |par_ref: bool| {
-            (0..b.len()).find(|&i| {
-                !pris[i]
-                    && if par_ref {
-                        fa.reference.is_some() && fa.reference == b[i].reference
-                    } else {
-                        fa.designation.is_some() && fa.designation == b[i].designation
-                    }
-            })
+        let trouve = |cle: Cle| {
+            (0..b.len())
+                .find(|&i| !pris[i] && fa.cle(cle).is_some() && fa.cle(cle) == b[i].cle(cle))
         };
-        match trouve(true).or_else(|| trouve(false)) {
+        match trouve(Cle::Gencod)
+            .or_else(|| trouve(Cle::Reference))
+            .or_else(|| trouve(Cle::Designation))
+        {
             Some(i) => {
                 pris[i] = true;
                 ajouter(Some(fa), Some(&b[i]));
@@ -333,7 +369,8 @@ pub fn controle_lignes_tronquees() -> Value {
 pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i64, Vec<Ligne>>> {
     let r = sqlx::query!(
         "select document_id, reference, designation, quantite::float8 as quantite, unite,
-                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant
+                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant, gencod,
+                colis::float8 as colis, pcb::float8 as pcb
          from ligne_document where document_id = any($1) order by document_id, rang",
         ids
     )
@@ -348,6 +385,9 @@ pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i
             unite: l.unite,
             prix_unitaire_ht: l.prix,
             montant_ht: l.montant,
+            gencod: l.gencod,
+            colis: l.colis,
+            pcb: l.pcb,
             ..Default::default()
         });
     }

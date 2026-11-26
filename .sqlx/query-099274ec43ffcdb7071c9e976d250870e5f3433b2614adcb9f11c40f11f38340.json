@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select document_id, reference, designation, quantite::float8 as quantite, unite,\n                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant\n         from ligne_document where document_id = any($1) order by document_id, rang",
+  "query": "select document_id, reference, designation, quantite::float8 as quantite, unite,\n                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant, gencod,\n                colis::float8 as colis, pcb::float8 as pcb\n         from ligne_document where document_id = any($1) order by document_id, rang",
   "describe": {
     "columns": [
       {
@@ -64,6 +64,29 @@
         "name": "montant",
         "type_info": "Float8",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "gencod",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "gencod"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "colis",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "pcb",
+        "type_info": "Float8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -78,8 +101,11 @@
       null,
       true,
       null,
+      null,
+      true,
+      null,
       null
     ]
   },
-  "hash": "1036c0cd14411f2fd3c77fbc84c8ada51eeb60feac156c952f0ac2a3630cdf7c"
+  "hash": "099274ec43ffcdb7071c9e976d250870e5f3433b2614adcb9f11c40f11f38340"
 }
