@@ -866,7 +866,7 @@
       {#if d.societe_adresse_depot}
         <p>Destination : <span class="num">{d.societe_adresse_depot}</span>{d.societe ? `, ${d.societe}` : ''}</p>
       {:else}
-        <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin} <a href="/reglages#societes">Réglages</a>{/if}</p>
+        <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin}{' '}<a href="/reglages#societes">Réglages</a>{/if}</p>
       {/if}
       {#if d.statut_depot}
         <p><Etiquette ton={tonStatutEnvoi(d.statut_depot)}>{libelleStatutEnvoi(d.statut_depot, outil)}</Etiquette>

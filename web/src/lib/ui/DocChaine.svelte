@@ -143,10 +143,10 @@
       l0?.ecarts ?? []
     );
   }
-  /** Vert : déposée et concorde ; ambre : ne concorde pas ou articles en écart ; creux : sinon. */
+  /** Vert : déposée et concorde ; ambre : écart de montant ou articles en écart ; creux : sinon (sans comparaison, pas encore déposée). */
   function pointFacture(f: FactureLiee | undefined, a: Addition | null): PointChaine {
     if (!f?.fiche || !a) return 'creux';
-    if (a.verdict !== 'concorde' || a.causes.length) return 'alerte';
+    if (a.causes.length || a.verdict === 'article' || a.verdict === 'reste') return 'alerte';
     return f.fiche.statut_depot === 'depose' ? 'ok' : 'creux';
   }
   function etatFacture(f: FicheDocument): string {
