@@ -494,6 +494,27 @@ async fn envoi_refuse_puis_interrompu() {
         1
     );
 
+    // Worker tué après la réservation (SMTP peut-être parti) : la tâche rejouée ne touche à rien.
+    sqlx::query(
+        "update brouillon_reponse set statut = 'envoi', erreur = null, envoi_pris_le = now() where id = $1",
+    )
+    .bind(br)
+    .execute(b.pool())
+    .await
+    .unwrap();
+    reponse::envoyer(&b.ctx, br, None).await.unwrap();
+    let (statut, _, erreur) = statut_brouillon(&b, br).await;
+    assert_eq!(
+        (statut.as_str(), erreur),
+        ("envoi", None),
+        "pas de second SMTP"
+    );
+    assert_eq!(
+        b.compter("select count(*) from journal where action = 'reponse_echec'")
+            .await,
+        1
+    );
+
     // Envoi resté en cours (worker arrêté) : rendu à l'utilisateur, jamais relancé.
     sqlx::query("update brouillon_reponse set statut = 'envoi', modifie_le = now() - interval '1 hour' where id = $1")
         .bind(br)
@@ -504,6 +525,12 @@ async fn envoi_refuse_puis_interrompu() {
     let (statut, _, erreur) = statut_brouillon(&b, br).await;
     assert_eq!(statut, "modifie");
     assert!(erreur.unwrap().starts_with("envoi interrompu"));
+    assert_eq!(
+        b.compter("select count(*) from brouillon_reponse where envoi_pris_le is not null")
+            .await,
+        0,
+        "un nouveau clic pourra renvoyer"
+    );
     assert!(smtp.recus().is_empty());
     b.fermer().await;
 }

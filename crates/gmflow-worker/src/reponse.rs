@@ -1,7 +1,9 @@
 //! Envoi d'une réponse depuis la boîte d'origine (tâche `EnvoyerReponse`). La tâche n'existe que
 //! si un utilisateur a cliqué « Envoyer » : l'interface met le brouillon à l'état `envoi` et la
 //! pousse. Jamais rejouée : en cas d'échec, le brouillon revient à l'état `modifie` avec le
-//! message, et seul un nouveau clic le renvoie.
+//! message, et seul un nouveau clic le renvoie. Juste avant le SMTP, l'envoi est réservé
+//! (`envoi_pris_le`) : une tâche rejouée (worker tué, file relancée) trouve la réservation et ne
+//! renvoie rien ; le brouillon passe alors en « envoi interrompu, état inconnu » au bout de 15 min.
 
 use gmflow_core::expedition::{self, Expedition};
 use gmflow_core::reponse::{self, Original};
@@ -42,7 +44,8 @@ async fn echec(
     message: &str,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "update brouillon_reponse set statut = 'modifie', erreur = $2, modifie_le = now()
+        "update brouillon_reponse set statut = 'modifie', erreur = $2, modifie_le = now(),
+             envoi_pris_le = null
          where id = $1 and statut = 'envoi'",
         id,
         message
@@ -77,7 +80,7 @@ pub async fn envoyer(
          join mail m on m.id = b.mail_id
          join boite_mail bm on bm.id = b.boite_id
          join societe s on s.id = bm.societe_id
-         where b.id = $1 and b.statut = 'envoi' and b.envoye_le is null",
+         where b.id = $1 and b.statut = 'envoi' and b.envoye_le is null and b.envoi_pris_le is null",
         brouillon_id
     )
     .fetch_optional(pool)
@@ -135,6 +138,22 @@ pub async fn envoyer(
         nom: Some(e.raison_sociale.clone()),
     };
     let destinataire = reponse::destinataire(&original).to_string();
+    // Réservation : une seule tâche passe ce point pour un même clic.
+    let reserve = sqlx::query!(
+        "update brouillon_reponse set envoi_pris_le = now()
+         where id = $1 and statut = 'envoi' and envoye_le is null and envoi_pris_le is null",
+        brouillon_id
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if reserve == 0 {
+        tracing::warn!(
+            brouillon = brouillon_id,
+            "réponse déjà prise par une autre tâche : rien n'est renvoyé"
+        );
+        return Ok(());
+    }
     if let Err(err) = expedition::envoyer_message(&config, Some(&mdp), rep.message).await {
         return echec(
             pool,
@@ -201,7 +220,7 @@ pub async fn envoyer(
 /// message, jamais relancés automatiquement.
 pub async fn interrompus(pool: &PgPool) -> anyhow::Result<()> {
     sqlx::query!(
-        "update brouillon_reponse set statut = 'modifie', modifie_le = now(),
+        "update brouillon_reponse set statut = 'modifie', modifie_le = now(), envoi_pris_le = null,
             erreur = 'envoi interrompu : état inconnu, vérifiez le dossier des envoyés avant de renvoyer'
          where statut = 'envoi' and modifie_le < now() - make_interval(mins => $1)",
         BLOQUE_MINUTES

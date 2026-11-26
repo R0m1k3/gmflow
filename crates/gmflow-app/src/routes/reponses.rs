@@ -538,7 +538,8 @@ pub async fn envoyer_brouillon(
     }
     let mut tx = etat.pool.begin().await?;
     let n = sqlx::query!(
-        "update brouillon_reponse set statut = 'envoi', erreur = null, modifie_le = now()
+        "update brouillon_reponse set statut = 'envoi', erreur = null, modifie_le = now(),
+             envoi_pris_le = null
          where id = $1 and statut in ('propose', 'modifie')",
         id
     )

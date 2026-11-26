@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update brouillon_reponse set envoi_pris_le = now()\n         where id = $1 and statut = 'envoi' and envoye_le is null and envoi_pris_le is null",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f56d84aa581a336bfec3d12a4c4379caf178278938e851e737a54f56a5641a6c"
+}
