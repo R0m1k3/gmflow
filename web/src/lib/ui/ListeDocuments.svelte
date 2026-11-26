@@ -103,6 +103,23 @@
     return d.verifie ? { texte: `Validé${e}`, ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
   }
 
+  /** Étiquettes d'une ligne, la plus utile d'abord : l'état, puis ce qui demande un regard. */
+  const MAX_ETIQUETTES = 2;
+  function etiquettesDe(d: LigneDocument, s: { texte: string; ton: Ton } | null) {
+    const l: { texte: string; ton: Ton; title?: string }[] = [];
+    if (s) l.push({ texte: s.texte, ton: s.ton });
+    if (d.articles_ecart)
+      l.push({
+        texte: `${d.articles_ecart} écart${d.articles_ecart > 1 ? 's' : ''} BL`,
+        ton: 'alerte',
+        title: 'Articles manquants, en trop ou à un autre prix entre facture et BL'
+      });
+    if (blAttente.has(d.id)) l.push({ texte: 'En attente de facture', ton: 'info' });
+    if (d.remise_ht && d.remise_ht > 0.005)
+      l.push({ texte: `Remise ${formatMontant(d.remise_ht)}`, ton: 'info', title: 'Remise déduite sur la facture : le total ne correspond pas aux BL' });
+    return l;
+  }
+
   let annonce = $state('');
   let annoncePour = 0;
   $effect(() => {
@@ -194,6 +211,7 @@
           {#each g.elements as d (d.id)}
             {@const s = statut(d)}
             {@const blSansMontant = d.type === 'bl' && d.montant_ttc === null}
+            {@const etiquettes = etiquettesDe(d, s)}
             <a class="ligne" class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
               <div class="a">{d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu'}</div>
               {#if blSansMontant}
@@ -201,16 +219,20 @@
               {:else}
                 <div class="r">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} avoir={d.type === 'avoir'} />{/if}</div>
               {/if}
-              <div class="b"><span class="txt">{typeNumero(d.type, d.numero)}{d.societe ? `, ${nomCourtSociete(d.societe)}` : ''}</span></div>
+              <div class="b">
+                <span class="num-d">{typeNumero(d.type, d.numero)}{d.societe ? ',' : ''}</span>
+                {#if d.societe}<span class="txt">{nomCourtSociete(d.societe)}</span>{/if}
+              </div>
               {#if !blSansMontant}
                 <div class="r2">{d.type === 'bl' ? heureDe(d.date_mail) : dateFr(d.date_document, true)}</div>
               {/if}
-              {#if s || d.articles_ecart || (d.remise_ht && d.remise_ht > 0.005) || blAttente.has(d.id)}
+              {#if etiquettes.length}
                 <div class="c">
-                  {#if s}<Etiquette ton={s.ton}>{s.texte}</Etiquette>{/if}
-                  {#if blAttente.has(d.id)}<Etiquette ton="info">En attente de facture</Etiquette>{/if}
-                  {#if d.articles_ecart}<Etiquette ton="alerte" title="Articles manquants, en trop ou à un autre prix entre facture et BL">{d.articles_ecart} écart{d.articles_ecart > 1 ? 's' : ''} BL</Etiquette>{/if}
-                  {#if d.remise_ht && d.remise_ht > 0.005}<Etiquette ton="info" title="Remise déduite sur la facture : le total ne correspond pas aux BL">Remise {formatMontant(d.remise_ht)}</Etiquette>{/if}
+                  {#each etiquettes.slice(0, MAX_ETIQUETTES) as e (e.texte)}<Etiquette ton={e.ton} title={e.title}>{e.texte}</Etiquette>{/each}
+                  {#if etiquettes.length > MAX_ETIQUETTES}
+                    {@const reste = etiquettes.slice(MAX_ETIQUETTES)}
+                    <Etiquette ton="pale" title={reste.map((e) => e.texte).join(', ')}>+{reste.length}</Etiquette>
+                  {/if}
                 </div>
               {/if}
             </a>
@@ -254,6 +276,12 @@
 </Volets>
 
 <style>
+  .num-d {
+    flex: none;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .txt {
     min-width: 0;
     overflow: hidden;
