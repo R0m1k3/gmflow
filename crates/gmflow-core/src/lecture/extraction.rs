@@ -209,6 +209,9 @@ pub struct Extraction {
     /// Transcription d'un scan (absente pour un document déjà en texte).
     #[serde(default)]
     pub texte: Option<String>,
+    /// Date lue mais impossible ou mal formée (« 2026-11-31 ») : `date` est alors vide.
+    #[serde(skip)]
+    pub date_illisible: Option<String>,
 }
 
 fn chaine_ou_null() -> Value {
@@ -518,6 +521,15 @@ pub fn depuis_reponse(
     let mut e: Extraction =
         serde_json::from_value(valeur).map_err(|err| ErreurExtraction::Schema(err.to_string()))?;
     controler(&e, societes)?;
+    // Une date impossible ne fait pas échouer la lecture : le champ reste vide, et
+    // `anomalies` le signale (nouvel essai pour une facture ou un avoir).
+    if let Some(d) = e.date.take() {
+        if date(&d).is_some() {
+            e.date = Some(d);
+        } else {
+            e.date_illisible = Some(d);
+        }
+    }
     e.lignes = lignes_utiles(std::mem::take(&mut e.lignes));
     e.numeros_bl = numeros_utiles(std::mem::take(&mut e.numeros_bl));
     // Une échéance mal formée ne fait pas échouer la lecture : elle est oubliée.
@@ -536,11 +548,6 @@ fn controler(e: &Extraction, societes: &[SocieteRef]) -> Result<(), ErreurExtrac
         && !societes.iter().any(|s| s.id == id)
     {
         return err(format!("societe_id {id} hors de la liste"));
-    }
-    if let Some(d) = &e.date
-        && date(d).is_none()
-    {
-        return err(format!("date « {d} » hors format AAAA-MM-JJ"));
     }
     let c = &e.confiance;
     for v in [
@@ -582,8 +589,10 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
             if e.numero.as_deref().is_none_or(|n| n.trim().is_empty()) {
                 a.push("le numéro du document manque".to_string());
             }
-            if e.date.is_none() {
-                a.push("la date du document manque".to_string());
+            match (&e.date, &e.date_illisible) {
+                (None, Some(d)) => a.push(format!("la date lue « {d} » n'existe pas")),
+                (None, None) => a.push("la date du document manque".to_string()),
+                _ => {}
             }
             match (e.montant_ht, e.montant_tva, e.montant_ttc) {
                 (_, _, None) => a.push("le montant TTC manque".to_string()),

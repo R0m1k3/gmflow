@@ -267,9 +267,20 @@ fn reponse_de_claude() {
         extraction::depuis_reponse(&json!({ "structured_output": faux }), &s),
         Err(ErreurExtraction::Schema(_))
     ));
-    let mut faux = reponse_valide();
-    faux["date"] = json!("12/11/2026");
-    assert!(extraction::depuis_reponse(&json!({ "structured_output": faux }), &s).is_err());
+    // Date mal formée ou impossible : la lecture est gardée, la date vide et signalée.
+    for d in ["12/11/2026", "2026-11-31"] {
+        let mut faux = reponse_valide();
+        faux["type"] = json!("facture");
+        faux["date"] = json!(d);
+        let e = extraction::depuis_reponse(&json!({ "structured_output": faux }), &s).unwrap();
+        assert_eq!(e.date, None);
+        assert!(
+            extraction::anomalies(&e, None)
+                .iter()
+                .any(|a| a == &format!("la date lue « {d} » n'existe pas")),
+            "{d}"
+        );
+    }
     assert_eq!(
         extraction::depuis_reponse(&json!({ "result": "Je ne peux pas lire ce fichier." }), &s),
         Err(ErreurExtraction::Absente)
