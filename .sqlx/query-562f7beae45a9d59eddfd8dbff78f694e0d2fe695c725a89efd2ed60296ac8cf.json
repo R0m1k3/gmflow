@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select k as \"champ!\", count(*) as \"pieces!\"\n           from document d, jsonb_object_keys(d.corrections) k\n           where d.verifie_le >= ($1::date)::timestamp at time zone 'Europe/Paris'\n             and d.verifie_le < ($1::date + interval '1 month') at time zone 'Europe/Paris'\n             and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and ($2::bigint is null or d.societe_id = $2)\n           group by k order by 2 desc, 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "champ!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "pieces!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "562f7beae45a9d59eddfd8dbff78f694e0d2fe695c725a89efd2ed60296ac8cf"
+}

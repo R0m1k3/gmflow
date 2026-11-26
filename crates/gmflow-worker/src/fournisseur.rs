@@ -269,6 +269,7 @@ async fn demander(
     );
     a.effort = Some(&reglage.effort);
     a.args_en_plus = &args;
+    a.document_id = Some(document_id);
     let sortie = match claude::lancer(pool, &ctx.config.claude_bin, &a).await {
         Ok(s) => s,
         Err(e) => {

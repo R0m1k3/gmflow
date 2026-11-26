@@ -52,7 +52,12 @@ impl FauxClaude {
 }
 
 fn reponse(sortie: Value) -> Value {
-    json!({ "type": "result", "is_error": false, "result": "", "structured_output": sortie })
+    json!({
+        "type": "result", "is_error": false, "result": "", "structured_output": sortie,
+        "total_cost_usd": 0.0042, "duration_ms": 900,
+        "usage": { "input_tokens": 1500, "output_tokens": 210,
+                   "cache_creation_input_tokens": 3000, "cache_read_input_tokens": 0 }
+    })
 }
 
 fn facture(numero: &str, iban: Option<&str>) -> Value {
@@ -144,6 +149,28 @@ async fn iban_lu_garde_seulement_avec_une_cle_juste() {
     assert_eq!(iban.as_deref(), Some("FR7630006000011234567890189"));
     // La consigne de lecture de l'IBAN est dans le prompt.
     assert!(faux.appels()[0].contains("iban = l'IBAN du compte du fournisseur à payer"));
+    // L'appel de lecture est mesuré : document, jetons, coût estimé par le CLI.
+    let (tache, modele, tokens, cache, cout): (
+        String,
+        String,
+        Option<i32>,
+        Option<i32>,
+        Option<f64>,
+    ) = sqlx::query_as(
+        "select tache, modele, tokens_entree, tokens_cache_ecriture, cout_usd::float8
+             from appel_claude where document_id = $1 order by id limit 1",
+    )
+    .bind(d1)
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    assert!(
+        ["extraction_texte", "ocr_scan"].contains(&tache.as_str()),
+        "{tache}"
+    );
+    assert_eq!(modele, "haiku");
+    assert_eq!((tokens, cache), (Some(1500), Some(3000)));
+    assert_eq!(cout, Some(0.0042));
 
     // Clé fausse : champ vide, et la lecture le signale (nouvel essai, puis message).
     faux.repondre(&reponse(facture(

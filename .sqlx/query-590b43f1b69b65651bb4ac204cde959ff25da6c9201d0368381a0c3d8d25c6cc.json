@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select coalesce(sum(a.cout_usd), 0)::float8 as \"total!\",\n                  count(*) as \"appels!\",\n                  count(*) filter (where a.cout_usd is null) as \"sans_cout!\",\n                  count(distinct a.document_id) filter (where a.cout_usd is not null) as \"pieces!\",\n                  coalesce(sum(a.cout_usd) filter (where a.document_id is not null), 0)::float8\n                      as \"cout_pieces!\"\n           from appel_claude a\n           left join document d on d.id = a.document_id\n           where a.quand >= ($1::date)::timestamp at time zone 'Europe/Paris'\n             and a.quand < ($1::date + interval '1 month') at time zone 'Europe/Paris'\n             and a.tache = any($3)\n             and ($2::bigint is null or d.societe_id = $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "appels!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "sans_cout!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "pieces!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "cout_pieces!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "590b43f1b69b65651bb4ac204cde959ff25da6c9201d0368381a0c3d8d25c6cc"
+}

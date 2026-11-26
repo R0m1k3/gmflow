@@ -17,6 +17,7 @@ import type {
   LigneFournisseur,
   MiseEnRoute,
   Page,
+  QualiteLecture,
   ResultatValidation,
   ResultatsRecherche
 } from './types';
@@ -150,6 +151,10 @@ export const rechercher = (p: {
 
 export const bilanMois = (p: { mois?: string; societe?: number | null } = {}) =>
   api.get<BilanMois>(`/api/bilan${requete(p)}`);
+
+/** Qualité et coût de la lecture d'un mois (admin). */
+export const qualiteLecture = (p: { mois?: string; societe?: number | null } = {}) =>
+  api.get<QualiteLecture>(`/api/admin/qualite${requete(p)}`);
 
 /** Modification partielle d'une fiche fournisseur (admin) : « Confirmer », « Toujours ranger dans X ». */
 export const modifierFournisseur = (id: number, changements: ChangementsFournisseur) =>

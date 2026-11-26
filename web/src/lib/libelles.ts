@@ -131,6 +131,23 @@ export function libelleVoie(v: Voie | null | undefined): string {
   }
 }
 
+/** Nom d'un champ corrigé à la main (clé de `document.corrections`). */
+export function libelleChampCorrige(champ: string): string {
+  const noms: Record<string, string> = {
+    type: 'Type de pièce',
+    societe_id: 'Société',
+    fournisseur_id: 'Fournisseur',
+    numero: 'Numéro',
+    date_document: 'Date',
+    numero_commande: 'N° de commande',
+    montant_ht: 'Montant HT',
+    montant_tva: 'TVA',
+    montant_ttc: 'Montant TTC',
+    date_echeance: 'Échéance'
+  };
+  return noms[champ] ?? champ;
+}
+
 /** Titre court d'une alerte (contrôle) ; le message du serveur sert de détail. */
 export function titreAlerte(c: Pick<Controle, 'code' | 'message'>): string {
   switch (c.code) {

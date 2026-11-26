@@ -557,8 +557,10 @@ pub const REGLAGES_LECTURE: &str =
     r#"{"permissions":{"blockReadsOutsideWorkingDirectories":true}}"#;
 
 /// Un appel de lecture. `Ok(Err(..))` : réponse reçue mais non conforme.
+#[allow(clippy::too_many_arguments)]
 async fn appel_lecture(
     ctx: &Contexte,
+    document_id: i64,
     tache: &str,
     reglage: &reglages::Reglage,
     prompt: &str,
@@ -597,6 +599,7 @@ async fn appel_lecture(
     a.args_en_plus = &args;
     a.dossier = avec_fichier;
     a.delai = claude::DELAI_LECTURE;
+    a.document_id = Some(document_id);
     let sortie = claude::lancer(&ctx.pool, &ctx.config.claude_bin, &a).await?;
     let societes = societes(&ctx.pool).await.unwrap_or_default();
     Ok(extraction::depuis_reponse(&sortie.json, &societes))
@@ -940,6 +943,7 @@ async fn lire_par_claude(
     } else {
         match appel_lecture(
             ctx,
+            id,
             tache,
             &reglage,
             prompt,
@@ -1021,6 +1025,7 @@ async fn lire_par_claude(
     let reglage2 = r.pour(reglages::NOUVEL_ESSAI).clone();
     let seconde = appel_lecture(
         ctx,
+        id,
         reglages::NOUVEL_ESSAI,
         &reglage2,
         &prompt2,

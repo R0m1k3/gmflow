@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.voie as \"cle?\", count(*) as \"validees!\",\n                  count(*) filter (where d.corrections <> '{}'::jsonb) as \"corrigees!\"\n           from document d\n           where d.verifie_le >= ($1::date)::timestamp at time zone 'Europe/Paris'\n             and d.verifie_le < ($1::date + interval '1 month') at time zone 'Europe/Paris'\n             and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and ($2::bigint is null or d.societe_id = $2)\n           group by d.voie order by 2 desc, 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cle?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "voie"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "validees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "corrigees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "4a31dec36f6b21fc9273bcb8eb7d592343a071172536ba22aff84d1f3bdb06ce"
+}

@@ -24,6 +24,7 @@ pub mod journal;
 pub mod lecture;
 pub mod logiflow;
 pub mod parametre;
+pub mod qualite;
 pub mod rapprochement;
 pub mod reglages;
 pub mod reinitialisation;

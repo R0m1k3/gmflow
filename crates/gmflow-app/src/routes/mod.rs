@@ -19,6 +19,7 @@ pub mod fournisseurs;
 pub mod iban;
 pub mod mails;
 pub mod mise_en_route;
+pub mod qualite;
 pub mod rapprochement;
 pub mod recherche;
 pub mod reponses;
@@ -190,6 +191,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
             "/admin/fournisseurs/{id}/ibans/{iban_id}",
             delete(iban::retirer),
         )
+        .route("/admin/qualite", get(qualite::qualite))
         .route(
             "/admin/documents/{id}/iban/confirmer",
             post(iban::confirmer),
