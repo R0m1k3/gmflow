@@ -1996,8 +1996,13 @@ dialog.confirmation .dlg-pied {
   @page {
     margin: 14mm;
   }
+  html,
+  body,
+  .cadre,
+  .contenu {
+    background: #fff !important;
+  }
   body {
-    background: #fff;
     font-size: 11pt;
   }
   .barre,

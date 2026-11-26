@@ -9,12 +9,35 @@
 
   let ouvert = $state(false);
   let racine = $state<HTMLElement>();
+  let bouton = $state<HTMLElement>();
+  /** Bulle en position fixe : elle ne se fait pas couper par un tableau ou un bloc qui défile. */
+  let place = $state({ haut: 0, gauche: 0 });
+  const LARGEUR = 280;
+  function basculer() {
+    ouvert = !ouvert;
+    if (!ouvert || !bouton) return;
+    const r = bouton.getBoundingClientRect();
+    const large = Math.min(LARGEUR, window.innerWidth - 32);
+    const g = droite ? r.right - large : r.left;
+    place = { haut: r.bottom + 6, gauche: Math.max(16, Math.min(g, window.innerWidth - large - 16)) };
+  }
   const uid = $props.id();
   let a = $derived(AIDES[sujet]);
 
   function dehors(e: Event) {
     if (ouvert && racine && e.target instanceof Node && !racine.contains(e.target)) ouvert = false;
   }
+  // Bulle en position fixe : elle se ferme si la page défile ou change de taille.
+  $effect(() => {
+    if (!ouvert) return;
+    const fermer = () => (ouvert = false);
+    window.addEventListener('scroll', fermer, true);
+    window.addEventListener('resize', fermer);
+    return () => {
+      window.removeEventListener('scroll', fermer, true);
+      window.removeEventListener('resize', fermer);
+    };
+  });
   function touche(e: KeyboardEvent) {
     if (e.key === 'Escape' && ouvert) {
       ouvert = false;
@@ -32,10 +55,11 @@
     aria-label="Explication : {a.titre}"
     aria-expanded={ouvert}
     aria-controls="{uid}-t"
-    onclick={() => (ouvert = !ouvert)}
+    bind:this={bouton}
+    onclick={basculer}
   >?</button>
   {#if ouvert}
-    <span class="aide-t" class:droite id="{uid}-t" role="note"><b>{a.titre}.</b> {a.texte}</span>
+    <span class="aide-t" style:top="{place.haut}px" style:left="{place.gauche}px" id="{uid}-t" role="note"><b>{a.titre}.</b> {a.texte}</span>
   {/if}
 </span>
 
@@ -75,12 +99,9 @@
     outline-offset: 2px;
   }
   .aide-t {
-    position: absolute;
-    z-index: 20;
-    top: calc(100% + var(--e1));
-    left: 0;
-    width: max-content;
-    max-width: min(280px, calc(100vw - 32px));
+    position: fixed;
+    z-index: 50;
+    width: min(280px, calc(100vw - 32px));
     padding: var(--e3);
     border: 1px solid var(--line);
     border-radius: var(--r2);
@@ -92,10 +113,6 @@
     font-weight: 400;
     text-align: left;
     white-space: normal;
-  }
-  .aide-t.droite {
-    left: auto;
-    right: 0;
   }
   .aide-t b {
     font-weight: 500;
