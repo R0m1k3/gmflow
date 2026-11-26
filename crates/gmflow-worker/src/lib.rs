@@ -310,10 +310,7 @@ pub async fn lancer(config: Config) -> anyhow::Result<()> {
         ),
         Err(e) => tracing::warn!(erreur = %e, "calcul des totaux des BL sans montants"),
     }
-    tokio::spawn(planif::boucle(
-        ctx.pool.clone(),
-        ctx.config.fichiers.clone(),
-    ));
+    tokio::spawn(planif::boucle(ctx.clone()));
     tokio::spawn(sante::serveur(ctx.pool.clone()));
     tokio::spawn(orchestre::boucle(ctx.clone()));
     tracing::info!(transport = ?ctx.transport, "GMFlow worker démarré");

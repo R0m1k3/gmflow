@@ -524,3 +524,90 @@ async fn alertes_de_releve_et_envoi_interrompu() {
     );
     m.b.fermer().await;
 }
+
+#[tokio::test]
+async fn alerte_quand_la_releve_s_arrete_sans_erreur() {
+    let m = monde(None).await;
+    let b = &m.b;
+    let a = societe(b, "Magasin Frouard", SIRET_A, false).await;
+    let muette = b.boite_ok(a, "a@test.local", &["INBOX"]).await;
+    let a_l_heure = b.boite_ok(a, "b@test.local", &["INBOX"]).await;
+    let objets = || -> Vec<String> {
+        m.smtp
+            .recus()
+            .iter()
+            .map(|r| gmflow_core::eml::decouper(r.as_bytes()).unwrap().objet)
+            .collect()
+    };
+    // Une boîte relevée il y a 2 h, sans erreur ; l'autre il y a 5 min ; une troisième en
+    // échec (alerte ordinaire) et une relève en cours (bail tenu) ne comptent pas.
+    sqlx::query(
+        "update boite_mail set active = true, cree_le = now() - interval '1 day',
+             derniere_releve = case when id = $1 then now() - interval '2 hours'
+                                    else now() - interval '5 minutes' end
+         where id in ($1, $2)",
+    )
+    .bind(muette)
+    .bind(a_l_heure)
+    .execute(b.pool())
+    .await
+    .unwrap();
+    let en_echec = b.boite_ok(a, "a@test.local", &["Autre"]).await;
+    let en_cours = b.boite_ok(a, "b@test.local", &["Autre"]).await;
+    sqlx::query(
+        "update boite_mail set active = true, cree_le = now() - interval '1 day',
+             derniere_releve = now() - interval '3 hours',
+             erreur_depuis = case when id = $1 then now() else null end,
+             releve_jusqu_a = case when id = $2 then now() + interval '10 minutes' else null end
+         where id in ($1, $2)",
+    )
+    .bind(en_echec)
+    .bind(en_cours)
+    .execute(b.pool())
+    .await
+    .unwrap();
+
+    envoi::releves_muettes(&b.ctx).await.unwrap();
+    envoi::releves_muettes(&b.ctx).await.unwrap();
+    let o = objets();
+    assert_eq!(o.len(), 1, "une alerte par incident : {o:?}");
+    assert!(o[0].contains("relève IMAP arrêtée"), "{o:?}");
+    let corps = gmflow_core::eml::decouper(m.smtp.recus()[0].as_bytes())
+        .unwrap()
+        .corps_texte;
+    assert!(corps.contains("dernière relève le"), "{corps}");
+    assert_eq!(
+        b.compter("select count(*) from boite_mail where alerte_silence_le is not null")
+            .await,
+        1
+    );
+
+    // La relève reprend : un mail de suivi, l'incident est clos.
+    sqlx::query("update boite_mail set derniere_releve = now() where id = $1")
+        .bind(muette)
+        .execute(b.pool())
+        .await
+        .unwrap();
+    envoi::releves_muettes(&b.ctx).await.unwrap();
+    let o = objets();
+    assert_eq!(o.len(), 2, "{o:?}");
+    assert!(o[1].contains("repartie"), "{o:?}");
+    assert_eq!(
+        b.compter("select count(*) from boite_mail where alerte_silence_le is not null")
+            .await,
+        0
+    );
+
+    // Boîte réactivée après une longue pause : pas en retard tant qu'elle n'a pas eu sa chance.
+    sqlx::query(
+        "update boite_mail set derniere_releve = now() - interval '2 days', activee_le = now()
+         where id = $1",
+    )
+    .bind(muette)
+    .execute(b.pool())
+    .await
+    .unwrap();
+    envoi::releves_muettes(&b.ctx).await.unwrap();
+    assert_eq!(objets().len(), 2);
+    m.b.fermer().await;
+}
