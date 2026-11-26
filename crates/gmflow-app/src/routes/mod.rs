@@ -16,6 +16,7 @@ pub mod documents;
 pub mod export_phenix;
 pub mod fichiers;
 pub mod fournisseurs;
+pub mod lignes;
 pub mod lot;
 pub mod mails;
 pub mod mise_en_route;
@@ -155,6 +156,15 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/documents/{id}/remettre", post(retour::remettre))
         .route("/documents/lot/eligibilite", post(lot::eligibilite))
         .route("/documents/lot/valider", post(lot::valider))
+        // Lignes articles corrigées à la main (routes/lignes.rs).
+        .route(
+            "/documents/{id}/lignes",
+            get(lignes::liste).post(lignes::ajouter),
+        )
+        .route(
+            "/documents/{id}/lignes/{ligne}",
+            put(lignes::modifier).delete(lignes::supprimer),
+        )
         .route("/a-traiter", get(a_traiter::file))
         .route("/recherche", get(recherche::chercher))
         .route("/a-traiter/compteurs", get(a_traiter::compteurs))

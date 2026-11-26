@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set lignes_lues = true where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b0f42b35ad6ae5c4a24ad639671d58e38ed362ad49abd421a3b75ad18ff02c1a"
+}

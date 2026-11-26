@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.id, d.mail_id, m.objet as mail_objet, m.expediteur as mail_expediteur,\n                  p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,\n                  d.type, d.societe_id, s.raison_sociale as \"societe?\", d.fournisseur_nom,\n                  d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,\n                  d.numero_commande, d.date_echeance, d.montant_ht::float8 as montant_ht,\n                  d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,\n                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,\n                  d.annexes_ht::float8 as annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,\n                  u.identifiant as \"verifie_par?\", d.type_corrige, d.societe_corrigee,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\", fo.statut as \"fournisseur_statut?\",\n                  d.statut_depot, d.controles, d.valide_le, uv.identifiant as \"valide_par?\",\n                  d.corrections, s.adresse_depot as \"societe_adresse_depot?\",\n                  s.outil_depot as \"societe_outil_depot?\",\n                  coalesce(m.date_mail, m.recu_le) as \"recu_le!\",\n                  coalesce(d.statut_depot = 'erreur'\n                           and d.valide_le > (select max(e.quand) from envoi_depot e\n                                              where e.document_id = d.id)\n                           and d.valide_le > now() - interval '30 minutes', false) as \"envoi_relance!\",\n                  d.ecartement - 'avant' as ecartement\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           left join utilisateur u on u.id = d.verifie_par\n           left join utilisateur uv on uv.id = d.valide_par\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where d.id = $1",
+  "query": "select d.id, d.mail_id, m.objet as mail_objet, m.expediteur as mail_expediteur,\n                  p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,\n                  d.type, d.societe_id, s.raison_sociale as \"societe?\", d.fournisseur_nom,\n                  d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,\n                  d.numero_commande, d.date_echeance, d.montant_ht::float8 as montant_ht,\n                  d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,\n                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,\n                  d.annexes_ht::float8 as annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,\n                  u.identifiant as \"verifie_par?\", d.type_corrige, d.societe_corrigee,\n                  d.fournisseur_id, fo.nom as \"fournisseur?\", fo.statut as \"fournisseur_statut?\",\n                  d.statut_depot, d.controles, d.valide_le, uv.identifiant as \"valide_par?\",\n                  d.corrections, s.adresse_depot as \"societe_adresse_depot?\",\n                  s.outil_depot as \"societe_outil_depot?\",\n                  coalesce(m.date_mail, m.recu_le) as \"recu_le!\",\n                  coalesce(d.statut_depot = 'erreur'\n                           and d.valide_le > (select max(e.quand) from envoi_depot e\n                                              where e.document_id = d.id)\n                           and d.valide_le > now() - interval '30 minutes', false) as \"envoi_relance!\",\n                  d.ecartement - 'avant' as ecartement,\n                  (select count(*) from ligne_document l\n                   where l.document_id = d.id and l.corrigee_le is not null) as \"lignes_corrigees!\"\n           from document d\n           join mail m on m.id = d.mail_id\n           join piece_jointe p on p.id = d.piece_jointe_id\n           left join societe s on s.id = d.societe_id\n           left join utilisateur u on u.id = d.verifie_par\n           left join utilisateur uv on uv.id = d.valide_par\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where d.id = $1",
   "describe": {
     "columns": [
       {
@@ -496,6 +496,12 @@
         "name": "ecartement",
         "type_info": "Jsonb",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 49,
+        "name": "lignes_corrigees!",
+        "type_info": "Int8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -552,8 +558,9 @@
       true,
       null,
       null,
+      null,
       null
     ]
   },
-  "hash": "2e14fb5139c8802bc624bed6cb6bd1b601b6f6a0221e0d8f3689e6d2fccf2e18"
+  "hash": "43d5dddbd1a7da5dfd51ad5c6370442f9ed24c064f3438e720dc90b6dbb13f31"
 }

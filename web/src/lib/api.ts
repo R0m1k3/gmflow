@@ -8,6 +8,9 @@ import type {
   DemandeEssaiBoite,
   DemandeValidation,
   EligibiliteLot,
+  LignesDocument,
+  ResultatLigne,
+  SaisieLigne,
   EntreeBoite,
   EssaiBoite,
   FileATraiter,
@@ -146,6 +149,12 @@ export const eligibiliteLot = (ids: number[]) => api.post<EligibiliteLot[]>('/ap
 
 /** « Valider N pièces » : chaque pièce sans alerte est validée, les autres laissées à contrôler. */
 export const validerLot = (ids: number[]) => api.post<ResultatLot>('/api/documents/lot/valider', { ids });
+
+/** Lignes articles d'un document, pour les corriger à la main. */
+export const lignesDocument = (id: number) => api.get<LignesDocument>(`/api/documents/${id}/lignes`);
+export const modifierLigne = (id: number, ligne: number, s: SaisieLigne) => api.put<ResultatLigne>(`/api/documents/${id}/lignes/${ligne}`, s);
+export const ajouterLigne = (id: number, s: SaisieLigne) => api.post<ResultatLigne>(`/api/documents/${id}/lignes`, s);
+export const supprimerLigne = (id: number, ligne: number) => api.del<ResultatLigne>(`/api/documents/${id}/lignes/${ligne}`);
 
 export const fournisseurs = (p: { societe?: number | null; q?: string; statut?: string; page?: number } = {}) =>
   api.get<Page<LigneFournisseur>>(`/api/fournisseurs${requete(p)}`);

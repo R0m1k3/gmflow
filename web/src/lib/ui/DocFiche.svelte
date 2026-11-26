@@ -71,6 +71,7 @@
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
   import DocArticlesBl from './DocArticlesBl.svelte';
+  import LignesEdition from './LignesEdition.svelte';
   import DocChaine, { type FactureLiee, type PointChaine } from './DocChaine.svelte';
   import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
   import type { EtatExportPhenix } from '#lib/types.ts';
@@ -539,7 +540,7 @@
       const r = await validerDocument(d.id, { corrections, forcer: forcer || undefined }, societe.id);
       void rafraichirCompteurs();
       // Envoi différé côté serveur : message « Annuler » en bas de l'écran, la suite s'ouvre.
-      if (r.annulation) annulations.annoncer(r.annulation, `${quoi} validée`, nomOutil(outil));
+      if (r.annulation) annulations.annoncer(r.annulation, quoi, `${quoi} validé${choix.type === 'facture' ? 'e' : ''}`, nomOutil(outil));
       onfait({
         id: d.id,
         suivant: r.suivant,
@@ -678,7 +679,8 @@
     const e = d?.ecartement;
     if (!e) return '';
     const m = libelleMotif(e.motif);
-    return `Écartée le ${jourHeure(e.le)}${e.par_nom ? ` par ${e.par_nom}` : ''}.${m ? ` Motif : ${m}${e.texte ? `, ${e.texte}` : ''}.` : e.texte ? ` ${e.texte}` : ''}`;
+    const motif = m ? ` Motif : ${m.toLowerCase()}${e.texte ? ` (${e.texte})` : ''}.` : e.texte ? ` ${e.texte}` : '';
+    return `Le ${jourHeure(e.le)}${e.par_nom ? `, par ${e.par_nom}` : ''}.${motif}`;
   });
 
   // Plan de la barre d'action selon l'état du document.
@@ -1221,6 +1223,7 @@
             factureLiee={rap.liens.length > 0}
             plusieursBl={rap.liens.some((l) => (factures.get(l.autre.id)?.rap?.liens.length ?? 0) >= 2)}
           />
+          {#if d.etat === 'lu'}{@render corrigerLignes()}{/if}
         {/if}
 
         {#if d.etat === 'lu'}
@@ -1381,6 +1384,7 @@
                       {/each}
                     </tbody>
                   </table></div>
+                  {@render corrigerLignes()}
                 {/if}
                 {#if d.texte}
                   <details class="doc-texte">
@@ -1445,14 +1449,31 @@
 <Confirmation bind:ouvert={dlgForcer} titre="Envoyer ce doublon quand même ?" libelle="Envoyer quand même" danger onconfirmer={() => valider(true)}>
   <p>{refus?.code === 'doublon' ? phrase(refus.message) : doublon ? phrase(doublon.message) : ''} La facture partira à {nomOutil(outil)} telle quelle.</p>
 </Confirmation>
+{#snippet corrigerLignes()}
+  {#if d}
+    <LignesEdition
+      documentId={d.id}
+      typeDoc={d.type}
+      corrigees={d.lignes_corrigees}
+      onchange={() => apresLien('Lignes corrigées : montants, écarts et contrôles recalculés.')}
+    />
+  {/if}
+{/snippet}
+{#snippet avisLignes()}
+  {#if d && d.lignes_corrigees > 0}
+    <p><b>{d.lignes_corrigees} ligne{d.lignes_corrigees > 1 ? 's' : ''} corrigée{d.lignes_corrigees > 1 ? 's' : ''} à la main {d.lignes_corrigees > 1 ? 'seront remplacées' : 'sera remplacée'}.</b></p>
+  {/if}
+{/snippet}
 <Confirmation bind:ouvert={dlgRelire} titre="Relire avec Claude ?" libelle="Relire" onconfirmer={() => relire()}>
   <p>La lecture et la validation actuelles seront remplacées par une nouvelle lecture.</p>
+  {@render avisLignes()}
 </Confirmation>
 <Confirmation bind:ouvert={dlgRelireDetail} titre="Relire en détail ?" libelle="Relire en détail" onconfirmer={() => relire(true)}>
   <p>
     Claude relit le fichier d’origine page par page, totaux de la dernière page compris, avec le modèle le plus fort (plus lent, compte dans le quota
     du jour). La lecture et la validation actuelles seront remplacées.
   </p>
+  {@render avisLignes()}
 </Confirmation>
 
 <style>

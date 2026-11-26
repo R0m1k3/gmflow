@@ -242,6 +242,8 @@ pub struct FicheDocument {
     envoi_relance: bool,
     /// Écartée par un humain : quand, par qui, motif (`retour::noter_ecartement`).
     ecartement: Option<Value>,
+    /// Lignes articles corrigées à la main (`routes::lignes`) : une relecture les remplacerait.
+    lignes_corrigees: i64,
 }
 
 #[derive(Serialize)]
@@ -328,7 +330,9 @@ pub async fn fiche(
                            and d.valide_le > (select max(e.quand) from envoi_depot e
                                               where e.document_id = d.id)
                            and d.valide_le > now() - interval '30 minutes', false) as "envoi_relance!",
-                  d.ecartement - 'avant' as ecartement
+                  d.ecartement - 'avant' as ecartement,
+                  (select count(*) from ligne_document l
+                   where l.document_id = d.id and l.corrigee_le is not null) as "lignes_corrigees!"
            from document d
            join mail m on m.id = d.mail_id
            join piece_jointe p on p.id = d.piece_jointe_id

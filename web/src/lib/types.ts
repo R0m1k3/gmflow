@@ -317,6 +317,8 @@ export interface FicheDocument {
   envoi_relance: boolean;
   /** Écartée par un humain : quand, par qui, pourquoi. */
   ecartement: Ecartement | null;
+  /** Lignes articles corrigées à la main : une relecture les remplacerait. */
+  lignes_corrigees: number;
   envois: Envoi[];
   /** Boîtes de réception du mail d'origine (visibles). */
   boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
@@ -650,6 +652,43 @@ export interface LigneArticle {
   unite: string | null;
   prix_unitaire_ht: number | null;
   montant_ht: number | null;
+}
+
+/** Valeurs d'une ligne article qu'on corrige à la main (`/api/documents/{id}/lignes`). */
+export interface SaisieLigne {
+  reference: string | null;
+  designation: string | null;
+  quantite: number | null;
+  unite: string | null;
+  prix_unitaire_ht: number | null;
+  montant_ht: number | null;
+  gencod: string | null;
+  colis: number | null;
+  pcb: number | null;
+  remise_taux: number | null;
+  taux_tva: number | null;
+  deee_ht: number | null;
+  ecomob_ht: number | null;
+}
+
+export interface LigneEdition extends SaisieLigne {
+  id: number;
+  rang: number;
+  corrigee_le: string | null;
+  corrigee_par: string | null;
+}
+
+export interface LignesDocument {
+  modifiable: boolean;
+  raison: string | null;
+  type: TypeDocument | null;
+  lignes: LigneEdition[];
+}
+
+export interface ResultatLigne {
+  ligne: LigneEdition | null;
+  totaux: { montant_ht: number | null; montant_tva: number | null; montant_ttc: number | null; montants_calcules: string[] };
+  magasin_relance: boolean;
 }
 
 export interface DetailRapprochement {
