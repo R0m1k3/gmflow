@@ -1,6 +1,7 @@
 <script lang="ts">
   // Bilan du mois : par société, reçues / envoyées / restantes, avec liens vers ce qui reste à faire ;
   // BL en attente de facture par fournisseur ; replié en bas, qualité de la lecture et du tri.
+  import Aide from '#lib/ui/Aide.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, bilanMois, message } from '#lib/api.ts';
@@ -216,7 +217,7 @@
                 <th class="n">Envoyées</th>
                 <th class="n">À contrôler</th>
                 <th class="n">Échec d’envoi</th>
-                <th class="n">Doublons</th>
+                <th class="n">Doublons<Aide sujet="doublon_document" droite /></th>
                 <th class="n">Montant envoyé</th>
               </tr>
             </thead>

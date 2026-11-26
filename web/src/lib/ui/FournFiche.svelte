@@ -123,6 +123,7 @@
   import Etiquette from './Etiquette.svelte';
   import FournEtat from './FournEtat.svelte';
   import FournGroupe from './FournGroupe.svelte';
+  import Aide from '#lib/ui/Aide.svelte';
   import Icone from './Icone.svelte';
   import { phraseEcartLigne } from './DocOutils.ts';
   import Montant, { formatMontant } from './Montant.svelte';
@@ -431,9 +432,9 @@
     )}
     {#if (r.facture.remise_ht && r.facture.remise_ht > 0.005) || r.ecarts.length}
       <div class="ecarts petit t2">
-        {#if r.facture.remise_ht && r.facture.remise_ht > 0.005}<div><span class="etiquette info">Remise {formatMontant(r.facture.remise_ht)}</span></div>{/if}
+        {#if r.facture.remise_ht && r.facture.remise_ht > 0.005}<div><span class="etiquette info">Remise {formatMontant(r.facture.remise_ht)}</span><Aide sujet="remise" /></div>{/if}
         {#if r.ecarts.length}
-          <div class="ecarts-t"><span class="etiquette att">{r.ecarts.length} article{r.ecarts.length > 1 ? 's' : ''} en écart</span></div>
+          <div class="ecarts-t"><span class="etiquette att">{r.ecarts.length} article{r.ecarts.length > 1 ? 's' : ''} en écart</span><Aide sujet="ecart_bl" /></div>
           {#each r.ecarts.slice(0, 3) as x, i (i)}
             {@const p = phraseEcartLigne(x)}
             <div>{p.titre} : {p.article}, {p.detail}</div>
@@ -623,7 +624,7 @@
         <dl class="champs">
           {#each champsRemplis as c (c.libelle)}
             <div>
-              <dt>{c.libelle}</dt>
+              <dt>{c.libelle}{#if c.libelle === 'Code BO Phénix'}<Aide sujet="code_bo" />{/if}</dt>
               <dd class:num={c.mono} class:multi={c.multi}>{#if c.valeur}{c.valeur}{:else}<span class="muted">—</span>{/if}</dd>
             </div>
           {/each}
@@ -665,7 +666,7 @@
     {/if}
 
     <section class="sec-f" aria-labelledby="ar-{id}">
-      <h3 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}</h3>
+      <h3 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}<Aide sujet="rapprochement" /></h3>
       {#if ar && nbARapprocher}
         {#if ar.bl_sans_facture.length}
           {#snippet bls()}{#each limiter(ar?.bl_sans_facture ?? [], 'bl') as d (d.id)}{@render carteDoc(d, 'En attente de facture')}{/each}{/snippet}
