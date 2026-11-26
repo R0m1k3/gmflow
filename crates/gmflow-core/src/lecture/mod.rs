@@ -2,6 +2,7 @@
 //! marche : facture électronique (XML), couche texte d'un PDF, cellules d'un tableur, et
 //! seulement en dernier Claude, qui lit le scan ou l'image lui-même.
 
+pub mod decoupage;
 pub mod extraction;
 pub mod ocr;
 pub mod pdf;

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.valide_le is null\n                  and not exists (select 1 from envoi_depot e\n                                  where e.document_id = d.id and e.etat = 'envoye') as \"libre!\"\n           from document d where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "libre!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6abc7356b7bfb65d254d365bb89ef6c2c8264e0ba4658f2da2ddb51b9b3dfc64"
+}

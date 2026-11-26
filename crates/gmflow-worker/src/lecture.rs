@@ -626,11 +626,12 @@ pub async fn lire(
     let pool = &ctx.pool;
     let Some(doc) = sqlx::query_as!(
         Entree,
-        "update document d set etat = 'en_cours', pris_le = now()
-         from piece_jointe p, mail m
+        r#"update document d set etat = 'en_cours', pris_le = now()
+         from piece_jointe p left join piece_jointe s on s.id = p.source_id, mail m
          where d.id = $1 and d.etat = 'a_lire' and p.id = d.piece_jointe_id and m.id = d.mail_id
-         returning d.sha256, p.nom, p.type_mime, p.rang, m.chemin_eml, m.expediteur, m.objet,
-                   m.corps_texte as corps",
+         returning d.sha256, p.id as piece_id, d.mail_id, p.nom, p.type_mime,
+                   coalesce(s.rang, p.rang) as "rang!", p.page_debut, p.page_fin, m.chemin_eml,
+                   m.expediteur, m.objet, m.corps_texte as corps"#,
         document_id
     )
     .fetch_optional(pool)
@@ -714,9 +715,15 @@ async fn exemples_pour(pool: &PgPool, expediteur: &str, texte: Option<&str>) -> 
 
 struct Entree {
     sha256: Vec<u8>,
+    piece_id: i64,
+    mail_id: i64,
     nom: String,
     type_mime: String,
+    /// Rang de la pièce dans le mail (celui de la pièce d'origine pour une partie découpée).
     rang: i32,
+    /// Pages de la pièce d'origine, pour une partie découpée (`lecture::decoupage`).
+    page_debut: Option<i32>,
+    page_fin: Option<i32>,
     chemin_eml: String,
     expediteur: String,
     objet: String,
@@ -739,8 +746,9 @@ async fn lire_pris(
         tokio::fs::read(stockage::chemin_absolu(&ctx.config.fichiers, &e.chemin_eml)).await?;
     let (contenu, aiguillage) = {
         let (nom, mime, rang) = (e.nom.clone(), e.type_mime.clone(), e.rang);
+        let pages = e.page_debut.zip(e.page_fin);
         tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, Aiguillage)> {
-            let contenu = eml::extraire_piece(&brut, rang)?;
+            let contenu = lect::decoupage::contenu_piece(&brut, rang, pages)?;
             let liste = eml::liste_diffusion(&brut);
             let a = lect::aiguiller(&nom, &mime, &contenu, liste);
             Ok((contenu, a))
@@ -766,7 +774,42 @@ async fn lire_pris(
             .map(|t| (v, t)),
         None => None,
     };
+    // PDF de plusieurs pièces (pas déjà une partie) : découpé, chaque partie est lue à part et
+    // ce document-ci devient l'origine, ignorée.
+    let mut decoupe = None;
+    if let Some(voie) = voie_ocr
+        && e.page_debut.is_none()
+    {
+        let textes = match &ocr {
+            Some((_, t)) => Some(t.textes_pages.clone()),
+            None => {
+                let c = contenu.clone();
+                tokio::task::spawn_blocking(move || lect::pdf::texte_par_page(&c)).await?
+            }
+        };
+        let origine = crate::decoupage::Origine {
+            document_id: id,
+            piece_id: e.piece_id,
+            mail_id: e.mail_id,
+            rang: e.rang,
+            nom: &e.nom,
+            contenu: &contenu,
+            textes,
+            hors_quota,
+        };
+        if let Some(plages) = crate::decoupage::decouper(ctx, origine).await? {
+            decoupe = Some(Lu {
+                etat: "ignore",
+                voie: Some(voie.code()),
+                message: Some(crate::decoupage::message(&plages)),
+                confiance: json!({ "decoupage": plages }),
+                texte: ocr.as_ref().map(|(_, t)| t.texte.clone()),
+                ..Default::default()
+            });
+        }
+    }
     let lu = match aiguillage {
+        _ if decoupe.is_some() => decoupe.take().unwrap_or_default(),
         _ if ocr.is_some() => {
             let Some((voie, t)) = ocr.take() else {
                 unreachable!("OCR vérifié")

@@ -158,7 +158,7 @@ pub async fn lister(
     let elements = sqlx::query_as!(
         LigneMail,
         r#"select m.id, m.expediteur, m.objet, m.date_mail,
-               (select count(*) from piece_jointe p where p.mail_id = m.id) as "nb_pieces!",
+               (select count(*) from piece_jointe p where p.mail_id = m.id and p.source_id is null) as "nb_pieces!",
                array(select distinct b.libelle from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                      where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1)
                      order by b.libelle) as "boites!",
@@ -323,10 +323,12 @@ pub async fn fiche(
                   (select max(e.quand) from envoi_depot e
                    where e.document_id = d.id and e.etat = 'envoye') as "document_envoye_le?"
            from piece_jointe p
+           left join piece_jointe ps on ps.id = p.source_id
            left join document d on d.piece_jointe_id = p.id
            left join fournisseur fo on fo.id = d.fournisseur_id
            left join societe s on s.id = d.societe_id
-           where p.mail_id = $1 order by p.rang"#,
+           where p.mail_id = $1
+           order by coalesce(ps.rang, p.rang), p.page_debut nulls first"#,
         id
     )
     .fetch_all(&etat.pool)

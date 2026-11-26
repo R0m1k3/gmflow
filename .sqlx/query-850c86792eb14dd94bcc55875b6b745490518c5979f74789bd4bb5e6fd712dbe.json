@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select p.mail_id, p.rang, p.nom, p.type_mime, p.sha256, m.chemin_eml\n         from piece_jointe p join mail m on m.id = p.mail_id where p.id = $1",
+  "query": "select p.mail_id, coalesce(ps.rang, p.rang) as \"rang!\", p.nom, p.type_mime,\n                  coalesce(ps.sha256, p.sha256) as \"sha256!\", p.page_debut, p.page_fin,\n                  m.chemin_eml\n           from piece_jointe p join mail m on m.id = p.mail_id\n           left join piece_jointe ps on ps.id = p.source_id\n           where p.id = $1",
   "describe": {
     "columns": [
       {
@@ -16,14 +16,9 @@
       },
       {
         "ordinal": 1,
-        "name": "rang",
+        "name": "rang!",
         "type_info": "Int4",
-        "origin": {
-          "Table": {
-            "table": "piece_jointe",
-            "name": "rang"
-          }
-        }
+        "origin": "Expression"
       },
       {
         "ordinal": 2,
@@ -49,17 +44,34 @@
       },
       {
         "ordinal": 4,
-        "name": "sha256",
+        "name": "sha256!",
         "type_info": "Bytea",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "page_debut",
+        "type_info": "Int4",
         "origin": {
           "Table": {
             "table": "piece_jointe",
-            "name": "sha256"
+            "name": "page_debut"
           }
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
+        "name": "page_fin",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "page_fin"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "chemin_eml",
         "type_info": "Text",
         "origin": {
@@ -77,12 +89,14 @@
     },
     "nullable": [
       false,
+      null,
       false,
       false,
-      false,
-      false,
+      null,
+      true,
+      true,
       false
     ]
   },
-  "hash": "02c5b87d82af4470ab34affbb6b9a69514f8cd1ada092406bc6912f44e81e2e1"
+  "hash": "850c86792eb14dd94bcc55875b6b745490518c5979f74789bd4bb5e6fd712dbe"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select p.id, p.nom, p.type_mime, p.taille, d.id as \"document_id?\",\n                  d.etat as \"document_etat?\", d.type as \"document_type?\", d.voie as \"document_voie?\",\n                  d.statut_depot as \"document_statut_depot?\",\n                  (d.verifie_le is not null) as \"document_verifie?\",\n                  d.numero as \"document_numero?\",\n                  d.montant_ttc::float8 as \"document_montant_ttc?\",\n                  d.fournisseur_id as \"document_fournisseur_id?\",\n                  coalesce(fo.nom, d.fournisseur_nom) as \"document_fournisseur?\",\n                  d.societe_id as \"document_societe_id?\",\n                  s.raison_sociale as \"document_societe?\",\n                  s.outil_depot as \"document_outil?\",\n                  (select max(e.quand) from envoi_depot e\n                   where e.document_id = d.id and e.etat = 'envoye') as \"document_envoye_le?\"\n           from piece_jointe p\n           left join document d on d.piece_jointe_id = p.id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where p.mail_id = $1 order by p.rang",
+  "query": "select p.id, p.nom, p.type_mime, p.taille, d.id as \"document_id?\",\n                  d.etat as \"document_etat?\", d.type as \"document_type?\", d.voie as \"document_voie?\",\n                  d.statut_depot as \"document_statut_depot?\",\n                  (d.verifie_le is not null) as \"document_verifie?\",\n                  d.numero as \"document_numero?\",\n                  d.montant_ttc::float8 as \"document_montant_ttc?\",\n                  d.fournisseur_id as \"document_fournisseur_id?\",\n                  coalesce(fo.nom, d.fournisseur_nom) as \"document_fournisseur?\",\n                  d.societe_id as \"document_societe_id?\",\n                  s.raison_sociale as \"document_societe?\",\n                  s.outil_depot as \"document_outil?\",\n                  (select max(e.quand) from envoi_depot e\n                   where e.document_id = d.id and e.etat = 'envoye') as \"document_envoye_le?\"\n           from piece_jointe p\n           left join piece_jointe ps on ps.id = p.source_id\n           left join document d on d.piece_jointe_id = p.id\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where p.mail_id = $1\n           order by coalesce(ps.rang, p.rang), p.page_debut nulls first",
   "describe": {
     "columns": [
       {
@@ -208,5 +208,5 @@
       null
     ]
   },
-  "hash": "6b2222dd7ae55c51e4d9987cb297be52197682a2c99bdb7656eac7c8a14d1ff6"
+  "hash": "06d880fc397d9ec1ba2e7a969a16c1ebefc2ed3f03740edae2e41fdf904591e3"
 }

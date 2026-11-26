@@ -2,7 +2,7 @@
 //! par mail, le fichier d'origine en pièce jointe), test de l'expédition et alertes.
 
 use gmflow_core::expedition::{self, PieceJointe};
-use gmflow_core::{depot, eml, file, journal, parametre, stockage};
+use gmflow_core::{depot, file, journal, parametre, stockage};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -89,9 +89,11 @@ pub async fn deposer(
                   d.numero, d.date_document, d.montant_ttc::float8 as ttc, d.fournisseur_nom,
                   f.nom as "fiche?", s.adresse_depot as "adresse?", s.outil_depot as "outil?",
                   coalesce(s.depot_auto, false) as "auto!", s.raison_sociale as "societe?",
-                  p.nom, p.type_mime, p.rang, m.chemin_eml
+                  p.nom, p.type_mime, coalesce(ps.rang, p.rang) as "rang!", p.page_debut,
+                  p.page_fin, m.chemin_eml
            from document d
            join piece_jointe p on p.id = d.piece_jointe_id
+           left join piece_jointe ps on ps.id = p.source_id
            join mail m on m.id = d.mail_id
            left join societe s on s.id = d.societe_id
            left join fournisseur f on f.id = d.fournisseur_id
@@ -170,9 +172,12 @@ pub async fn deposer(
         };
         let brut =
             tokio::fs::read(stockage::chemin_absolu(&ctx.config.fichiers, &d.chemin_eml)).await?;
-        let rang = d.rang;
-        let contenu =
-            tokio::task::spawn_blocking(move || eml::extraire_piece(&brut, rang)).await??;
+        let (rang, pages) = (d.rang, d.page_debut.zip(d.page_fin));
+        // Pièce découpée d'un PDF de plusieurs pièces : seulement ses pages.
+        let contenu = tokio::task::spawn_blocking(move || {
+            gmflow_core::lecture::decoupage::contenu_piece(&brut, rang, pages)
+        })
+        .await??;
         let genre = if d.r#type.as_deref() == Some("avoir") {
             "Avoir"
         } else {

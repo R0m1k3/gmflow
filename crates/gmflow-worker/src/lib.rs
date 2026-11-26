@@ -1,6 +1,7 @@
 //! Worker GMFlow : relève IMAP, test des boîtes, lecture des pièces jointes, fiches
 //! fournisseurs, dépôts Dext/Yooz et alertes, séances setup-token et test du jeton Claude.
 
+pub mod decoupage;
 pub mod envoi;
 pub mod fournisseur;
 pub mod lecture;

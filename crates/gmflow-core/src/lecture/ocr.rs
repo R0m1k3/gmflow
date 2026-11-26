@@ -71,6 +71,8 @@ pub fn pages_a_lire(sans_texte: &[usize]) -> Vec<usize> {
 pub struct TexteOcr {
     /// Texte de toutes les pages, dans l'ordre (couche texte ou OCR).
     pub texte: String,
+    /// Texte de chaque page (couche texte ou OCR ; vide pour une page non lue).
+    pub textes_pages: Vec<String>,
     /// Pages lues par l'OCR (à partir de 1).
     pub pages_ocr: Vec<usize>,
     /// Pages du PDF.
@@ -222,20 +224,21 @@ pub async fn completer(o: &Outils, pdf: &[u8]) -> Option<TexteOcr> {
         tracing::info!(pages = ?sans_texte, "OCR local sans texte exploitable");
         return None;
     }
-    let mut texte = String::new();
-    for (i, t) in textes.iter().enumerate() {
-        let n = i + 1;
-        let page = lus
-            .iter()
-            .find(|(p, _)| *p == n)
-            .map_or(t.as_str(), |(_, t)| t.as_str());
-        if !texte.is_empty() {
-            texte.push_str("\n\n");
-        }
-        texte.push_str(page.trim_end());
-    }
+    let textes_pages: Vec<String> = textes
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            lus.iter()
+                .find(|(p, _)| *p == i + 1)
+                .map_or(t.as_str(), |(_, t)| t.as_str())
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    let texte = textes_pages.join("\n\n");
     Some(TexteOcr {
         texte,
+        textes_pages,
         pages_ocr: lus.into_iter().map(|(p, _)| p).collect(),
         pages,
         partiel,

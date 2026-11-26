@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select m.id, m.expediteur, m.objet, m.date_mail, m.categorie, m.statut_reponse,\n                      m.resume,\n                      (select count(*) from piece_jointe p where p.mail_id = m.id and p.source_id is null) as \"nb_pieces!\",\n                      count(*) over () as \"total!\"\n               from mail m\n               where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                             where mb.mail_id = m.id\n                               and ($1::bigint is null or b.societe_id = $1)\n                               and ($2::bigint is null or b.societe_id = $2))\n                 and ($3::date is null or coalesce(m.date_mail, m.recu_le) >= ($3::date::timestamp at time zone 'Europe/Paris'))\n                 and ($4::date is null or coalesce(m.date_mail, m.recu_le) < (($4::date + 1)::timestamp at time zone 'Europe/Paris'))\n                 and not exists (\n                       select 1 from unnest($5::text[]) w\n                       where not coalesce(m.expediteur ilike w or m.objet ilike w\n                                  or exists (select 1 from piece_jointe p where p.mail_id = m.id and p.nom ilike w)\n                                  or exists (select 1 from document d left join fournisseur fo on fo.id = d.fournisseur_id\n                                             where d.mail_id = m.id\n                                               and (d.fournisseur_nom ilike w or fo.nom ilike w or d.numero ilike w)), false))\n                 and not exists (\n                       select 1 from unnest($6::text[], $7::float8[]) as n(motif, valeur)\n                       where not coalesce(m.objet ilike n.motif\n                                  or exists (select 1 from document d where d.mail_id = m.id\n                                             and (d.numero ilike n.motif\n                                                  or d.montant_ttc = n.valeur::numeric(14, 2)\n                                                  or d.montant_ht = n.valeur::numeric(14, 2))), false))\n                 and ($8::float8 is null\n                      or exists (select 1 from document d where d.mail_id = m.id\n                                 and (d.montant_ttc = $8::numeric(14, 2) or d.montant_ht = $8::numeric(14, 2)\n                                      or d.montant_tva = $8::numeric(14, 2))))\n                 and ($9::int is null\n                      or (extract(day from (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris'))::int = $9\n                          and extract(month from (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris'))::int = $10\n                          and ($11::int is null\n                               or extract(year from (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris'))::int = $11)))\n               order by coalesce(m.date_mail, m.recu_le) desc, m.id desc\n               limit $12",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_mail",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "date_mail"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "categorie",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "categorie"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "statut_reponse",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "statut_reponse"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "resume",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "resume"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "nb_pieces!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Date",
+        "Date",
+        "TextArray",
+        "TextArray",
+        "Float8Array",
+        "Float8",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "b248b38a75cadd86835161515d8aa0ff629dc62e156d0d24377d0e99bd1a0827"
+}
