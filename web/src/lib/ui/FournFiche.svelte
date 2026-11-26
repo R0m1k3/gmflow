@@ -1,6 +1,13 @@
 <script lang="ts" module>
   import type { Fournisseur, StatutFournisseur } from '#lib/types.ts';
 
+  /** Colonnes reprises du BL dans l'export Phénix (clé '' : les deux). */
+  export const COLONNES_EXPORT: Record<'' | 'ref' | 'gencod', string> = {
+    '': 'Référence et gencod',
+    ref: 'Référence seulement',
+    gencod: 'Gencod seulement'
+  };
+
   /** Fiche fournisseur en saisie (chaînes, comme les champs). */
   export interface EditionFournisseur {
     nom: string;
@@ -22,6 +29,8 @@
     noms_documents: string;
     /** Séparés par des virgules ou des espaces. */
     prefixes_codes: string;
+    /** '' : les deux (ou le réglage du groupe). */
+    colonnes_export: '' | 'ref' | 'gencod';
     groupe_id: number | null;
   }
 
@@ -43,6 +52,7 @@
       conditions_paiement: f.conditions_paiement ?? '',
       noms_documents: f.noms_documents.join(', '),
       prefixes_codes: f.prefixes_codes.join(', '),
+      colonnes_export: f.colonnes_export ?? '',
       groupe_id: f.groupe_id
     };
   }
@@ -71,6 +81,7 @@
         .split(/[\n,;]+/)
         .map((n) => n.trim())
         .filter(Boolean),
+      colonnes_export: x.colonnes_export === '' ? null : x.colonnes_export,
       prefixes_codes: x.prefixes_codes
         .split(/[\n,;\s]+/)
         .map((p) => p.trim())
@@ -188,7 +199,8 @@
   let champs = $derived.by(() => {
     if (!f) return [];
     const c: { libelle: string; valeur: string; mono?: boolean; multi?: boolean; toujours?: boolean }[] = [
-      { libelle: 'Code BO Phénix', valeur: f.code_gestion ?? '', mono: true, toujours: true }
+      { libelle: 'Code BO Phénix', valeur: f.code_gestion ?? '', mono: true, toujours: true },
+      { libelle: 'Export Phénix', valeur: COLONNES_EXPORT[f.colonnes_export ?? ''], toujours: true }
     ];
     if (f.groupe_id !== null) {
       c.push({ libelle: 'Noms sur les documents', valeur: f.noms_documents.join(', ') });
@@ -506,6 +518,16 @@
               placeholder="ex. 004512"
               erreur={fautes.code_gestion}
               aide="Notre code interne de ce fournisseur dans Phénix ; repris dans les exports"
+            />
+          </div>
+          <div class="plein">
+            <Champ
+              libelle="Export Phénix : colonnes reprises du BL"
+              type="select"
+              bind:valeur={ed.colonnes_export}
+              options={Object.entries(COLONNES_EXPORT).map(([valeur, libelle]) => ({ valeur, libelle }))}
+              erreur={fautes.colonnes_export}
+              aide="Référence et/ou gencod imprimés sur les BL de ce fournisseur, dans la matrice et la trame (une marque sans réglage suit son groupe)"
             />
           </div>
           <div class="plein"><Champ libelle="Nom" bind:valeur={ed.nom} requis erreur={fautes.nom} /></div>

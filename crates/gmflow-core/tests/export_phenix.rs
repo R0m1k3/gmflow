@@ -7,7 +7,7 @@ use std::io::Cursor;
 use calamine::{Data, Reader, Xlsx};
 use gmflow_core::articles_magasin::{self, ArticleMagasin, Composant, Recherche, Source};
 use gmflow_core::export_phenix::{
-    self, COLONNES_MATRICE, COLONNES_TRAME, Cellule, LigneBl, Rangee,
+    self, COLONNES_MATRICE, COLONNES_TRAME, Cellule, Colonnes, LigneBl, Rangee,
 };
 use serde_json::{Value, json};
 
@@ -161,7 +161,7 @@ fn matrice_remplace_le_lot_par_ses_composants() {
         remise_taux: Some(5.0),
         ..Default::default()
     };
-    let e = export_phenix::matrice(&[ligne_lot(Some(18.0)), simple]);
+    let e = export_phenix::matrice(&[ligne_lot(Some(18.0)), simple], Colonnes::LesDeux);
     assert_eq!(e.rangees.len(), 4);
     let l = &e.rangees[2];
     assert_eq!(txt(l, "CODEIN"), Some("440112"));
@@ -193,7 +193,11 @@ fn trame_lot_de_vente_et_nouveau_produit() {
         pv_conseille: Some(19.99),
         ..Default::default()
     };
-    let e = export_phenix::trame(&[ligne_lot(Some(18.0)), nouveau], Some("R0041"));
+    let e = export_phenix::trame(
+        &[ligne_lot(Some(18.0)), nouveau],
+        Some("R0041"),
+        Colonnes::LesDeux,
+    );
     assert_eq!(e.rangees.len(), 5);
     let mere = &e.rangees[0];
     assert_eq!(num(mere, "NUMERO LIGNE"), None);
@@ -209,6 +213,8 @@ fn trame_lot_de_vente_et_nouveau_produit() {
     assert_eq!(txt(c, "CodeFamille"), Some("310902"));
     // Le BL donne de l'Ecomob pour le lot : celui du magasin pour chaque composant.
     assert_eq!(num(c, "Ecomob HT"), Some(0.04));
+    // Pas de DEEE sur le BL : 0, jamais vide.
+    assert_eq!(num(c, "DEEE HT"), Some(0.0));
     assert_eq!(num(c, "TauxTva"), None);
     let n = &e.rangees[4];
     assert_eq!(num(n, "NUMERO LIGNE"), None);
@@ -217,6 +223,7 @@ fn trame_lot_de_vente_et_nouveau_produit() {
     assert_eq!(num(n, "Prix de Vente"), None);
     assert_eq!(num(n, "TauxTva"), None);
     assert_eq!(num(n, "DEEE HT"), Some(0.1));
+    assert_eq!(num(n, "Ecomob HT"), Some(0.0));
     assert_eq!(num(n, "PV_Conseille"), Some(19.99));
     assert_eq!(num(n, "Colisage"), Some(6.0));
     // Pas un lot : pas cherché au magasin, donc pas d'alerte « inconnu ».
@@ -231,14 +238,14 @@ fn trame_lot_de_vente_et_nouveau_produit() {
         designation: Some("BOUGIES PARFUMEES X4".into()),
         ..Default::default()
     };
-    let e = export_phenix::trame(&[inconnu], Some("R0041"));
+    let e = export_phenix::trame(&[inconnu], Some("R0041"), Colonnes::LesDeux);
     assert!(
         e.alertes
             .iter()
             .any(|a| a.rang == Some(2) && a.message.contains("lot présumé inconnu"))
     );
     // Sans code BO Phénix : alerte générale.
-    let e = export_phenix::trame(&[ligne_lot(Some(18.0))], None);
+    let e = export_phenix::trame(&[ligne_lot(Some(18.0))], None, Colonnes::LesDeux);
     assert!(e.alertes.iter().any(|a| a.rang.is_none()));
 }
 
@@ -251,7 +258,7 @@ fn lire(octets: Vec<u8>) -> (Vec<String>, Vec<Vec<Data>>) {
 
 #[test]
 fn fichiers_aux_en_tetes_du_modele() {
-    let e = export_phenix::matrice(&[ligne_lot(Some(18.0))]);
+    let e = export_phenix::matrice(&[ligne_lot(Some(18.0))], Colonnes::LesDeux);
     let (onglets, lignes) = lire(export_phenix::xlsx_matrice(&e).unwrap());
     assert_eq!(onglets, vec!["Feuil1"]);
     let entetes: Vec<String> = lignes[0].iter().map(|c| c.to_string()).collect();
@@ -261,7 +268,7 @@ fn fichiers_aux_en_tetes_du_modele() {
     assert_eq!(lignes[1][1], Data::String("326231308440110".into()));
     assert_eq!(lignes[1][3], Data::Float(12.0));
 
-    let e = export_phenix::trame(&[ligne_lot(Some(18.0))], Some("R0041"));
+    let e = export_phenix::trame(&[ligne_lot(Some(18.0))], Some("R0041"), Colonnes::LesDeux);
     let (onglets, lignes) = lire(export_phenix::xlsx_trame(&e).unwrap());
     assert_eq!(onglets[0], "TRAME MODELE");
     assert_eq!(lignes[0].len(), COLONNES_TRAME.len());
@@ -483,13 +490,13 @@ fn hors_lot_ni_codein_ni_donnees_du_magasin() {
         }),
         ..Default::default()
     };
-    let m = export_phenix::matrice(std::slice::from_ref(&l));
+    let m = export_phenix::matrice(std::slice::from_ref(&l), Colonnes::LesDeux);
     let r = &m.rangees[0];
     assert_eq!(txt(r, "CODEIN"), None);
     assert_eq!(txt(r, "GENCOD"), None);
     assert_eq!(txt(r, "REFERENCE"), Some("AB123"));
     assert!(m.alertes.is_empty(), "{:?}", m.alertes);
-    let t = export_phenix::trame(&[l], Some("R0041"));
+    let t = export_phenix::trame(&[l], Some("R0041"), Colonnes::LesDeux);
     let r = &t.rangees[0];
     assert_eq!(txt(r, "Codein"), None);
     assert_eq!(txt(r, "Gencod"), None);
@@ -506,6 +513,8 @@ fn lots_presumes_selon_la_designation() {
         "Assiette 4X",
         "Torchons (x3)",
         "SET 2x COUSSINS",
+        "SET DE 3 BOITES METAL",
+        "set table bambou",
     ] {
         assert!(articles_magasin::semble_lot(Some(d)), "{d}");
     }
@@ -517,8 +526,85 @@ fn lots_presumes_selon_la_designation() {
         "Lotion mains",
         "Box Xmas",
         "Pilotis",
+        "SETTER LED",
+        "BOUGIE SET",
     ] {
         assert!(!articles_magasin::semble_lot(Some(d)), "{d}");
     }
     assert!(!articles_magasin::semble_lot(None));
+}
+
+/// Une ligne « SET … » trouvée au magasin sans composants est un produit unique : traitée
+/// comme les autres (rien du magasin, pas d'alerte) ; sans aucune éco-participation, DEEE et
+/// Ecomob à 0.
+#[test]
+fn set_produit_unique_comme_les_autres() {
+    let l = LigneBl {
+        rang: 0,
+        reference: Some("ST-12".into()),
+        designation: Some("SET DE TABLE BAMBOU".into()),
+        gencod: Some("3700000000024".into()),
+        quantite: Some(12.0),
+        prix_unitaire_ht: Some(1.2),
+        magasin: Some(ArticleMagasin {
+            par: "gencod".into(),
+            no_id: "9001".into(),
+            codein: Some("550001".into()),
+            libelle: Some("SET DE TABLE BAMBOU".into()),
+            gencod: Some("3700000000024".into()),
+            composants: Vec::new(),
+        }),
+        ..Default::default()
+    };
+    let t = export_phenix::trame(std::slice::from_ref(&l), Some("R0041"), Colonnes::LesDeux);
+    assert_eq!(t.rangees.len(), 1);
+    let r = &t.rangees[0];
+    assert_eq!(txt(r, "Codein"), None);
+    assert_eq!(num(r, "PrixAchat"), Some(1.2));
+    assert_eq!(
+        (num(r, "DEEE HT"), num(r, "Ecomob HT")),
+        (Some(0.0), Some(0.0))
+    );
+    assert!(t.alertes.is_empty(), "{:?}", t.alertes);
+}
+
+/// Colonnes réglées sur la fiche fournisseur : référence seule ou gencod seul.
+#[test]
+fn colonnes_reference_ou_gencod_selon_le_fournisseur() {
+    let l = LigneBl {
+        rang: 0,
+        reference: Some("AB123".into()),
+        designation: Some("LAMPE LED".into()),
+        gencod: Some("3532156987412".into()),
+        quantite: Some(4.0),
+        prix_unitaire_ht: Some(5.2),
+        ..Default::default()
+    };
+    let un = std::slice::from_ref(&l);
+    let m = export_phenix::matrice(un, Colonnes::Reference);
+    assert_eq!(txt(&m.rangees[0], "REFERENCE"), Some("AB123"));
+    assert_eq!(txt(&m.rangees[0], "GENCOD"), None);
+    let t = export_phenix::trame(un, Some("R0041"), Colonnes::Gencod);
+    assert_eq!(txt(&t.rangees[0], "Ref Fournisseur"), None);
+    assert_eq!(txt(&t.rangees[0], "Gencod"), Some("3532156987412"));
+    let t = export_phenix::trame(un, Some("R0041"), Colonnes::LesDeux);
+    assert_eq!(txt(&t.rangees[0], "Ref Fournisseur"), Some("AB123"));
+    assert_eq!(txt(&t.rangees[0], "Gencod"), Some("3532156987412"));
+    // Gencod seul demandé mais absent du BL : alerte.
+    let sans = LigneBl {
+        gencod: None,
+        ..l.clone()
+    };
+    let m = export_phenix::matrice(&[sans], Colonnes::Gencod);
+    assert_eq!(txt(&m.rangees[0], "REFERENCE"), None);
+    assert!(
+        m.alertes
+            .iter()
+            .any(|a| a.message.contains("pas de gencod"))
+    );
+    // Composants d'un lot : codes du magasin quel que soit le réglage.
+    let m = export_phenix::matrice(&[ligne_lot(Some(18.0))], Colonnes::Gencod);
+    assert_eq!(txt(&m.rangees[2], "REFERENCE"), Some("REF-440112"));
+    assert_eq!(Colonnes::depuis(Some("ref")), Colonnes::Reference);
+    assert_eq!(Colonnes::depuis(None), Colonnes::LesDeux);
 }

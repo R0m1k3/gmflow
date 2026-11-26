@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,\n              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,\n              code_gestion = $11, adresse = $12, telephone = $13, email = $14,\n              interlocuteur = $15, conditions_paiement = $16, groupe_id = $17,\n              noms_documents = $18, prefixes_codes = $19\n           where id = $1 and fusionne_dans is null\n           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                     (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                     format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as \"groupe?\",\n                  noms_documents, prefixes_codes, fusionne_dans, cree_le",
+  "query": "update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,\n              statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,\n              code_gestion = $11, adresse = $12, telephone = $13, email = $14,\n              interlocuteur = $15, conditions_paiement = $16, groupe_id = $17,\n              noms_documents = $18, prefixes_codes = $19, colonnes_export = $20\n           where id = $1 and fusionne_dans is null\n           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                     (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                     format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as \"groupe?\",\n                  noms_documents, prefixes_codes, colonnes_export, fusionne_dans, cree_le",
   "describe": {
     "columns": [
       {
@@ -215,6 +215,17 @@
       },
       {
         "ordinal": 20,
+        "name": "colonnes_export",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "colonnes_export"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
         "name": "fusionne_dans",
         "type_info": "Int8",
         "origin": {
@@ -225,7 +236,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "cree_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -256,7 +267,8 @@
         "Text",
         "Int8",
         "TextArray",
-        "TextArray"
+        "TextArray",
+        "Text"
       ]
     },
     "nullable": [
@@ -281,8 +293,9 @@
       false,
       false,
       true,
+      true,
       false
     ]
   },
-  "hash": "57a4d7e6be4ec8c100fef36fc6658586a7b3ba9d87d9b3932bd3c907ae807534"
+  "hash": "03a7d76e0744c493568ff31865cc3c9b473a19d09d70f5d232beb573db3715da"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,\n                                    societe_defaut_id, format_bl, notes, code_gestion,\n                                    adresse, telephone, email, interlocuteur, conditions_paiement,\n                                    groupe_id, noms_documents, prefixes_codes)\n           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)\n           returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                     (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                     format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as \"groupe?\",\n                  noms_documents, prefixes_codes, fusionne_dans, cree_le",
+  "query": "select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,\n                  (select raison_sociale from societe where id = societe_defaut_id) as \"societe_defaut?\",\n                  format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,\n                  groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as \"groupe?\",\n                  noms_documents, prefixes_codes, colonnes_export, fusionne_dans, cree_le\n           from fournisseur where id = $1",
   "describe": {
     "columns": [
       {
@@ -215,6 +215,17 @@
       },
       {
         "ordinal": 20,
+        "name": "colonnes_export",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "colonnes_export"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
         "name": "fusionne_dans",
         "type_info": "Int8",
         "origin": {
@@ -225,7 +236,7 @@
         }
       },
       {
-        "ordinal": 21,
+        "ordinal": 22,
         "name": "cree_le",
         "type_info": "Timestamptz",
         "origin": {
@@ -238,24 +249,7 @@
     ],
     "parameters": {
       "Left": [
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "TextArray",
-        "Text",
-        "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Int8",
-        "TextArray",
-        "TextArray"
+        "Int8"
       ]
     },
     "nullable": [
@@ -280,8 +274,9 @@
       false,
       false,
       true,
+      true,
       false
     ]
   },
-  "hash": "1a44d3894d4b587f86f13e35272064b17d3d12335f283833dd504784db04e3b6"
+  "hash": "bff3bb097adcf63b6f900571a6c92ed9d516f860685861cc5bc572c77dbc1e20"
 }

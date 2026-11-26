@@ -13,18 +13,26 @@ modèles du magasin :
 - **Pas de code article (Codein) hors lot** : seuls le gencod et la référence imprimés sur le BL
   identifient l'article. Le Codein n'est écrit que pour un lot et ses composants (Phénix n'écrase
   rien sur une fiche existante).
+- **Référence et/ou gencod** : réglage par fournisseur (fiche fournisseur > « Export Phénix :
+  colonnes reprises du BL » : les deux, référence seulement ou gencod seulement ; une marque sans
+  réglage suit son groupe). Vaut pour la matrice et la trame, sauf les composants d'un lot (codes
+  du magasin).
 - **Tout vient du BL** : prix d'achat brut HT, remise de ligne, quantités, DEEE / Ecomob
-  (selon ce que le BL imprime), PV conseillé. Le prix de vente et la famille d'un nouveau produit restent vides : le magasin les fixe.
+  (selon ce que le BL imprime ; dans la trame, 0 quand le BL n'en donne pas), PV conseillé. Le prix de vente et la famille d'un nouveau produit restent vides : le magasin les fixe.
 - **Quantité** en unités = colis × PCB quand le BL donne les deux, sinon la quantité imprimée.
 - **Prix par colis** : ramené à l'unité quand le montant de la ligne montre que le prix imprimé
   est celui du colis. Sans prix unitaire : montant ÷ quantité (déjà net, sans remise en plus).
+- **Lots présumés** : désignation avec le mot « lot », qui commence par « SET », ou un multiple
+  (« X4 », « x 3 »). Chacun est vérifié sur le serveur du magasin : un article trouvé avec des
+  composants est un lot ; trouvé sans composants, c'est un produit unique, traité comme les
+  autres ; introuvable, une alerte le signale.
 - **Lots** : une ligne dont l'article est un lot au magasin est remplacée par ses composants
   (codein, gencod, réf., quantité dans le lot, prix de vente, famille, éco-participation du
   magasin). Le prix d'achat des composants est rééquilibré pour que Σ prix × quantité redonne le
   prix du lot sur le BL (répartition du magasin : prix d'achat, sinon prix de vente). Dans la
   trame, c'est un **lot de vente** : ligne mère, puis composants avec `NUM LOT VENTE` = n° de la
   ligne mère, `QTE LOT VENTE` et `% LOT VENTE`. L'éco-participation des composants va dans la
-  colonne (DEEE ou Ecomob) que le BL donne pour le lot.
+  colonne (DEEE ou Ecomob) que le BL donne pour le lot, l'autre à 0.
 
 ## Recherche au magasin
 
