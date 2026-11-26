@@ -80,9 +80,16 @@
     void filtre;
     untrack(() => void lst.lire());
     return sonder(async () => {
-      if (document.visibilityState === 'visible') await lst.lire(true);
+      if (document.visibilityState !== 'visible') return;
+      // Ne pas faire bouger les lignes sous la souris ou le focus : on relira au prochain passage.
+      if (listeEl && (listeEl.matches(':hover') || listeEl.contains(document.activeElement))) return;
+      const avant = lst.total;
+      await lst.lire(true);
+      if (lst.total !== avant) majListe = `Liste mise à jour : ${lst.total} ${lst.total > 1 ? 'éléments' : 'élément'}`;
     }, 60_000);
   });
+  /** Annonce aux lecteurs d'écran, quand la liste change toute seule. */
+  let majListe = $state('');
 
   let groupes = $derived(parJour(lst.elements, (d) => d.date_mail));
 
@@ -118,6 +125,17 @@
     if (d.remise_ht && d.remise_ht > 0.005)
       l.push({ texte: `Remise ${formatMontant(d.remise_ht)}`, ton: 'info', title: 'Remise déduite sur la facture : le total ne correspond pas aux BL' });
     return l;
+  }
+
+  /** Nom lu par les lecteurs d'écran : tout ce que la ligne montre, en une phrase. */
+  function nomLigne(d: LigneDocument, e: { texte: string }[]): string {
+    const p = [
+      d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu',
+      typeNumero(d.type, d.numero) + (d.societe ? `, ${nomCourtSociete(d.societe)}` : ''),
+      d.montant_ttc !== null ? formatMontant(d.montant_ttc) : '',
+      ...e.map((x) => x.texte)
+    ];
+    return p.filter(Boolean).join(', ');
   }
 
   let annonce = $state('');
@@ -194,6 +212,7 @@
         <a class="btn sm" href={lien(null, f.v)} aria-current={filtreV === f.v ? "true" : undefined} data-sveltekit-replacestate>{f.l}</a>
       {/each}
     </div>
+    <div class="sr-seul" role="status" aria-live="polite">{majListe}</div>
     <div class="liste-s" bind:this={listeEl}>
       {#if lst.erreur}
         <Bandeau ton="erreur" titre="Liste non chargée.">
@@ -212,7 +231,7 @@
             {@const s = statut(d)}
             {@const blSansMontant = d.type === 'bl' && d.montant_ttc === null}
             {@const etiquettes = etiquettesDe(d, s)}
-            <a class="ligne" class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
+            <a class="ligne" aria-label={nomLigne(d, etiquettes)} class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
               <div class="a">{d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu'}</div>
               {#if blSansMontant}
                 <div class="r doc-heure">{heureDe(d.date_mail)}</div>
