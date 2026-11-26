@@ -128,6 +128,37 @@ pub const COLONNES_TRAME: [&str; 105] = [
     "Artchamp20",
 ];
 
+/// Colonnes d'identification remplies depuis le BL, réglées par fournisseur (fiche, sinon son
+/// groupe ; les deux par défaut) : certains fournisseurs impriment une référence ou un gencod
+/// que le magasin ne veut pas reprendre. Les composants d'un lot gardent ceux du magasin.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Colonnes {
+    #[default]
+    LesDeux,
+    Reference,
+    Gencod,
+}
+
+impl Colonnes {
+    /// Valeur de `fournisseur.colonnes_export` (`ref`, `gencod`, null = les deux).
+    pub fn depuis(v: Option<&str>) -> Self {
+        match v {
+            Some("ref") => Self::Reference,
+            Some("gencod") => Self::Gencod,
+            _ => Self::LesDeux,
+        }
+    }
+
+    fn reference(self) -> bool {
+        self != Self::Gencod
+    }
+
+    fn gencod(self) -> bool {
+        self != Self::Reference
+    }
+}
+
 /// Ligne de BL telle que lue, avec l'article retrouvé au magasin.
 #[derive(Debug, Clone, Default)]
 pub struct LigneBl {
@@ -301,7 +332,7 @@ fn controler(l: &LigneBl, a: &mut Vec<Alerte>) {
 
 /// Matrice d'intégration (commande) : une rangée par article, les lots remplacés par leurs
 /// composants.
-pub fn matrice(lignes: &[LigneBl]) -> Export {
+pub fn matrice(lignes: &[LigneBl], colonnes: Colonnes) -> Export {
     let mut e = Export::default();
     for l in lignes {
         controler(l, &mut e.alertes);
@@ -325,18 +356,24 @@ pub fn matrice(lignes: &[LigneBl]) -> Export {
             }
             continue;
         }
-        // Hors lot : gencod et référence du BL seulement, pas de code article.
-        let gencod = l.gencod.as_deref();
-        if gencod.is_none() && l.reference.is_none() {
+        // Hors lot : gencod et référence du BL seulement (selon le réglage du fournisseur),
+        // pas de code article.
+        let gencod = l.gencod.as_deref().filter(|_| colonnes.gencod());
+        let reference = l.reference.as_deref().filter(|_| colonnes.reference());
+        if gencod.is_none() && reference.is_none() {
             alerte(
                 &mut e.alertes,
                 l,
-                "ni gencod ni référence sur le BL : à saisir dans Phénix",
+                match colonnes {
+                    Colonnes::LesDeux => "ni gencod ni référence sur le BL : à saisir dans Phénix",
+                    Colonnes::Reference => "pas de référence sur le BL : à saisir dans Phénix",
+                    Colonnes::Gencod => "pas de gencod sur le BL : à saisir dans Phénix",
+                },
             );
         }
         let mut r = Rangee::new();
         pousser(&mut r, "GENCOD", texte(gencod));
-        pousser(&mut r, "REFERENCE", texte(l.reference.as_deref()));
+        pousser(&mut r, "REFERENCE", texte(reference));
         pousser(&mut r, "QTECDE", nombre(u));
         pousser(&mut r, "PA", nombre(pa));
         pousser(&mut r, "REMISE ", nombre(remise));
@@ -357,8 +394,13 @@ fn colonne_eco(l: &LigneBl) -> Option<&'static str> {
     }
 }
 
+/// Éco-participation de la trame : 0 quand le BL n'en donne pas (colonne jamais vide).
+fn eco(v: Option<f64>) -> Option<Cellule> {
+    nombre(Some(v.filter(|x| *x > 0.0).unwrap_or(0.0)))
+}
+
 /// Trame d'import BO Phénix (fiches produits). `fournisseur` : code BO Phénix.
-pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
+pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>, colonnes: Colonnes) -> Export {
     let mut e = Export::default();
     if fournisseur.is_none() {
         e.alertes.push(Alerte {
@@ -385,14 +427,19 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             texte(mere.and_then(|a| a.codein.as_deref())),
         );
         pousser(&mut r, "Fournisseur", fou());
-        pousser(&mut r, "Ref Fournisseur", texte(l.reference.as_deref()));
+        pousser(
+            &mut r,
+            "Ref Fournisseur",
+            texte(l.reference.as_deref().filter(|_| colonnes.reference())),
+        );
         pousser(
             &mut r,
             "Gencod",
             texte(
                 l.gencod
                     .as_deref()
-                    .or_else(|| mere.and_then(|a| a.gencod.as_deref())),
+                    .or_else(|| mere.and_then(|a| a.gencod.as_deref()))
+                    .filter(|_| colonnes.gencod()),
             ),
         );
         pousser(
@@ -416,20 +463,16 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
                 );
             }
             pousser(&mut r, "PrixAchat", nombre(pa));
-            pousser(&mut r, "DEEE HT", nombre(l.deee_ht.filter(|x| *x > 0.0)));
-            pousser(
-                &mut r,
-                "Ecomob HT",
-                nombre(l.ecomob_ht.filter(|x| *x > 0.0)),
-            );
+            pousser(&mut r, "DEEE HT", eco(l.deee_ht));
+            pousser(&mut r, "Ecomob HT", eco(l.ecomob_ht));
             e.rangees.push(r);
             continue;
         };
         // Lot de vente : ligne mère, puis ses composants.
         let num_mere = numero;
         e.rangees.push(r);
-        let eco = colonne_eco(l);
-        if eco.is_none() && a.composants.iter().any(|c| c.eco_ht.is_some()) {
+        let colonne = colonne_eco(l);
+        if colonne.is_none() && a.composants.iter().any(|c| c.eco_ht.is_some()) {
             alerte(
                 &mut e.alertes,
                 l,
@@ -451,8 +494,14 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>) -> Export {
             pousser(&mut r, "Prix de Vente", nombre(c.pv));
             pousser(&mut r, "CodeFamille", texte(c.famille.as_deref()));
             pousser(&mut r, "PV_Conseille", nombre(c.pv_conseille));
-            if let Some(col) = eco {
-                pousser(&mut r, col, nombre(c.eco_ht));
+            // Colonne que le BL donne pour le lot ; l'autre (ou les deux si le BL ne dit
+            // rien) à 0.
+            for col in ["DEEE HT", "Ecomob HT"] {
+                pousser(
+                    &mut r,
+                    col,
+                    eco((colonne == Some(col)).then_some(c.eco_ht).flatten()),
+                );
             }
             pousser(&mut r, "QTE LOT VENTE", nombre(Some(c.quantite)));
             pousser(

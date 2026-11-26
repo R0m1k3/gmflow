@@ -120,15 +120,19 @@ pub fn normaliser_ref(r: &str) -> String {
         .collect()
 }
 
-/// Désignation d'un lot présumé : le mot « lot », ou un multiple (« X2 », « x 3 », « 4X »,
-/// « (x6) »). Les dimensions (« 30x40 ») ne comptent pas.
+/// Désignation d'un lot présumé : le mot « lot », une désignation qui commence par « SET »,
+/// ou un multiple (« X2 », « x 3 », « 4X », « (x6) »). Les dimensions (« 30x40 ») ne comptent
+/// pas. Présumé seulement : le magasin dit ensuite si l'article est un lot (composants) ou un
+/// produit unique, traité alors comme les autres.
 pub fn semble_lot(designation: Option<&str>) -> bool {
     static DIMENSION: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"(?i)\d+(?:[.,]\d+)?\s?x\s?\d+(?:[.,]\d+)?").expect("motif de dimension")
     });
     static LOT: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"(?i)\blots?\b|(?:^|[^\p{L}\d.,])(?:x\s?\d+|\d+\s?x)(?:$|[^\p{L}\d])")
-            .expect("motif de lot")
+        Regex::new(
+            r"(?i)\blots?\b|^\W*sets?\b|(?:^|[^\p{L}\d.,])(?:x\s?\d+|\d+\s?x)(?:$|[^\p{L}\d])",
+        )
+        .expect("motif de lot")
     });
     designation.is_some_and(|d| LOT.is_match(&DIMENSION.replace_all(d, " ")))
 }

@@ -5,7 +5,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use gmflow_core::export_phenix::{self, Alerte, Export, LigneBl};
+use gmflow_core::export_phenix::{self, Alerte, Colonnes, Export, LigneBl};
 use gmflow_core::{articles_magasin, serveur_api};
 use serde::Serialize;
 use time::OffsetDateTime;
@@ -33,6 +33,8 @@ pub struct EtatExport {
     /// Les fichiers peuvent être téléchargés (recherche faite sans erreur, ou pas de serveur).
     pub pret: bool,
     pub code_fournisseur: Option<String>,
+    /// Colonnes d'identification reprises du BL (réglage de la fiche fournisseur).
+    pub colonnes: Colonnes,
     pub lignes: usize,
     /// Lignes cherchées au magasin : celles qui ressemblent à un lot.
     pub cherchees: usize,
@@ -50,6 +52,7 @@ struct Donnees {
     fournisseur: Option<String>,
     lignes: Vec<LigneBl>,
     code: Option<String>,
+    colonnes: Colonnes,
     etat: EtatExport,
 }
 
@@ -64,8 +67,10 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
     controler_visible(etat, acces, id).await?;
     let d = sqlx::query!(
         r#"select d.type, d.numero, coalesce(f.nom, d.fournisseur_nom) as fournisseur,
-                  d.magasin_demande_le, d.magasin_verifie_le, d.magasin_erreur
+                  d.magasin_demande_le, d.magasin_verifie_le, d.magasin_erreur,
+                  coalesce(f.colonnes_export, g.colonnes_export) as colonnes
            from document d left join fournisseur f on f.id = d.fournisseur_id
+           left join fournisseur g on g.id = f.groupe_id
            where d.id = $1"#,
         id
     )
@@ -89,8 +94,9 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
         .is_some_and(|dem| d.magasin_verifie_le.is_none_or(|v| v < dem));
     let pret =
         !serveur || (!en_cours && d.magasin_verifie_le.is_some() && d.magasin_erreur.is_none());
-    let mut m = export_phenix::matrice(&lignes);
-    let mut t = export_phenix::trame(&lignes, code.as_deref());
+    let colonnes = Colonnes::depuis(d.colonnes.as_deref());
+    let mut m = export_phenix::matrice(&lignes, colonnes);
+    let mut t = export_phenix::trame(&lignes, code.as_deref(), colonnes);
     if !serveur {
         let a = Alerte {
             rang: None,
@@ -111,6 +117,7 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
         erreur: d.magasin_erreur,
         pret,
         code_fournisseur: code.clone(),
+        colonnes,
         lignes: lignes.len(),
         cherchees: lignes
             .iter()
@@ -135,6 +142,7 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
         fournisseur: d.fournisseur,
         lignes,
         code,
+        colonnes,
         etat: etat_export,
     })
 }
@@ -240,7 +248,7 @@ pub async fn matrice(
     Path(id): Path<i64>,
 ) -> Resultat<Response> {
     let d = pret(&etat, &acces, id).await?;
-    let e = export_phenix::matrice(&d.lignes);
+    let e = export_phenix::matrice(&d.lignes, d.colonnes);
     let octets = export_phenix::xlsx_matrice(&e).map_err(|e| ErreurApi::Interne(e.into()))?;
     Ok(telecharger(
         nom("MATRICE INTEGRATION BACKOFFICE", &d),
@@ -254,7 +262,7 @@ pub async fn trame(
     Path(id): Path<i64>,
 ) -> Resultat<Response> {
     let d = pret(&etat, &acces, id).await?;
-    let e = export_phenix::trame(&d.lignes, d.code.as_deref());
+    let e = export_phenix::trame(&d.lignes, d.code.as_deref(), d.colonnes);
     let octets = export_phenix::xlsx_trame(&e).map_err(|e| ErreurApi::Interne(e.into()))?;
     Ok(telecharger(nom("TRAME BO PHENIX IMPORT", &d), octets))
 }

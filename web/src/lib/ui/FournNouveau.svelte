@@ -27,6 +27,7 @@
     conditions_paiement: '',
     noms_documents: '',
     prefixes_codes: '',
+    colonnes_export: '',
     groupe_id: null
   });
   let erreur = $state('');

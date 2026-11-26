@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select d.type, d.numero, coalesce(f.nom, d.fournisseur_nom) as fournisseur,\n                  d.magasin_demande_le, d.magasin_verifie_le, d.magasin_erreur\n           from document d left join fournisseur f on f.id = d.fournisseur_id\n           where d.id = $1",
+  "query": "select d.type, d.numero, coalesce(f.nom, d.fournisseur_nom) as fournisseur,\n                  d.magasin_demande_le, d.magasin_verifie_le, d.magasin_erreur,\n                  coalesce(f.colonnes_export, g.colonnes_export) as colonnes\n           from document d left join fournisseur f on f.id = d.fournisseur_id\n           left join fournisseur g on g.id = f.groupe_id\n           where d.id = $1",
   "describe": {
     "columns": [
       {
@@ -63,6 +63,12 @@
             "name": "magasin_erreur"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "colonnes",
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -76,8 +82,9 @@
       null,
       true,
       true,
-      true
+      true,
+      null
     ]
   },
-  "hash": "e8d2a4b4494ea53e0e732c31eba888e92e0cfb2eaa28d543c5a863efef5d77df"
+  "hash": "9dc2c35dc64074eee008e6df86891e769ca20b5a34b4de45404b407532130b13"
 }

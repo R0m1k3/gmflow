@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,\n                adresse, telephone, email, interlocuteur, conditions_paiement, groupe_id, noms_documents,\n                prefixes_codes\n         from fournisseur where id = $1 and fusionne_dans is null",
+  "query": "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,\n                adresse, telephone, email, interlocuteur, conditions_paiement, groupe_id, noms_documents,\n                prefixes_codes, colonnes_export\n         from fournisseur where id = $1 and fusionne_dans is null",
   "describe": {
     "columns": [
       {
@@ -189,6 +189,17 @@
             "name": "prefixes_codes"
           }
         }
+      },
+      {
+        "ordinal": 17,
+        "name": "colonnes_export",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "colonnes_export"
+          }
+        }
       }
     ],
     "parameters": {
@@ -213,8 +224,9 @@
       true,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "63db1f430f6a18e9f357aab642ba22ca8186e1af3e35bb4a2373f68985ad9d82"
+  "hash": "a4bf9cdb0bf796cc15bbbdd771113084753cfd3ffebd9f0a83cd9b4e1f1ce907"
 }

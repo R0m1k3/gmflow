@@ -192,6 +192,9 @@ pub struct Fiche {
     noms_documents: Vec<String>,
     /// Débuts de codes qui désignent cette marque sur les documents du groupe (« LC »).
     prefixes_codes: Vec<String>,
+    /// Export Phénix : « ref » ou « gencod » seul depuis le BL ; absent : les deux (ou le
+    /// réglage du groupe).
+    colonnes_export: Option<String>,
     fusionne_dans: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
     cree_le: time::OffsetDateTime,
@@ -232,7 +235,7 @@ pub async fn fiche(
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, prefixes_codes, fusionne_dans, cree_le
+                  noms_documents, prefixes_codes, colonnes_export, fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
@@ -277,6 +280,8 @@ pub struct Entree {
     noms_documents: Vec<String>,
     #[serde(default)]
     prefixes_codes: Vec<String>,
+    #[serde(default)]
+    colonnes_export: Option<String>,
 }
 
 fn a_confirmer() -> String {
@@ -407,6 +412,18 @@ impl Entree {
             }
             self.prefixes_codes = prefixes;
         }
+        if verifier("colonnes_export") {
+            self.colonnes_export = net(self.colonnes_export);
+            if let Some(c) = &self.colonnes_export
+                && c != "ref"
+                && c != "gencod"
+            {
+                return Err(faute(
+                    "colonnes_export",
+                    format!("colonnes « {c} » inconnues : ref, gencod ou rien (les deux)"),
+                ));
+            }
+        }
         Ok(self)
     }
 }
@@ -490,13 +507,13 @@ pub async fn creer(
         r#"insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
                                     societe_defaut_id, format_bl, notes, code_gestion,
                                     adresse, telephone, email, interlocuteur, conditions_paiement,
-                                    groupe_id, noms_documents, prefixes_codes)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+                                    groupe_id, noms_documents, prefixes_codes, colonnes_export)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, prefixes_codes, fusionne_dans, cree_le"#,
+                  noms_documents, prefixes_codes, colonnes_export, fusionne_dans, cree_le"#,
         e.nom,
         normaliser(&e.nom),
         e.siret,
@@ -514,7 +531,8 @@ pub async fn creer(
         e.conditions_paiement,
         e.groupe_id,
         &e.noms_documents,
-        &e.prefixes_codes
+        &e.prefixes_codes,
+        e.colonnes_export
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -587,6 +605,8 @@ pub struct Changements {
     noms_documents: Option<Vec<String>>,
     #[serde(default)]
     prefixes_codes: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "present")]
+    colonnes_export: Option<Option<String>>,
 }
 
 impl Changements {
@@ -610,6 +630,7 @@ impl Changements {
             ("groupe_id", self.groupe_id.is_some()),
             ("noms_documents", self.noms_documents.is_some()),
             ("prefixes_codes", self.prefixes_codes.is_some()),
+            ("colonnes_export", self.colonnes_export.is_some()),
         ]
         .into_iter()
         .filter_map(|(c, present)| present.then_some(c))
@@ -628,7 +649,7 @@ pub async fn modifier_partiel(
     let f = sqlx::query!(
         "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
                 adresse, telephone, email, interlocuteur, conditions_paiement, groupe_id, noms_documents,
-                prefixes_codes
+                prefixes_codes, colonnes_export
          from fournisseur where id = $1 and fusionne_dans is null",
         id
     )
@@ -654,6 +675,7 @@ pub async fn modifier_partiel(
         groupe_id: c.groupe_id.unwrap_or(f.groupe_id),
         noms_documents: c.noms_documents.unwrap_or(f.noms_documents),
         prefixes_codes: c.prefixes_codes.unwrap_or(f.prefixes_codes),
+        colonnes_export: c.colonnes_export.unwrap_or(f.colonnes_export),
     };
     enregistrer(&etat, &a, id, e, |c| envoyes.contains(&c)).await
 }
@@ -694,13 +716,13 @@ async fn enregistrer(
               statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,
               code_gestion = $11, adresse = $12, telephone = $13, email = $14,
               interlocuteur = $15, conditions_paiement = $16, groupe_id = $17,
-              noms_documents = $18, prefixes_codes = $19
+              noms_documents = $18, prefixes_codes = $19, colonnes_export = $20
            where id = $1 and fusionne_dans is null
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, prefixes_codes, fusionne_dans, cree_le"#,
+                  noms_documents, prefixes_codes, colonnes_export, fusionne_dans, cree_le"#,
         id,
         e.nom,
         normaliser(&e.nom),
@@ -719,7 +741,8 @@ async fn enregistrer(
         e.conditions_paiement,
         e.groupe_id,
         &e.noms_documents,
-        &e.prefixes_codes
+        &e.prefixes_codes,
+        e.colonnes_export
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -900,7 +923,7 @@ pub async fn fil(
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, prefixes_codes, fusionne_dans, cree_le
+                  noms_documents, prefixes_codes, colonnes_export, fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
