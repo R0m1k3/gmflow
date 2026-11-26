@@ -152,10 +152,7 @@
     const p = d.file.compteurs.a_valider;
     const r = d.file.compteurs.a_repondre;
     if (p === 0 && r === 0) return 'Tout est à jour : aucune pièce à contrôler, aucun mail en attente de réponse.';
-    const pieces =
-      p === 0
-        ? 'Aucune pièce n’attend votre validation.'
-        : `${majuscule(enLettres(p, true))} pièce${p > 1 ? 's attendent' : ' attend'} votre validation.`;
+    const pieces = p === 0 ? 'Aucune pièce à contrôler.' : `${majuscule(enLettres(p, true))} pièce${p > 1 ? 's' : ''} à contrôler.`;
     const mails =
       r === 0 ? 'Aucun mail n’attend de réponse.' : `${majuscule(enLettres(r))} mail${r > 1 ? 's attendent' : ' attend'} une réponse.`;
     return `${pieces} ${mails}`;
