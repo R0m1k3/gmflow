@@ -1079,6 +1079,12 @@
                   {#snippet apres()}{@render proposer('ttc')}{/snippet}
                 </Champ>
               </div>
+              {#if d.confiance?.montants_calcules?.length}
+                <p class="annexes-montants">
+                  {d.confiance.montants_calcules.map((c) => ({ ht: 'HT', tva: 'TVA', ttc: 'TTC' })[c]).join(', ')} non imprimés sur le BL : calculés à partir des lignes (quantité × prix,
+                  éco-participations comprises, TVA 20 % sauf taux indiqué).
+                </p>
+              {/if}
               {#if remiseTexte || annexesTexte}
                 <p class="annexes-montants">
                   {#if remiseTexte}Remise <span class="num">−{remiseTexte}</span>{/if}{#if remiseTexte && annexesTexte}{' · '}{/if}{#if annexesTexte}Éco-part., port <span class="num">{annexesTexte}</span>{/if}

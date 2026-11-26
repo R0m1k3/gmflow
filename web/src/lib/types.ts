@@ -257,6 +257,8 @@ export interface Confiance {
   numero?: number;
   date?: number;
   montants?: number;
+  /** BL sans totaux imprimés : montants calculés depuis les lignes. */
+  montants_calcules?: ('ht' | 'tva' | 'ttc')[];
 }
 
 export interface FicheDocument {

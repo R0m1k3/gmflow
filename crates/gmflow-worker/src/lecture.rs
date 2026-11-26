@@ -162,7 +162,15 @@ fn tronquer(s: String, n: usize) -> String {
     .replace('\0', "")
 }
 
-async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
+async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
+    // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels.
+    if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") {
+        let calcules =
+            extraction::completer_montants_bl(&mut lu.lignes, &mut lu.ht, &mut lu.tva, &mut lu.ttc);
+        if let (false, Some(c)) = (calcules.is_empty(), lu.confiance.as_object_mut()) {
+            c.insert("montants_calcules".into(), json!(calcules));
+        }
+    }
     let mut tx = pool.begin().await?;
     gmflow_core::rapprochement::ecrire_lignes(&mut tx, id, &lu.lignes).await?;
     sqlx::query!(
@@ -218,6 +226,92 @@ async fn enregistrer(pool: &PgPool, id: i64, lu: Lu) -> anyhow::Result<()> {
     .await?;
     tx.commit().await?;
     Ok(())
+}
+
+/// BL lus sans totaux avant leur calcul (`extraction::completer_montants_bl`) : complétés au
+/// démarrage du worker depuis leurs lignes enregistrées, sans Claude, puis rapprochés de
+/// nouveau. Ceux dont une ligne n'a pas de prix restent tels quels. Rend le nombre complété.
+pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
+    let docs = sqlx::query!(
+        r#"select d.id, d.montant_ht::float8 as ht, d.montant_tva::float8 as tva,
+                  d.montant_ttc::float8 as ttc
+           from document d
+           where d.etat = 'lu' and d.type = 'bl'
+             and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)
+             and exists (select 1 from ligne_document l where l.document_id = d.id)
+             and not exists (select 1 from ligne_document l where l.document_id = d.id
+                             and l.montant_ht is null and l.prix_unitaire_ht is null)"#
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut n = 0;
+    for d in docs {
+        let lignes = sqlx::query!(
+            r#"select rang, quantite::float8 as quantite, prix_unitaire_ht::float8 as prix,
+                      montant_ht::float8 as montant, colis::float8 as colis, pcb::float8 as pcb,
+                      remise_taux::float8 as remise, taux_tva::float8 as taux_tva,
+                      deee_ht::float8 as deee, ecomob_ht::float8 as ecomob
+               from ligne_document where document_id = $1 order by rang"#,
+            d.id
+        )
+        .fetch_all(pool)
+        .await?;
+        let mut l: Vec<extraction::Ligne> = lignes
+            .iter()
+            .map(|r| extraction::Ligne {
+                reference: None,
+                designation: None,
+                quantite: r.quantite,
+                unite: None,
+                prix_unitaire_ht: r.prix,
+                montant_ht: r.montant,
+                gencod: None,
+                colis: r.colis,
+                pcb: r.pcb,
+                remise_taux: r.remise,
+                taux_tva: r.taux_tva,
+                deee_ht: r.deee,
+                ecomob_ht: r.ecomob,
+                pv_conseille: None,
+            })
+            .collect();
+        let (mut ht, mut tva, mut ttc) = (d.ht, d.tva, d.ttc);
+        let calcules = extraction::completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc);
+        if calcules.is_empty() {
+            continue;
+        }
+        let mut tx = pool.begin().await?;
+        for (r, ligne) in lignes.iter().zip(&l) {
+            if r.montant.is_none() {
+                sqlx::query!(
+                    "update ligne_document set montant_ht = $3::float8::numeric(14, 2)
+                     where document_id = $1 and rang = $2",
+                    d.id,
+                    r.rang,
+                    ligne.montant_ht
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        sqlx::query!(
+            r#"update document set montant_ht = $2::float8::numeric(14, 2),
+                   montant_tva = $3::float8::numeric(14, 2), montant_ttc = $4::float8::numeric(14, 2),
+                   confiance = coalesce(confiance, '{}'::jsonb) || jsonb_build_object('montants_calcules', $5::jsonb)
+               where id = $1"#,
+            d.id,
+            ht,
+            tva,
+            ttc,
+            json!(calcules)
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        gmflow_core::rapprochement::recalculer(pool, d.id).await?;
+        n += 1;
+    }
+    Ok(n)
 }
 
 /// Document remis en attente (Claude indisponible) : la voie est gardée pour que la pompe

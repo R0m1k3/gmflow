@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select etat, type, fournisseur_id, societe_id, numero, numero_commande, numeros_bl,\n                rapprochement_ignore, montant_ht::float8 as ht, left(texte, $2) as texte\n         from document where id = $1",
+  "query": "select etat, type, fournisseur_id, societe_id, numero, numero_commande, numeros_bl,\n                rapprochement_ignore, montant_ht::float8 as ht, left(texte, $2) as texte,\n                coalesce(confiance->'montants_calcules' ? 'ht', false) as \"ht_calcule!\"\n         from document where id = $1",
   "describe": {
     "columns": [
       {
@@ -102,6 +102,12 @@
         "name": "texte",
         "type_info": "Text",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "ht_calcule!",
+        "type_info": "Bool",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -120,8 +126,9 @@
       false,
       false,
       null,
+      null,
       null
     ]
   },
-  "hash": "1df8834d20fb2ec76432e74e96819309819493e8f21a08d04d3bb09335fd7ce4"
+  "hash": "c0290a67f5d8341bac5161d8ee463068396846da7fd35c76e84ca0575c68b8a6"
 }
