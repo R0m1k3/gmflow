@@ -26,6 +26,7 @@
     interlocuteur: '',
     conditions_paiement: '',
     noms_documents: '',
+    prefixes_codes: '',
     groupe_id: null
   });
   let erreur = $state('');

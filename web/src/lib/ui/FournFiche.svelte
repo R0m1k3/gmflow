@@ -20,6 +20,8 @@
     conditions_paiement: string;
     /** Séparés par des virgules (un nom peut contenir des espaces). */
     noms_documents: string;
+    /** Séparés par des virgules ou des espaces. */
+    prefixes_codes: string;
     groupe_id: number | null;
   }
 
@@ -40,6 +42,7 @@
       interlocuteur: f.interlocuteur ?? '',
       conditions_paiement: f.conditions_paiement ?? '',
       noms_documents: f.noms_documents.join(', '),
+      prefixes_codes: f.prefixes_codes.join(', '),
       groupe_id: f.groupe_id
     };
   }
@@ -67,6 +70,10 @@
       noms_documents: x.noms_documents
         .split(/[\n,;]+/)
         .map((n) => n.trim())
+        .filter(Boolean),
+      prefixes_codes: x.prefixes_codes
+        .split(/[\n,;\s]+/)
+        .map((p) => p.trim())
         .filter(Boolean),
       groupe_id: x.groupe_id
     };
@@ -183,7 +190,10 @@
     const c: { libelle: string; valeur: string; mono?: boolean; multi?: boolean; toujours?: boolean }[] = [
       { libelle: 'Code BO Phénix', valeur: f.code_gestion ?? '', mono: true, toujours: true }
     ];
-    if (f.groupe_id !== null) c.push({ libelle: 'Noms sur les documents', valeur: f.noms_documents.join(', ') });
+    if (f.groupe_id !== null) {
+      c.push({ libelle: 'Noms sur les documents', valeur: f.noms_documents.join(', ') });
+      c.push({ libelle: 'Préfixes des codes', valeur: f.prefixes_codes.join(', '), mono: true });
+    }
     c.push(
       { libelle: 'Domaines mail', valeur: f.domaines.join(', ') },
       { libelle: 'SIRET', valeur: f.siret ?? '', mono: true },
@@ -564,6 +574,15 @@
                   placeholder="ex. HOMEA DECO, homea.fr"
                   erreur={fautes.noms_documents}
                   aide="Autres écritures de cette marque dans les factures et BL du groupe, séparées par des virgules ; son nom est toujours cherché"
+                />
+              </div>
+              <div class="plein">
+                <Champ
+                  libelle="Préfixes des codes"
+                  bind:valeur={ed.prefixes_codes}
+                  placeholder="ex. LC"
+                  erreur={fautes.prefixes_codes}
+                  aide="Début des n° de BL ou codes client de cette marque quand le document ne la nomme pas (LC pour LC54023001), séparés par des virgules"
                 />
               </div>
             {/if}

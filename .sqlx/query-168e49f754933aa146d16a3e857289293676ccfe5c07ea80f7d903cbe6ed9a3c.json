@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, nom, noms_documents from fournisseur\n         where groupe_id = $1 and fusionne_dans is null order by id",
+  "query": "select id, nom, noms_documents, prefixes_codes from fournisseur\n         where groupe_id = $1 and fusionne_dans is null order by id",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,17 @@
             "name": "noms_documents"
           }
         }
+      },
+      {
+        "ordinal": 3,
+        "name": "prefixes_codes",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "prefixes_codes"
+          }
+        }
       }
     ],
     "parameters": {
@@ -45,8 +56,9 @@
     "nullable": [
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "c716173adc9d45ec1b47cc39427ede600598dc7f9e3c1af9c4e13ed0c630b731"
+  "hash": "168e49f754933aa146d16a3e857289293676ccfe5c07ea80f7d903cbe6ed9a3c"
 }
