@@ -5,7 +5,7 @@
   import { page } from '$app/state';
   import { untrack } from 'svelte';
   import { requete, sonder } from '#lib/api.ts';
-  import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
+  import { deplacer, fleche, montrer, raccourcis, type Gestionnaire } from '#lib/clavier.ts';
   import { libelleStatutReponse, tonStatutReponse } from '#lib/libelles.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
@@ -67,8 +67,18 @@
     void goto(lien(id), { replace: true }).then(() => montrer(listeEl, `[data-id="${id}"]`));
   }
   $effect(() => {
-    const carte: Record<string, () => void> = { j: () => deplacerDe(1), k: () => deplacerDe(-1) };
+    const carte: Record<string, Gestionnaire> = {
+      j: () => deplacerDe(1),
+      k: () => deplacerDe(-1),
+      ArrowDown: fleche(() => deplacerDe(1)),
+      ArrowUp: fleche(() => deplacerDe(-1))
+    };
     if (mailId) carte.Escape = () => void goto(lien(null));
+    else
+      carte.Enter = () => {
+        if (!lst.elements[0]) return false;
+        void goto(lien(lst.elements[0].id));
+      };
     return raccourcis(carte, { dansLesChamps: [] });
   });
 

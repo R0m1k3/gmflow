@@ -11,6 +11,7 @@
   import type { Moi } from '#lib/types.ts';
   import { quandCourt } from '#lib/ui/DocOutils.ts';
   import Icone, { type NomIcone } from '#lib/ui/Icone.svelte';
+  import AideClavier from '#lib/ui/AideClavier.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
 
   let { children } = $props();
@@ -75,9 +76,11 @@
     champRecherche?.blur();
     void goto(q ? `/recherche?q=${encodeURIComponent(q)}` : '/recherche');
   }
+  let aideClavier = $state(false);
   $effect(() => {
     if (!session.moi) return;
     return raccourcis({
+      '?': () => (aideClavier = !aideClavier),
       '/': () => {
         // Champ de la barre du haut masqué (écran étroit, page Recherche) : celui de la page Recherche.
         if (surRecherche) document.getElementById('champ-recherche')?.focus();
@@ -303,6 +306,8 @@
     {/each}
   </nav>
 {/if}
+
+{#if session.moi && !publique}<AideClavier bind:ouvert={aideClavier} />{/if}
 
 <style>
   /* Ordinateur (≥ 1024 px) : barre latérale sauge à gauche, colonne blanche à droite (maquette Sauge). */

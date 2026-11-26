@@ -8,7 +8,7 @@
   import { untrack } from 'svelte';
   import { page } from '$app/state';
   import { aTraiter, api, ecarterDocument, ErreurApi, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
-  import { deplacer, raccourcis } from '#lib/clavier.ts';
+  import { deplacer, fleche, raccourcis } from '#lib/clavier.ts';
   import { compteurs, rafraichirCompteurs, releverMaintenant } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libellePriorite, nomCourtSociete, nomOutil } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
@@ -368,6 +368,8 @@
     return raccourcis({
       j: () => deplacerDe(1),
       k: () => deplacerDe(-1),
+      ArrowDown: fleche(() => deplacerDe(1)),
+      ArrowUp: fleche(() => deplacerDe(-1)),
       Enter: () => {
         if (choix) void goto(ouvrirHref(choix));
       },
