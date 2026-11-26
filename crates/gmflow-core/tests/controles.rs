@@ -63,6 +63,11 @@ fn chaque_controle() {
     let mut f = bonne();
     f.fournisseur_siret = Some("55210055400014");
     assert_eq!(codes(&f, jour()), ["identifiants"]);
+    // SIREN seul (9 chiffres), demandé à la lecture à défaut de SIRET : accepté s'il est juste.
+    f.fournisseur_siret = Some("552 100 554");
+    assert!(codes(&f, jour()).is_empty(), "SIREN valide accepté");
+    f.fournisseur_siret = Some("552100555");
+    assert_eq!(codes(&f, jour()), ["identifiants"]);
 
     let mut f = bonne();
     f.confiance_societe = 0.85;

@@ -265,8 +265,10 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
             &["fournisseur_id"],
         )),
         (s, t) => {
+            // SIREN seul (9 chiffres) : demandé à la lecture quand le SIRET n'est pas imprimé.
             if let Some(s) = s
                 && !siret_valide(s)
+                && !siren_valide(s)
             {
                 e.push(echec(
                     "identifiants",
