@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select document_id, reference, designation, quantite::float8 as quantite, unite,\n                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant\n         from ligne_document where document_id = any($1) order by document_id, rang",
+  "query": "select document_id, reference, designation, quantite::float8 as quantite, unite,\n                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant,\n                colis::float8 as colis, pcb::float8 as pcb,\n                deee_ht::float8 as deee_ht, ecomob_ht::float8 as ecomob_ht\n         from ligne_document where document_id = any($1) order by document_id, rang",
   "describe": {
     "columns": [
       {
@@ -64,6 +64,30 @@
         "name": "montant",
         "type_info": "Float8",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "colis",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "pcb",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "deee_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "ecomob_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
       }
     ],
     "parameters": {
@@ -78,8 +102,12 @@
       null,
       true,
       null,
+      null,
+      null,
+      null,
+      null,
       null
     ]
   },
-  "hash": "1036c0cd14411f2fd3c77fbc84c8ada51eeb60feac156c952f0ac2a3630cdf7c"
+  "hash": "fab794fbe2895f1224351ba3c4a33e7bacf22c3cb187c48d30c5aec3be7ed4df"
 }

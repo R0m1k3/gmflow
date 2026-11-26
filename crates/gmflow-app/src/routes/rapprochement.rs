@@ -66,6 +66,8 @@ pub struct Rapproche {
     facture: DocRap,
     bls: Vec<BlLie>,
     ecart_montant: Option<f64>,
+    /// Éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes).
+    eco_bl: Option<f64>,
     ecarts: Value,
 }
 
@@ -99,12 +101,13 @@ struct Lien {
     bl_id: i64,
     methode: String,
     ecart_montant: Option<f64>,
+    eco_bl: Option<f64>,
     ecarts: Value,
 }
 
-fn avec_ecart(ecart: Option<f64>, ecarts: &Value, f: &DocRap) -> bool {
+fn avec_ecart(ecart: Option<f64>, eco_bl: Option<f64>, ecarts: &Value, f: &DocRap) -> bool {
     ecart.is_some_and(|e| {
-        e.abs() > SEUIL_MONTANT && !rap::ecart_explique(e, f.remise_ht, f.annexes_ht)
+        e.abs() > SEUIL_MONTANT && !rap::ecart_explique(e, f.remise_ht, f.annexes_ht, eco_bl)
     }) || ecarts.as_array().is_some_and(|a| !a.is_empty())
 }
 
@@ -154,7 +157,8 @@ pub async fn vue(
     let ids: Vec<i64> = docs.iter().map(|d| d.id).collect();
     let liens: Vec<Lien> = sqlx::query_as!(
         Lien,
-        "select id, facture_id, bl_id, methode, ecart_montant::float8 as ecart_montant, ecarts
+        "select id, facture_id, bl_id, methode, ecart_montant::float8 as ecart_montant,
+                eco_bl::float8 as eco_bl, ecarts
          from rapprochement where not rejete and (facture_id = any($1) or bl_id = any($1))
          order by facture_id, bl_id",
         &ids
@@ -197,7 +201,7 @@ pub async fn vue(
             factures_sans_bl.push(d.clone());
             continue;
         };
-        let (ecart, ecarts) = (ls[0].ecart_montant, ls[0].ecarts.clone());
+        let (ecart, eco_bl, ecarts) = (ls[0].ecart_montant, ls[0].eco_bl, ls[0].ecarts.clone());
         let bls = ls
             .iter()
             .map(|l| BlLie {
@@ -227,9 +231,10 @@ pub async fn vue(
             facture: d.clone(),
             bls,
             ecart_montant: ecart,
+            eco_bl,
             ecarts,
         };
-        if avec_ecart(ecart, &element.ecarts, &element.facture) {
+        if avec_ecart(ecart, eco_bl, &element.ecarts, &element.facture) {
             r.factures_avec_ecart += 1;
             avec.push(element);
         } else {
@@ -282,6 +287,8 @@ pub struct LienVue {
     id: i64,
     methode: String,
     ecart_montant: Option<f64>,
+    /// Éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes).
+    eco_bl: Option<f64>,
     ecarts: Value,
     auteur: Option<String>,
     autre: DocRap,
@@ -322,7 +329,8 @@ pub async fn detail(
     .fetch_all(&etat.pool)
     .await?;
     let lignes_liens = sqlx::query!(
-        r#"select r.id, r.methode, r.ecart_montant::float8 as ecart_montant, r.ecarts,
+        r#"select r.id, r.methode, r.ecart_montant::float8 as ecart_montant,
+                  r.eco_bl::float8 as eco_bl, r.ecarts,
                   u.identifiant as "auteur?",
                   case when r.facture_id = $1 then r.bl_id else r.facture_id end as "autre!"
            from rapprochement r left join utilisateur u on u.id = r.auteur_id
@@ -341,6 +349,7 @@ pub async fn detail(
                 id: l.id,
                 methode: l.methode,
                 ecart_montant: l.ecart_montant,
+                eco_bl: l.eco_bl,
                 ecarts: l.ecarts,
                 auteur: l.auteur,
                 autre: autre.clone(),

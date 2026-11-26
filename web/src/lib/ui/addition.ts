@@ -67,19 +67,23 @@ export interface Addition {
 
 /**
  * Lignes de l'addition d'une facture face à ses BL visibles. `ecart` : `ecart_montant` du serveur
- * (null : pas de comparaison) ; `ecarts` : écarts d'articles de la facture, pris une fois.
- * Lecture gardée (comme `explicationEcart`/`ecart_explique`) : avant = e + r − a (BL avant remise),
- * après = e − a (BL déjà remisés), la plus proche de 0.
+ * (null : pas de comparaison) ; `ecarts` : écarts d'articles de la facture, pris une fois ;
+ * `ecoBl` : éco-participations déjà comprises dans le montant des BL (`eco_bl` du serveur, BL au
+ * HT calculé depuis leurs lignes), retirées des annexes de la facture (`annexes_hors_bl`).
+ * Lecture gardée (comme `ecart_explique`) : avant = e + r − a (BL avant remise), après = e − a
+ * (BL déjà remisés), la plus proche de 0, a = annexes absentes des BL.
  */
 export function additionRapprochement(
   facture: FactureAddition,
   bls: BlAddition[],
   ecart: number | null,
-  ecarts: EcartLigne[]
+  ecarts: EcartLigne[],
+  ecoBl: number | null = null
 ): Addition {
   const lignes: LigneAddition[] = [];
   const r = positif(facture.remise_ht);
-  const a = positif(facture.annexes_ht);
+  const eco = positif(ecoBl);
+  const a = positif(centimes(positif(facture.annexes_ht) - eco));
 
   for (const b of bls) lignes.push({ libelle: `BL ${b.numero ?? b.id}`, montant: b.ht === null ? null : centimes(b.ht), genre: 'bl' });
   const somme = centimes(bls.reduce((t, b) => t + (b.ht ?? 0), 0));
@@ -108,12 +112,20 @@ export function additionRapprochement(
     const t = facture.remise_taux && facture.remise_taux > 0 ? ` ${facture.remise_taux.toLocaleString('fr-FR', { maximumFractionDigits: 2 })}\u00a0%` : '';
     lignes.push({ libelle: `Remise${t} (facture seulement)`, montant: -centimes(r), genre: 'remise' });
   }
-  if (a > 0) lignes.push({ libelle: 'Éco-participation, port (facture seulement)', montant: centimes(a), genre: 'annexes' });
+  if (a > 0) {
+    lignes.push({
+      libelle: eco > 0 ? 'Port, autres montants annexes (facture seulement)' : 'Éco-participation, port (facture seulement)',
+      montant: centimes(a),
+      genre: 'annexes'
+    });
+  }
   lignes.push({
     libelle: 'Attendu',
     montant: centimes(base - (blsRemises ? 0 : r) + a),
     genre: 'attendu',
-    note: blsRemises ? 'BL déjà remisés' : undefined
+    note: [blsRemises ? 'BL déjà remisés' : '', eco > 0 ? `éco-participation (${eco.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}\u00a0€) comprise dans les BL` : '']
+      .filter(Boolean)
+      .join(', ') || undefined
   });
   lignes.push({ libelle: 'Facturé HT', montant: facture.ht === null ? null : centimes(facture.ht), genre: 'facture' });
   if (reste !== null) lignes.push({ libelle: 'Écart facture − BL', montant: reste, genre: 'ecart' });

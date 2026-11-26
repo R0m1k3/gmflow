@@ -104,6 +104,24 @@ fn centimes(m: f64) -> f64 {
     (m * 100.0).round() / 100.0
 }
 
+/// Quantité d'une ligne : la quantité lue, sinon colis × PCB.
+fn quantite_ligne(l: &Ligne) -> Option<f64> {
+    l.quantite.or(match (l.colis, l.pcb) {
+        (Some(c), Some(p)) => Some(c * p),
+        _ => None,
+    })
+}
+
+/// Éco-participations HT d'une ligne (DEEE et éco-mobilier par unité × quantité).
+fn eco_ligne(l: &Ligne) -> f64 {
+    quantite_ligne(l).unwrap_or(0.0) * (l.deee_ht.unwrap_or(0.0) + l.ecomob_ht.unwrap_or(0.0))
+}
+
+/// Éco-participations HT des lignes, celles que `completer_montants_bl` ajoute au HT calculé.
+pub fn eco_lignes(lignes: &[Ligne]) -> f64 {
+    centimes(lignes.iter().map(eco_ligne).sum())
+}
+
 /// BL qui n'imprime pas ses totaux (tableur : quantité et prix unitaire seulement) : complète
 /// le montant des lignes (quantité × prix unitaire, moins la remise de la ligne ; colis × PCB
 /// sans quantité), puis le HT, la TVA et le TTC qui manquent. HT = lignes + éco-participations
@@ -116,14 +134,8 @@ pub fn completer_montants_bl(
     tva: &mut Option<f64>,
     ttc: &mut Option<f64>,
 ) -> Vec<&'static str> {
-    let quantite = |l: &Ligne| {
-        l.quantite.or(match (l.colis, l.pcb) {
-            (Some(c), Some(p)) => Some(c * p),
-            _ => None,
-        })
-    };
     for l in lignes.iter_mut().filter(|l| l.montant_ht.is_none()) {
-        if let (Some(q), Some(pu)) = (quantite(l), l.prix_unitaire_ht) {
+        if let (Some(q), Some(pu)) = (quantite_ligne(l), l.prix_unitaire_ht) {
             let remise = l
                 .remise_taux
                 .filter(|r| *r > 0.0 && *r < 100.0)
@@ -139,9 +151,7 @@ pub fn completer_montants_bl(
     }
     let (mut ht_lignes, mut tva_lignes) = (0.0, 0.0);
     for l in lignes.iter() {
-        let eco =
-            quantite(l).unwrap_or(0.0) * (l.deee_ht.unwrap_or(0.0) + l.ecomob_ht.unwrap_or(0.0));
-        let base = l.montant_ht.unwrap_or(0.0) + eco;
+        let base = l.montant_ht.unwrap_or(0.0) + eco_ligne(l);
         ht_lignes += base;
         tva_lignes += base * l.taux_tva.unwrap_or(TVA_PAR_DEFAUT) / 100.0;
     }

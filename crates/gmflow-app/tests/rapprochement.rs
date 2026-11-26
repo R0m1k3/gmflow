@@ -306,3 +306,75 @@ async fn liens_manuels_et_pas_de_correspondance_attendue() {
     );
     m.app.fermer().await;
 }
+
+/// BL au HT calculé depuis ses lignes (éco-participation comprise) face à une facture qui
+/// compte la même éco-participation dans ses annexes : elle n'est pas retirée deux fois, la
+/// remise explique seule l'écart.
+#[tokio::test]
+async fn eco_participation_du_bl_calcule_pas_comptee_deux_fois() {
+    let app = Appli::new().await;
+    let s = app.societe("Frouard").await;
+    let b = app.boite(s, "Compta Frouard").await;
+    let f: i64 = sqlx::query_scalar(
+        "insert into fournisseur (nom, nom_normalise, statut) values ('U10', 'u10', 'valide') returning id",
+    )
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    app.utilisateur("admin", MDP, "admin", None).await;
+    // Facture : 77,50 − 2,33 (remise 3 %) + 2,50 d'éco = 77,67. BL : 77,50 + 2,50 = 80,00.
+    let facture = doc(&app, b, s, f, "facture", "FA-9", "CMD-9", 77.67).await;
+    let bl = doc(&app, b, s, f, "bl", "BL-9", "CMD-9", 80.0).await;
+    sqlx::query(
+        "update document set remise_ht = 2.33, remise_taux = 3, annexes_ht = 2.5 where id = $1",
+    )
+    .bind(facture)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"update document set lignes_lues = true,
+               confiance = '{"montants_calcules": ["ht", "tva", "ttc"]}' where id = $1"#,
+    )
+    .bind(bl)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "insert into ligne_document (document_id, rang, reference, designation, quantite,
+             prix_unitaire_ht, montant_ht, deee_ht)
+         values ($1, 0, 'A', 'Lampe', 10, 6.2, 62, 0.25), ($1, 1, 'B', 'Vase', 5, 3.1, 15.5, null),
+                ($2, 0, 'A', 'Lampe', 10, 6.2, 62, null), ($2, 1, 'B', 'Vase', 5, 3.1, 15.5, null)",
+    )
+    .bind(bl)
+    .bind(facture)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    for id in [facture, bl] {
+        gmflow_core::rapprochement::recalculer(app.pool(), id)
+            .await
+            .unwrap();
+    }
+    let admin = app.connecter("admin", MDP).await;
+    let r = app
+        .requete("GET", "/api/rapprochement", None, Some(&admin))
+        .await;
+    assert_eq!(r.code, StatusCode::OK);
+    let v = &r.json;
+    assert_eq!(v["avec_ecart"].as_array().unwrap().len(), 0, "{v}");
+    let a = &v["sans_ecart"][0];
+    assert_eq!(a["facture"]["id"], facture);
+    assert_eq!(a["ecart_montant"], -2.33);
+    assert_eq!(a["eco_bl"], 2.5);
+    let d = app
+        .requete(
+            "GET",
+            &format!("/api/documents/{facture}/rapprochement"),
+            None,
+            Some(&admin),
+        )
+        .await;
+    assert_eq!(d.code, StatusCode::OK, "{}", d.json);
+    assert_eq!(d.json["liens"][0]["eco_bl"], 2.5);
+}

@@ -635,6 +635,8 @@ export interface Rapproche {
   facture: DocRap;
   bls: (DocRap & { lien_id: number; methode: MethodeRapprochement })[];
   ecart_montant: number | null;
+  /** Éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes). */
+  eco_bl: number | null;
   ecarts: EcartLigne[];
 }
 
@@ -653,7 +655,7 @@ export interface DetailRapprochement {
   lignes_lues: boolean;
   numeros_bl: string[];
   ignore: boolean;
-  liens: { id: number; methode: MethodeRapprochement; ecart_montant: number | null; ecarts: EcartLigne[]; auteur: string | null; autre: DocRap }[];
+  liens: { id: number; methode: MethodeRapprochement; ecart_montant: number | null; eco_bl: number | null; ecarts: EcartLigne[]; auteur: string | null; autre: DocRap }[];
   candidats: DocRap[];
 }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "select id, facture_id, bl_id, methode, ecart_montant::float8 as ecart_montant, ecarts\n         from rapprochement where not rejete and (facture_id = any($1) or bl_id = any($1))\n         order by facture_id, bl_id",
+  "query": "select id, facture_id, bl_id, methode, ecart_montant::float8 as ecart_montant,\n                eco_bl::float8 as eco_bl, ecarts\n         from rapprochement where not rejete and (facture_id = any($1) or bl_id = any($1))\n         order by facture_id, bl_id",
   "describe": {
     "columns": [
       {
@@ -55,6 +55,12 @@
       },
       {
         "ordinal": 5,
+        "name": "eco_bl",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
         "name": "ecarts",
         "type_info": "Jsonb",
         "origin": {
@@ -76,8 +82,9 @@
       false,
       false,
       null,
+      null,
       false
     ]
   },
-  "hash": "33b19bbc177c4ef649092633cf6d8c764d54ef7d7729a67961880fdb64c12973"
+  "hash": "4ccff7131878fd2022af13b72a969b423759945456c0a7d84976a4154bd832ff"
 }

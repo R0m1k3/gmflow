@@ -13,7 +13,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool};
 
-use crate::lecture::extraction::Ligne;
+use crate::lecture::extraction::{Ligne, eco_lignes};
 
 /// Écart de montant HT au-delà duquel une facture est signalée.
 pub const SEUIL_MONTANT: f64 = 0.05;
@@ -284,11 +284,28 @@ pub fn montant_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Option<f64> {
     total_ht.or_else(|| somme_lignes(lignes))
 }
 
+/// Montants annexes de la facture absents des BL : les annexes (éco-participation, port) moins
+/// les éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes,
+/// voir `actualiser_ecarts`), jamais négatif.
+pub fn annexes_hors_bl(annexes: Option<f64>, eco_bl: Option<f64>) -> f64 {
+    let a = annexes.unwrap_or(0.0) - eco_bl.unwrap_or(0.0).max(0.0);
+    if a > 0.005 {
+        (a * 100.0).round() / 100.0
+    } else {
+        0.0
+    }
+}
+
 /// Écart expliqué par la facture elle-même : sa remise (absente des BL valorisés avant remise)
-/// et ses montants annexes (éco-participation, port : jamais sur un BL). Vrai quand, une fois
-/// ces montants retirés, l'écart tombe sous le seuil, que les BL soient avant ou après remise.
-pub fn ecart_explique(ecart: f64, remise: Option<f64>, annexes: Option<f64>) -> bool {
-    let (r, a) = (remise.unwrap_or(0.0), annexes.unwrap_or(0.0));
+/// et ses montants annexes absents des BL (`annexes_hors_bl`). Vrai quand, une fois ces
+/// montants retirés, l'écart tombe sous le seuil, que les BL soient avant ou après remise.
+pub fn ecart_explique(
+    ecart: f64,
+    remise: Option<f64>,
+    annexes: Option<f64>,
+    eco_bl: Option<f64>,
+) -> bool {
+    let (r, a) = (remise.unwrap_or(0.0), annexes_hors_bl(annexes, eco_bl));
     if r <= 0.0 && a <= 0.0 {
         return false;
     }
@@ -322,7 +339,9 @@ pub fn controle_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Vec<Value> {
 pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i64, Vec<Ligne>>> {
     let r = sqlx::query!(
         "select document_id, reference, designation, quantite::float8 as quantite, unite,
-                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant
+                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant,
+                colis::float8 as colis, pcb::float8 as pcb,
+                deee_ht::float8 as deee_ht, ecomob_ht::float8 as ecomob_ht
          from ligne_document where document_id = any($1) order by document_id, rang",
         ids
     )
@@ -337,6 +356,10 @@ pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i
             unite: l.unite,
             prix_unitaire_ht: l.prix,
             montant_ht: l.montant,
+            colis: l.colis,
+            pcb: l.pcb,
+            deee_ht: l.deee_ht,
+            ecomob_ht: l.ecomob_ht,
             ..Default::default()
         });
     }
@@ -419,12 +442,17 @@ pub async fn ecrire_lignes(
     Ok(())
 }
 
-/// Recalcule les écarts de tous les liens d'une facture.
+/// Recalcule les écarts de tous les liens d'une facture, et les éco-participations comprises
+/// dans le montant des BL (`eco_bl`) : celles des BL dont le HT a été calculé depuis les lignes
+/// (`extraction::completer_montants_bl` les y ajoute), que la facture compte aussi dans ses
+/// annexes.
 pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::Result<()> {
     let bls = sqlx::query!(
-        "select b.id, b.montant_ht::float8 as ht from rapprochement r
+        r#"select b.id, b.montant_ht::float8 as ht,
+                coalesce(b.confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!"
+         from rapprochement r
          join document b on b.id = r.bl_id
-         where r.facture_id = $1 and not r.rejete order by b.id",
+         where r.facture_id = $1 and not r.rejete order by b.id"#,
         facture_id
     )
     .fetch_all(&mut *c)
@@ -445,19 +473,26 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
     let lf = l.remove(&facture_id).unwrap_or_default();
     let mut lb: Vec<Ligne> = Vec::new();
     let mut montants = Vec::new();
+    let mut eco = 0.0;
     for b in &bls {
         let lignes_bl = l.remove(&b.id).unwrap_or_default();
         montants.push(montant_bl(&lignes_bl, b.ht));
+        if b.ht_calcule && b.ht.is_some() {
+            eco += eco_lignes(&lignes_bl);
+        }
         lb.extend(lignes_bl);
     }
+    let eco_bl = (eco > 0.005).then(|| (eco * 100.0).round() / 100.0);
     let ecart = ecart_montant(ht_facture, &montants);
     let ecarts = json!(comparer(&lf, &lb, f.taux));
     sqlx::query!(
-        "update rapprochement set ecart_montant = $2::float8::numeric(14, 2), ecarts = $3
+        "update rapprochement set ecart_montant = $2::float8::numeric(14, 2), ecarts = $3,
+                eco_bl = $4::float8::numeric(14, 2)
          where facture_id = $1 and not rejete",
         facture_id,
         ecart,
-        ecarts
+        ecarts,
+        eco_bl
     )
     .execute(&mut *c)
     .await?;

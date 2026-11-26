@@ -125,7 +125,8 @@
       { ht: lu.ht, remise_ht: d.remise_ht, remise_taux: d.remise_taux, annexes_ht: d.annexes_ht },
       rap.liens.map((l) => ({ id: l.autre.id, numero: l.autre.numero, ht: l.autre.montant_ht })),
       rap.liens[0].ecart_montant,
-      rap.liens[0].ecarts
+      rap.liens[0].ecarts,
+      rap.liens[0].eco_bl
     );
   });
   let remiseTexte = $derived(d.type !== 'bl' ? texteRemise(d.remise_ht, d.remise_taux) : '');
@@ -140,7 +141,8 @@
       { ht: f.fiche.montant_ht, remise_ht: f.fiche.remise_ht, remise_taux: f.fiche.remise_taux, annexes_ht: f.fiche.annexes_ht },
       f.rap.liens.map((l) => ({ id: l.autre.id, numero: l.autre.numero, ht: l.autre.montant_ht })),
       l0?.ecart_montant ?? null,
-      l0?.ecarts ?? []
+      l0?.ecarts ?? [],
+      l0?.eco_bl ?? null
     );
   }
   /** Vert : déposée et concorde ; ambre : écart de montant ou articles en écart ; creux : sinon (sans comparaison, pas encore déposée). */

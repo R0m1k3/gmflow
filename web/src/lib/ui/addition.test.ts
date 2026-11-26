@@ -121,3 +121,22 @@ test('i. écarts qui se compensent : concorde, mais les deux articles sont gard�
   assert.deepEqual(a.causes, [enTrop, prix]);
   controler(a);
 });
+
+test('j. éco-participation déjà dans le HT calculé du BL : pas comptée deux fois', () => {
+  // BL : 77,50 + 2,50 d'éco = 80,00 ; facture : 77,50 − 2,33 (3 %) + 2,50 = 77,67 ; écart −2,33.
+  const f: FactureAddition = { ht: 77.67, remise_ht: 2.33, remise_taux: 3, annexes_ht: 2.5 };
+  const a = additionRapprochement(f, bls(80), -2.33, [], 2.5);
+  assert.equal(a.reste, 0);
+  assert.equal(a.verdict, 'concorde');
+  assert.equal(montant(a, 'annexes'), null);
+  assert.equal(montant(a, 'attendu'), 77.67);
+  assert.match(a.lignes.find((l) => l.genre === 'attendu')!.note ?? '', /comprise dans les BL/);
+  controler(a);
+  // Sans l'éco des BL, l'ancienne lecture laissait un faux écart de −2,50.
+  assert.equal(additionRapprochement(f, bls(80), -2.33, []).reste, -2.5);
+  // Port en plus de l'éco sur la facture : seul le port reste en annexe.
+  const p = additionRapprochement({ ...f, ht: 85.67, annexes_ht: 10.5 }, bls(80), 5.67, [], 2.5);
+  assert.equal(montant(p, 'annexes'), 8);
+  assert.equal(p.reste, 0);
+  controler(p);
+});
