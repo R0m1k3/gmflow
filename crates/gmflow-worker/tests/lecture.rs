@@ -364,6 +364,19 @@ async fn facture_sans_ttc_relue_par_sonnet_avec_le_pdf() {
     let second = &appels[1];
     assert!(second.contains("le montant TTC manque"), "{second}");
     assert!(second.contains("--tools\nRead\n"), "{second}");
+    // Read limité au dossier jetable de la pièce, le reste refusé sans demander.
+    assert!(
+        second.contains("--allowedTools\nRead(./**)\n--permission-mode\ndontAsk\n"),
+        "{second}"
+    );
+    assert!(
+        second.contains(&format!(
+            "--settings\n{}\n",
+            gmflow_worker::lecture::REGLAGES_LECTURE
+        )),
+        "{second}"
+    );
+    assert!(!second.contains("--bare"), "{second}");
     assert!(
         second.contains("document.pdf"),
         "PDF joint au nouvel essai : {second}"
