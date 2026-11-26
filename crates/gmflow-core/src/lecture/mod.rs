@@ -5,6 +5,7 @@
 pub mod extraction;
 pub mod pdf;
 pub mod societe;
+pub mod tableau_articles;
 pub mod tableur;
 pub mod xml;
 
@@ -137,6 +138,20 @@ pub fn apercu_tableur(nom: &str, mime: &str, contenu: &[u8]) -> Option<Vec<table
     match genre(nom, &mime.to_ascii_lowercase(), contenu) {
         Genre::Classeur => tableur::apercu_classeur(contenu),
         Genre::Csv => Some(vec![tableur::apercu_csv(contenu)]),
+        _ => None,
+    }
+}
+
+/// Feuilles visibles d'un tableur (xlsx, xls, ods, csv) en cellules, pour en lire les lignes
+/// d'articles (`tableau_articles`) ; rien pour les autres fichiers ou un classeur illisible.
+pub fn grilles_tableur(
+    nom: &str,
+    mime: &str,
+    contenu: &[u8],
+) -> Option<Vec<tableau_articles::Grille>> {
+    match genre(nom, &mime.to_ascii_lowercase(), contenu) {
+        Genre::Classeur => tableau_articles::grilles_classeur(contenu),
+        Genre::Csv => Some(vec![tableau_articles::grille_csv(contenu)]),
         _ => None,
     }
 }

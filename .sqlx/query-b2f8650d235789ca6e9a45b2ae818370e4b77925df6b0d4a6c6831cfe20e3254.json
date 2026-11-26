@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select colonnes_tableur from fournisseur\n         where colonnes_tableur ?| $1::text[]\n         order by (id = $2) desc, id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "colonnes_tableur",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "colonnes_tableur"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b2f8650d235789ca6e9a45b2ae818370e4b77925df6b0d4a6c6831cfe20e3254"
+}

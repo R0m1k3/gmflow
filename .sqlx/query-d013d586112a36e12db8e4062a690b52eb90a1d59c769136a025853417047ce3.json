@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update fournisseur f\n         set colonnes_tableur = f.colonnes_tableur\n             || jsonb_build_object(d.resultat #>> '{colonnes_tableur,empreinte}',\n                                   d.resultat #> '{colonnes_tableur,colonnes}')\n         from document d\n         where d.id = $1 and f.id = d.fournisseur_id\n           and d.resultat #>> '{colonnes_tableur,empreinte}' is not null\n           and jsonb_typeof(d.resultat #> '{colonnes_tableur,colonnes}') = 'object'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d013d586112a36e12db8e4062a690b52eb90a1d59c769136a025853417047ce3"
+}

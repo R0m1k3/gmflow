@@ -673,6 +673,9 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
     if let Err(e) = crate::fournisseur::rattacher(ctx, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "rattachement au fournisseur impossible");
     }
+    if let Err(e) = crate::tableau::garder_correspondance(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "correspondance des colonnes non gardée");
+    }
     if let Err(e) = gmflow_core::depot::evaluer_et_deposer(&ctx.pool, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "contrôles avant dépôt impossibles");
     }
@@ -762,6 +765,27 @@ async fn lire_pris(
             texte,
             tronque,
         } => {
+            // Tableur : lignes d'articles lues dans les cellules, Claude ne lit que l'en-tête
+            // sur un extrait (sinon, voie texte inchangée).
+            let tableau = match voie {
+                Voie::Tableur => {
+                    crate::tableau::preparer(
+                        ctx,
+                        id,
+                        &e.expediteur,
+                        &e.nom,
+                        &e.type_mime,
+                        &contenu,
+                        hors_quota,
+                    )
+                    .await?
+                }
+                _ => None,
+            };
+            let (tableau, texte) = match tableau {
+                Some((t, complet)) => (Some(t), complet),
+                None => (None, texte),
+            };
             let societe_code = societe::dans_texte(&texte, &soc);
             let mail = ContexteMail {
                 expediteur: &e.expediteur,
@@ -769,8 +793,14 @@ async fn lire_pris(
                 corps: &e.corps,
                 nom_fichier: &e.nom,
             };
-            let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(&texte));
+            let lu_pour_claude = tableau
+                .as_ref()
+                .map_or(texte.as_str(), |t| t.extrait.as_str());
+            let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(lu_pour_claude));
             prompt.push_str(&exemples_pour(pool, &e.expediteur, Some(&texte)).await);
+            if let Some(t) = &tableau {
+                prompt.push_str(&t.consigne());
+            }
             let src = Source {
                 dossier: None,
                 texte: Some(&texte),
@@ -778,12 +808,16 @@ async fn lire_pris(
                 pages: None,
                 approfondie,
                 hors_quota,
+                lignes_code: tableau.as_ref().map(|t| t.lignes.as_slice()),
             };
             match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, src).await? {
-                Lecture::Faite(ex, reglage, an) => {
+                Lecture::Faite(ex, reglage, mut an) => {
                     let mut lu =
                         lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
-                    lu.lignes_tronquees |= tronque;
+                    match &tableau {
+                        Some(t) => marquer_tableau(&mut lu, t, &mut an),
+                        None => lu.lignes_tronquees |= tronque,
+                    }
                     avec_anomalies(lu, an)
                 }
                 Lecture::Reportee => return Ok(()),
@@ -822,6 +856,7 @@ async fn lire_pris(
                     pages: Some(pages),
                     approfondie,
                     hors_quota,
+                    lignes_code: None,
                 },
             )
             .await?
@@ -888,6 +923,43 @@ struct Source<'a> {
     approfondie: bool,
     /// Demande d'un humain sur ce document : le quota du jour ne compte pas.
     hors_quota: bool,
+    /// Lignes d'articles lues par le code (tableur) : elles remplacent celles de Claude avant
+    /// le contrôle de la lecture.
+    lignes_code: Option<&'a [extraction::Ligne]>,
+}
+
+/// Lecture d'un tableur dont les lignes sont lues dans les cellules : les lignes du code
+/// remplacent celles (en principe absentes) de Claude.
+fn avec_lignes_code(mut ex: Extraction, lignes: Option<&[extraction::Ligne]>) -> Extraction {
+    if let Some(l) = lignes {
+        ex.lignes = l.to_vec();
+        ex.lignes_tronquees = false;
+    }
+    ex
+}
+
+/// Marques d'un tableur lu dans les cellules : `confiance` (origine des lignes et des
+/// colonnes), correspondance de Claude à garder sur la fiche fournisseur (`resultat`), cellules
+/// en erreur ajoutées aux anomalies.
+fn marquer_tableau(
+    lu: &mut Lu,
+    t: &gmflow_core::lecture::tableau_articles::TableauLu,
+    anomalies: &mut Vec<String>,
+) {
+    use gmflow_core::lecture::tableau_articles as ta;
+    if let (Some(c), Some(m)) = (lu.confiance.as_object_mut(), t.confiance().as_object()) {
+        c.extend(m.clone());
+    }
+    if let (Some((empreinte, colonnes)), Some(r)) = (&t.a_garder, lu.resultat.as_mut()) {
+        r[ta::COLONNES_APPRISES] = json!({ "empreinte": empreinte, "colonnes": colonnes });
+    }
+    anomalies.extend(t.anomalies.iter().take(10).cloned());
+    if t.anomalies.len() > 10 {
+        anomalies.push(format!(
+            "{} autres cellules en erreur",
+            t.anomalies.len() - 10
+        ));
+    }
 }
 
 /// Lecture par Claude en deux temps au plus : le réglage de la tâche, puis le nouvel essai
@@ -941,6 +1013,7 @@ async fn lire_par_claude(
         {
             Ok(Ok(ex)) => {
                 noter_utilisation(pool).await;
+                let ex = avec_lignes_code(ex, src.lignes_code);
                 let an = extraction::anomalies(&ex, src.texte);
                 if an.is_empty() {
                     return Ok(Lecture::Faite(ex, reglage, an));
@@ -1022,6 +1095,7 @@ async fn lire_par_claude(
     let derniere_erreur = match seconde {
         Ok(Ok(ex)) => {
             noter_utilisation(pool).await;
+            let ex = avec_lignes_code(ex, src.lignes_code);
             let an = extraction::anomalies(&ex, src.texte);
             if let Some((ex1, reglage1, an1)) = premiere
                 && an1.len() < an.len()

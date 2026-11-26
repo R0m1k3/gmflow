@@ -15,6 +15,7 @@ pub mod reponse;
 pub mod sante;
 pub mod serveur_api;
 pub mod setup_token;
+pub mod tableau;
 pub mod test_boite;
 pub mod test_jeton;
 pub mod tri;
