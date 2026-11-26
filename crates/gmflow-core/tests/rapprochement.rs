@@ -271,7 +271,6 @@ fn articles_retrouves_par_gencod_et_colis() {
     let b2 = ligne(Some("CD-34"), "Vase", 2.0, None);
     assert!(comparer(&[f1.clone(), f2.clone()], &[b1.clone(), b2.clone()], None).is_empty());
     // Gencod à la clé fausse : ignoré, l'article est cherché par sa référence (absente du BL).
-    let mut b1 = b1;
     b1.gencod = Some("03123450000012".into());
     let e = comparer(&[f1, f2], &[b1, b2], None);
     assert_eq!(e.len(), 2, "{e:?}");
