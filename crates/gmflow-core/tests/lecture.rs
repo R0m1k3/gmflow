@@ -392,3 +392,100 @@ fn remise_lue_a_part() {
     // Avoirs : montants demandés en positif, au premier essai comme au nouvel essai.
     assert!(extraction::consigne_nouvel_essai(&[], None, None).contains(extraction::AVOIRS_POSITIFS));
 }
+
+const UBL_ENTETE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:ID>F-77</cbc:ID>
+  <cbc:IssueDate>2026-11-10</cbc:IssueDate>"#;
+
+#[test]
+fn ubl_gln_pas_pris_pour_un_siret() {
+    // GLN en PartyIdentification, SIRET en PartyLegalEntity (imprimé après) : le SIRET gagne.
+    let x = format!(
+        r#"{UBL_ENTETE}
+  <cac:AccountingSupplierParty><cac:Party>
+    <cac:PartyIdentification><cbc:ID schemeID="0088">3012345000017</cbc:ID></cac:PartyIdentification>
+    <cac:PartyLegalEntity><cbc:RegistrationName>Durand</cbc:RegistrationName><cbc:CompanyID>55210055400013</cbc:CompanyID></cac:PartyLegalEntity>
+  </cac:Party></cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty><cac:Party>
+    <cac:PartyIdentification><cbc:ID>3012345000024</cbc:ID></cac:PartyIdentification>
+  </cac:Party></cac:AccountingCustomerParty>
+</Invoice>"#
+    );
+    let d = xml::lire(x.as_bytes()).unwrap();
+    assert_eq!(d.vendeur.siret.as_deref(), Some("55210055400013"));
+    // GLN seul : pas un SIRET, rien n'est pris.
+    assert_eq!(d.acheteur.siret, None);
+    // SIRET en PartyIdentification, sans PartyLegalEntity : gardé.
+    let x = format!(
+        r#"{UBL_ENTETE}
+  <cac:AccountingSupplierParty><cac:Party>
+    <cac:PartyIdentification><cbc:ID>55210055400013</cbc:ID></cac:PartyIdentification>
+  </cac:Party></cac:AccountingSupplierParty>
+</Invoice>"#
+    );
+    let d = xml::lire(x.as_bytes()).unwrap();
+    assert_eq!(d.vendeur.siret.as_deref(), Some("55210055400013"));
+}
+
+#[test]
+fn xml_reference_designation_et_prix_de_base() {
+    // CII : GTIN avant la référence du vendeur, prix pour 100 unités, devise.
+    let cii = r#"<?xml version="1.0" encoding="UTF-8"?>
+<rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100">
+  <rsm:ExchangedDocument><ram:ID>F-1</ram:ID><ram:TypeCode>380</ram:TypeCode></rsm:ExchangedDocument>
+  <rsm:SupplyChainTradeTransaction>
+    <ram:IncludedSupplyChainTradeLineItem>
+      <ram:SpecifiedTradeProduct><ram:GlobalID schemeID="0160">3123450000011</ram:GlobalID><ram:SellerAssignedID>REF-9</ram:SellerAssignedID><ram:Name>Vis</ram:Name></ram:SpecifiedTradeProduct>
+      <ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice><ram:ChargeAmount>12.50</ram:ChargeAmount><ram:BasisQuantity unitCode="C62">100</ram:BasisQuantity></ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>
+      <ram:SpecifiedLineTradeDelivery><ram:BilledQuantity unitCode="C62">200</ram:BilledQuantity></ram:SpecifiedLineTradeDelivery>
+    </ram:IncludedSupplyChainTradeLineItem>
+    <ram:IncludedSupplyChainTradeLineItem>
+      <ram:SpecifiedTradeProduct><ram:GlobalID>3123450000012</ram:GlobalID><ram:Name>Clou</ram:Name></ram:SpecifiedTradeProduct>
+      <ram:SpecifiedLineTradeDelivery><ram:BilledQuantity unitCode="C62">1</ram:BilledQuantity></ram:SpecifiedLineTradeDelivery>
+    </ram:IncludedSupplyChainTradeLineItem>
+    <ram:ApplicableHeaderTradeSettlement><ram:InvoiceCurrencyCode>USD</ram:InvoiceCurrencyCode></ram:ApplicableHeaderTradeSettlement>
+  </rsm:SupplyChainTradeTransaction>
+</rsm:CrossIndustryInvoice>"#;
+    let d = xml::lire(cii.as_bytes()).unwrap();
+    let l = &d.lignes[0];
+    assert_eq!(l.reference.as_deref(), Some("REF-9"));
+    assert_eq!(l.gencod.as_deref(), Some("3123450000011"));
+    assert_eq!(l.prix_unitaire_ht, Some(0.125));
+    assert_eq!(d.devise.as_deref(), Some("USD"));
+    // Clé GS1 fausse : pas un gencod, gardé comme référence.
+    assert_eq!(d.lignes[1].gencod, None);
+    assert_eq!(d.lignes[1].reference.as_deref(), Some("3123450000012"));
+
+    // UBL : description longue imprimée avant le nom, prix pour 10.
+    let ubl = format!(
+        r#"{UBL_ENTETE}
+  <cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">20</cbc:InvoicedQuantity>
+    <cac:Item><cbc:Description>Bougie parfumée à la vanille, pot en verre de 200 g, mèche coton</cbc:Description><cbc:Name>Bougie vanille</cbc:Name>
+      <cac:SellersItemIdentification><cbc:ID>BV-200</cbc:ID></cac:SellersItemIdentification>
+      <cac:StandardItemIdentification><cbc:ID schemeID="0160">3123450000011</cbc:ID></cac:StandardItemIdentification></cac:Item>
+    <cac:Price><cbc:PriceAmount currencyID="EUR">25.00</cbc:PriceAmount><cbc:BaseQuantity unitCode="C62">10</cbc:BaseQuantity></cac:Price>
+  </cac:InvoiceLine>
+</Invoice>"#
+    );
+    let d = xml::lire(ubl.as_bytes()).unwrap();
+    let l = &d.lignes[0];
+    assert_eq!(l.designation.as_deref(), Some("Bougie vanille"));
+    assert_eq!(l.reference.as_deref(), Some("BV-200"));
+    assert_eq!(l.gencod.as_deref(), Some("3123450000011"));
+    assert_eq!(l.prix_unitaire_ht, Some(2.5));
+    assert_eq!(d.devise.as_deref(), Some("EUR"));
+}
+
+#[test]
+fn cle_des_gencods() {
+    assert!(xml::gencod_valide("3123450000011"));
+    assert!(xml::gencod_valide("3 123450 000011"));
+    assert!(!xml::gencod_valide("3123450000012"));
+    assert!(xml::gencod_valide("96385074")); // EAN-8
+    assert!(xml::gencod_valide("03123450000011")); // GTIN-14
+    assert!(!xml::gencod_valide("REF-12"));
+}
