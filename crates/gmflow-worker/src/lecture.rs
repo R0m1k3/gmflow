@@ -694,12 +694,12 @@ async fn noter_iban(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Exemples de corrections du fournisseur probable, et format habituel de ses BL, à ajouter
-/// au prompt.
-async fn exemples_pour(pool: &PgPool, expediteur: &str, texte: Option<&str>) -> String {
+/// Ce que la lecture a appris du fournisseur probable (exemple de pièce validée, champs souvent
+/// corrigés) et format habituel de ses BL, à ajouter au prompt.
+async fn exemples_pour(pool: &PgPool, id: i64, expediteur: &str, texte: Option<&str>) -> String {
     match crate::fournisseur::pre_identifier(pool, expediteur, texte).await {
         Ok(Some(f)) => {
-            let mut s = crate::fournisseur::exemples(pool, f)
+            let mut s = crate::fournisseur::exemples(pool, id, f, texte)
                 .await
                 .unwrap_or_default();
             if let Ok(Some(format)) =
@@ -780,7 +780,7 @@ async fn lire_pris(
                 nom_fichier: &e.nom,
             };
             let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(&texte));
-            prompt.push_str(&exemples_pour(pool, &e.expediteur, Some(&texte)).await);
+            prompt.push_str(&exemples_pour(pool, id, &e.expediteur, Some(&texte)).await);
             let src = Source {
                 dossier: None,
                 texte: Some(&texte),
@@ -818,7 +818,7 @@ async fn lire_pris(
                     pages,
                 },
             );
-            prompt.push_str(&exemples_pour(pool, &e.expediteur, None).await);
+            prompt.push_str(&exemples_pour(pool, id, &e.expediteur, None).await);
             match lire_par_claude(
                 ctx,
                 id,

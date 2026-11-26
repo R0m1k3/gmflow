@@ -1,6 +1,7 @@
 //! Code partagé par l'app et le worker : configuration, base, chiffrement,
 //! file de tâches, lecture des `.eml`, connexion IMAP et appels à Claude CLI.
 
+pub mod apprentissage;
 pub mod articles_magasin;
 pub mod attente;
 pub mod claude;

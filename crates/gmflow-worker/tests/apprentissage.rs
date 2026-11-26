@@ -170,3 +170,82 @@ async fn iban_lu_garde_seulement_avec_une_cle_juste() {
     assert!(message.unwrap_or_default().contains("IBAN"));
     b.fermer().await;
 }
+
+/// Valide à la main le document (comme « Valider » après une correction de l'échéance).
+async fn valider(b: &Banc, document: i64, societe: i64) {
+    sqlx::query(
+        "update document set verifie_le = now(), societe_id = $2,
+                corrections = '{\"date_echeance\": {\"avant\": null, \"apres\": \"2026-12-31\"}}'
+         where id = $1",
+    )
+    .bind(document)
+    .bind(societe)
+    .execute(b.pool())
+    .await
+    .unwrap();
+}
+
+/// Prompt de la dernière lecture faite (le texte du PDF est lu par Claude dans un fichier, il
+/// n'est pas dans le prompt).
+fn derniere_lecture(faux: &FauxClaude) -> String {
+    faux.appels()
+        .into_iter()
+        .rfind(|a| a.contains("Tu lis des documents reçus par mail"))
+        .expect("aucune lecture")
+}
+
+#[tokio::test]
+async fn prompt_avec_exemple_valide_et_corrections_de_la_meme_societe() {
+    // Petit fournisseur qui écrit depuis une adresse gmail : ni domaine utile, ni SIREN dans le
+    // texte ; seule l'adresse exacte, déjà vue sur une pièce validée, le désigne.
+    let expediteur = "durand.menuiserie@gmail.com";
+    let mut f1 = facture("F-1", None);
+    f1["lignes"] = json!([{
+        "reference": "PL-12", "designation": "Planche chêne 2 m", "quantite": 4.0, "unite": "u",
+        "prix_unitaire_ht": 12.5, "montant_ht": 50.0, "gencod": null, "colis": null, "pcb": null,
+        "remise_taux": null, "taux_tva": 20.0, "deee_ht": null, "ecomob_ht": null,
+        "pv_conseille": null
+    }]);
+    let faux = FauxClaude::new(&reponse(f1));
+    let b = banc(&faux).await;
+    let a = societe(&b).await;
+    let autre: i64 = sqlx::query_scalar(
+        "insert into societe (raison_sociale, siret) values ('Magasin Houdemont', '73282932000074')
+         returning id",
+    )
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    let w = WorkersTest::demarrer(b.ctx.clone());
+    let m1 = recevoir(&b, a, expediteur, &["FACTURE F-1", "Total TTC 60,00"]).await;
+    lire_tout(&b, &[m1]).await;
+    let d1 = document_du_mail(&b, m1).await;
+    // Avant toute validation : rien d'appris dans le prompt.
+    let p1 = derniere_lecture(&faux);
+    assert!(!p1.contains("ne recopie rien"), "{p1}");
+    valider(&b, d1, a).await;
+
+    // Même expéditeur, même société : exemple positif et résumé des corrections.
+    faux.repondre(&reponse(facture("F-2", None)));
+    let m2 = recevoir(&b, a, expediteur, &["FACTURE F-2", "Total TTC 60,00"]).await;
+    lire_tout(&b, &[m2]).await;
+    let p2 = derniere_lecture(&faux);
+    assert!(p2.contains("dernière pièce de ce fournisseur validée par un humain (facture)"));
+    assert!(p2.contains("ne recopie rien de cet exemple"));
+    assert!(p2.contains("\"numero\":\"F-1\""), "{p2}");
+    assert!(p2.contains("Planche chêne 2 m"));
+    assert!(p2.contains(
+        "- echeance : corrigé 1 fois sur 1 (dernière fois : lu vide, corrigé en « 2026-12-31 »)"
+    ));
+
+    // Même expéditeur reçu par une boîte d'une autre société : rien de la société A.
+    faux.repondre(&reponse(facture("F-3", None)));
+    let m3 = recevoir(&b, autre, expediteur, &["FACTURE F-3", "Total TTC 60,00"]).await;
+    lire_tout(&b, &[m3]).await;
+    w.arreter();
+    let p3 = derniere_lecture(&faux);
+    assert!(!p3.contains("F-1"), "{p3}");
+    assert!(!p3.contains("Planche"));
+    assert!(!p3.contains("corrigé 1 fois"));
+    b.fermer().await;
+}
