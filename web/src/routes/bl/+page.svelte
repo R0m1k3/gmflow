@@ -5,7 +5,8 @@
   const filtres: FiltreDocuments[] = [
     { v: 'tous', l: 'Tous', params: { type: 'bl' } },
     { v: 'a-valider', l: 'À contrôler', params: { type: 'bl', verifie: 'non' } },
-    { v: 'valides', l: 'Validés', params: { type: 'bl', verifie: 'oui' } }
+    { v: 'valides', l: 'Validés', params: { type: 'bl', verifie: 'oui' } },
+    { v: 'ecartes', l: 'Écartés', params: { type: 'bl', etat: 'ignore' } }
   ];
 </script>
 

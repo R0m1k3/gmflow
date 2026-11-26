@@ -13,6 +13,7 @@
   import { deplacer, fleche, montrer, raccourcis, type Gestionnaire } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libelleStatutEnvoi, nomCourtSociete, tonEtat, tonStatutEnvoi, type Ton } from '#lib/libelles.ts';
+  import { filtreGarde, garderFiltre } from '#lib/filtres.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
   import type { LigneDocument } from '#lib/types.ts';
@@ -57,9 +58,20 @@
     pied?: 'chercher' | 'valider';
   } = $props();
 
-  let filtreV = $derived(page.url.searchParams.get('filtre') ?? filtres[0].v);
-  let filtre = $derived(filtres.find((f) => f.v === filtreV) ?? filtres[0]);
   let docId = $derived(Number(page.url.searchParams.get('doc')) || null);
+  // Le dernier filtre choisi est gardé (par navigateur) et revient à l'ouverture de la liste.
+  // Un lien vers un document précis (?doc=) ne l'applique pas : le document peut être hors de ce filtre.
+  let memoire = $state<string | null>(untrack(() => filtreGarde(chemin)));
+  let filtreUrl = $derived(page.url.searchParams.get('filtre'));
+  $effect(() => {
+    if (filtreUrl && filtres.some((f) => f.v === filtreUrl) && filtreUrl !== memoire) {
+      memoire = filtreUrl;
+      garderFiltre(chemin, filtreUrl === filtres[0].v ? null : filtreUrl);
+    }
+  });
+  let memoireValide = $derived(memoire && filtres.some((f) => f.v === memoire) ? memoire : null);
+  let filtreV = $derived(filtreUrl ?? (docId ? null : memoireValide) ?? filtres[0].v);
+  let filtre = $derived(filtres.find((f) => f.v === filtreV) ?? filtres[0]);
 
   const lst = new Liste<LigneDocument>((p) => `/api/documents${requete({ societe: societe.id, ...filtre.params, page: p })}`);
 
@@ -75,7 +87,9 @@
   let groupes = $derived(parJour(lst.elements, (d) => d.date_mail));
 
   function lien(id: number | null, f = filtreV) {
-    return `${chemin}${requete({ filtre: f === filtres[0].v ? '' : f, doc: id })}`;
+    // Le filtre d'origine reste implicite, sauf si un autre est gardé : il faut alors le nommer pour le retrouver.
+    const implicite = f === filtres[0].v && !(memoireValide && memoireValide !== filtres[0].v);
+    return `${chemin}${requete({ filtre: implicite ? '' : f, doc: id })}`;
   }
 
   /** Où en est le document, en deux mots. */
