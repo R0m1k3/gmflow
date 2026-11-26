@@ -64,6 +64,9 @@ pub struct Appel<'a> {
     pub cle_api: bool,
     pub dossier: Option<&'a std::path::Path>,
     pub delai: Duration,
+    /// Document lu ou rattaché par cet appel, gardé dans `appel_claude` pour la mesure du coût
+    /// et de la qualité de la lecture.
+    pub document_id: Option<i64>,
 }
 
 impl<'a> Appel<'a> {
@@ -78,6 +81,7 @@ impl<'a> Appel<'a> {
             cle_api: false,
             dossier: None,
             delai: DELAI,
+            document_id: None,
         }
     }
 
@@ -169,7 +173,8 @@ pub async fn lancer(
 ) -> Result<SortieClaude, ErreurClaude> {
     let (tache, modele, effort) = (a.tache, a.modele, a.effort);
     let debut = Instant::now();
-    let resultat = executer(claude_bin, a).await;
+    let mut brut = None;
+    let resultat = executer(claude_bin, a, &mut brut).await;
     let duree_ms = debut.elapsed().as_millis() as u64;
     let (succes, message) = match &resultat {
         Ok(_) => (true, None),
@@ -183,14 +188,24 @@ pub async fn lancer(
             }
         }
     }
+    let conso = consommation(resultat.as_ref().ok().or(brut.as_ref()));
     if let Err(e) = sqlx::query!(
-        "insert into appel_claude (tache, modele, effort, duree_ms, succes, message) values ($1, $2, $3, $4, $5, $6)",
+        "insert into appel_claude (tache, modele, effort, duree_ms, succes, message, document_id,
+                                   tokens_entree, tokens_sortie, tokens_cache_lecture,
+                                   tokens_cache_ecriture, cout_usd)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::float8::numeric)",
         tache,
         modele,
         effort,
         duree_ms.min(i32::MAX as u64) as i32,
         succes,
-        message
+        message,
+        a.document_id,
+        conso.tokens_entree,
+        conso.tokens_sortie,
+        conso.tokens_cache_lecture,
+        conso.tokens_cache_ecriture,
+        conso.cout_usd
     )
     .execute(pool)
     .await
@@ -200,7 +215,47 @@ pub async fn lancer(
     resultat.map(|json| SortieClaude { json, duree_ms })
 }
 
-async fn executer(claude_bin: &str, a: &Appel<'_>) -> Result<Value, ErreurClaude> {
+/// Consommation d'un appel lue dans la sortie JSON du CLI (`usage`, `total_cost_usd`). Un champ
+/// absent ou d'un autre type reste vide : la mesure ne fait jamais échouer un appel.
+#[derive(Debug, Default, PartialEq)]
+pub struct Consommation {
+    pub tokens_entree: Option<i32>,
+    pub tokens_sortie: Option<i32>,
+    pub tokens_cache_lecture: Option<i32>,
+    pub tokens_cache_ecriture: Option<i32>,
+    /// Coût estimé par le CLI, en dollars.
+    pub cout_usd: Option<f64>,
+}
+
+pub fn consommation(json: Option<&Value>) -> Consommation {
+    let Some(j) = json else {
+        return Consommation::default();
+    };
+    let tokens = |champ: &str| {
+        j.get("usage")
+            .and_then(|u| u.get(champ))
+            .and_then(Value::as_u64)
+            .map(|n| n.min(i32::MAX as u64) as i32)
+    };
+    Consommation {
+        tokens_entree: tokens("input_tokens"),
+        tokens_sortie: tokens("output_tokens"),
+        tokens_cache_lecture: tokens("cache_read_input_tokens"),
+        tokens_cache_ecriture: tokens("cache_creation_input_tokens"),
+        cout_usd: j
+            .get("total_cost_usd")
+            .and_then(Value::as_f64)
+            .filter(|c| c.is_finite() && *c >= 0.0 && *c < 1e6),
+    }
+}
+
+/// `brut` : la sortie JSON du CLI quand elle a pu être lue, même en erreur (sa consommation est
+/// notée aussi).
+async fn executer(
+    claude_bin: &str,
+    a: &Appel<'_>,
+    brut: &mut Option<Value>,
+) -> Result<Value, ErreurClaude> {
     let home = DossierTemp::creer("gmflow-claude")?;
     let mut cmd = tokio::process::Command::new(claude_bin);
     cmd.arg("-p").arg(a.prompt).arg("--model").arg(a.modele);
@@ -235,7 +290,9 @@ async fn executer(claude_bin: &str, a: &Appel<'_>) -> Result<Value, ErreurClaude
         if let Ok(json) = serde_json::from_slice::<Value>(&sortie.stdout)
             && json.get("is_error").and_then(Value::as_bool) == Some(true)
         {
-            return Err(ErreurClaude::Modele(message_json(&json)));
+            let m = message_json(&json);
+            *brut = Some(json);
+            return Err(ErreurClaude::Modele(m));
         }
         return Err(ErreurClaude::Sortie {
             code: sortie.status.code(),
@@ -245,7 +302,9 @@ async fn executer(claude_bin: &str, a: &Appel<'_>) -> Result<Value, ErreurClaude
     let json: Value =
         serde_json::from_slice(&sortie.stdout).map_err(|_| ErreurClaude::JsonInvalide)?;
     if json.get("is_error").and_then(Value::as_bool) != Some(false) {
-        return Err(ErreurClaude::Modele(message_json(&json)));
+        let m = message_json(&json);
+        *brut = Some(json);
+        return Err(ErreurClaude::Modele(m));
     }
     Ok(json)
 }
@@ -420,6 +479,31 @@ fn reprise(texte: &str) -> Option<Reprise> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consommation_lue_du_json_du_cli_sans_jamais_echouer() {
+        // Forme de la sortie de Claude CLI 2.1 (`--output-format json`).
+        let j = serde_json::json!({
+            "type": "result", "is_error": false, "duration_ms": 5321,
+            "total_cost_usd": 0.0123456,
+            "usage": { "input_tokens": 1200, "output_tokens": 340,
+                       "cache_creation_input_tokens": 5000, "cache_read_input_tokens": 0 }
+        });
+        assert_eq!(
+            consommation(Some(&j)),
+            Consommation {
+                tokens_entree: Some(1200),
+                tokens_sortie: Some(340),
+                tokens_cache_lecture: Some(0),
+                tokens_cache_ecriture: Some(5000),
+                cout_usd: Some(0.0123456),
+            }
+        );
+        // Champs absents, mal typés ou aberrants : vides.
+        let j = serde_json::json!({ "usage": { "input_tokens": "12" }, "total_cost_usd": -1 });
+        assert_eq!(consommation(Some(&j)), Consommation::default());
+        assert_eq!(consommation(None), Consommation::default());
+    }
 
     fn heure(h: u8, m: u8, f: Option<&str>) -> Option<Reprise> {
         Some(Reprise::Heure {

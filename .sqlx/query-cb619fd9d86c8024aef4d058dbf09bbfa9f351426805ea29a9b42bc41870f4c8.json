@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select a.modele as \"modele?\", coalesce(a.tache = $3, false) as \"nouvel_essai!\",\n                  count(*) as \"validees!\",\n                  count(*) filter (where d.corrections <> '{}'::jsonb) as \"corrigees!\"\n           from document d\n           left join lateral (\n               select x.modele, x.tache from appel_claude x\n               where x.document_id = d.id and x.succes and x.tache = any($4)\n               order by x.id desc limit 1\n           ) a on true\n           where d.verifie_le >= ($1::date)::timestamp at time zone 'Europe/Paris'\n             and d.verifie_le < ($1::date + interval '1 month') at time zone 'Europe/Paris'\n             and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and ($2::bigint is null or d.societe_id = $2)\n           group by 1, 2 order by 3 desc, 1, 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "modele?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "appel_claude",
+            "name": "modele"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "nouvel_essai!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "validees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "corrigees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cb619fd9d86c8024aef4d058dbf09bbfa9f351426805ea29a9b42bc41870f4c8"
+}

@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from fournisseur_iban i\n         where i.id = $2\n           and (i.fournisseur_id = $1\n                or i.fournisseur_id = (select groupe_id from fournisseur where id = $1))\n         returning i.fournisseur_id, i.iban",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_iban",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_iban",
+            "name": "iban"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "10fb6fd10f2eb20f6557437af006f4f52884289e450b61912b5e7864e222bcd8"
+}

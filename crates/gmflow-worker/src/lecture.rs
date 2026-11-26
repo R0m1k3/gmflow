@@ -557,8 +557,10 @@ pub const REGLAGES_LECTURE: &str =
     r#"{"permissions":{"blockReadsOutsideWorkingDirectories":true}}"#;
 
 /// Un appel de lecture. `Ok(Err(..))` : réponse reçue mais non conforme.
+#[allow(clippy::too_many_arguments)]
 async fn appel_lecture(
     ctx: &Contexte,
+    document_id: i64,
     tache: &str,
     reglage: &reglages::Reglage,
     prompt: &str,
@@ -597,6 +599,7 @@ async fn appel_lecture(
     a.args_en_plus = &args;
     a.dossier = avec_fichier;
     a.delai = claude::DELAI_LECTURE;
+    a.document_id = Some(document_id);
     let sortie = claude::lancer(&ctx.pool, &ctx.config.claude_bin, &a).await?;
     let societes = societes(&ctx.pool).await.unwrap_or_default();
     Ok(extraction::depuis_reponse(&sortie.json, &societes))
@@ -671,6 +674,9 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
         }
         return;
     }
+    if let Err(e) = noter_iban(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "IBAN du document non noté");
+    }
     if let Err(e) = crate::fournisseur::rattacher(ctx, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "rattachement au fournisseur impossible");
     }
@@ -688,12 +694,19 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
     }
 }
 
-/// Exemples de corrections du fournisseur probable, et format habituel de ses BL, à ajouter
-/// au prompt.
-async fn exemples_pour(pool: &PgPool, expediteur: &str, texte: Option<&str>) -> String {
+/// IBAN et BIC lus (clé vérifiée), avant les contrôles.
+async fn noter_iban(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
+    let mut conn = pool.acquire().await?;
+    gmflow_core::iban::noter_lecture(&mut conn, document_id).await?;
+    Ok(())
+}
+
+/// Ce que la lecture a appris du fournisseur probable (exemple de pièce validée, champs souvent
+/// corrigés) et format habituel de ses BL, à ajouter au prompt.
+async fn exemples_pour(pool: &PgPool, id: i64, expediteur: &str, texte: Option<&str>) -> String {
     match crate::fournisseur::pre_identifier(pool, expediteur, texte).await {
         Ok(Some(f)) => {
-            let mut s = crate::fournisseur::exemples(pool, f)
+            let mut s = crate::fournisseur::exemples(pool, id, f, texte)
                 .await
                 .unwrap_or_default();
             if let Ok(Some(format)) =
@@ -879,7 +892,7 @@ async fn lire_pris(
                 .as_ref()
                 .map_or(texte.as_str(), |t| t.extrait.as_str());
             let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(lu_pour_claude));
-            prompt.push_str(&exemples_pour(pool, &e.expediteur, Some(&texte)).await);
+            prompt.push_str(&exemples_pour(pool, id, &e.expediteur, Some(&texte)).await);
             if let Some(t) = &tableau {
                 prompt.push_str(&t.consigne());
             }
@@ -924,7 +937,7 @@ async fn lire_pris(
                     pages,
                 },
             );
-            prompt.push_str(&exemples_pour(pool, &e.expediteur, None).await);
+            prompt.push_str(&exemples_pour(pool, id, &e.expediteur, None).await);
             match lire_par_claude(
                 ctx,
                 id,
@@ -1144,6 +1157,7 @@ async fn lire_par_claude(
     } else {
         match appel_lecture(
             ctx,
+            id,
             tache,
             &reglage,
             prompt,
@@ -1226,6 +1240,7 @@ async fn lire_par_claude(
     let reglage2 = r.pour(reglages::NOUVEL_ESSAI).clone();
     let seconde = appel_lecture(
         ctx,
+        id,
         reglages::NOUVEL_ESSAI,
         &reglage2,
         &prompt2,

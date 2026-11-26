@@ -16,6 +16,7 @@
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import Montant from '#lib/ui/Montant.svelte';
+  import QualiteLecture from '#lib/ui/QualiteLecture.svelte';
   import Repli from '#lib/ui/Repli.svelte';
   import Vide from '#lib/ui/Vide.svelte';
 
@@ -381,6 +382,7 @@
             <p class="muted">Pas encore de mail trié.</p>
           {/if}
         </Repli>
+        {#if admin}<QualiteLecture {mois} societe={societe.id} />{/if}
       </div>
     {/if}
   {/if}

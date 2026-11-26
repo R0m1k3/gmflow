@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select i.iban from fournisseur_iban i\n         where i.fournisseur_id = $1\n            or i.fournisseur_id = (select groupe_id from fournisseur where id = $1)\n         order by i.ajoute_le desc, i.id desc",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_iban",
+            "name": "iban"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e6c1d49df2093f016d544cd0cc95d0b03b0a2394080aeabb79f919c2fe8443be"
+}

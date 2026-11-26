@@ -595,3 +595,72 @@ fn xml_de_plus_de_200_lignes_signale() {
     let x = fixtures::xml_cii_lignes("F-9", SIRET_A, "20261112", "C-1", None, &lignes[..5]);
     assert!(!xml::lire(x.as_bytes()).unwrap().lignes_tronquees);
 }
+
+#[test]
+fn iban_lu_dans_les_xml_et_demande_a_claude() {
+    let cii = fixtures::xml_cii("FA-1", SIRET_A, false).replace(
+        "<ram:ApplicableHeaderTradeSettlement>",
+        "<ram:ApplicableHeaderTradeSettlement>
+      <ram:SpecifiedTradeSettlementPaymentMeans>
+        <ram:TypeCode>58</ram:TypeCode>
+        <ram:PayeePartyCreditorFinancialAccount><ram:IBANID>FR76 3000 6000 0112 3456 7890 189</ram:IBANID></ram:PayeePartyCreditorFinancialAccount>
+        <ram:PayeeSpecifiedCreditorFinancialInstitution><ram:BICID>AGRIFRPP</ram:BICID></ram:PayeeSpecifiedCreditorFinancialInstitution>
+      </ram:SpecifiedTradeSettlementPaymentMeans>",
+    );
+    let d = xml::lire(cii.as_bytes()).unwrap();
+    assert_eq!(d.iban.as_deref(), Some("FR76 3000 6000 0112 3456 7890 189"));
+    assert_eq!(d.bic.as_deref(), Some("AGRIFRPP"));
+    assert_eq!(
+        serde_json::to_value(&d).unwrap()["iban"],
+        "FR76 3000 6000 0112 3456 7890 189"
+    );
+    let ubl = fixtures::xml_ubl_avoir("AV-1", "FR58123456789").replace(
+        "<cac:TaxTotal>",
+        "<cac:PaymentMeans><cbc:PaymentMeansCode>58</cbc:PaymentMeansCode>
+    <cac:PayeeFinancialAccount><cbc:ID>DE89370400440532013000</cbc:ID>
+      <cac:FinancialInstitutionBranch><cbc:ID>COBADEFFXXX</cbc:ID></cac:FinancialInstitutionBranch>
+    </cac:PayeeFinancialAccount></cac:PaymentMeans>
+  <cac:TaxTotal>",
+    );
+    let d = xml::lire(ubl.as_bytes()).unwrap();
+    assert_eq!(d.iban.as_deref(), Some("DE89370400440532013000"));
+    assert_eq!(d.bic.as_deref(), Some("COBADEFFXXX"));
+    // Schéma et consigne de lecture.
+    let s = extraction::schema(false);
+    assert!(
+        s["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "iban")
+    );
+    let mail = extraction::ContexteMail {
+        expediteur: "a@b.fr",
+        objet: "Facture",
+        corps: "",
+        nom_fichier: "f.pdf",
+    };
+    let p = extraction::prompt(&mail, &societes(), &extraction::Contenu::Texte("FACTURE"));
+    assert!(p.contains("iban = l'IBAN du compte du fournisseur à payer"));
+    assert!(p.contains("N'en invente jamais un"));
+}
+
+#[test]
+fn iban_a_la_cle_fausse_est_une_anomalie_de_lecture() {
+    let mut v = reponse_valide();
+    v["type"] = json!("facture");
+    v["montant_ttc"] = json!(12.0);
+    v["iban"] = json!("FR7630006000011234567890188");
+    let r = json!({ "is_error": false, "structured_output": v.clone() });
+    let e = extraction::depuis_reponse(&r, &societes()).unwrap();
+    let a = extraction::anomalies(&e, None);
+    assert!(a.iter().any(|x| x.contains("IBAN")), "{a:?}");
+    v["iban"] = json!("FR7630006000011234567890189");
+    let r = json!({ "is_error": false, "structured_output": v });
+    let e = extraction::depuis_reponse(&r, &societes()).unwrap();
+    assert!(
+        !extraction::anomalies(&e, None)
+            .iter()
+            .any(|x| x.contains("IBAN"))
+    );
+}

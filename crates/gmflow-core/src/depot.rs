@@ -197,6 +197,10 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
         devise: d.devise.as_deref(),
     };
     let mut echecs = controles::controler(&f, controles::aujourdhui_paris());
+    // IBAN différent de ceux connus pour ce fournisseur (fraude au RIB) : en tête des alertes.
+    if let Some(a) = crate::iban::alerte(&mut *conn, id).await? {
+        echecs.insert(0, a);
+    }
     // Le statut est écrit avant la recherche de doublon : un document qui entre dans le
     // circuit compte pour les suivants.
     let doublon = {
@@ -231,6 +235,10 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
     } else {
         "a_verifier"
     };
+    // Vérifiée par un humain (validation, correction) : un premier IBAN devient connu.
+    if statut != "doublon" {
+        crate::iban::retenir_premier(&mut *conn, id).await?;
+    }
     sqlx::query!(
         "update document set statut_depot = $2, controles = $3 where id = $1",
         id,

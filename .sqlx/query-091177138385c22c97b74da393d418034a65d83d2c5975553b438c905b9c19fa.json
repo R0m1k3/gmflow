@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select p.nom, m.objet,\n                  array(select distinct b.societe_id from mail_boite_vue mb\n                        join boite_mail b on b.id = mb.boite_id\n                        where mb.mail_id = d.mail_id) as \"societes!\"\n           from document d join piece_jointe p on p.id = d.piece_jointe_id\n           join mail m on m.id = d.mail_id where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "societes!",
+        "type_info": "Int8Array",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "091177138385c22c97b74da393d418034a65d83d2c5975553b438c905b9c19fa"
+}

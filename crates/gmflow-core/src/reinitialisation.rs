@@ -31,6 +31,7 @@ pub const TABLES_EFFACEES: &[&str] = &[
     "brouillon_reponse",
     "mail_hors_societe",
     "fournisseur_distinct",
+    "fournisseur_iban",
     "document",
     "fournisseur",
     "piece_jointe",

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into fournisseur_iban (fournisseur_id, iban, bic, origine, document_id,\n                                       premiere_vue_le, ajoute_par)\n         values ($1, $2, $3, $4, $5, $6, $7)\n         on conflict (fournisseur_id, iban) do nothing",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5ed8e306399ddfb3b1756bbd18787a5aba128752a670de92d3699b79e1e2b1ac"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct d.fournisseur_id as \"id!\" from document d\n           join mail m on m.id = d.mail_id\n           join fournisseur f on f.id = d.fournisseur_id\n           where lower(m.expediteur) = $1 and d.verifie_le is not null\n             and d.etat = 'lu' and f.fusionne_dans is null\n           limit 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1552704b472f558c4717cfc1989cddb64d36c841b4b7ca7c81db0c11fe970565"
+}

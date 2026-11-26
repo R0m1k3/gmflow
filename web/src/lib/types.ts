@@ -1076,3 +1076,48 @@ export interface EtatExportPhenix {
   matrice: { rangees: number; alertes: AlerteExport[] };
   trame: { rangees: number; alertes: AlerteExport[] };
 }
+
+/** GET /api/fournisseurs/{id}/ibans : IBAN connus (masqués), de la fiche et de son groupe. */
+export interface IbanConnu {
+  id: number;
+  /** « FR76…1234 » */
+  iban: string;
+  pays: string;
+  bic: string | null;
+  /** `validation` : première facture validée ; `confirmation` : « C'est le bon IBAN ». */
+  origine: 'validation' | 'confirmation';
+  document_id: number | null;
+  premiere_vue_le: string | null;
+  ajoute_le: string;
+  ajoute_par: string | null;
+  du_groupe: boolean;
+}
+
+/** POST /api/admin/documents/{id}/iban/confirmer */
+export interface ConfirmationIban {
+  ajoute: boolean;
+  statut_depot: StatutDepot | null;
+}
+
+/** « Qualité de la lecture » du mois (`GET /api/admin/qualite`, administrateur). */
+export interface QualiteLecture {
+  mois: string;
+  /** Factures, avoirs et BL validés par un humain dans le mois. */
+  validees: number;
+  /** Dont au moins un champ corrigé à la main. */
+  corrigees: number;
+  par_champ: { champ: string; pieces: number }[];
+  par_voie: { cle: Voie | null; validees: number; corrigees: number }[];
+  /** Selon le dernier appel de lecture réussi ; `modele` nul : lu sans Claude ou avant la mesure. */
+  par_modele: { modele: string | null; nouvel_essai: boolean; validees: number; corrigees: number }[];
+  /** Les 10 fournisseurs les plus corrigés (part des pièces corrigées). */
+  fournisseurs: { fournisseur_id: number; nom: string; validees: number; corrigees: number }[];
+  cout: {
+    /** Coût estimé par Claude CLI, en dollars. */
+    total_usd: number;
+    appels: number;
+    appels_sans_cout: number;
+    pieces: number;
+    moyen_par_piece_usd: number | null;
+  };
+}

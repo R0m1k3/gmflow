@@ -5,6 +5,7 @@ import type {
   ChangementsFournisseur,
   CodeRefus,
   CompteursATraiter,
+  ConfirmationIban,
   DemandeEssaiBoite,
   DemandeValidation,
   EntreeBoite,
@@ -12,9 +13,11 @@ import type {
   FileATraiter,
   FilFournisseur,
   Fournisseur,
+  IbanConnu,
   LigneFournisseur,
   MiseEnRoute,
   Page,
+  QualiteLecture,
   ResultatValidation,
   ResultatsRecherche
 } from './types';
@@ -149,6 +152,10 @@ export const rechercher = (p: {
 export const bilanMois = (p: { mois?: string; societe?: number | null } = {}) =>
   api.get<BilanMois>(`/api/bilan${requete(p)}`);
 
+/** Qualité et coût de la lecture d'un mois (admin). */
+export const qualiteLecture = (p: { mois?: string; societe?: number | null } = {}) =>
+  api.get<QualiteLecture>(`/api/admin/qualite${requete(p)}`);
+
 /** Modification partielle d'une fiche fournisseur (admin) : « Confirmer », « Toujours ranger dans X ». */
 export const modifierFournisseur = (id: number, changements: ChangementsFournisseur) =>
   api.patch<Fournisseur>(`/api/admin/fournisseurs/${id}`, changements);
@@ -177,3 +184,11 @@ export async function attendreEssai(id: string, ms = 1500, max = 40): Promise<Es
   }
   throw new ErreurApi(504, "L'essai ne répond pas. Le traitement automatique (worker) est-il démarré ?");
 }
+
+export const ibansFournisseur = (id: number) => api.get<IbanConnu[]>(`/api/fournisseurs/${id}/ibans`);
+
+export const retirerIban = (fournisseurId: number, ibanId: number) =>
+  api.del<void>(`/api/admin/fournisseurs/${fournisseurId}/ibans/${ibanId}`);
+
+export const confirmerIban = (documentId: number) =>
+  api.post<ConfirmationIban>(`/api/admin/documents/${documentId}/iban/confirmer`);
