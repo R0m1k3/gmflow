@@ -9,7 +9,7 @@
   import { page } from '$app/state';
   import { aTraiter, api, ecarterDocument, ErreurApi, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
   import { deplacer, raccourcis } from '#lib/clavier.ts';
-  import { compteurs, rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
+  import { compteurs, rafraichirCompteurs, releverMaintenant } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libellePriorite, nomCourtSociete, nomOutil } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
@@ -118,6 +118,22 @@
         .catch(() => (reglages = null));
     });
   });
+
+  // Dernière relève des boîtes et relève à la demande (admins : la liste des boîtes est réservée).
+  let releveEnCours = $state(false);
+  let releveInfo = $state('');
+  async function relever() {
+    releveEnCours = true;
+    releveInfo = '';
+    try {
+      const n = await releverMaintenant();
+      releveInfo = n ? 'Relève demandée. Les nouveaux mails arrivent dans quelques instants.' : 'Aucune boîte active à relever.';
+    } catch (e) {
+      releveInfo = message(e);
+    } finally {
+      releveEnCours = false;
+    }
+  }
 
   // ---------- Synthèse ----------
   const aujourdhui = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
@@ -434,6 +450,13 @@
   <header class="tete">
     <h1>{jour}</h1>
     {#if synthese}<p>{synthese}</p>{/if}
+    {#if admin && compteurs.boitesActives > 0}
+      <p class="releve">
+        {compteurs.derniereReleve ? `Dernière relève des boîtes : ${quandCourt(compteurs.derniereReleve)}.` : 'Aucune relève des boîtes pour l’instant.'}
+        <button type="button" class="btn sm" class:en-cours={releveEnCours} disabled={releveEnCours} onclick={relever}>Relever maintenant</button>
+      </p>
+      {#if releveInfo}<p class="releve" role="status">{releveInfo}</p>{/if}
+    {/if}
   </header>
 
   {#if bloques.length}
@@ -685,6 +708,14 @@
     font-size: 32px;
     font-weight: 500;
     line-height: 1.15;
+  }
+  .tete p.releve {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--e3);
+    font-size: 15px;
+    color: var(--muted);
   }
   .tete p {
     margin: 0;

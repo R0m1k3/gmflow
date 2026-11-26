@@ -9,6 +9,7 @@
   import { societe } from '#lib/societe.svelte.ts';
   import { libelleRole } from '#lib/libelles.ts';
   import type { Moi } from '#lib/types.ts';
+  import { quandCourt } from '#lib/ui/DocOutils.ts';
   import Icone, { type NomIcone } from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
 
@@ -170,7 +171,23 @@
   let etat = $derived.by(() => {
     if (!admin || compteurs.problemes === null) return null;
     const n = compteurs.problemes;
-    return n === 0 ? { ok: true, texte: 'Tout fonctionne' } : { ok: false, texte: `${n} problème${n > 1 ? 's' : ''}` };
+    if (n > 0) return { ok: false, texte: `${n} problème${n > 1 ? 's' : ''}`, href: '/#bloque', titre: 'Voir ce qui est bloqué' };
+    // Aucun blocage, mais aucune relève récente : pas de vert trompeur (la relève part toutes les 5 minutes).
+    const r = compteurs.derniereReleve;
+    const ancienne = !r || Date.now() - new Date(r).getTime() > 30 * 60_000;
+    if (compteurs.boitesActives > 0 && ancienne)
+      return {
+        ok: false,
+        texte: 'Pas de relève récente',
+        href: '/reglages#traitements',
+        titre: r ? `Dernière relève : ${quandCourt(r)}` : 'Aucune relève pour l’instant'
+      };
+    return {
+      ok: true,
+      texte: 'Tout fonctionne',
+      href: '/',
+      titre: r ? `Boîtes, Claude et envois fonctionnent. Dernière relève : ${quandCourt(r)}` : 'Boîtes, Claude et envois fonctionnent'
+    };
   });
 </script>
 
@@ -204,8 +221,8 @@
       <a class="btn-icone etroit-seul" href="/recherche" aria-label="Chercher"><Icone nom="chercher" /></a>
 
       {#if etat}
-        <a class="etat" class:ok={etat.ok} href={etat.ok ? '/' : '/#bloque'} title={etat.ok ? 'Boîtes, Claude et envois fonctionnent' : 'Voir ce qui est bloqué'} aria-label={etat.texte}>
-          <span class="pastille"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok}<span class="etat-n">{compteurs.problemes}</span>{/if}
+        <a class="etat" class:ok={etat.ok} href={etat.href} title={etat.titre} aria-label={etat.texte}>
+          <span class="pastille"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok && compteurs.problemes}<span class="etat-n">{compteurs.problemes}</span>{/if}
         </a>
       {/if}
       {#if admin}
