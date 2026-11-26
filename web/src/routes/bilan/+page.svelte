@@ -249,7 +249,7 @@
           </table>
         </div>
         <p class="petit muted note">
-          Datées du mois (date du document, à défaut du mail). « À contrôler » compte aussi les factures prêtes qui attendent leur envoi.
+          Datées du mois (date du document, à défaut du mail). « À contrôler » compte aussi les factures validées qui attendent leur envoi.
         </p>
       {/if}
     </section>
