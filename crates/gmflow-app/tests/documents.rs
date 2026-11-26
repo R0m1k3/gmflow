@@ -171,11 +171,16 @@ async fn verification_et_taux_de_justesse() {
             .await,
         2
     );
-    // Filtre « à vérifier ».
+    // Filtre « vérifiés » ; `verifie=non` suit la file à valider : vérifiées sans être
+    // validées pour l'envoi, elles y restent.
+    let r = app
+        .requete("GET", "/api/documents?verifie=oui", None, admin)
+        .await;
+    assert_eq!(r.json["total"], 2);
     let r = app
         .requete("GET", "/api/documents?verifie=non", None, admin)
         .await;
-    assert_eq!(r.json["total"], 0);
+    assert_eq!(r.json["total"], 2);
     // Données refusées : type inconnu, structure d'un autre (pour un responsable), document non lu.
     let resp = Some(m.c_resp_a.as_str());
     assert_eq!(

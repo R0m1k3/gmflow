@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select\n             count(*) filter (where (d.statut_depot = 'erreur'\n                                   and not coalesce(d.valide_le > (select max(e.quand) from envoi_depot e\n                                                                   where e.document_id = d.id)\n                                                    and d.valide_le > now() - interval '30 minutes', false))\n                                 or (d.statut_depot = 'doublon' and d.verifie_le is null)\n                                 or d.etat = 'erreur') as \"bloque!\",\n             count(*) filter (where d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n                                and ((d.verifie_le is null\n                                      and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))\n                                     or (d.verifie_le is not null and d.valide_le is null\n                                         and d.statut_depot in ('a_verifier', 'pret')))) as \"a_valider!\",\n             count(*) filter (where d.etat = 'lu' and d.type = 'facture'\n                                and ((d.verifie_le is null\n                                      and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))\n                                     or (d.verifie_le is not null and d.valide_le is null\n                                         and d.statut_depot in ('a_verifier', 'pret')))) as \"facture!\",\n             count(*) filter (where d.etat = 'lu' and d.type = 'avoir'\n                                and ((d.verifie_le is null\n                                      and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))\n                                     or (d.verifie_le is not null and d.valide_le is null\n                                         and d.statut_depot in ('a_verifier', 'pret')))) as \"avoir!\",\n             count(*) filter (where d.etat = 'lu' and d.type = 'bl'\n                                and ((d.verifie_le is null\n                                      and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))\n                                     or (d.verifie_le is not null and d.valide_le is null\n                                         and d.statut_depot in ('a_verifier', 'pret')))) as \"bl!\"\n           from document d\n           where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))\n             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)\n             and ($2::bigint is null or d.societe_id = $2\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "bloque!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "a_valider!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "facture!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "avoir!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "bl!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "40190bb06104796e2bb3620cffa600a5f1101df9d09ba88943c0d9af3f11b99d"
+}

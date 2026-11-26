@@ -96,8 +96,8 @@
   let {
     id,
     pleinEcran = false,
-    retour = '/a-traiter',
-    retourLibelle = 'À traiter',
+    retour = '/',
+    retourLibelle = 'Accueil',
     position = null,
     ensuite,
     sansSuite,
@@ -109,7 +109,7 @@
   }: {
     id: number;
     pleinEcran?: boolean;
-    /** Lien « À traiter » (et Échap en plein écran). */
+    /** Lien de retour (et Échap en plein écran). */
     retour?: string;
     /** Nom de la page de retour : « Factures », « BL »… */
     retourLibelle?: string;

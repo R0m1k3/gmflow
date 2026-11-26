@@ -110,12 +110,12 @@
   });
   let blTotal = $derived(blEnAttente.reduce((t, b) => t + b.bl, 0));
 
-  /** Lien « À valider » d'une société : À traiter, avec cette société choisie (admin). */
+  /** Lien « À valider » d'une société : la liste des factures à valider, avec cette société choisie (admin). */
   function versATraiter(e: MouseEvent, id: number | null) {
     if (!admin || id === null) return;
     e.preventDefault();
     societe.choisir(id);
-    void goto('/a-traiter');
+    void goto('/factures?filtre=a-valider');
   }
 
   // ---------- Qualité ----------
@@ -226,9 +226,9 @@
                   <td>{l.societe ? nomCourtSociete(l.societe) : 'Pas encore rangées'}</td>
                   <td class="n"><span class="num">{l.recues}</span></td>
                   <td class="n"><span class="num">{l.deposees}</span></td>
-                  <td class="n">{@render cellule(aValider(l), 'alerte', '/a-traiter', (e) => versATraiter(e, l.societe_id))}</td>
-                  <td class="n">{@render cellule(l.en_erreur, 'erreur', '/a-traiter#bloque')}</td>
-                  <td class="n">{@render cellule(l.doublons, 'erreur', '/a-traiter#bloque')}</td>
+                  <td class="n">{@render cellule(aValider(l), 'alerte', '/factures?filtre=a-valider', (e) => versATraiter(e, l.societe_id))}</td>
+                  <td class="n">{@render cellule(l.en_erreur, 'erreur', '/#bloque')}</td>
+                  <td class="n">{@render cellule(l.doublons, 'erreur', '/#bloque')}</td>
                   <td class="n"><Montant valeur={l.montant_depose} class={l.montant_depose ? '' : 'muted'} /></td>
                 </tr>
               {/each}
@@ -239,9 +239,9 @@
                   <td>Total</td>
                   <td class="n"><span class="num">{total.recues}</span></td>
                   <td class="n"><span class="num">{total.deposees}</span></td>
-                  <td class="n">{@render cellule(total.a_valider, 'alerte', '/a-traiter')}</td>
-                  <td class="n">{@render cellule(total.en_erreur, 'erreur', '/a-traiter#bloque')}</td>
-                  <td class="n">{@render cellule(total.doublons, 'erreur', '/a-traiter#bloque')}</td>
+                  <td class="n">{@render cellule(total.a_valider, 'alerte', '/factures?filtre=a-valider')}</td>
+                  <td class="n">{@render cellule(total.en_erreur, 'erreur', '/#bloque')}</td>
+                  <td class="n">{@render cellule(total.doublons, 'erreur', '/#bloque')}</td>
                   <td class="n"><Montant valeur={total.montant} /></td>
                 </tr>
               </tfoot>

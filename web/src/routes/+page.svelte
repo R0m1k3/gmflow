@@ -1,17 +1,20 @@
 <script lang="ts">
-  // Accueil (maquette Sauge P3) : la date et une phrase de synthèse ; la carte « À valider »
+  // Accueil (maquette Sauge P3) : la date et une phrase de synthèse ; ce qui est bloqué (#bloque :
+  // boîte, Claude, envoi échoué, doublon, illisible, avec l'action qui débloque) ; la carte « À valider »
   // (vignette de la pièce choisie, J/K, Entrée ouvre, E écarte) ; le courrier du jour (avec pièce
   // jointe, pour information, notifications regroupées, publicités masquées) ; à droite les
   // chiffres du jour, ce qui attend une réponse et le réglage qui manque (admins).
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
-  import { aTraiter, api, ecarterDocument, ErreurApi, message, miseEnRoute, requete, sonder } from '#lib/api.ts';
+  import { page } from '$app/state';
+  import { aTraiter, api, ecarterDocument, ErreurApi, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
   import { deplacer, raccourcis } from '#lib/clavier.ts';
   import { compteurs, rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libellePriorite, nomCourtSociete, nomOutil } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
   import type {
+    Bloque,
     DetailRapprochement,
     DocumentAValider,
     EtapeMiseEnRoute,
@@ -24,7 +27,7 @@
   } from '#lib/types.ts';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Confirmation from '#lib/ui/Confirmation.svelte';
-  import { age, drapeau, nomCourtDocument, nomExpediteur } from '#lib/ui/DocOutils.ts';
+  import { age, drapeau, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import { formatMontant } from '#lib/ui/Montant.svelte';
@@ -149,7 +152,88 @@
   let choix = $derived(pieces.find((l) => l.id === choixId) ?? pieces[0] ?? null);
   let indice = $derived(choix ? pieces.indexOf(choix) : -1);
 
-  const ouvrirHref = (l: DocumentAValider) => `/a-traiter?doc=${l.id}`;
+  /** La pièce s'ouvre dans sa liste, filtre « À valider » (suivant, précédent, puis la suivante après validation). */
+  const listeType = (t: DocumentAValider['type']) => (t === 'bl' ? '/bl' : t === 'avoir' ? '/avoirs' : '/factures');
+  const ouvrirHref = (l: DocumentAValider) => `${listeType(l.type)}?filtre=a-valider&doc=${l.id}`;
+  /** Au-delà des pièces montrées : un lien par liste qui en a encore. */
+  let suiteListes = $derived(
+    [
+      { href: '/factures?filtre=a-valider', n: compteurs.factures, l: 'facture' },
+      { href: '/avoirs?filtre=a-valider', n: compteurs.avoirs, l: 'avoir' },
+      { href: '/bl?filtre=a-valider', n: compteurs.bl, l: 'BL' }
+    ].filter((x) => x.n > 0)
+  );
+
+  // ---------- Bloqué : déblocage en un clic ----------
+  let bloques = $derived(d?.file.bloque ?? []);
+  let occupeBloque = $state('');
+  let erreurBloque = $state('');
+  const cleBloque = (b: Bloque) => `${b.genre}-${b.document_id ?? b.boite_id ?? ''}`;
+
+  async function debloquer(b: Bloque) {
+    if (occupeBloque || b.document_id === null) return;
+    occupeBloque = cleBloque(b);
+    erreurBloque = '';
+    try {
+      if (b.genre === 'envoi_erreur') {
+        await validerDocument(b.document_id, {}, societe.id);
+        annonce = `Envoi relancé : ${nomCourtDocument(b)}`;
+      } else {
+        await ecarterDocument(b.document_id, societe.id);
+        annonce = `Écarté : ${b.genre === 'illisible' ? (b.libelle ?? 'document illisible') : nomCourtDocument(b)}`;
+      }
+      void rafraichirCompteurs();
+      await charger().catch((e) => (erreur = message(e)));
+    } catch (e) {
+      erreurBloque = e instanceof ErreurApi && e.code === 409 ? e.message : message(e);
+    } finally {
+      occupeBloque = '';
+    }
+  }
+
+  function depuis(iso: string | null): string {
+    if (!iso) return '';
+    const q = quandCourt(iso);
+    return /^\d\d:\d\d$/.test(q) || q === 'hier' ? `depuis ${q}` : `depuis le ${q}`;
+  }
+
+  function texteBloque(b: Bloque): { a: string; b: string } {
+    const msg = b.message ?? '';
+    switch (b.genre) {
+      case 'envoi_erreur':
+        return { a: `Envoi à Dext / Yooz échoué : ${nomCourtDocument(b)}`, b: msg };
+      case 'doublon':
+        return { a: `Doublon : ${nomCourtDocument(b)}`, b: msg };
+      case 'illisible':
+        return { a: `Document illisible : ${b.libelle ?? 'pièce jointe'}`, b: msg };
+      case 'boite':
+        return {
+          a: `Boîte ${b.libelle ?? ''} ${b.motif === 'pause_auto' ? 'arrêtée' : 'en échec'}`,
+          b: [msg, depuis(b.depuis)].filter(Boolean).join(' ')
+        };
+      case 'claude':
+        if (b.motif === 'limite' || b.motif === 'jeton')
+          return {
+            a: msg || 'Claude refuse les appels',
+            b:
+              b.motif === 'limite'
+                ? 'Les documents et les mails attendent : ils repartiront tout seuls.'
+                : 'Les documents ne sont plus lus ni les mails triés.'
+          };
+        return {
+          a: b.motif === 'absent' ? 'Claude n’est pas connecté' : 'Connexion à Claude en échec',
+          b: msg || 'Les documents ne sont plus lus ni les mails triés'
+        };
+    }
+  }
+
+  // Arrivée par /#bloque (pastille d'état) : la carte n'existe qu'une fois les données chargées.
+  let ancreVue = false;
+  $effect(() => {
+    if (!d || ancreVue || page.url.hash !== '#bloque') return;
+    ancreVue = true;
+    requestAnimationFrame(() => document.getElementById('bloque')?.scrollIntoView({ block: 'start' }));
+  });
 
   function recu(iso: string): string {
     const a = age(iso);
@@ -345,15 +429,38 @@
     {#if synthese}<p>{synthese}</p>{/if}
   </header>
 
-  {#if admin && compteurs.problemes}
-    <div class="probleme" role="alert">
-      <Icone nom="erreur" />
-      <p>
-        <b>{majuscule(enLettres(compteurs.problemes))} problème{compteurs.problemes > 1 ? 's' : ''} à régler.</b>
-        Une boîte, Claude ou un envoi est bloqué.
-      </p>
-      <a class="btn-blanc" href="/a-traiter#bloque">Voir</a>
-    </div>
+  {#if bloques.length}
+    <section class="probleme bloque" id="bloque" role="alert" aria-labelledby="titre-bloque">
+      <div class="b-tete">
+        <Icone nom="erreur" />
+        <h2 id="titre-bloque">{bloques.length === 1 ? 'Un problème à régler' : `${majuscule(enLettres(bloques.length))} problèmes à régler`}</h2>
+      </div>
+      {#if erreurBloque}<p class="b-err">{erreurBloque}</p>{/if}
+      <ul>
+        {#each bloques as b (cleBloque(b))}
+          {@const t = texteBloque(b)}
+          <li>
+            <div class="b-t">
+              {#if b.document_id !== null}<a href="/documents/{b.document_id}">{t.a}</a>{:else}<b>{t.a}</b>{/if}
+              {#if t.b}<span>{t.b}</span>{/if}
+            </div>
+            {#if b.genre === 'boite' && b.boite_id !== null}
+              <a class="btn-blanc" href="/reglages/boites/{b.boite_id}">Corriger</a>
+            {:else if b.genre === 'claude' && b.motif === 'limite'}
+              <a class="btn-blanc" href="/reglages#claude">Voir Claude</a>
+            {:else if b.genre === 'claude'}
+              <a class="btn-blanc" href="/reglages#claude">Se reconnecter</a>
+            {:else if b.genre === 'envoi_erreur' && !admin}
+              <a class="btn-blanc" href="/documents/{b.document_id}">Voir</a>
+            {:else}
+              <button type="button" class="btn-blanc" class:en-cours={occupeBloque === cleBloque(b)} disabled={!!occupeBloque} onclick={() => debloquer(b)}>
+                {b.genre === 'envoi_erreur' ? 'Renvoyer' : b.genre === 'doublon' ? 'Écarter le doublon' : 'Écarter'}
+              </button>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+    </section>
   {/if}
 
   {#if erreur}
@@ -439,7 +546,10 @@
               </a>
             {/each}
             {#if autres > 0}
-              <a class="plus-l" href="/a-traiter">{autres === 1 ? 'Une autre pièce à valider' : `${majuscule(enLettres(autres, true))} autres pièces à valider`}</a>
+              <p class="plus-l">
+                {autres === 1 ? 'Une autre pièce à valider.' : `${majuscule(enLettres(autres, true))} autres pièces à valider.`} Tout voir :
+                {#each suiteListes as x, i (x.href)}{i ? ', ' : ''}<a href={x.href}>{x.n} {x.l}{x.n > 1 && x.l !== 'BL' ? 's' : ''}</a>{/each}
+              </p>
             {/if}
           </div>
         </div>
@@ -826,13 +936,17 @@
     height: 16px;
   }
   .plus-l {
+    margin: 0;
     padding: var(--e2) var(--e4);
     font-size: 15px;
+    color: var(--text2);
+  }
+  .plus-l a {
     font-weight: 500;
     color: var(--accent);
     text-decoration: none;
   }
-  .plus-l:hover {
+  .plus-l a:hover {
     text-decoration: underline;
   }
 
@@ -1041,6 +1155,56 @@
   .probleme b {
     font-weight: 500;
     color: var(--err);
+  }
+  .bloque {
+    scroll-margin-top: var(--e6);
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--e4) var(--e6);
+  }
+  .b-tete {
+    display: flex;
+    align-items: center;
+    gap: var(--e3);
+  }
+  .b-tete h2 {
+    margin: 0;
+    font-size: inherit;
+    font-weight: 600;
+    color: var(--err);
+  }
+  .b-err {
+    margin: 0;
+  }
+  .bloque ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .bloque li {
+    display: flex;
+    align-items: center;
+    gap: var(--e4);
+    padding: var(--e3) 0;
+    border-top: 1px solid color-mix(in srgb, var(--err) 18%, transparent);
+  }
+  .b-t {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    color: var(--text);
+  }
+  .b-t a,
+  .b-t b {
+    font-weight: 500;
+    color: var(--text);
+  }
+  .b-t span {
+    color: var(--text2);
+    font-size: 14px;
   }
 
   /* < 1024 px : colonnes empilées */

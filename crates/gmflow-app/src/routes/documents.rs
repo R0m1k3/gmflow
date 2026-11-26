@@ -76,11 +76,13 @@ pub async fn lister(
     let (du, au) = (date(&f.du)?, date(&f.au)?);
     let q = motif(&f.q);
     let (page, decalage) = decalage(f.page);
+    // `non` : la même définition que la file à valider et les badges du menu
+    // (`a_traiter::compter`) : pièce lue, ni envoyée, ni en échec, ni doublon.
     let verifie = match f.verifie.as_deref() {
         Some("oui") => Some(true),
-        Some("non") => Some(false),
         _ => None,
     };
+    let a_valider = f.verifie.as_deref() == Some("non");
     let (t, e, v) = (vide(&f.r#type), vide(&f.etat), vide(&f.voie));
     let sd = vide(&f.statut_depot);
     // Par défaut, les pièces ignorées (logos, signatures) ne sont pas listées.
@@ -99,7 +101,12 @@ pub async fn lister(
              and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
-             and ($12::bigint is null or d.fournisseur_id = $12)"#,
+             and ($12::bigint is null or d.fournisseur_id = $12)
+             and (not $13 or (d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
+                  and ((d.verifie_le is null
+                        and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
+                       or (d.verifie_le is not null and d.valide_le is null
+                           and d.statut_depot in ('a_verifier', 'pret')))))"#,
         acces.societe_filtre(),
         f.societe,
         t,
@@ -111,7 +118,8 @@ pub async fn lister(
         q,
         verifie,
         sd,
-        f.fournisseur
+        f.fournisseur,
+        a_valider
     )
     .fetch_one(&etat.pool)
     .await?;
@@ -142,8 +150,13 @@ pub async fn lister(
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
              and ($12::bigint is null or d.fournisseur_id = $12)
+             and (not $13 or (d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
+                  and ((d.verifie_le is null
+                        and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
+                       or (d.verifie_le is not null and d.valide_le is null
+                           and d.statut_depot in ('a_verifier', 'pret')))))
            order by m.date_mail desc nulls last, d.id desc
-           limit $13 offset $14"#,
+           limit $14 offset $15"#,
         acces.societe_filtre(),
         f.societe,
         t,
@@ -156,6 +169,7 @@ pub async fn lister(
         verifie,
         sd,
         f.fournisseur,
+        a_valider,
         super::mails::PAR_PAGE,
         decalage
     )

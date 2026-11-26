@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Fiche document plein écran (Plein écran F de la fiche). Même fiche que le volet de À traiter ;
-  // la file « À valider » sert à la position, à « Ensuite », et à J/K. Après une validation,
-  // la fiche suivante s'ouvre ; après la dernière, retour à À traiter (« Tout est validé »).
+  // Fiche document plein écran (Plein écran F de la fiche). Même fiche que le volet des listes ;
+  // la file « À valider » (GET /api/a-traiter) sert à la position, à « Ensuite », et à J/K. Après une
+  // validation, la fiche suivante s'ouvre ; après la dernière, retour à l'accueil.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { untrack } from 'svelte';
@@ -56,7 +56,7 @@
       aTraiter.file(societe.id).then((f) => (file = f)).catch(() => {});
       await goto(`/documents/${r.suivant}`, { replace: true });
     } else {
-      await goto('/a-traiter?fait=valide');
+      await goto('/');
     }
   }
 </script>

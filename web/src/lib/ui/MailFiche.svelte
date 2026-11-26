@@ -1,6 +1,6 @@
 <script lang="ts" module>
   // Fiche mail (maquette Sauge S2) : le mail et ses pièces au centre, la colonne « Réponse » à droite.
-  // Utilisée par /mails/[id] ; peut aussi s'ouvrir dans le volet de droite de À traiter
+  // Utilisée par /mails/[id] ; peut aussi s'ouvrir dans le volet de droite des listes
   // (`ouvrir` dit où aller après un envoi ou un classement).
 
   const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
@@ -123,7 +123,7 @@
 
   let {
     id,
-    retour = { href: '/a-traiter', libelle: 'À traiter' },
+    retour = { href: '/a-repondre', libelle: 'À répondre' },
     ouvrir,
     volet = false
   }: {
@@ -132,7 +132,7 @@
     retour?: { href: string; libelle: string };
     /** Ouvre le mail suivant de la file À répondre, ou `null` quand elle est vide. Par défaut : /mails/ID, sinon /. */
     ouvrir?: (suivant: number | null) => void | Promise<void>;
-    /** Dans le volet de droite de À traiter : la page garde J, K et Échap ; retour sur téléphone seulement. */
+    /** Dans le volet de droite d'une liste : la page garde J, K et Échap ; retour sur téléphone seulement. */
     volet?: boolean;
   } = $props();
 
@@ -309,7 +309,7 @@
     }
   }
 
-  /** Ouvre le mail qui suivait celui-ci dans la file À répondre, sinon retour à À traiter. */
+  /** Ouvre le mail qui suivait celui-ci dans la file À répondre, sinon retour à la liste. */
   async function passerAuSuivant() {
     const avant = file ?? [];
     const i = avant.findIndex((x) => x.id === id);

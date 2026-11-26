@@ -1,4 +1,4 @@
-// Petits utilitaires des écrans À traiter et fiche document (dates courtes, montants saisis,
+// Petits utilitaires des listes de pièces, accueil et fiche document (dates courtes, montants saisis,
 // alertes rattachées aux champs). Le vocabulaire affiché reste dans #lib/libelles.ts.
 import { libelleType, titreAlerte } from '#lib/libelles.ts';
 import { formatMontant } from './Montant.svelte';

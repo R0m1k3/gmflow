@@ -1,4 +1,4 @@
-// Compteurs de la barre du haut : badge « À traiter » et pastille d'état (admins).
+// Compteurs du menu : badges de Factures, Avoirs, BL, À répondre, et pastille d'état (admins).
 // Lus par le layout (changement de page, de société, toutes les minutes) ; une page qui vient
 // de valider ou d'envoyer quelque chose appelle `rafraichirCompteurs()`.
 // Source : GET /api/a-traiter/compteurs (docs/api-refonte.md, crates/gmflow-app/src/routes/a_traiter.rs).
@@ -7,8 +7,10 @@ import { api } from './api.ts';
 export interface Compteurs {
   /** Éléments à traiter : documents à valider, mails à répondre, blocages. */
   aTraiter: number;
-  /** Documents à valider (factures, avoirs, BL) et blocages : onglet « À valider ». */
-  aValider: number;
+  /** Pièces à valider, par type : badges de Factures, Avoirs et BL. */
+  factures: number;
+  avoirs: number;
+  bl: number;
   /** Mails qui attendent une réponse : onglet « À répondre ». */
   aRepondre: number;
   /** Problèmes à débloquer (admins), `null` si inconnu ou non admin. */
@@ -18,6 +20,7 @@ export interface Compteurs {
 interface ReponseCompteurs {
   bloque: number;
   a_valider: number;
+  a_valider_types: { facture: number; avoir: number; bl: number };
   a_repondre: number;
   total: number;
 }
@@ -25,11 +28,14 @@ interface ReponseCompteurs {
 async function lireCompteurs(parametreSociete: string, admin: boolean): Promise<Compteurs> {
   const q = parametreSociete ? `?${parametreSociete}` : '';
   const r = await api.get<ReponseCompteurs>(`/api/a-traiter/compteurs${q}`);
-  return { aTraiter: r.total, aValider: r.a_valider + r.bloque, aRepondre: r.a_repondre, problemes: admin ? r.bloque : null };
+  return { aTraiter: r.total, factures: r.a_valider_types.facture,
+    avoirs: r.a_valider_types.avoir,
+    bl: r.a_valider_types.bl,
+    aRepondre: r.a_repondre, problemes: admin ? r.bloque : null };
 }
 
 /** Valeurs affichées dans la barre du haut. */
-export const compteurs = $state<Compteurs & { charge: boolean }>({ aTraiter: 0, aValider: 0, aRepondre: 0, problemes: null, charge: false });
+export const compteurs = $state<Compteurs & { charge: boolean }>({ aTraiter: 0, factures: 0, avoirs: 0, bl: 0, aRepondre: 0, problemes: null, charge: false });
 
 let parametreCourant = '';
 let adminCourant = false;
@@ -44,7 +50,9 @@ export async function rafraichirCompteurs(parametreSociete?: string, admin?: boo
     const c = await lireCompteurs(parametreCourant, adminCourant);
     if (moi !== tour) return; // une lecture plus récente est partie entre-temps
     compteurs.aTraiter = c.aTraiter;
-    compteurs.aValider = c.aValider;
+    compteurs.factures = c.factures;
+    compteurs.avoirs = c.avoirs;
+    compteurs.bl = c.bl;
     compteurs.aRepondre = c.aRepondre;
     compteurs.problemes = c.problemes;
     compteurs.charge = true;
