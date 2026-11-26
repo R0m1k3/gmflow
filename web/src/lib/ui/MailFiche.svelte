@@ -3,12 +3,14 @@
   // Utilisée par /mails/[id] ; peut aussi s'ouvrir dans le volet de droite des listes
   // (`ouvrir` dit où aller après un envoi ou un classement).
 
+  import { dateListe } from '#lib/format.ts';
+
   const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
-  const jourMois = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit' });
-  const jourMoisAn = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: '2-digit' });
+  const jourMois = { format: (d: Date) => dateListe(d) };
+  const jourMoisAn = { format: (d: Date) => dateListe(d) };
   const cleJour = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris' });
 
-  /** « aujourd’hui 09:41 », « hier 17:02 », « 14/11 08:57 », « 14/11/25 » (heure de Paris). */
+  /** « aujourd’hui 09:41 », « hier 17:02 », « 14 nov. 08:57 », « 14 nov. 2025 » (heure de Paris). */
   export function dateMail(iso: string | null | undefined, avecHeure = true): string {
     if (!iso) return '';
     const d = new Date(iso);
