@@ -87,9 +87,12 @@
     {#if !erreur}<Chargement compact />{/if}
   {:else}
     {#if !vue.service.en_marche}
-      <Bandeau ton="erreur" titre="Le service de traitement ne répond plus.">
-        Dernier signe de vie : {vu(vue.service.vu_le)}. Il redémarre tout seul ; si cela dure, redémarrez le conteneur
-        « worker » de GMFlow.
+      <Bandeau ton="erreur" titre="Le traitement automatique est arrêté.">
+        Il redémarre tout seul. Si cela dure, prévenez l’administrateur.
+        <details class="detail-admin">
+          <summary>Détails pour l’administrateur</summary>
+          Dernier signe de vie : {vu(vue.service.vu_le)}. Si cela dure, redémarrez le conteneur « worker » de GMFlow.
+        </details>
       </Bandeau>
     {:else if vue.service.autres_arretees.length}
       <Bandeau ton="attention" titre="Une partie du service est à l’arrêt.">
@@ -179,6 +182,14 @@
   .detail.ko {
     color: var(--err-ink);
     font-weight: 500;
+  }
+  .detail-admin {
+    margin-top: var(--e2);
+    font-size: 14px;
+  }
+  .detail-admin summary {
+    cursor: pointer;
+    min-height: 28px;
   }
   .attente {
     color: var(--text2);

@@ -197,8 +197,15 @@
     return /^\d\d:\d\d$/.test(q) || q === 'hier' ? `depuis ${q}` : `depuis le ${q}`;
   }
 
-  function texteBloque(b: Bloque): { a: string; b: string } {
+  const ARRET_SIMPLE = 'Le traitement automatique est arrêté. Prévenez l’administrateur.';
+
+  /** `detail` : le texte technique, rangé sous « Détails pour l'administrateur » (employés). */
+  function texteBloque(b: Bloque): { a: string; b: string; detail?: string } {
     const msg = b.message ?? '';
+    if (!admin && b.genre === 'claude' && b.motif !== 'limite')
+      return { a: ARRET_SIMPLE, b: '', detail: [msg, 'Les documents ne sont plus lus ni les mails triés.'].filter(Boolean).join(' ') };
+    if (!admin && b.genre === 'boite')
+      return { a: ARRET_SIMPLE, b: '', detail: [`Boîte ${b.libelle ?? ''} ${b.motif === 'pause_auto' ? 'arrêtée' : 'en échec'}.`, msg, depuis(b.depuis)].filter(Boolean).join(' ') };
     switch (b.genre) {
       case 'envoi_erreur':
         return { a: `Envoi à Dext / Yooz échoué : ${nomCourtDocument(b)}`, b: msg };
@@ -443,8 +450,16 @@
             <div class="b-t">
               {#if b.document_id !== null}<a href="/documents/{b.document_id}">{t.a}</a>{:else}<b>{t.a}</b>{/if}
               {#if t.b}<span>{t.b}</span>{/if}
+              {#if t.detail}
+                <details class="detail-admin">
+                  <summary>Détails pour l’administrateur</summary>
+                  <span>{t.detail}</span>
+                </details>
+              {/if}
             </div>
-            {#if b.genre === 'boite' && b.boite_id !== null}
+            {#if !admin && (b.genre === 'boite' || (b.genre === 'claude' && b.motif !== 'limite'))}
+              <!-- rien à faire pour l'employé : prévenir l'administrateur -->
+            {:else if b.genre === 'boite' && b.boite_id !== null}
               <a class="btn-blanc" href="/reglages/boites/{b.boite_id}">Corriger</a>
             {:else if b.genre === 'claude' && b.motif === 'limite'}
               <a class="btn-blanc" href="/reglages#claude">Voir Claude</a>
@@ -1205,6 +1220,18 @@
   .b-t span {
     color: var(--text2);
     font-size: 14px;
+  }
+  .detail-admin summary {
+    cursor: pointer;
+    color: var(--text2);
+    font-size: 14px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+  }
+  .detail-admin[open] span {
+    display: block;
+    padding-bottom: var(--e2);
   }
 
   /* < 1024 px : colonnes empilées */
