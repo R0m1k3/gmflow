@@ -66,7 +66,8 @@
   import Champ from './Champ.svelte';
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
-  import DocChaine, { type PointChaine } from './DocChaine.svelte';
+  import DocArticlesBl from './DocArticlesBl.svelte';
+  import DocChaine, { type FactureLiee, type PointChaine } from './DocChaine.svelte';
   import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
   import type { EtatExportPhenix } from '#lib/types.ts';
   import {
@@ -214,6 +215,31 @@
     return enCours(v);
   }
 
+  /**
+   * BL : fiche et rapprochement de chaque facture liée (troisième temps, après la fiche puis le
+   * rapprochement) ; au chargement et après un lien, pas pendant le suivi. Jeté si la fiche a changé.
+   */
+  let factures = $state.raw(new Map<number, FactureLiee>());
+  async function chargerFactures(ident: number) {
+    if (ident !== id) return;
+    if (!d || d.etat !== 'lu' || d.type !== 'bl' || !rap?.liens.length) {
+      factures = new Map();
+      return;
+    }
+    const ids = [...new Set(rap.liens.map((l) => l.autre.id))];
+    const lues = await Promise.all(
+      ids.map(async (fid): Promise<[number, FactureLiee]> => {
+        const [f, r] = await Promise.allSettled([
+          api.get<FicheDocument>(`/api/documents/${fid}`),
+          api.get<DetailRapprochement>(`/api/documents/${fid}/rapprochement`)
+        ]);
+        return [fid, { fiche: f.status === 'fulfilled' ? f.value : null, rap: r.status === 'fulfilled' ? r.value : null }];
+      })
+    );
+    if (ident !== id) return;
+    factures = new Map(lues);
+  }
+
   /** « Relancer » Logiflow cliqué : la fiche suit jusqu'au nouveau résultat. */
   let attenteLogiflow = $state(false);
   const LIBELLES_LOGIFLOW: Record<EtatLivraisonLogiflow, { texte: string; ton: Ton }> = {
@@ -261,10 +287,12 @@
       editionF = false;
       voirTN = false;
       ouverts.clear();
+      factures = new Map();
       charger(ident, false)
         .then((attendre) => {
           if (ident !== id) return;
           if (attendre) suivre();
+          void chargerFactures(ident);
           // Plein écran : sur un BL, les factures liées qui ont des écarts d'articles sont dépliées.
           if (pleinEcran && rap && d?.type === 'bl') for (const l of rap.liens) if (l.ecarts.length) ouverts.add(`facture-${l.autre.id}`);
         })
@@ -286,8 +314,12 @@
 
   function reessayer() {
     erreurChargement = '';
-    charger(id, false)
-      .then((attendre) => attendre && suivre())
+    const ident = id;
+    charger(ident, false)
+      .then((attendre) => {
+        if (attendre) suivre();
+        void chargerFactures(ident);
+      })
       .catch((e) => (erreurChargement = message(e)));
   }
 
@@ -553,7 +585,9 @@
   async function apresLien(phrase: string) {
     info = phrase;
     erreur = '';
-    await charger(id, true);
+    const ident = id;
+    await charger(ident, true);
+    void chargerFactures(ident);
     onchange?.();
     void rafraichirCompteurs();
   }
@@ -736,6 +770,8 @@
   let ficheEl = $state<HTMLElement>();
   /** Chaîne pour une facture, un avoir ou un BL lus (d.type : la structure suit la pièce enregistrée). */
   let avecChaine = $derived(!!d && d.etat === 'lu' && (d.type === 'facture' || d.type === 'avoir' || d.type === 'bl'));
+  /** BL lu avec ses lignes : tableau des articles sous la chaîne (plus dans le repli Lecture). */
+  let articlesBl = $derived(avecChaine && d?.type === 'bl' && !!rap?.lignes.length);
   let avecEnvoi = $derived(!!d && (!!d.statut_depot || deposable));
   let avecLogiflow = $derived(
     !!d &&
@@ -1116,6 +1152,7 @@
           <DocChaine
             {d}
             {rap}
+            {factures}
             bind:ouverts
             onchange={apresLien}
             onerreur={(m) => (erreur = m)}
@@ -1132,6 +1169,14 @@
             <h3 class="titre-carte">Montants</h3>
             {@render champsMontants()}
           </div>
+        {/if}
+        {#if articlesBl && rap}
+          <DocArticlesBl
+            lignes={rap.lignes}
+            ecarts={rap.liens.flatMap((l) => l.ecarts)}
+            factureLiee={rap.liens.length > 0}
+            plusieursBl={rap.liens.some((l) => (factures.get(l.autre.id)?.rap?.liens.length ?? 0) >= 2)}
+          />
         {/if}
 
         {#if d.etat === 'lu'}
@@ -1269,7 +1314,7 @@
                 <p><a class="btn sm" href="/mails/{d.mail_id}"><Icone nom="mail" />Ouvrir le mail</a></p>
               </div>
             </Repli>
-            {#if d.etat === 'lu' && (rap?.lignes.length || d.texte || corrections.length || admin)}
+            {#if d.etat === 'lu' && ((rap?.lignes.length && !articlesBl) || d.texte || corrections.length || admin)}
               <Repli icone="fichier" titre="Lecture" resume={resumeLecture}>
                 {#if admin && d.voie}
                   <p class="t2 petit">{libelleVoie(d.voie)}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}{d.lu_le ? `, le ${jourHeure(d.lu_le)}` : ''}</p>
@@ -1277,7 +1322,7 @@
                 {#if corrections.length}
                   <p class="t2 petit">Corrigé à la main : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{NOMS_CHAMPS[champ] ?? champ} ({brut(c.avant)} → {brut(c.apres)}){/each}</p>
                 {/if}
-                {#if rap?.lignes.length}
+                {#if rap?.lignes.length && !articlesBl}
                   <div class="defile-x"><table>
                     <thead><tr><th>Réf.</th><th>Désignation</th><th class="n">Qté</th><th class="n">PU HT</th><th class="n">Montant HT</th></tr></thead>
                     <tbody>

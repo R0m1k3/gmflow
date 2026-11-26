@@ -1,6 +1,9 @@
 <script lang="ts" module>
+  import type { DetailRapprochement, DocRap, FicheDocument } from '#lib/types.ts';
   /** Point d'état d'un maillon : vert, ambre ou creux. */
   export type PointChaine = 'ok' | 'alerte' | 'creux';
+  /** Facture liée à un BL, lue par ses deux routes (null : lecture en échec). */
+  export type FactureLiee = { fiche: FicheDocument | null; rap: DetailRapprochement | null };
 </script>
 
 <script lang="ts">
@@ -15,7 +18,6 @@
   import { api, message } from '#lib/api.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { libelleMethode, titreEnvoi } from '#lib/libelles.ts';
-  import type { DetailRapprochement, DocRap, FicheDocument } from '#lib/types.ts';
   import { additionRapprochement, type Addition } from './addition.ts';
   import { dateFr, phraseEcartLigne, texteRemise, typeNumero } from './DocOutils.ts';
   import Icone from './Icone.svelte';
@@ -25,6 +27,7 @@
   let {
     d,
     rap,
+    factures,
     ouverts = $bindable(),
     actif = true,
     onchange,
@@ -40,6 +43,8 @@
     d: FicheDocument;
     /** Null si le rapprochement n'a pas pu être lu : ni BL, ni candidats. */
     rap: DetailRapprochement | null;
+    /** BL : chacune de ses factures liées (absente : en cours de lecture) ; vide sur une facture. */
+    factures: Map<number, FactureLiee>;
     /** Maillons dépliés : `bl-<id>`, `facture-<id>`, `envoi`, `logiflow`, `candidats`. */
     ouverts: Set<string>;
     /** Raccourci L posé (fiche affichée). */
@@ -126,6 +131,53 @@
   let remiseTexte = $derived(d.type !== 'bl' ? texteRemise(d.remise_ht, d.remise_taux) : '');
   let annexesTexte = $derived(d.type !== 'bl' && d.annexes_ht && d.annexes_ht > 0.005 ? `${formatMontant(d.annexes_ht)} HT` : '');
 
+  // ---------- BL : ses factures liées et les autres BL de chacune ----------
+  /** Addition de la facture liée, à partir de sa fiche et de son rapprochement. */
+  function additionFacture(f: FactureLiee): Addition | null {
+    if (!f.fiche || !f.rap) return null;
+    const l0 = f.rap.liens[0];
+    return additionRapprochement(
+      { ht: f.fiche.montant_ht, remise_ht: f.fiche.remise_ht, remise_taux: f.fiche.remise_taux, annexes_ht: f.fiche.annexes_ht },
+      f.rap.liens.map((l) => ({ id: l.autre.id, numero: l.autre.numero, ht: l.autre.montant_ht })),
+      l0?.ecart_montant ?? null,
+      l0?.ecarts ?? []
+    );
+  }
+  /** Vert : déposée et concorde ; ambre : ne concorde pas ou articles en écart ; creux : sinon. */
+  function pointFacture(f: FactureLiee | undefined, a: Addition | null): PointChaine {
+    if (!f?.fiche || !a) return 'creux';
+    if (a.verdict !== 'concorde' || a.causes.length) return 'alerte';
+    return f.fiche.statut_depot === 'depose' ? 'ok' : 'creux';
+  }
+  function etatFacture(f: FicheDocument): string {
+    if (f.statut_depot === 'depose') return 'envoyée';
+    if (f.valide_le || f.verifie_le) return 'validée';
+    return 'à valider';
+  }
+  function verdictCourt(a: Addition): string {
+    if (a.verdict === 'concorde') return a.causes.length ? `${a.causes.length} article${a.causes.length > 1 ? 's' : ''} en écart` : 'concorde';
+    if (a.verdict === 'article') {
+      const p = phraseEcartLigne(a.causes[0]);
+      return p.montant !== null && Math.abs(p.montant) > 0.005 ? `${p.article} ${signe('ecart', p.montant)}` : p.article;
+    }
+    if (a.verdict === 'reste' && a.reste !== null) return `écart ${signe('ecart', a.reste)}`;
+    return '';
+  }
+  /** Les autres BL des factures de ce BL (« même facture »), une fois chacun. */
+  let memeFacture = $derived.by(() => {
+    const vus = new Set<number>([d.id]);
+    const v: DocRap[] = [];
+    if (!bl || !rap) return v;
+    for (const l of rap.liens) {
+      for (const x of factures.get(l.autre.id)?.rap?.liens ?? []) {
+        if (vus.has(x.autre.id)) continue;
+        vus.add(x.autre.id);
+        v.push(x.autre);
+      }
+    }
+    return v;
+  });
+
   const signe = (genre: string, v: number | null) =>
     v === null ? '—' : (genre === 'annexes' || genre === 'autres' || genre === 'ecart') && v > 0.005 ? `+${formatMontant(v, '')}` : formatMontant(v, '');
 </script>
@@ -203,27 +255,31 @@
   </li>
 {/snippet}
 
-{#snippet maillonBl(l: { id: number; methode: string; auteur: string | null; autre: DocRap })}
-  {@const k = `bl-${l.autre.id}`}
+<!-- BL lié à la facture affichée (`lien`), ou autre BL de la facture d'un BL (« même facture », sans Délier) -->
+{#snippet maillonBl(b: DocRap, lien: { id: number; methode: string; auteur: string | null } | null)}
+  {@const k = `bl-${b.id}`}
   <li class="maillon" data-maillon={k}>
     <button type="button" class="tete-m clic" aria-expanded={ouverts.has(k)} onclick={() => plier(k)}>
       {@render point('ok')}
       <span class="quoi">
-        <b class="lib">{typeNumero('bl', l.autre.numero)}</b>
-        <span class="sous t2">{[l.autre.date_document ? dateFr(l.autre.date_document, true) : '', libelleMethode(l.methode) + (l.methode === 'manuel' && l.auteur ? ` (${l.auteur})` : '')].filter(Boolean).join(' · ')}</span>
+        <b class="lib">{typeNumero('bl', b.numero)}</b>
+        {#if !lien}<span class="marque">même facture</span>{/if}
+        <span class="sous t2">{[b.date_document ? dateFr(b.date_document, true) : '', lien ? libelleMethode(lien.methode) + (lien.methode === 'manuel' && lien.auteur ? ` (${lien.auteur})` : '') : ''].filter(Boolean).join(' · ')}</span>
       </span>
-      {@render montantCol(l.autre.montant_ht)}
+      {@render montantCol(b.montant_ht)}
     </button>
     {#if ouverts.has(k)}
       <div class="depli">
         <dl class="paires">
-          <dt>N°</dt><dd class="num">{l.autre.numero ?? l.autre.nom_fichier}</dd>
-          <dt>Date</dt><dd class="num">{l.autre.date_document ? dateFr(l.autre.date_document) : '—'}</dd>
-          <dt>Total HT</dt><dd class="num">{formatMontant(l.autre.montant_ht)}</dd>
+          <dt>N°</dt><dd class="num">{b.numero ?? b.nom_fichier}</dd>
+          <dt>Date</dt><dd class="num">{b.date_document ? dateFr(b.date_document) : '—'}</dd>
+          <dt>Total HT</dt><dd class="num">{formatMontant(b.montant_ht)}</dd>
         </dl>
         <div class="actions-m">
-          <a class="btn sm" href="/bl?doc={l.autre.id}"><Icone nom="ouvrir" />Ouvrir le BL</a>
-          <button type="button" class="btn sm fantome" class:en-cours={occupe === l.id} disabled={occupe !== null} onclick={() => delier(l.id, l.autre)}>Délier</button>
+          <a class="btn sm" href="/bl?doc={b.id}"><Icone nom="ouvrir" />Ouvrir le BL</a>
+          {#if lien}
+            <button type="button" class="btn sm fantome" class:en-cours={occupe === lien.id} disabled={occupe !== null} onclick={() => delier(lien.id, b)}>Délier</button>
+          {/if}
         </div>
       </div>
     {/if}
@@ -289,26 +345,43 @@
 
   {#if bl}
     {@render maillonCourant()}
+    {#each memeFacture as b (b.id)}{@render maillonBl(b, null)}{/each}
     {@render groupeBl()}
     {#if rap}
       {#each rap.liens as l (l.id)}
         {@const k = `facture-${l.autre.id}`}
+        {@const f = factures.get(l.autre.id)}
+        {@const a = f ? additionFacture(f) : null}
         <li class="maillon" data-maillon={k}>
           <button type="button" class="tete-m clic" aria-expanded={ouverts.has(k)} onclick={() => plier(k)}>
-            {@render point(l.ecarts.length ? 'alerte' : 'creux')}
+            {@render point(pointFacture(f, a))}
             <span class="quoi">
               <b class="lib">{typeNumero(l.autre.type, l.autre.numero)}</b>
-              <span class="sous t2">{[l.autre.date_document ? dateFr(l.autre.date_document, true) : '', libelleMethode(l.methode)].filter(Boolean).join(' · ')}</span>
+              <span class="sous t2">
+                {#if !f}…{:else}{[l.autre.date_document ? dateFr(l.autre.date_document, true) : '', f.fiche ? etatFacture(f.fiche) : '', a ? verdictCourt(a) : ''].filter(Boolean).join(' · ')}{/if}
+              </span>
             </span>
-            {@render montantCol(l.autre.montant_ht)}
+            {@render montantCol(f?.fiche ? f.fiche.montant_ht : l.autre.montant_ht)}
           </button>
           {#if ouverts.has(k)}
             <div class="depli">
-              <dl class="paires">
-                <dt>N°</dt><dd class="num">{l.autre.numero ?? l.autre.nom_fichier}</dd>
-                <dt>Date</dt><dd class="num">{l.autre.date_document ? dateFr(l.autre.date_document) : '—'}</dd>
-                <dt>Total HT</dt><dd class="num">{formatMontant(l.autre.montant_ht)}</dd>
-              </dl>
+              {#if !f}
+                <p class="t2 petit note">Lecture de la facture…</p>
+              {:else if a && f.fiche && f.rap}
+                {@render additionVue(a, f.rap, false)}
+                <p class="t2 petit note">
+                  {[f.fiche.montant_tva !== null ? `TVA ${formatMontant(f.fiche.montant_tva)}` : '', f.fiche.montant_ttc !== null ? `TTC ${formatMontant(f.fiche.montant_ttc)}` : '', f.fiche.date_echeance ? `échéance ${dateFr(f.fiche.date_echeance)}` : '', etatFacture(f.fiche)]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+              {:else}
+                <p class="t2 petit note">Détail indisponible.</p>
+                <dl class="paires">
+                  <dt>N°</dt><dd class="num">{l.autre.numero ?? l.autre.nom_fichier}</dd>
+                  <dt>Date</dt><dd class="num">{l.autre.date_document ? dateFr(l.autre.date_document) : '—'}</dd>
+                  <dt>Total HT</dt><dd class="num">{formatMontant(l.autre.montant_ht)}</dd>
+                </dl>
+              {/if}
               <div class="actions-m">
                 <a class="btn sm" href="/factures?doc={l.autre.id}"><Icone nom="ouvrir" />Ouvrir la facture</a>
                 <button type="button" class="btn sm fantome" class:en-cours={occupe === l.id} disabled={occupe !== null} onclick={() => delier(l.id, l.autre)}>Délier</button>
@@ -335,7 +408,7 @@
     </li>
   {:else}
     {#if facture && rap}
-      {#each rap.liens as l (l.id)}{@render maillonBl(l)}{/each}
+      {#each rap.liens as l (l.id)}{@render maillonBl(l.autre, l)}{/each}
       {@render groupeBl()}
     {/if}
     {@render maillonCourant()}
