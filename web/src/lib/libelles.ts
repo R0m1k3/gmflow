@@ -58,7 +58,7 @@ const ETATS: Record<EtatDocument, string> = {
   a_lire: 'En attente',
   en_cours: 'Lecture en cours',
   lu: 'Lu',
-  ignore: 'Écarté (pas une facture)',
+  ignore: 'Écarté',
   erreur: 'Illisible'
 };
 const TONS_ETAT: Record<EtatDocument, Ton> = {
@@ -81,15 +81,15 @@ export function tonEtat(e: EtatDocument | null | undefined): Ton {
 export function libelleStatutEnvoi(s: StatutDepot | null | undefined, outil?: string | null): string {
   switch (s) {
     case 'a_verifier':
-      return 'À valider';
+      return 'À contrôler';
     case 'pret':
-      return 'Prête';
+      return 'Validée';
     case 'en_envoi':
       return 'Envoi en cours';
     case 'depose':
       return `Envoyée à ${nomOutil(outil)}`;
     case 'erreur':
-      return 'Envoi échoué';
+      return 'Échec d’envoi';
     case 'doublon':
       return 'Doublon';
     default:

@@ -140,7 +140,7 @@ const ACTIONS: Record<string, string> = {
   relecture: 'Nouvelle lecture',
   relecture_bl: 'Nouvelle lecture des BL',
   depot: 'Envoi à Dext / Yooz',
-  depot_echec: 'Envoi échoué',
+  depot_echec: 'Échec d’envoi',
   rapprochement: 'BL lié',
   rapprochement_defait: 'Lien de BL défait',
   rattachement_fournisseur: 'Fournisseur rattaché',

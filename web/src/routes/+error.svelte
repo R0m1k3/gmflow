@@ -20,7 +20,7 @@
     <div class="actions">
       <a class="btn principal" href="/">Retour à l’accueil</a>
       {#if introuvable}
-        <a class="btn" href="/factures?filtre=a-valider">Factures à valider</a>
+        <a class="btn" href="/factures?filtre=a-valider">Factures à contrôler</a>
       {:else}
         <button type="button" class="btn" onclick={() => location.reload()}>Réessayer</button>
       {/if}

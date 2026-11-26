@@ -81,12 +81,12 @@
   /** Où en est le document, en deux mots. */
   function statut(d: LigneDocument): { texte: string; ton: Ton } | null {
     if (d.etat !== 'lu') return { texte: libelleEtat(d.etat), ton: tonEtat(d.etat) };
-    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
     const e = d.type === 'avoir' ? '' : 'e';
     if (d.statut_depot === 'depose') return { texte: `Envoyé${e}`, ton: 'ok' };
-    if (d.statut_depot === 'pret' && !e) return { texte: 'Prêt', ton: tonStatutEnvoi('pret') };
+    if (d.statut_depot === 'pret' && !e) return { texte: 'Validé', ton: tonStatutEnvoi('pret') };
     if (d.statut_depot) return { texte: libelleStatutEnvoi(d.statut_depot), ton: tonStatutEnvoi(d.statut_depot) };
-    return d.verifie ? { texte: `Validé${e}`, ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+    return d.verifie ? { texte: `Validé${e}`, ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
   }
 
   let annonce = $state('');

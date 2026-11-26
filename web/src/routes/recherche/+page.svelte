@@ -196,7 +196,7 @@
     if (d.etat !== 'lu') return { texte: libelleEtat(d.etat), ton: tonEtat(d.etat) };
     if (d.type === 'facture' || d.type === 'avoir')
       return { texte: libelleStatutEnvoi(d.statut_depot, d.outil) || 'Lue', ton: tonStatutEnvoi(d.statut_depot) };
-    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
     return { texte: 'Lu', ton: 'pale' };
   }
 

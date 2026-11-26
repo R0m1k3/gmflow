@@ -697,7 +697,7 @@
                   <span class="el-nom">{libelleType(e.type)}{#if e.numero}{' '}<span class="num">{e.numero}</span>{/if}</span>
                   <span class="t2 num">{dateSimple(e.date)}</span>
                   {#if e.type === 'bl'}
-                    {#if !e.verifie}<span class="etiquette att">À valider</span>{/if}
+                    {#if !e.verifie}<span class="etiquette att">À contrôler</span>{/if}
                     {#if !e.rapproche}<span class="el-etat">{BL_EN_ATTENTE}</span>{/if}
                   {:else if e.statut_depot}
                     <Etiquette ton={tonStatutEnvoi(e.statut_depot)}>{libelleStatutEnvoi(e.statut_depot, e.outil)}</Etiquette>

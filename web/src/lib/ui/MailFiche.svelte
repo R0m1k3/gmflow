@@ -580,7 +580,7 @@
       const ton = st === 'erreur' || st === 'doublon' ? 'erreur' : st === 'a_verifier' ? 'alerte' : 'neutre';
       return { texte: avec(s ? s.charAt(0).toLowerCase() + s.slice(1) : 'lue'), ton };
     }
-    if (p.document_type === 'bl') return p.document_verifie ? { texte: avec('validé'), ton: 'ok' } : { texte: avec('à valider'), ton: 'alerte' };
+    if (p.document_type === 'bl') return p.document_verifie ? { texte: avec('validé'), ton: 'ok' } : { texte: avec('à contrôler'), ton: 'alerte' };
     return { texte: avec('lu'), ton: 'neutre' };
   }
 
@@ -806,7 +806,7 @@
         <div class="ctx">
           <h3><a href="/fournisseurs/{contexte.fournisseurId}">{contexte.nom}</a>{contexte.societe ? ` chez ${contexte.societe}` : ''}</h3>
           <div><span>Factures ce mois</span><span class="num">{contexte.etat.factures_mois}</span></div>
-          {#if contexte.etat.a_valider}<div><span>À valider</span><span class="num">{contexte.etat.a_valider}</span></div>{/if}
+          {#if contexte.etat.a_valider}<div><span>À contrôler</span><span class="num">{contexte.etat.a_valider}</span></div>{/if}
           <div><span>BL en attente de facture</span><span class="num">{contexte.etat.bl_sans_facture}</span></div>
         </div>
       {/if}

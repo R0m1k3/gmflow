@@ -4,7 +4,7 @@
 
   const filtres: FiltreDocuments[] = [
     { v: 'tous', l: 'Tous', params: { type: 'bl' } },
-    { v: 'a-valider', l: 'À valider', params: { type: 'bl', verifie: 'non' } },
+    { v: 'a-valider', l: 'À contrôler', params: { type: 'bl', verifie: 'non' } },
     { v: 'valides', l: 'Validés', params: { type: 'bl', verifie: 'oui' } }
   ];
 </script>
@@ -17,6 +17,6 @@
   videTitre="Aucun BL"
   singulier="un BL"
   section="BL"
-  sansSuite="Aucun autre BL à valider"
+  sansSuite="Aucun autre BL à contrôler"
   pied="valider"
 />

@@ -1,6 +1,6 @@
 <script lang="ts">
   // Accueil (maquette Sauge P3) : la date et une phrase de synthèse ; ce qui est bloqué (#bloque :
-  // boîte, Claude, envoi échoué, doublon, illisible, avec l'action qui débloque) ; la carte « À valider »
+  // boîte, Claude, envoi échoué, doublon, illisible, avec l'action qui débloque) ; la carte « À contrôler »
   // (vignette de la pièce choisie, J/K, Entrée ouvre, E écarte) ; le courrier du jour (avec pièce
   // jointe, pour information, notifications regroupées, publicités masquées) ; à droite les
   // chiffres du jour, ce qui attend une réponse et le réglage qui manque (admins).
@@ -33,7 +33,7 @@
   import { formatMontant } from '#lib/ui/Montant.svelte';
   import Vide from '#lib/ui/Vide.svelte';
 
-  /** Pièces montrées dans la carte À valider ; au-delà, un lien vers la file. */
+  /** Pièces montrées dans la carte À contrôler ; au-delà, un lien vers la file. */
   const NB_PIECES = 6;
   /** Mails montrés par groupe du courrier du jour. */
   const NB_MAILS = 8;
@@ -135,7 +135,7 @@
     if (!d) return '';
     const p = d.file.compteurs.a_valider;
     const r = d.file.compteurs.a_repondre;
-    if (p === 0 && r === 0) return 'Tout est à jour : aucune pièce à valider, aucun mail en attente de réponse.';
+    if (p === 0 && r === 0) return 'Tout est à jour : aucune pièce à contrôler, aucun mail en attente de réponse.';
     const pieces =
       p === 0
         ? 'Aucune pièce n’attend votre validation.'
@@ -145,14 +145,14 @@
     return `${pieces} ${mails}`;
   });
 
-  // ---------- À valider ----------
+  // ---------- À contrôler ----------
   let pieces = $derived(d ? d.file.a_valider.slice(0, NB_PIECES) : []);
   let autres = $derived(d ? d.file.compteurs.a_valider - pieces.length : 0);
   let choixId = $state<number | null>(null);
   let choix = $derived(pieces.find((l) => l.id === choixId) ?? pieces[0] ?? null);
   let indice = $derived(choix ? pieces.indexOf(choix) : -1);
 
-  /** La pièce s'ouvre dans sa liste, filtre « À valider » (suivant, précédent, puis la suivante après validation). */
+  /** La pièce s'ouvre dans sa liste, filtre « À contrôler » (suivant, précédent, puis la suivante après validation). */
   const listeType = (t: DocumentAValider['type']) => (t === 'bl' ? '/bl' : t === 'avoir' ? '/avoirs' : '/factures');
   const ouvrirHref = (l: DocumentAValider) => `${listeType(l.type)}?filtre=a-valider&doc=${l.id}`;
   /** Au-delà des pièces montrées : un lien par liste qui en a encore. */
@@ -476,7 +476,7 @@
   {:else}
     <section class="carte-s valider" aria-labelledby="titre-valider">
       <div class="carte-h">
-        <h2 id="titre-valider">À valider</h2>
+        <h2 id="titre-valider">À contrôler</h2>
         {#if pieces.length > 1}<span class="aide large-seul"><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>{/if}
       </div>
 
@@ -547,7 +547,7 @@
             {/each}
             {#if autres > 0}
               <p class="plus-l">
-                {autres === 1 ? 'Une autre pièce à valider.' : `${majuscule(enLettres(autres, true))} autres pièces à valider.`} Tout voir :
+                {autres === 1 ? 'Une autre pièce à contrôler.' : `${majuscule(enLettres(autres, true))} autres pièces à contrôler.`} Tout voir :
                 {#each suiteListes as x, i (x.href)}{i ? ', ' : ''}<a href={x.href}>{x.n} {x.l}{x.n > 1 && x.l !== 'BL' ? 's' : ''}</a>{/each}
               </p>
             {/if}
@@ -601,8 +601,8 @@
           <h2 id="titre-jour">Aujourd’hui</h2>
           <a class="chiffre" href="/mails"><span>Mails reçus</span><b class="num">{d.mailsDuJour}</b></a>
           <a class="chiffre" href="/a-repondre"><span>À répondre</span><b class="num" class:att={d.file.compteurs.a_repondre > 0}>{d.file.compteurs.a_repondre}</b></a>
-          <a class="chiffre" href="/factures?filtre=a-valider"><span>Factures à valider</span><b class="num" class:att={d.facturesAValider > 0}>{d.facturesAValider}</b></a>
-          <a class="chiffre" href="/bl?filtre=a-valider"><span>BL à valider</span><b class="num" class:att={d.blAValider > 0}>{d.blAValider}</b></a>
+          <a class="chiffre" href="/factures?filtre=a-valider"><span>Factures à contrôler</span><b class="num" class:att={d.facturesAValider > 0}>{d.facturesAValider}</b></a>
+          <a class="chiffre" href="/bl?filtre=a-valider"><span>BL à contrôler</span><b class="num" class:att={d.blAValider > 0}>{d.blAValider}</b></a>
         </section>
 
         {#if d.file.a_repondre.length}
@@ -739,7 +739,7 @@
     color: var(--err-ink);
   }
 
-  /* ---------- À valider ---------- */
+  /* ---------- À contrôler ---------- */
   .valider-corps {
     display: flex;
     gap: var(--e6);

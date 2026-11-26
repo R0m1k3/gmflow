@@ -5,9 +5,9 @@
 import { api } from './api.ts';
 
 export interface Compteurs {
-  /** Éléments à traiter : documents à valider, mails à répondre, blocages. */
+  /** Éléments à traiter : documents à contrôler, mails à répondre, blocages. */
   aTraiter: number;
-  /** Pièces à valider, par type : badges de Factures, Avoirs et BL. */
+  /** Pièces à contrôler, par type : badges de Factures, Avoirs et BL. */
   factures: number;
   avoirs: number;
   bl: number;

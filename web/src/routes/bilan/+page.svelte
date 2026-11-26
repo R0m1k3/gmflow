@@ -103,14 +103,14 @@
   let plusieurs = $derived(lignes.length > 1);
   let restes = $derived.by(() => {
     const r: { n: number; texte: string }[] = [];
-    if (total.a_valider) r.push({ n: total.a_valider, texte: 'à valider' });
+    if (total.a_valider) r.push({ n: total.a_valider, texte: 'à contrôler' });
     const b = total.en_erreur + total.doublons;
     if (b) r.push({ n: b, texte: b > 1 ? 'bloquées' : 'bloquée' });
     return r;
   });
   let blTotal = $derived(blEnAttente.reduce((t, b) => t + b.bl, 0));
 
-  /** Lien « À valider » d'une société : la liste des factures à valider, avec cette société choisie (admin). */
+  /** Lien « À contrôler » d'une société : la liste des factures à contrôler, avec cette société choisie (admin). */
   function versATraiter(e: MouseEvent, id: number | null) {
     if (!admin || id === null) return;
     e.preventDefault();
@@ -214,8 +214,8 @@
                 <th>Société</th>
                 <th class="n">Reçues</th>
                 <th class="n">Envoyées</th>
-                <th class="n">À valider</th>
-                <th class="n">Envoi échoué</th>
+                <th class="n">À contrôler</th>
+                <th class="n">Échec d’envoi</th>
                 <th class="n">Doublons</th>
                 <th class="n">Montant envoyé</th>
               </tr>
@@ -249,7 +249,7 @@
           </table>
         </div>
         <p class="petit muted note">
-          Datées du mois (date du document, à défaut du mail). « À valider » compte aussi les factures prêtes qui attendent leur envoi.
+          Datées du mois (date du document, à défaut du mail). « À contrôler » compte aussi les factures prêtes qui attendent leur envoi.
         </p>
       {/if}
     </section>

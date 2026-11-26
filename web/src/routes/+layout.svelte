@@ -132,7 +132,7 @@
 
   // ---------- Menu ----------
   // Rangé par groupes : le courrier, les pièces, le suivi. `tel` : présent dans les onglets du bas sur téléphone.
-  // `compteur` : badge (choses à faire) ; `aFaire` : où mène le lien quand il y en a (le filtre « À valider »).
+  // `compteur` : badge (choses à faire) ; `aFaire` : où mène le lien quand il y en a (le filtre « À contrôler »).
   type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number; aFaire?: string };
   type Groupe = { titre: string; liens: Lien[] };
   const groupes: Groupe[] = [
@@ -259,7 +259,7 @@
             {#if g.titre}<div class="g-titre">{g.titre}</div>{/if}
             {#each g.liens as l (l.href)}
               {@const n = l.compteur?.() ?? 0}
-              <a class="lien" href={n > 0 && l.aFaire ? l.aFaire : l.href} title={n > 0 && l.aFaire ? `${n} à valider` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+              <a class="lien" href={n > 0 && l.aFaire ? l.aFaire : l.href} title={n > 0 && l.aFaire ? `${n} à contrôler` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
                 <Icone nom={l.icone} /><span class="t">{l.texte}</span>
                 {#if n > 0}<span class="compteur">{n}</span>{/if}
               </a>
