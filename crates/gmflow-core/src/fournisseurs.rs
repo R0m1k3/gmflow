@@ -567,13 +567,16 @@ pub struct Marque {
     pub id: i64,
     pub nom: String,
     pub noms_documents: Vec<String>,
+    /// Débuts de codes propres à la marque sur les documents du groupe (« LC » pour
+    /// « LC54023001 »).
+    pub prefixes_codes: Vec<String>,
 }
 
 /// Marques actives du groupe `groupe_id` (vide si la fiche n'est pas un groupe).
 pub async fn marques(pool: &PgPool, groupe_id: i64) -> sqlx::Result<Vec<Marque>> {
     sqlx::query_as!(
         Marque,
-        "select id, nom, noms_documents from fournisseur
+        "select id, nom, noms_documents, prefixes_codes from fournisseur
          where groupe_id = $1 and fusionne_dans is null order by id",
         groupe_id
     )
@@ -784,14 +787,54 @@ fn marque_de_nom<'a>(marques: &'a [Marque], nom: &str) -> Option<&'a Marque> {
         })
 }
 
-/// Marque d'un document d'un groupe, sans Claude : l'entité lue sur le document, sinon la
-/// mention « Dép. : X » du texte, sinon la seule marque dont un nom figure dans le texte.
+/// Préfixe de code nettoyé (« lc » → « LC ») ; `None` s'il est vide, trop long ou pas
+/// seulement fait de lettres et de chiffres.
+pub fn prefixe_code(p: &str) -> Option<String> {
+    let p = p.trim().to_uppercase();
+    (p.chars().all(|c| c.is_ascii_alphanumeric()) && (1..=8).contains(&p.len())).then_some(p)
+}
+
+/// Seule marque dont un préfixe commence un code du texte : le préfixe suivi d'au moins 4
+/// chiffres, collés ou après une espace (« LC54023001 », « LC 54023001 »). Aucune si aucun
+/// code ne correspond ou si des codes de plusieurs marques figurent dans le texte.
+pub fn marque_par_code<'a>(marques: &'a [Marque], texte: &str) -> Option<&'a Marque> {
+    let mots: Vec<String> = texte
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|m| !m.is_empty())
+        .map(str::to_uppercase)
+        .collect();
+    let chiffres = |s: &str| s.len() >= 4 && s.bytes().all(|b| b.is_ascii_digit());
+    let mut trouvees = marques.iter().filter(|m| {
+        m.prefixes_codes
+            .iter()
+            .filter_map(|p| prefixe_code(p))
+            .any(|p| {
+                mots.iter().enumerate().any(|(i, mot)| {
+                    mot.strip_prefix(p.as_str()).is_some_and(|reste| {
+                        chiffres(reste)
+                            || (reste.is_empty() && mots.get(i + 1).is_some_and(|s| chiffres(s)))
+                    })
+                })
+            })
+    });
+    match (trouvees.next(), trouvees.next()) {
+        (Some(m), None) => Some(m),
+        _ => None,
+    }
+}
+
+/// Marque d'un document d'un groupe, sans Claude : l'entité lue sur le document, sinon un code
+/// qui commence par le préfixe d'une seule marque, sinon la mention « Dép. : X » du texte,
+/// sinon la seule marque dont un nom figure dans le texte.
 pub fn marque_du_document<'a>(
     marques: &'a [Marque],
     texte: &str,
     entite_lue: Option<&str>,
 ) -> Option<&'a Marque> {
     if let Some(m) = entite_lue.and_then(|e| marque_de_nom(marques, e)) {
+        return Some(m);
+    }
+    if let Some(m) = marque_par_code(marques, texte) {
         return Some(m);
     }
     if let Some(m) = mention_entite(texte).and_then(|x| marque_de_nom(marques, &x)) {
@@ -1114,11 +1157,44 @@ mod tests {
     }
 
     #[test]
+    fn marque_par_prefixe_de_code() {
+        let m = |id, nom: &str, p: &str| Marque {
+            id,
+            nom: nom.into(),
+            noms_documents: Vec::new(),
+            prefixes_codes: vec![p.into()],
+        };
+        let l = [
+            m(1, "L3C", "LC"),
+            m(2, "Decor10", "ld"),
+            m(3, "Homea", "LH"),
+        ];
+        let id = |t: &str| marque_du_document(&l, t, None).map(|m| m.id);
+        assert_eq!(id("U10 SAS\nCode client : : LC54023001\nBL 1234"), Some(1));
+        assert_eq!(id("N° BL LD 00451287"), Some(2));
+        assert_eq!(id("bl-lh778812.pdf"), Some(3));
+        // Codes de deux marques : rien ne tranche.
+        assert_eq!(id("LC54023001 LH54023001"), None);
+        // Préfixe sans chiffres derrière, ou trop peu : pas un code.
+        assert_eq!(id("LCD 12 rue des Lilas LC12"), None);
+        assert_eq!(id("CLC54023001"), None);
+        // L'entité lue passe avant le code.
+        assert_eq!(
+            marque_du_document(&l, "LC54023001", Some("Homea")).map(|m| m.id),
+            Some(3)
+        );
+        assert_eq!(prefixe_code(" lc "), Some("LC".into()));
+        assert_eq!(prefixe_code("L-C"), None);
+        assert_eq!(prefixe_code(""), None);
+    }
+
+    #[test]
     fn marques_dans_le_texte() {
         let m = |id, nom: &str, autres: &[&str]| Marque {
             id,
             nom: nom.into(),
             noms_documents: autres.iter().map(|s| s.to_string()).collect(),
+            prefixes_codes: Vec::new(),
         };
         let l = [
             m(1, "L3C", &[]),
@@ -1191,6 +1267,7 @@ mod tests {
             id,
             nom: nom.into(),
             noms_documents: autres.iter().map(|s| s.to_string()).collect(),
+            prefixes_codes: Vec::new(),
         };
         let l = [m(1, "L3C", &[]), m(2, "Homea", &["HOMEA DECO"])];
         let id = |t: &str, e: Option<&str>| marque_du_document(&l, t, e).map(|m| m.id);

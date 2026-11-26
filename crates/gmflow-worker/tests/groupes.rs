@@ -357,3 +357,71 @@ async fn marque_du_cadre_sans_entite_lue() {
     assert_eq!(fournisseur_du(&b, d2).await, homea.id);
     assert_eq!(b.compter("select count(*) from fournisseur").await, 2);
 }
+
+/// BL U10 qui ne nomme pas la marque : le début du code client (« LC54023001 ») la désigne
+/// par le préfixe saisi sur la fiche de la marque, sans Claude.
+#[tokio::test]
+async fn marque_par_prefixe_du_code() {
+    let faux = FauxClaude::new();
+    let mut b = Banc::new().await;
+    let mut config = (*b.ctx.config).clone();
+    config.claude_bin = faux.bin();
+    b.ctx.config = std::sync::Arc::new(config);
+    let societe: i64 = sqlx::query_scalar(
+        "insert into societe (raison_sociale, siret) values ('Magasin Frouard', $1) returning id",
+    )
+    .bind(SIRET_A)
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    parametre::enregistrer_jeton_claude(b.pool(), &b.ctx.chiffreur, "sk-ant-oat01-test_prefixe")
+        .await
+        .unwrap();
+    let u10: i64 = sqlx::query_scalar(
+        "insert into fournisseur (nom, nom_normalise, tva, statut) values ('U10', 'u10', $1, 'valide')
+         returning id",
+    )
+    .bind(TVA_U10)
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    let mut marques = Vec::new();
+    for (nom, prefixe) in [("L3C", "LC"), ("Decor10", "LD"), ("Homea", "LH")] {
+        let id: i64 = sqlx::query_scalar(
+            "insert into fournisseur (nom, nom_normalise, groupe_id, prefixes_codes, statut)
+             values ($1, lower($1), $2, array[$3], 'valide') returning id",
+        )
+        .bind(nom)
+        .bind(u10)
+        .bind(prefixe)
+        .fetch_one(b.pool())
+        .await
+        .unwrap();
+        marques.push(id);
+    }
+
+    for (numero, code, marque) in [
+        ("4402311", "LC54023001", marques[0]),
+        ("4402312", "LH54023001", marques[2]),
+    ] {
+        faux.lira(
+            numero,
+            json!({ "nom": "U10", "siret": null, "tva": TVA_U10, "groupe": null, "entite": null }),
+        );
+        let d = lire_bl(
+            &b,
+            societe,
+            numero,
+            &[
+                "U10 SAS",
+                &format!("Code client : : {code}"),
+                &format!("BON DE LIVRAISON {numero}"),
+                "R1 Vase 2",
+            ],
+        )
+        .await;
+        assert_eq!(fournisseur_du(&b, d).await, marque, "BL {numero} ({code})");
+    }
+    // Aucune fiche créée en plus.
+    assert_eq!(b.compter("select count(*) from fournisseur").await, 4);
+}

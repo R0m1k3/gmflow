@@ -436,6 +436,8 @@ export interface Fournisseur {
   groupe: string | null;
   /** Noms cherchés dans le texte des documents du groupe pour reconnaître cette marque. */
   noms_documents: string[];
+  /** Débuts de codes qui désignent cette marque sur les documents du groupe (« LC »). */
+  prefixes_codes: string[];
   fusionne_dans: number | null;
   cree_le: string;
 }
@@ -446,6 +448,7 @@ export interface LigneMarque {
   nom: string;
   code_gestion: string | null;
   noms_documents: string[];
+  prefixes_codes: string[];
   statut: StatutFournisseur;
   nb_documents: number;
 }
@@ -962,7 +965,7 @@ export interface EntreeBoite {
 export type ChangementsFournisseur = Partial<
   Pick<Fournisseur, 'nom' | 'code_gestion' | 'siret' | 'tva' | 'domaines' | 'statut' | 'societe_defaut_id' | 'format_bl' | 'notes'
   | 'adresse' | 'telephone' | 'email' | 'interlocuteur' | 'conditions_paiement'
-  | 'groupe_id' | 'noms_documents'
+  | 'groupe_id' | 'noms_documents' | 'prefixes_codes'
 >
 >;
 

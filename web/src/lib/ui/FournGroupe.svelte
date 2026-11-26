@@ -49,6 +49,7 @@
   let nom = $state('');
   let code = $state('');
   let noms = $state('');
+  let prefixes = $state('');
   async function ajouter(e: SubmitEvent) {
     e.preventDefault();
     erreur = '';
@@ -58,11 +59,12 @@
         nom,
         code_gestion: code,
         noms_documents: decouper(noms),
+        prefixes_codes: prefixes.split(/[\n,;\s]+/).filter(Boolean),
         groupe_id: fiche.id,
         statut: 'valide'
       });
       info = `« ${nom.trim()} » ajouté au groupe`;
-      nom = code = noms = '';
+      nom = code = noms = prefixes = '';
       ajoutOuvert = false;
       await charger();
       onmodifie();
@@ -148,7 +150,8 @@
     {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
     {#if marques.length}
       <p class="aide-g">
-        Les factures et BL de {fiche.nom} vont à la marque dont le nom figure dans le document (par exemple « Dép. : L3C ») ; une marque inconnue
+        Les factures et BL de {fiche.nom} vont à la marque dont le nom figure dans le document (par exemple « Dép. : L3C ») ou dont
+        le préfixe commence un code (n° de BL, code client : LC54023001 pour le préfixe LC) ; une marque inconnue
         est ajoutée toute seule, à confirmer ; sinon Claude tranche, et dans le doute ils restent ici.
       </p>
       <div class="filets">
@@ -160,7 +163,12 @@
             </div>
             <div class="r num petit muted">{m.nb_documents} doc.</div>
             <div class="b petit muted">
-              {m.noms_documents.length ? `Repéré aussi par : ${m.noms_documents.join(', ')}` : 'Repéré par son nom'}
+              {[
+                m.noms_documents.length ? `Repéré aussi par : ${m.noms_documents.join(', ')}` : 'Repéré par son nom',
+                m.prefixes_codes.length ? `codes ${m.prefixes_codes.map((p) => p + '…').join(', ')}` : ''
+              ]
+                .filter(Boolean)
+                .join(' ; ')}
             </div>
           </a>
         {/each}
@@ -179,6 +187,13 @@
             >Autres écritures sur les documents <span class="muted">(facultatif, séparées par des virgules)</span><input
               bind:value={noms}
               placeholder="ex. HOMEA DECO, homea.fr"
+            /></label
+          >
+          <label class="plein"
+            >Préfixes des codes <span class="muted">(facultatif : début des n° de BL ou codes client de la marque)</span><input
+              class="num"
+              bind:value={prefixes}
+              placeholder="ex. LH"
             /></label
           >
           <div class="plein actions">

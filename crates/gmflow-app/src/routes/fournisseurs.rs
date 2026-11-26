@@ -190,6 +190,8 @@ pub struct Fiche {
     groupe: Option<String>,
     /// Noms à chercher dans le texte des documents du groupe pour reconnaître cette marque.
     noms_documents: Vec<String>,
+    /// Débuts de codes qui désignent cette marque sur les documents du groupe (« LC »).
+    prefixes_codes: Vec<String>,
     fusionne_dans: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
     cree_le: time::OffsetDateTime,
@@ -230,7 +232,7 @@ pub async fn fiche(
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, fusionne_dans, cree_le
+                  noms_documents, prefixes_codes, fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
@@ -273,6 +275,8 @@ pub struct Entree {
     groupe_id: Option<i64>,
     #[serde(default)]
     noms_documents: Vec<String>,
+    #[serde(default)]
+    prefixes_codes: Vec<String>,
 }
 
 fn a_confirmer() -> String {
@@ -385,6 +389,24 @@ impl Entree {
             }
             self.noms_documents = noms;
         }
+        if verifier("prefixes_codes") {
+            let mut prefixes = Vec::new();
+            for p in self.prefixes_codes.iter().filter(|p| !p.trim().is_empty()) {
+                let Some(p) = gmflow_core::fournisseurs::prefixe_code(p) else {
+                    return Err(faute(
+                        "prefixes_codes",
+                        format!(
+                            "préfixe « {} » invalide : 1 à 8 lettres ou chiffres",
+                            p.trim()
+                        ),
+                    ));
+                };
+                if !prefixes.contains(&p) {
+                    prefixes.push(p);
+                }
+            }
+            self.prefixes_codes = prefixes;
+        }
         Ok(self)
     }
 }
@@ -468,13 +490,13 @@ pub async fn creer(
         r#"insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
                                     societe_defaut_id, format_bl, notes, code_gestion,
                                     adresse, telephone, email, interlocuteur, conditions_paiement,
-                                    groupe_id, noms_documents)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                                    groupe_id, noms_documents, prefixes_codes)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, fusionne_dans, cree_le"#,
+                  noms_documents, prefixes_codes, fusionne_dans, cree_le"#,
         e.nom,
         normaliser(&e.nom),
         e.siret,
@@ -491,7 +513,8 @@ pub async fn creer(
         e.interlocuteur,
         e.conditions_paiement,
         e.groupe_id,
-        &e.noms_documents
+        &e.noms_documents,
+        &e.prefixes_codes
     )
     .fetch_one(&mut *tx)
     .await?;
@@ -562,6 +585,8 @@ pub struct Changements {
     groupe_id: Option<Option<i64>>,
     #[serde(default)]
     noms_documents: Option<Vec<String>>,
+    #[serde(default)]
+    prefixes_codes: Option<Vec<String>>,
 }
 
 impl Changements {
@@ -584,6 +609,7 @@ impl Changements {
             ("conditions_paiement", self.conditions_paiement.is_some()),
             ("groupe_id", self.groupe_id.is_some()),
             ("noms_documents", self.noms_documents.is_some()),
+            ("prefixes_codes", self.prefixes_codes.is_some()),
         ]
         .into_iter()
         .filter_map(|(c, present)| present.then_some(c))
@@ -601,7 +627,8 @@ pub async fn modifier_partiel(
 ) -> Resultat<Json<Fiche>> {
     let f = sqlx::query!(
         "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
-                adresse, telephone, email, interlocuteur, conditions_paiement, groupe_id, noms_documents
+                adresse, telephone, email, interlocuteur, conditions_paiement, groupe_id, noms_documents,
+                prefixes_codes
          from fournisseur where id = $1 and fusionne_dans is null",
         id
     )
@@ -626,6 +653,7 @@ pub async fn modifier_partiel(
         conditions_paiement: c.conditions_paiement.unwrap_or(f.conditions_paiement),
         groupe_id: c.groupe_id.unwrap_or(f.groupe_id),
         noms_documents: c.noms_documents.unwrap_or(f.noms_documents),
+        prefixes_codes: c.prefixes_codes.unwrap_or(f.prefixes_codes),
     };
     enregistrer(&etat, &a, id, e, |c| envoyes.contains(&c)).await
 }
@@ -666,13 +694,13 @@ async fn enregistrer(
               statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,
               code_gestion = $11, adresse = $12, telephone = $13, email = $14,
               interlocuteur = $15, conditions_paiement = $16, groupe_id = $17,
-              noms_documents = $18
+              noms_documents = $18, prefixes_codes = $19
            where id = $1 and fusionne_dans is null
            returning id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                      (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                      format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, fusionne_dans, cree_le"#,
+                  noms_documents, prefixes_codes, fusionne_dans, cree_le"#,
         id,
         e.nom,
         normaliser(&e.nom),
@@ -690,7 +718,8 @@ async fn enregistrer(
         e.interlocuteur,
         e.conditions_paiement,
         e.groupe_id,
-        &e.noms_documents
+        &e.noms_documents,
+        &e.prefixes_codes
     )
     .fetch_optional(&mut *tx)
     .await?
@@ -871,7 +900,7 @@ pub async fn fil(
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
                   groupe_id, (select g.nom from fournisseur g where g.id = fournisseur.groupe_id) as "groupe?",
-                  noms_documents, fusionne_dans, cree_le
+                  noms_documents, prefixes_codes, fusionne_dans, cree_le
            from fournisseur where id = $1"#,
         id
     )
@@ -1161,6 +1190,7 @@ pub struct LigneMarque {
     nom: String,
     code_gestion: Option<String>,
     noms_documents: Vec<String>,
+    prefixes_codes: Vec<String>,
     statut: String,
     nb_documents: i64,
 }
@@ -1177,7 +1207,7 @@ pub async fn marques(
     Ok(Json(
         sqlx::query_as!(
             LigneMarque,
-            r#"select f.id, f.nom, f.code_gestion, f.noms_documents, f.statut,
+            r#"select f.id, f.nom, f.code_gestion, f.noms_documents, f.prefixes_codes, f.statut,
                       (select count(*) from document d where d.fournisseur_id = f.id) as "nb_documents!"
                from fournisseur f where f.groupe_id = $1 and f.fusionne_dans is null order by f.nom"#,
             id
@@ -1194,8 +1224,8 @@ pub struct Repartition {
 }
 
 /// `POST /api/admin/fournisseurs/{id}/repartir` : les documents restés sur le groupe vont à
-/// leur marque sans Claude (entité lue, mention « Dép. : X », ou seule marque nommée dans le
-/// texte) ; les autres restent.
+/// leur marque sans Claude (entité lue, code au préfixe d'une marque, mention « Dép. : X », ou
+/// seule marque nommée dans le texte) ; les autres restent.
 pub async fn repartir(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
