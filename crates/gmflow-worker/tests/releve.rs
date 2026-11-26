@@ -323,6 +323,32 @@ async fn sante_et_battement() {
 }
 
 #[test]
+fn paquets_par_nombre_et_par_taille() {
+    let mo = 1024 * 1024;
+    // 3 par paquet au plus.
+    let uids: Vec<(u32, Option<u64>)> = (1..=7).map(|u| (u, Some(10))).collect();
+    assert_eq!(
+        releve::paquets(&uids, 3, 100 * mo),
+        vec![vec![1, 2, 3], vec![4, 5, 6], vec![7]]
+    );
+    // 10 Mo cumulés au plus ; un message plus gros part seul ; taille inconnue = 10 / 3 Mo.
+    let uids = [
+        (1, Some(4 * mo)),
+        (2, Some(4 * mo)),
+        (3, Some(4 * mo)),
+        (4, Some(30 * mo)),
+        (5, None),
+        (6, None),
+        (7, Some(mo)),
+    ];
+    assert_eq!(
+        releve::paquets(&uids, 3, 10 * mo),
+        vec![vec![1, 2], vec![3], vec![4], vec![5, 6, 7]]
+    );
+    assert!(releve::paquets(&[], 50, mo).is_empty());
+}
+
+#[test]
 fn date_reprise() {
     let d = releve::date_reprise(3);
     assert!(d.split('-').count() == 3, "{d}");

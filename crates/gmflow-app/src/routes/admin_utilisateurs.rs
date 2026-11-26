@@ -83,6 +83,7 @@ pub async fn creer(
     let Some(m) = e.mot_de_passe.clone() else {
         return Err(ErreurApi::Donnees("mot de passe obligatoire".into()));
     };
+    identifiant_libre(&etat, &e.identifiant, None).await?;
     let hash = mdp::hacher_async(m).await?;
     let mut tx = etat.pool.begin().await?;
     let u = sqlx::query_as!(
@@ -110,6 +111,27 @@ pub async fn creer(
     Ok(Json(u))
 }
 
+/// La connexion ne distingue pas « Marie » de « marie » : deux comptes ne peuvent pas porter le
+/// même identifiant à la casse près (l'index `utilisateur_identifiant_casse` le garantit aussi
+/// quand la base n'avait pas déjà de tels doublons).
+async fn identifiant_libre(etat: &Etat, identifiant: &str, sauf: Option<i64>) -> Resultat<()> {
+    let pris = sqlx::query_scalar!(
+        r#"select exists (select 1 from utilisateur
+                          where lower(identifiant) = lower($1) and id is distinct from $2) as "e!""#,
+        identifiant,
+        sauf
+    )
+    .fetch_one(&etat.pool)
+    .await?;
+    if pris {
+        return Err(ErreurApi::Champ {
+            champ: "identifiant",
+            message: "cet identifiant existe déjà (majuscules et minuscules confondues)".into(),
+        });
+    }
+    Ok(())
+}
+
 pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
@@ -122,6 +144,7 @@ pub async fn modifier(
             "vous ne pouvez pas retirer vos propres droits d'administrateur".into(),
         ));
     }
+    identifiant_libre(&etat, &e.identifiant, Some(id)).await?;
     let hash = match e.mot_de_passe.clone() {
         Some(m) => Some(mdp::hacher_async(m).await?),
         None => None,

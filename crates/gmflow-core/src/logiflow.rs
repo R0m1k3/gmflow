@@ -70,7 +70,9 @@ fn source_la_plus_profonde(e: &(dyn std::error::Error + 'static)) -> String {
 
 impl Client {
     pub fn new(adresse: &str, jeton: Option<&str>) -> Result<Self, String> {
+        // Jamais de redirection suivie : la clé ne part qu'à l'adresse saisie.
         let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .user_agent("GMFlow")
@@ -104,6 +106,9 @@ impl Client {
                 .json::<Value>()
                 .await
                 .map_err(|_| "réponse illisible (JSON attendu)".to_string());
+        }
+        if (300..400).contains(&s) {
+            return Err(crate::serveur_api::redirection_refusee(&r));
         }
         // Logiflow détaille ses refus dans `message` ou `error`.
         let detail = r

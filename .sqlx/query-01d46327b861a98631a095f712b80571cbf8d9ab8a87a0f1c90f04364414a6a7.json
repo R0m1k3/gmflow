@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with closes as (\n             select id, libelle, coalesce(derniere_releve > alerte_silence_le, false) as reprise\n             from boite_mail\n             where alerte_silence_le is not null\n               and (derniere_releve > alerte_silence_le or not active or pause_auto\n                    or erreur_depuis is not null)\n             for update\n           )\n           update boite_mail b set alerte_silence_le = null from closes c where b.id = c.id\n           returning c.libelle, c.reprise as \"reprise!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "libelle",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "boite_mail",
+            "name": "libelle"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "reprise!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "01d46327b861a98631a095f712b80571cbf8d9ab8a87a0f1c90f04364414a6a7"
+}

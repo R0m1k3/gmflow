@@ -322,6 +322,90 @@ pub async fn envois_interrompus(pool: &PgPool) -> anyhow::Result<Vec<i64>> {
     Ok(ids)
 }
 
+/// Une boîte active, sans erreur, pas relevée depuis ce temps : la relève s'est arrêtée sans
+/// rien dire (file bloquée, tâche coincée).
+pub const SILENCE_MINUTES: i32 = 60;
+
+/// Boîtes actives et non en pause, sans erreur enregistrée, dont la dernière relève réussie
+/// (ou l'activation, ou la création) date de plus d'une heure et qu'aucune relève ne tient en
+/// ce moment : une alerte par incident (`alerte_silence_le`), puis un mail quand la relève
+/// reprend. Appelée directement par le planificateur, sans passer par les files apalis : elle
+/// prévient même si les files sont bloquées.
+pub async fn releves_muettes(ctx: &Contexte) -> anyhow::Result<()> {
+    let pool = &ctx.pool;
+    let reprises = sqlx::query!(
+        r#"with closes as (
+             select id, libelle, coalesce(derniere_releve > alerte_silence_le, false) as reprise
+             from boite_mail
+             where alerte_silence_le is not null
+               and (derniere_releve > alerte_silence_le or not active or pause_auto
+                    or erreur_depuis is not null)
+             for update
+           )
+           update boite_mail b set alerte_silence_le = null from closes c where b.id = c.id
+           returning c.libelle, c.reprise as "reprise!""#
+    )
+    .fetch_all(pool)
+    .await?;
+    let noms: Vec<&str> = reprises
+        .iter()
+        .filter(|r| r.reprise)
+        .map(|r| r.libelle.as_str())
+        .collect();
+    if !noms.is_empty() {
+        alerter_sans_echec(
+            ctx,
+            "relève IMAP repartie",
+            &format!("La relève a repris pour : {}.", noms.join(", ")),
+        )
+        .await;
+    }
+    let muettes = sqlx::query!(
+        r#"select id, libelle,
+                  to_char(derniere_releve at time zone 'Europe/Paris', 'DD/MM/YYYY à HH24:MI') as derniere
+           from boite_mail
+           where active and not pause_auto and erreur_depuis is null and alerte_silence_le is null
+             and greatest(derniere_releve, activee_le, cree_le) < now() - make_interval(mins => $1)
+             and (releve_jusqu_a is null or releve_jusqu_a < now())
+           order by id"#,
+        SILENCE_MINUTES
+    )
+    .fetch_all(pool)
+    .await?;
+    if muettes.is_empty() {
+        return Ok(());
+    }
+    let mut corps = format!(
+        "Ces boîtes n'ont pas été relevées depuis plus de {} minutes, sans erreur enregistrée :\n\n",
+        SILENCE_MINUTES
+    );
+    for b in &muettes {
+        corps.push_str(&format!(
+            "- {} : {}\n",
+            b.libelle,
+            match &b.derniere {
+                Some(d) => format!("dernière relève le {d}"),
+                None => "jamais relevée".into(),
+            }
+        ));
+    }
+    corps.push_str(
+        "\nLe worker tourne (ce message vient de lui), mais les relèves n'aboutissent plus : \
+         file bloquée ou tâche coincée. Redémarrer le worker les relance. Un mail de suivi partira \
+         quand la relève reprendra.",
+    );
+    if alerter(ctx, "relève IMAP arrêtée", &corps).await? {
+        let ids: Vec<i64> = muettes.iter().map(|b| b.id).collect();
+        sqlx::query!(
+            "update boite_mail set alerte_silence_le = now() where id = any($1)",
+            &ids
+        )
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Tâche `Alertes` (à chaque tour du planificateur) : envois interrompus, boîtes en échec
 /// depuis plus de 30 min (une alerte par incident), boîtes rétablies.
 pub async fn alertes(ctx: &Contexte) -> anyhow::Result<()> {

@@ -34,8 +34,18 @@ pub enum ErreurApi {
 pub type Resultat<T> = Result<T, ErreurApi>;
 
 impl From<sqlx::Error> for ErreurApi {
+    /// `RowNotFound` (un `fetch_one` sans ligne) reste un 404 pour l'utilisateur, mais il est
+    /// écrit dans les logs avec l'endroit du `?` : une requête qui devait toujours rendre une
+    /// ligne (bug) ne passe plus inaperçue derrière un « introuvable ».
+    #[track_caller]
     fn from(e: sqlx::Error) -> Self {
         if let sqlx::Error::RowNotFound = e {
+            let ou = std::panic::Location::caller();
+            tracing::warn!(
+                fichier = ou.file(),
+                ligne = ou.line(),
+                "aucune ligne (fetch_one) : réponse 404"
+            );
             return ErreurApi::Absent;
         }
         if let Some(db) = e.as_database_error() {

@@ -551,6 +551,11 @@ fn avec_anomalies(mut lu: Lu, anomalies: Vec<String>) -> Lu {
     lu
 }
 
+/// Réglages du CLI pour une lecture avec fichier : l'outil Read refuse tout chemin hors du
+/// dossier de travail, quel que soit le mode de permission.
+pub const REGLAGES_LECTURE: &str =
+    r#"{"permissions":{"blockReadsOutsideWorkingDirectories":true}}"#;
+
 /// Un appel de lecture. `Ok(Err(..))` : réponse reçue mais non conforme.
 async fn appel_lecture(
     ctx: &Contexte,
@@ -571,7 +576,19 @@ async fn appel_lecture(
         "--disable-slash-commands",
     ];
     if avec_fichier.is_some() {
-        args.extend(["--tools", "Read", "--allowedTools", "Read"]);
+        // Read limité au dossier jetable de la pièce (dossier de travail du CLI) : une pièce
+        // piégée ne fait pas lire au modèle les fichiers du worker (`/proc/…/environ`, clés).
+        // `dontAsk` refuse tout ce qui n'est pas autorisé au lieu de demander.
+        args.extend([
+            "--tools",
+            "Read",
+            "--allowedTools",
+            "Read(./**)",
+            "--permission-mode",
+            "dontAsk",
+            "--settings",
+            REGLAGES_LECTURE,
+        ]);
     } else {
         args.extend(["--tools", ""]);
     }

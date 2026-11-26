@@ -1,7 +1,10 @@
 //! Réinitialisation : efface tout ce qui a été tiré des mails (mails, pièces, documents,
-//! fournisseurs, rapprochements, envois, réponses, historique, appels à Claude, tâches en
-//! attente) et garde la configuration saisie (sociétés, boîtes mail, utilisateurs, réglages,
-//! connexion à Claude, expéditeurs publicitaires, sessions). Les relèves repartent ensuite de
+//! fournisseurs, rapprochements, réponses, tâches en attente) et garde la configuration saisie
+//! (sociétés, boîtes mail, utilisateurs, réglages, connexion à Claude, expéditeurs publicitaires,
+//! sessions) ainsi que les preuves : l'historique (`journal`, où la réinitialisation s'inscrit
+//! elle-même), les dépôts Dext/Yooz (copiés dans `envoi_depot_archive` avec le numéro, le
+//! fournisseur et le montant de la pièce, avant d'effacer `envoi_depot` qui pointe vers
+//! `document`) et les appels à Claude (`appel_claude`, qui compte aussi le quota du jour). Les relèves repartent ensuite de
 //! la date du jour (`boite_mail.reprise_depuis`) : seuls les mails du jour reviennent, pas
 //! l'historique de `reprise_mois`. Les `.eml` restent sur disque : la relève les réécrit au même chemin.
 //!
@@ -34,8 +37,6 @@ pub const TABLES_EFFACEES: &[&str] = &[
     "mail_boite",
     "boite_dossier",
     "mail",
-    "journal",
-    "appel_claude",
 ];
 
 /// Un envoi plus ancien est tenu pour interrompu (même délai que le worker).
@@ -102,6 +103,28 @@ pub async fn reinitialiser(pool: &PgPool, auteur_id: Option<i64>) -> Result<Bila
     Ok(bilan)
 }
 
+/// Copie les dépôts Dext/Yooz dans `envoi_depot_archive` (qui a envoyé quoi, où, quand), avec
+/// le numéro, le fournisseur et le montant de la pièce. Rend le nombre de lignes copiées.
+async fn archiver_envois(tx: &mut sqlx::PgConnection) -> Result<u64, sqlx::Error> {
+    Ok(sqlx::query!(
+        "insert into envoi_depot_archive
+             (envoi_id, document_id, societe_id, adresse, outil, quand, etat, message,
+              message_id_smtp, auteur_id, document_type, document_numero, document_date,
+              montant_ttc, fournisseur_nom, nom_fichier)
+         select e.id, e.document_id, e.societe_id, e.adresse, e.outil, e.quand, e.etat, e.message,
+                e.message_id_smtp, e.auteur_id, d.type, d.numero, d.date_document, d.montant_ttc,
+                f.nom, p.nom
+         from envoi_depot e
+         join document d on d.id = e.document_id
+         left join fournisseur f on f.id = d.fournisseur_id
+         left join piece_jointe p on p.id = d.piece_jointe_id
+         order by e.id"
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected())
+}
+
 async fn effacer(pool: &PgPool, auteur_id: Option<i64>) -> Result<Bilan, Refus> {
     let mut tx = pool.begin().await?;
     sqlx::query("set local lock_timeout = '10s'")
@@ -146,6 +169,7 @@ async fn effacer(pool: &PgPool, auteur_id: Option<i64>) -> Result<Bilan, Refus> 
     .fetch_one(&mut *tx)
     .await
     .map(|r| (r.mails, r.documents, r.fournisseurs))?;
+    let envois_archives = archiver_envois(&mut tx).await?;
     sqlx::query(sqlx::AssertSqlSafe(format!("truncate table {liste}")))
         .execute(&mut *tx)
         .await?;
@@ -171,7 +195,8 @@ async fn effacer(pool: &PgPool, auteur_id: Option<i64>) -> Result<Bilan, Refus> 
     // de la réinitialisation, heure de Paris) la limite aux mails du jour.
     sqlx::query!(
         "update boite_mail set releve_jusqu_a = null, derniere_releve = null, derniere_erreur = null,
-             erreur_depuis = null, alerte_le = null, echecs_auth = 0, pause_auto = false,
+             erreur_depuis = null, alerte_le = null, alerte_silence_le = null, echecs_auth = 0,
+             pause_auto = false,
              reprise_depuis = (now() at time zone 'Europe/Paris')::date"
     )
     .execute(&mut *tx)
@@ -183,7 +208,13 @@ async fn effacer(pool: &PgPool, auteur_id: Option<i64>) -> Result<Bilan, Refus> 
         "reinitialisation",
         "donnees",
         None,
-        json!({ "mails": mails, "documents": documents, "fournisseurs": fournisseurs, "taches": taches }),
+        json!({
+            "mails": mails,
+            "documents": documents,
+            "fournisseurs": fournisseurs,
+            "taches": taches,
+            "envois_archives": envois_archives,
+        }),
     )
     .await?;
     tx.commit().await?;

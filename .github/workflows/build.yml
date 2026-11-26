@@ -1,25 +1,82 @@
 name: Images
 
+# Les images ne sont publiées que pour un commit de `main` dont la CI a réussi :
+# - après chaque CI réussie d'un push sur `main` (`workflow_run`) ;
+# - chaque lundi (embarque la dernière Claude CLI et les images de base à jour) et à la main,
+#   pour la tête de `main`, si sa CI a réussi.
+# Un commit qui n'est plus la tête de `main` n'est pas publié : `:latest` ne recule jamais quand
+# deux CI finissent dans le désordre. Tags : `:latest` et `sha-<court>`.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   schedule:
-    # Chaque lundi à 4 h UTC : embarque la dernière Claude CLI et les images de base à jour.
     - cron: "0 4 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
+  actions: read
 
 jobs:
+  verifier:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.choix.outputs.sha }}
+      court: ${{ steps.choix.outputs.court }}
+      publier: ${{ steps.choix.outputs.publier }}
+    steps:
+      - id: choix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENEMENT: ${{ github.event_name }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CI_EVENEMENT: ${{ github.event.workflow_run.event }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -eu
+          tete=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          publier=false
+          if [ "$EVENEMENT" = "workflow_run" ]; then
+            sha="$CI_SHA"
+            if [ "$CI_CONCLUSION" != "success" ] || [ "$CI_EVENEMENT" != "push" ]; then
+              echo "CI $CI_CONCLUSION ($CI_EVENEMENT) : rien n'est publié"
+            elif [ "$sha" != "$tete" ]; then
+              echo "$sha n'est plus la tête de main ($tete) : rien n'est publié"
+            else
+              publier=true
+            fi
+          else
+            sha="$tete"
+            ok=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$sha&event=push&status=success&per_page=1" --jq '.total_count')
+            if [ "$ok" -gt 0 ]; then
+              publier=true
+            else
+              echo "pas de CI réussie pour $sha : rien n'est publié"
+            fi
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "court=$(printf %s "$sha" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "publier=$publier" >> "$GITHUB_OUTPUT"
+
   publier:
+    needs: verifier
+    if: needs.verifier.outputs.publier == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         cible: [app, worker]
+    # Une publication par cible à la fois ; la plus récente annule celle en cours.
+    concurrency:
+      group: images-${{ matrix.cible }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.verifier.outputs.sha }}
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -32,7 +89,7 @@ jobs:
           images: ghcr.io/r0m1k3/gmflow-${{ matrix.cible }}
           tags: |
             type=raw,value=latest
-            type=sha,prefix=sha-,format=short
+            type=raw,value=sha-${{ needs.verifier.outputs.court }}
       - uses: docker/build-push-action@v6
         with:
           context: .

@@ -364,6 +364,19 @@ async fn facture_sans_ttc_relue_par_sonnet_avec_le_pdf() {
     let second = &appels[1];
     assert!(second.contains("le montant TTC manque"), "{second}");
     assert!(second.contains("--tools\nRead\n"), "{second}");
+    // Read limité au dossier jetable de la pièce, le reste refusé sans demander.
+    assert!(
+        second.contains("--allowedTools\nRead(./**)\n--permission-mode\ndontAsk\n"),
+        "{second}"
+    );
+    assert!(
+        second.contains(&format!(
+            "--settings\n{}\n",
+            gmflow_worker::lecture::REGLAGES_LECTURE
+        )),
+        "{second}"
+    );
+    assert!(!second.contains("--bare"), "{second}");
     assert!(
         second.contains("document.pdf"),
         "PDF joint au nouvel essai : {second}"
@@ -448,6 +461,23 @@ async fn quota_atteint_ou_jeton_absent_le_document_attend() {
             .starts_with("Claude n’est pas connecté"),
         "{:?}",
         d.message
+    );
+    // `lire_tout` rend la main dès le message écrit, avant que la tâche soit marquée finie : tant
+    // qu'apalis la voit en cours, la pompe ne repousse pas le document (cause de l'instabilité
+    // en CI : document resté « a_lire » à la fin).
+    let pool = b.pool().clone();
+    assert!(
+        attendre(Duration::from_secs(30), || {
+            let pool = pool.clone();
+            async move {
+                gmflow_core::file::documents_en_file(&pool)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            }
+        })
+        .await,
+        "tâche de lecture jamais finie"
     );
     // Jeton présent mais quota à 0 : toujours en attente, sans appel.
     jeton(&b).await;
