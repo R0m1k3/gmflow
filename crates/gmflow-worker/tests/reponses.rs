@@ -692,3 +692,61 @@ async fn tri_appris_des_classements_a_la_main() {
     );
     b.fermer().await;
 }
+
+#[tokio::test]
+async fn purge_des_taches_terminees() {
+    let b = Banc::new().await;
+    for _ in 0..6 {
+        file::pousser_envoi(b.pool(), TacheEnvoi::Alertes)
+            .await
+            .unwrap();
+    }
+    let ids: Vec<String> = sqlx::query_scalar(
+        "select id::text from apalis.jobs where job_type = $1 order by run_at, id",
+    )
+    .bind(file::FILE_ENVOI)
+    .fetch_all(b.pool())
+    .await
+    .unwrap();
+    assert_eq!(ids.len(), 6);
+    // (statut, essais, essais max, fini il y a n jours) ; la dernière reste en attente.
+    let etats = [
+        ("Done", 1, 1, Some(8)),
+        ("Done", 1, 1, Some(1)),
+        ("Failed", 1, 1, Some(8)),
+        ("Failed", 1, 3, Some(8)),
+        ("Killed", 1, 1, Some(8)),
+    ];
+    for (id, (statut, essais, max, jours)) in ids.iter().zip(etats) {
+        sqlx::query(
+            "update apalis.jobs set status = $2, attempts = $3, max_attempts = $4,
+                 done_at = now() - make_interval(days => $5)
+             where id::text = $1",
+        )
+        .bind(id)
+        .bind(statut)
+        .bind(essais)
+        .bind(max)
+        .bind(jours)
+        .execute(b.pool())
+        .await
+        .unwrap();
+    }
+    let n = purge::taches_terminees(b.pool(), purge::TACHES_JOURS)
+        .await
+        .unwrap();
+    assert_eq!(
+        n, 3,
+        "réussie, échouée sans essai restant et abandonnée, vieilles de 8 jours"
+    );
+    let restants: Vec<String> =
+        sqlx::query_scalar("select id::text from apalis.jobs where job_type = $1")
+            .bind(file::FILE_ENVOI)
+            .fetch_all(b.pool())
+            .await
+            .unwrap();
+    for i in [1, 3, 5] {
+        assert!(restants.contains(&ids[i]), "tâche {i} gardée");
+    }
+    b.fermer().await;
+}

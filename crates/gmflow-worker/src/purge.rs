@@ -1,5 +1,6 @@
-//! Conservation : les mails classés en publicité sont supprimés au bout de 90 jours (cahier des
-//! charges, RGPD). Un mail reste s'il porte une facture, un avoir, un BL ou un document passé
+//! Conservation : les tâches apalis terminées sont supprimées au bout de 7 jours (la table
+//! grossit d'environ 1 000 lignes par jour) ; les mails classés en publicité au bout de 90 jours
+//! (cahier des charges, RGPD). Un mail reste s'il porte une facture, un avoir, un BL ou un document passé
 //! par le dépôt, ou s'il a un brouillon de réponse. Le `.eml` n'est effacé que si plus aucun
 //! mail ne le désigne.
 
@@ -10,6 +11,7 @@ use serde_json::json;
 use sqlx::PgPool;
 
 pub const PUBLICITES_JOURS: i32 = 90;
+pub const TACHES_JOURS: i32 = 7;
 const CLE: &str = "purge_le";
 
 /// Supprime les publicités de plus de `jours` jours. Rend le nombre de mails supprimés.
@@ -66,7 +68,26 @@ pub async fn publicites(pool: &PgPool, racine: &Path, jours: i32) -> anyhow::Res
     Ok(n)
 }
 
-/// Lance la purge si la dernière date de plus de 24 h.
+/// Supprime les tâches apalis finies depuis plus de `jours` jours : réussies (`Done`), abandonnées
+/// (`Killed`) ou en échec sans essai restant. Une tâche en attente, en cours ou qui sera
+/// réessayée n'est jamais touchée. Rend le nombre de tâches supprimées.
+pub async fn taches_terminees(pool: &PgPool, jours: i32) -> anyhow::Result<u64> {
+    let n = sqlx::query!(
+        "delete from apalis.jobs
+         where done_at < now() - make_interval(days => $1)
+           and (status in ('Done', 'Killed') or (status = 'Failed' and attempts >= max_attempts))",
+        jours
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if n > 0 {
+        tracing::info!(taches = n, "tâches terminées purgées");
+    }
+    Ok(n)
+}
+
+/// Lance les purges si la dernière date de plus de 24 h.
 pub async fn si_due(pool: &PgPool, racine: &Path) -> anyhow::Result<()> {
     let due = sqlx::query_scalar!(
         r#"select not exists (
@@ -80,7 +101,10 @@ pub async fn si_due(pool: &PgPool, racine: &Path) -> anyhow::Result<()> {
     if !due {
         return Ok(());
     }
+    // Une purge en échec n'empêche pas l'autre.
+    let taches = taches_terminees(pool, TACHES_JOURS).await;
     publicites(pool, racine, PUBLICITES_JOURS).await?;
+    taches?;
     let quand =
         time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339)?;
     parametre::ecrire(pool, CLE, &json!({ "quand": quand })).await?;
