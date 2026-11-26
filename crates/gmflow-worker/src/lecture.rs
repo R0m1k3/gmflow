@@ -193,7 +193,7 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
     gmflow_core::rapprochement::ecrire_lignes(&mut tx, id, &lu.lignes).await?;
     sqlx::query!(
         "update document set numeros_bl = $2, lignes_lues = $3, magasin_verifie_le = null,
-                             magasin_erreur = null, date_echeance = $4
+                             magasin_erreur = null, date_echeance = $4, essais_lecture = 0
          where id = $1",
         id,
         &lu.numeros_bl,
@@ -347,6 +347,51 @@ async fn remettre(pool: &PgPool, id: i64, voie: Voie, message: &str) -> anyhow::
     Ok(())
 }
 
+/// Essais de suite en échec technique (délai dépassé, panne) avant que le document passe en
+/// erreur, au lieu d'être relancé toutes les 30 minutes sans fin.
+pub const ESSAIS_PANNE_MAX: i32 = 3;
+
+/// Appel de lecture en échec technique. Refus (limite d'usage, jeton refusé) : le document
+/// attend la reprise, sans compter d'essai. Délai dépassé ou panne : un essai de plus ; au
+/// `ESSAIS_PANNE_MAX`e, erreur avec une phrase lisible (le détail part au journal).
+async fn apres_panne(
+    pool: &PgPool,
+    id: i64,
+    voie: Voie,
+    e: &ErreurClaude,
+) -> anyhow::Result<Lecture> {
+    if claude::refus(e).is_none() {
+        let n = sqlx::query_scalar!(
+            "update document set essais_lecture = essais_lecture + 1 where id = $1
+             returning essais_lecture",
+            id
+        )
+        .fetch_one(pool)
+        .await?;
+        if n >= ESSAIS_PANNE_MAX {
+            tracing::warn!(document = id, essais = n, erreur = %e, "lecture abandonnée après des pannes");
+            return Ok(Lecture::Echec(Lu {
+                etat: "erreur",
+                voie: Some(voie.code()),
+                message: Some(message_abandon(n, e)),
+                confiance: json!({}),
+                ..Default::default()
+            }));
+        }
+    }
+    remettre(pool, id, voie, &message_echec(pool, e).await).await?;
+    Ok(Lecture::Reportee)
+}
+
+/// Phrase d'un document abandonné après `n` pannes.
+fn message_abandon(n: i32, e: &ErreurClaude) -> String {
+    let cause = match e {
+        ErreurClaude::Delai(_) => "Claude n’a pas répondu à temps (délai dépassé)",
+        _ => "Claude était en panne ou injoignable",
+    };
+    format!("Lecture abandonnée après {n} essais : {cause}. Relancez la lecture pour réessayer.")
+}
+
 /// Reprend le résultat d'un document au contenu identique déjà lu. Rend vrai si c'est fait.
 async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Result<bool> {
     let Some(source) = sqlx::query_scalar!(
@@ -374,7 +419,7 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
             s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur,
             s.date_echeance
             from document s where s.id = $2),
-          copie_de = $2, pris_le = null, lu_le = now()
+          copie_de = $2, pris_le = null, lu_le = now(), essais_lecture = 0
          where d.id = $1",
         id,
         source
@@ -895,9 +940,9 @@ async fn lire_par_claude(
                 None
             }
             Err(e) => {
-                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
-                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
-                return Ok(Lecture::Reportee);
+                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes (au
+                // plus ESSAIS_PANNE_MAX fois de suite pour une panne).
+                return apres_panne(pool, id, voie, &e).await;
             }
         }
     };
@@ -975,8 +1020,7 @@ async fn lire_par_claude(
         Err(e) => {
             tracing::warn!(document = id, erreur = %e, "nouvel essai de lecture impossible");
             if premiere.is_none() && !matches!(e, ErreurClaude::JsonInvalide) {
-                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
-                return Ok(Lecture::Reportee);
+                return apres_panne(pool, id, voie, &e).await;
             }
             e.to_string()
         }
@@ -1018,5 +1062,14 @@ mod tests {
         };
         avoir_en_positif(&mut lu);
         assert_eq!(lu.ttc, Some(-12.0));
+    }
+
+    #[test]
+    fn phrase_d_abandon_lisible() {
+        assert_eq!(
+            message_abandon(3, &ErreurClaude::Delai(300)),
+            "Lecture abandonnée après 3 essais : Claude n’a pas répondu à temps (délai dépassé). \
+             Relancez la lecture pour réessayer."
+        );
     }
 }

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set essais_lecture = essais_lecture + 1 where id = $1\n             returning essais_lecture",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "essais_lecture",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "essais_lecture"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2ba1964afb1af26fbda0e9b6fcc37dc91fd8fcede7025d881defafd717dac1fd"
+}
