@@ -166,9 +166,10 @@
 
 <div class="page bilan">
   <div class="page-h">
-    <h1>Bilan du mois</h1>
+    <h1>Bilan du mois <span class="imprime-seul">: {libelleMois(mois)}</span></h1>
     <span class="sp"></span>
-    <nav class="choix-mois" aria-label="Mois">
+    <button type="button" class="btn sm pas-imprime" onclick={() => window.print()}>Imprimer</button>
+    <nav class="choix-mois pas-imprime" aria-label="Mois">
       <a class="btn sm fantome" href={lienMois(precedent)} data-sveltekit-reset="false" aria-label="Mois précédent" title="Mois précédent (←)"
         ><Icone nom="gauche" /></a
       >
