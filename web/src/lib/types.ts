@@ -1076,3 +1076,25 @@ export interface EtatExportPhenix {
   matrice: { rangees: number; alertes: AlerteExport[] };
   trame: { rangees: number; alertes: AlerteExport[] };
 }
+
+/** GET /api/fournisseurs/{id}/ibans : IBAN connus (masqués), de la fiche et de son groupe. */
+export interface IbanConnu {
+  id: number;
+  /** « FR76…1234 » */
+  iban: string;
+  pays: string;
+  bic: string | null;
+  /** `validation` : première facture validée ; `confirmation` : « C'est le bon IBAN ». */
+  origine: 'validation' | 'confirmation';
+  document_id: number | null;
+  premiere_vue_le: string | null;
+  ajoute_le: string;
+  ajoute_par: string | null;
+  du_groupe: boolean;
+}
+
+/** POST /api/admin/documents/{id}/iban/confirmer */
+export interface ConfirmationIban {
+  ajoute: boolean;
+  statut_depot: StatutDepot | null;
+}

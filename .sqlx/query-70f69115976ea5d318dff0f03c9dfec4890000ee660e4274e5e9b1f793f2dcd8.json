@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select iban, fournisseur_id from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "iban"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "70f69115976ea5d318dff0f03c9dfec4890000ee660e4274e5e9b1f793f2dcd8"
+}

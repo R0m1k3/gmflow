@@ -123,6 +123,7 @@
   import Etiquette from './Etiquette.svelte';
   import FournEtat from './FournEtat.svelte';
   import FournGroupe from './FournGroupe.svelte';
+  import FournIban from './FournIban.svelte';
   import Aide from '#lib/ui/Aide.svelte';
   import Icone from './Icone.svelte';
   import { phraseEcartLigne } from './DocOutils.ts';
@@ -664,6 +665,8 @@
     {#if f.groupe_id === null}
       <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
     {/if}
+
+    <FournIban {id} {admin} />
 
     <section class="sec-f" aria-labelledby="ar-{id}">
       <h3 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}<Aide sujet="rapprochement" /></h3>

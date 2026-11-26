@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update fournisseur_iban s set fournisseur_id = $2\n         where s.fournisseur_id = $1\n           and not exists (select 1 from fournisseur_iban c where c.fournisseur_id = $2 and c.iban = s.iban)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d70d637ea2bc1cd5f345cc77b2c52a1a33c6d0c3d2709db7bb9bb62521797ba"
+}

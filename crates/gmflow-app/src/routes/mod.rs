@@ -16,6 +16,7 @@ pub mod documents;
 pub mod export_phenix;
 pub mod fichiers;
 pub mod fournisseurs;
+pub mod iban;
 pub mod mails;
 pub mod mise_en_route;
 pub mod rapprochement;
@@ -184,6 +185,15 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/fournisseurs/{id}", get(fournisseurs::fiche))
         .route("/fournisseurs/{id}/fil", get(fournisseurs::fil))
         .route("/fournisseurs/{id}/marques", get(fournisseurs::marques))
+        .route("/fournisseurs/{id}/ibans", get(iban::lister))
+        .route(
+            "/admin/fournisseurs/{id}/ibans/{iban_id}",
+            delete(iban::retirer),
+        )
+        .route(
+            "/admin/documents/{id}/iban/confirmer",
+            post(iban::confirmer),
+        )
         .route(
             "/admin/fournisseurs/{id}/repartir",
             post(fournisseurs::repartir),

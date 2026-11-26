@@ -38,6 +38,9 @@ pub struct DonneesXml {
     pub numeros_bl: Vec<String>,
     /// Devise des montants (`EUR`…), quand le XML la donne.
     pub devise: Option<String>,
+    /// IBAN et BIC du compte du vendeur (moyen de paiement), tels qu'écrits.
+    pub iban: Option<String>,
+    pub bic: Option<String>,
     /// Plus de `LIGNES_MAX` lignes : les suivantes ne sont pas gardées.
     pub lignes_tronquees: bool,
     /// Quantité de base du prix de chaque ligne (prix pour 100 unités…), dans l'ordre des lignes.
@@ -340,6 +343,14 @@ fn cii(
                 if d.echeance.is_none() {
                     d.echeance = date_iso(v)
                 }
+            } else if let Some(s) = c.strip_prefix(
+                "SupplyChainTradeTransaction/ApplicableHeaderTradeSettlement/SpecifiedTradeSettlementPaymentMeans/",
+            ) {
+                match s {
+                    "PayeePartyCreditorFinancialAccount/IBANID" => remplir(&mut d.iban, v),
+                    "PayeeSpecifiedCreditorFinancialInstitution/BICID" => remplir(&mut d.bic, v),
+                    _ => {}
+                }
             } else if let Some(s) = c.strip_prefix(TOTAUX) {
                 match s {
                     "TaxBasisTotalAmount" => remplir_montant(&mut d.montant_ht, v),
@@ -441,6 +452,10 @@ fn ubl(
         "LegalMonetaryTotal/TaxInclusiveAmount" => remplir_montant(&mut d.montant_ttc, v),
         "LegalMonetaryTotal/AllowanceTotalAmount" => remplir_montant(&mut d.remise_ht, v),
         "LegalMonetaryTotal/ChargeTotalAmount" => remplir_montant(&mut d.annexes_ht, v),
+        "PaymentMeans/PayeeFinancialAccount/ID" => remplir(&mut d.iban, v),
+        "PaymentMeans/PayeeFinancialAccount/FinancialInstitutionBranch/ID" => {
+            remplir(&mut d.bic, v)
+        }
         _ => {
             if let Some(s) = c.strip_prefix("AccountingSupplierParty/Party/") {
                 partie_ubl(s, v, &mut d.vendeur, &mut d.secours.0);

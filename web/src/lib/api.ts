@@ -5,6 +5,7 @@ import type {
   ChangementsFournisseur,
   CodeRefus,
   CompteursATraiter,
+  ConfirmationIban,
   DemandeEssaiBoite,
   DemandeValidation,
   EntreeBoite,
@@ -12,6 +13,7 @@ import type {
   FileATraiter,
   FilFournisseur,
   Fournisseur,
+  IbanConnu,
   LigneFournisseur,
   MiseEnRoute,
   Page,
@@ -177,3 +179,11 @@ export async function attendreEssai(id: string, ms = 1500, max = 40): Promise<Es
   }
   throw new ErreurApi(504, "L'essai ne répond pas. Le traitement automatique (worker) est-il démarré ?");
 }
+
+export const ibansFournisseur = (id: number) => api.get<IbanConnu[]>(`/api/fournisseurs/${id}/ibans`);
+
+export const retirerIban = (fournisseurId: number, ibanId: number) =>
+  api.del<void>(`/api/admin/fournisseurs/${fournisseurId}/ibans/${ibanId}`);
+
+export const confirmerIban = (documentId: number) =>
+  api.post<ConfirmationIban>(`/api/admin/documents/${documentId}/iban/confirmer`);

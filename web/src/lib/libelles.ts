@@ -150,6 +150,8 @@ export function titreAlerte(c: Pick<Controle, 'code' | 'message'>): string {
       return 'Doublon possible';
     case 'lignes':
       return 'Lignes ≠ total HT';
+    case 'iban':
+      return 'IBAN changé';
     default:
       return 'À vérifier';
   }

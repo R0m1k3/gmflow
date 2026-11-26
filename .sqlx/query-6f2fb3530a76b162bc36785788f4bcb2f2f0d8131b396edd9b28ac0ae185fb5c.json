@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with racine as (select coalesce(groupe_id, id) as id from fournisseur where id = $1)\n         select d.id from document d, racine r\n         where d.statut_depot in ('a_verifier', 'pret', 'doublon')\n           and d.fournisseur_id in (select id from fournisseur where id = r.id or groupe_id = r.id)\n         order by d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6f2fb3530a76b162bc36785788f4bcb2f2f0d8131b396edd9b28ac0ae185fb5c"
+}

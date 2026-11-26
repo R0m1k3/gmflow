@@ -214,6 +214,11 @@ pub struct Extraction {
     /// Total HT des montants annexes compris dans le HT (éco-participation, port…).
     #[serde(default)]
     pub annexes_ht: Option<f64>,
+    /// IBAN (et BIC) du fournisseur à payer imprimés sur une facture (`crate::iban`).
+    #[serde(default)]
+    pub iban: Option<String>,
+    #[serde(default)]
+    pub bic: Option<String>,
     pub confiance: Confiance,
     /// Lignes articles (obligatoires pour un BL, si lisibles pour une facture).
     #[serde(default)]
@@ -259,6 +264,13 @@ const MONTANTS_ANNEXES: &str = "montant_ht, montant_tva et montant_ttc décriven
 const ECHEANCE: &str = "echeance = la date d'échéance du paiement imprimée (« Échéance », « Date \
      d'échéance », « À payer avant le », « Date limite de paiement »), AAAA-MM-JJ ; null si \
      seule une condition est donnée (« 30 jours fin de mois ») ou pour un BL.\n";
+
+/// IBAN du fournisseur (alerte « IBAN changé », `crate::iban`).
+const IBAN: &str = "iban = l'IBAN du compte du fournisseur à payer, imprimé sur la facture \
+     (RIB, coordonnées bancaires, « IBAN »), recopié caractère par caractère, sans espaces ; bic = \
+     son BIC s'il est imprimé. Jamais celui d'une structure destinataire listée plus haut, ni celui \
+     d'un organisme d'affacturage ou d'un tiers que le document ne désigne pas comme le \
+     bénéficiaire du paiement ; null si absent ou illisible. N'en invente jamais un.\n";
 
 /// Remises : le HT reste le net imprimé, la remise est notée à part pour expliquer l'écart
 /// avec les bons de livraison (valorisés avant remise).
@@ -317,6 +329,8 @@ pub fn schema(avec_texte: bool) -> Value {
         "remise_ht": nombre_ou_null(),
         "remise_taux": nombre_ou_null(),
         "annexes_ht": nombre_ou_null(),
+        "iban": chaine_ou_null(),
+        "bic": chaine_ou_null(),
         "lignes": {
             "type": "array",
             "items": {
@@ -361,6 +375,8 @@ pub fn schema(avec_texte: bool) -> Value {
         "remise_ht",
         "remise_taux",
         "annexes_ht",
+        "iban",
+        "bic",
         "lignes",
         "numeros_bl",
         "confiance",
@@ -473,6 +489,7 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     p.push_str(REMISES);
     p.push_str(AVOIRS_POSITIFS);
     p.push_str(ECHEANCE);
+    p.push_str(IBAN);
     p.push('\n');
     p.push_str(&format!(
         "Mail qui accompagne le document :\nDe : {}\nObjet : {}\n{}\n\nFichier : {}\n\n",
@@ -708,6 +725,7 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
             if let Some(t) = texte {
                 verifier_dans_le_texte(e, &nombres(t), &mut a);
             }
+            a.extend(crate::iban::anomalie(e.iban.as_deref()));
         }
         "bl" if e.lignes.is_empty() => {
             a.push("aucune ligne article lue sur le bon de livraison".to_string());

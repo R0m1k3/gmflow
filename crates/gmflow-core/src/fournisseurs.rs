@@ -513,6 +513,22 @@ pub async fn fusionner(tx: &mut PgConnection, source: i64, cible: i64) -> sqlx::
     )
     .execute(&mut *tx)
     .await?;
+    // IBAN connus : repris par la cible (ceux qu'elle connaît déjà restent les siens).
+    sqlx::query!(
+        "update fournisseur_iban s set fournisseur_id = $2
+         where s.fournisseur_id = $1
+           and not exists (select 1 from fournisseur_iban c where c.fournisseur_id = $2 and c.iban = s.iban)",
+        source,
+        cible
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "delete from fournisseur_iban where fournisseur_id = $1",
+        source
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "update fournisseur set fusionne_dans = $2 where id = $1 or fusionne_dans = $1",
         source,

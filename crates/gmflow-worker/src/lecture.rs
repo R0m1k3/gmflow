@@ -670,6 +670,9 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
         }
         return;
     }
+    if let Err(e) = noter_iban(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "IBAN du document non noté");
+    }
     if let Err(e) = crate::fournisseur::rattacher(ctx, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "rattachement au fournisseur impossible");
     }
@@ -682,6 +685,13 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
     if let Err(e) = crate::serveur_api::demander_verification_bl(&ctx.pool, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "recherche des articles au magasin impossible");
     }
+}
+
+/// IBAN et BIC lus (clé vérifiée), avant les contrôles.
+async fn noter_iban(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
+    let mut conn = pool.acquire().await?;
+    gmflow_core::iban::noter_lecture(&mut conn, document_id).await?;
+    Ok(())
 }
 
 /// Exemples de corrections du fournisseur probable, et format habituel de ses BL, à ajouter

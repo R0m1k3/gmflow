@@ -27,7 +27,7 @@
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
-  import { api, ecarterDocument, ErreurApi, message, modifierFournisseur, sonder, urlApercu, validerDocument } from '#lib/api.ts';
+  import { api, confirmerIban, ecarterDocument, ErreurApi, message, modifierFournisseur, sonder, urlApercu, validerDocument } from '#lib/api.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import {
@@ -592,6 +592,22 @@
     void rafraichirCompteurs();
   }
 
+  /** « C’est le bon IBAN » (admins) : l’IBAN de la facture devient celui connu du fournisseur. */
+  let ibanEnCours = $state(false);
+  async function confirmerIbanDoc() {
+    if (!d) return;
+    ibanEnCours = true;
+    erreur = '';
+    try {
+      await confirmerIban(d.id);
+      await apresLien('IBAN enregistré pour ce fournisseur : l’alerte est levée.');
+    } catch (e) {
+      erreur = message(e);
+    } finally {
+      ibanEnCours = false;
+    }
+  }
+
   /** « Lire maintenant » (admins) : la lecture passe devant toute la file, hors quota du jour. */
   async function lireMaintenant() {
     if (!d) return;
@@ -1088,6 +1104,12 @@
           </Bandeau>
         {:else if doublon && !refus && !d.verifie_le}
           <Bandeau ton="erreur" titre="Doublon.">{phrase(doublon.message)}</Bandeau>
+        {:else if autresAlertes[0]?.code === 'iban' && !refus}
+          <!-- IBAN changé (fraude au RIB) : en rouge, avec « C’est le bon IBAN » pour un admin. -->
+          {#snippet boutonIban()}<button type="button" class="btn sm" class:en-cours={ibanEnCours} disabled={ibanEnCours || occupe !== null} onclick={confirmerIbanDoc}>C’est le bon IBAN</button>{/snippet}
+          <Bandeau ton="erreur" titre="{titreAlerte(autresAlertes[0])} :" action={admin ? boutonIban : undefined}>
+            {phrase(autresAlertes[0].message)}{admin ? '' : ' Seul un administrateur peut enregistrer ce nouvel IBAN.'}
+          </Bandeau>
         {:else if autresAlertes.length && !refus}
           {@const a0 = autresAlertes[0]}
           <Bandeau titre={detailAlerte(a0) ? `${titreAlerte(a0)} :` : `${titreAlerte(a0)}.`}>

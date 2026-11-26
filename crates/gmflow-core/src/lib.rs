@@ -17,6 +17,7 @@ pub mod file;
 #[cfg(feature = "test-utils")]
 pub mod fixtures;
 pub mod fournisseurs;
+pub mod iban;
 pub mod imap;
 pub mod journal;
 pub mod lecture;
