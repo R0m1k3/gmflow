@@ -748,7 +748,46 @@ async fn lire_pris(
         .await??
     };
     let soc = societes(pool).await?;
+    // OCR local des pages sans couche texte (scan, PDF mi-texte mi-scan) : son texte sert de
+    // texte du document, le PDF reste joint à Claude. Sans OCR exploitable : comme avant.
+    let voie_ocr = match &aiguillage {
+        Aiguillage::Scan {
+            extension: "pdf", ..
+        } => Some(Voie::Scan),
+        Aiguillage::Texte {
+            voie: Voie::PdfTexte,
+            ..
+        } => Some(Voie::PdfTexte),
+        _ => None,
+    };
+    let mut ocr = match voie_ocr {
+        Some(v) => lect::ocr::completer(&lect::ocr::Outils::default(), &contenu)
+            .await
+            .map(|t| (v, t)),
+        None => None,
+    };
     let lu = match aiguillage {
+        _ if ocr.is_some() => {
+            let Some((voie, t)) = ocr.take() else {
+                unreachable!("OCR vérifié")
+            };
+            match lire_avec_ocr(
+                ctx,
+                id,
+                voie,
+                &e,
+                &contenu,
+                t,
+                &soc,
+                approfondie,
+                hors_quota,
+            )
+            .await?
+            {
+                Some(lu) => lu,
+                None => return Ok(()),
+            }
+        }
         Aiguillage::Ignore(raison) => Lu {
             etat: "ignore",
             message: Some(raison),
@@ -889,6 +928,65 @@ async fn lire_pris(
     Ok(())
 }
 
+/// Lecture d'un PDF dont les pages sans couche texte ont été lues par l'OCR local : le texte
+/// complet va dans le prompt (et sert au contrôle des montants), le PDF est joint et fait foi ;
+/// pas de transcription demandée. Rien si la lecture est reportée (Claude indisponible).
+#[allow(clippy::too_many_arguments)]
+async fn lire_avec_ocr(
+    ctx: &Contexte,
+    id: i64,
+    voie: Voie,
+    e: &Entree,
+    contenu: &[u8],
+    t: lect::ocr::TexteOcr,
+    soc: &[SocieteRef],
+    approfondie: bool,
+    hors_quota: bool,
+) -> anyhow::Result<Option<Lu>> {
+    let dossier = DossierTemp::creer("gmflow-lecture")?;
+    tokio::fs::write(dossier.0.join("document.pdf"), contenu).await?;
+    let societe_code = societe::dans_texte(&t.texte, soc);
+    let mail = ContexteMail {
+        expediteur: &e.expediteur,
+        objet: &e.objet,
+        corps: &e.corps,
+        nom_fichier: &e.nom,
+    };
+    let mut prompt = extraction::prompt(&mail, soc, &Contenu::Texte(&t.texte));
+    prompt.push_str(&exemples_pour(&ctx.pool, &e.expediteur, Some(&t.texte)).await);
+    prompt.push_str(&t.consigne("document.pdf"));
+    let tache = if voie == Voie::Scan {
+        reglages::OCR_SCAN
+    } else {
+        reglages::EXTRACTION_TEXTE
+    };
+    let src = Source {
+        dossier: Some(&dossier.0),
+        texte: Some(&t.texte),
+        pdf: None,
+        pages: Some(t.pages),
+        approfondie,
+        hors_quota,
+        lignes_code: None,
+    };
+    Ok(
+        match lire_par_claude(ctx, id, voie, tache, &prompt, src).await? {
+            Lecture::Faite(ex, reglage, an) => {
+                let mut lu =
+                    lu_depuis_extraction(voie, ex, societe_code, Some(t.texte.clone()), &reglage);
+                if let (Some(c), Some(m)) =
+                    (lu.confiance.as_object_mut(), t.confiance().as_object())
+                {
+                    c.extend(m.clone());
+                }
+                Some(avec_anomalies(lu, an))
+            }
+            Lecture::Reportee => None,
+            Lecture::Echec(lu) => Some(lu),
+        },
+    )
+}
+
 /// Phrase gardée sur un document remis en attente après un appel en échec : l'explication du
 /// refus notée par `claude::lancer` (heure de reprise comprise), sinon la panne.
 pub(crate) async fn message_echec(pool: &PgPool, e: &ErreurClaude) -> String {
@@ -993,7 +1091,8 @@ async fn lire_par_claude(
         .await?;
         return Ok(Lecture::Reportee);
     };
-    let transcription = src.dossier.is_some();
+    // Transcription demandée seulement quand le code n'a aucun texte (scan sans OCR).
+    let transcription = src.dossier.is_some() && src.texte.is_none();
 
     // Premier essai (sauf relecture en détail : directement le nouvel essai).
     let reglage = r.pour(tache).clone();

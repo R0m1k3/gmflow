@@ -3,6 +3,7 @@
 //! seulement en dernier Claude, qui lit le scan ou l'image lui-même.
 
 pub mod extraction;
+pub mod ocr;
 pub mod pdf;
 pub mod societe;
 pub mod tableau_articles;

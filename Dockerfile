@@ -43,8 +43,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s CMD ["/usr/local/bin
 CMD ["/usr/local/bin/gmflow-app"]
 
 FROM node:lts-slim AS worker
+# OCR local des scans : pdftoppm (poppler-utils) et tesseract en français.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
+       poppler-utils tesseract-ocr tesseract-ocr-fra \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @anthropic-ai/claude-code \
     && npm cache clean --force \

@@ -93,27 +93,109 @@ pub fn png_logo() -> Vec<u8> {
     v
 }
 
-/// PDF d'une page faite d'une seule image, sans couche texte (scan).
-pub fn pdf_scan() -> Vec<u8> {
-    let mut doc = Document::with_version("1.5");
-    let pages_id = doc.new_object_id();
+fn page_image(
+    doc: &mut Document,
+    pages_id: lopdf::ObjectId,
+    jpeg_octets: Vec<u8>,
+    largeur: i64,
+    hauteur: i64,
+) -> lopdf::ObjectId {
     let image = doc.add_object(Stream::new(
         dictionary! {
-            "Type" => "XObject", "Subtype" => "Image", "Width" => 100, "Height" => 100,
-            "ColorSpace" => "DeviceRGB", "BitsPerComponent" => 8, "Filter" => "DCTDecode",
+            "Type" => "XObject", "Subtype" => "Image", "Width" => largeur, "Height" => hauteur,
+            "ColorSpace" => "DeviceRGB",
+            "BitsPerComponent" => 8, "Filter" => "DCTDecode",
         },
-        jpeg(70_000),
+        jpeg_octets,
     ));
     let ressources = doc.add_object(dictionary! { "XObject" => dictionary! { "Im1" => image } });
     let contenu = doc.add_object(Stream::new(
         Dictionary::new(),
         b"q 595 0 0 842 0 0 cm /Im1 Do Q".to_vec(),
     ));
-    let page = doc.add_object(dictionary! {
+    doc.add_object(dictionary! {
         "Type" => "Page", "Parent" => pages_id, "Contents" => contenu,
         "Resources" => ressources, "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
-    });
+    })
+}
+
+/// PDF d'une page faite d'une seule image, sans couche texte (scan).
+pub fn pdf_scan() -> Vec<u8> {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let page = page_image(&mut doc, pages_id, jpeg(70_000), 100, 100);
     finir(doc, pages_id, vec![page], Dictionary::new())
+}
+
+/// Page d'un PDF de test : couche texte, ou image JPEG (scan).
+pub enum PageTest {
+    Texte(Vec<String>),
+    Scan {
+        jpeg: Vec<u8>,
+        largeur: i64,
+        hauteur: i64,
+    },
+}
+
+impl PageTest {
+    pub fn texte(lignes: &[&str]) -> Self {
+        PageTest::Texte(lignes.iter().map(|l| l.to_string()).collect())
+    }
+}
+
+/// PDF de plusieurs pages (texte ou scan).
+pub fn pdf_pages(pages: Vec<PageTest>) -> Vec<u8> {
+    let mut doc = Document::with_version("1.5");
+    let pages_id = doc.new_object_id();
+    let mut kids = Vec::new();
+    for p in pages {
+        kids.push(match p {
+            PageTest::Texte(l) => {
+                let l: Vec<&str> = l.iter().map(String::as_str).collect();
+                page_texte(&mut doc, pages_id, &l)
+            }
+            PageTest::Scan {
+                jpeg,
+                largeur,
+                hauteur,
+            } => page_image(&mut doc, pages_id, jpeg, largeur, hauteur),
+        });
+    }
+    finir(doc, pages_id, kids, Dictionary::new())
+}
+
+/// Page scannée réaliste : ces lignes imprimées puis rendues en JPEG par `pdftoppm` (200 ppp),
+/// sans couche texte. Rien si `pdftoppm` manque.
+pub fn page_scannee(lignes: &[&str]) -> Option<PageTest> {
+    let dossier = crate::claude::DossierTemp::creer("gmflow-fixture-scan").ok()?;
+    std::fs::write(dossier.0.join("p.pdf"), pdf_texte(lignes)).ok()?;
+    let (largeur, hauteur) = (1654, 2339);
+    let ok = std::process::Command::new("pdftoppm")
+        .args([
+            "-r",
+            "200",
+            "-jpeg",
+            "-singlefile",
+            "-scale-to-x",
+            "1654",
+            "-scale-to-y",
+            "2339",
+            "p.pdf",
+            "p",
+        ])
+        .current_dir(&dossier.0)
+        .output()
+        .ok()?
+        .status
+        .success();
+    if !ok {
+        return None;
+    }
+    Some(PageTest::Scan {
+        jpeg: std::fs::read(dossier.0.join("p.jpg")).ok()?,
+        largeur,
+        hauteur,
+    })
 }
 
 /// Facture CII (profil Factur-X), acheteur identifié par `siret_acheteur`.

@@ -148,6 +148,14 @@ pub fn texte(pdf: &[u8]) -> Option<String> {
         .flatten()
 }
 
+/// Couche texte page par page (même garde contre les paniques que `texte`).
+pub fn texte_par_page(pdf: &[u8]) -> Option<Vec<String>> {
+    let pdf = pdf.to_vec();
+    std::panic::catch_unwind(move || pdf_extract::extract_text_from_mem_by_pages(&pdf).ok())
+        .ok()
+        .flatten()
+}
+
 /// Nombre de pages, 0 si le PDF est illisible.
 pub fn pages(pdf: &[u8]) -> usize {
     Document::load_mem(pdf)
