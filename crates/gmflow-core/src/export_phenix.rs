@@ -312,10 +312,39 @@ fn alerte(a: &mut Vec<Alerte>, l: &LigneBl, m: impl Into<String>) {
     });
 }
 
+/// Gencod du BL repris dans les fichiers : seulement si sa clé de contrôle GS1 est juste.
+fn gencod_bl(l: &LigneBl) -> Option<&str> {
+    l.gencod
+        .as_deref()
+        .filter(|g| crate::lecture::xml::gencod_valide(g))
+}
+
 /// Contrôles communs aux deux fichiers.
-fn controler(l: &LigneBl, a: &mut Vec<Alerte>) {
-    if unites(l).is_none() {
-        alerte(a, l, "quantité absente");
+fn controler(l: &LigneBl, colonnes: Colonnes, a: &mut Vec<Alerte>) {
+    match (unites(l), l.quantite, l.colis, l.pcb) {
+        (None, ..) => alerte(a, l, "quantité absente"),
+        // Colis ou PCB mal lu : le stock serait multiplié (12 unités, 12 colis lus → 72).
+        (Some(u), Some(q), Some(c), Some(p)) if c > 0.0 && p > 0.0 && (u - q).abs() > 0.001 => {
+            alerte(
+                a,
+                l,
+                format!(
+                    "quantité imprimée {q} mais colis × PCB = {c} × {p} = {u} : {u} exportés, \
+                     vérifier le colisage"
+                ),
+            )
+        }
+        _ => {}
+    }
+    if colonnes.gencod()
+        && let Some(g) = l.gencod.as_deref().filter(|g| !g.trim().is_empty())
+        && gencod_bl(l).is_none()
+    {
+        alerte(
+            a,
+            l,
+            format!("gencod « {g} » invalide (clé de contrôle fausse) : laissé vide"),
+        );
     }
     if prix_achat(l).0.is_none() {
         alerte(
@@ -335,7 +364,7 @@ fn controler(l: &LigneBl, a: &mut Vec<Alerte>) {
 pub fn matrice(lignes: &[LigneBl], colonnes: Colonnes) -> Export {
     let mut e = Export::default();
     for l in lignes {
-        controler(l, &mut e.alertes);
+        controler(l, colonnes, &mut e.alertes);
         let u = unites(l);
         let (pa, remise) = prix_achat(l);
         if let Some(a) = lot(l) {
@@ -358,7 +387,7 @@ pub fn matrice(lignes: &[LigneBl], colonnes: Colonnes) -> Export {
         }
         // Hors lot : gencod et référence du BL seulement (selon le réglage du fournisseur),
         // pas de code article.
-        let gencod = l.gencod.as_deref().filter(|_| colonnes.gencod());
+        let gencod = gencod_bl(l).filter(|_| colonnes.gencod());
         let reference = l.reference.as_deref().filter(|_| colonnes.reference());
         if gencod.is_none() && reference.is_none() {
             alerte(
@@ -413,7 +442,7 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>, colonnes: Colonnes) 
     let fou = || texte(fournisseur);
     let mut numero = 0;
     for l in lignes {
-        controler(l, &mut e.alertes);
+        controler(l, colonnes, &mut e.alertes);
         let (pa, _) = prix_achat(l);
         // N° de ligne et TVA laissés vides : le magasin les saisit dans Phénix. Le numéro sert
         // seulement à rattacher les composants d'un lot à leur ligne mère (NUM LOT VENTE).
@@ -436,8 +465,7 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>, colonnes: Colonnes) 
             &mut r,
             "Gencod",
             texte(
-                l.gencod
-                    .as_deref()
+                gencod_bl(l)
                     .or_else(|| mere.and_then(|a| a.gencod.as_deref()))
                     .filter(|_| colonnes.gencod()),
             ),

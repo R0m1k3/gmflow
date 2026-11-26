@@ -155,7 +155,7 @@ fn matrice_remplace_le_lot_par_ses_composants() {
     let simple = LigneBl {
         rang: 1,
         reference: Some("AB123".into()),
-        gencod: Some("3532156987412".into()),
+        gencod: Some("3532156987418".into()),
         quantite: Some(4.0),
         prix_unitaire_ht: Some(5.2),
         remise_taux: Some(5.0),
@@ -170,7 +170,7 @@ fn matrice_remplace_le_lot_par_ses_composants() {
     assert_eq!(num(l, "QTECDE"), Some(24.0));
     assert_eq!(num(l, "PA"), Some(4.0));
     let s = &e.rangees[3];
-    assert_eq!(txt(s, "GENCOD"), Some("3532156987412"));
+    assert_eq!(txt(s, "GENCOD"), Some("3532156987418"));
     assert_eq!(txt(s, "CODEIN"), None);
     assert_eq!(num(s, "QTECDE"), Some(4.0));
     assert_eq!(num(s, "PA"), Some(5.2));
@@ -184,7 +184,7 @@ fn trame_lot_de_vente_et_nouveau_produit() {
         rang: 1,
         reference: Some("XZ9".into()),
         designation: Some("LAMPE LED".into()),
-        gencod: Some("3700000000017".into()),
+        gencod: Some("3700000000013".into()),
         quantite: Some(6.0),
         pcb: Some(6.0),
         prix_unitaire_ht: Some(7.5),
@@ -485,7 +485,7 @@ fn hors_lot_ni_codein_ni_donnees_du_magasin() {
             no_id: "1".into(),
             codein: Some("565000".into()),
             libelle: Some("SEAU 10 L".into()),
-            gencod: Some("3532156987412".into()),
+            gencod: Some("3532156987418".into()),
             composants: Vec::new(),
         }),
         ..Default::default()
@@ -543,7 +543,7 @@ fn set_produit_unique_comme_les_autres() {
         rang: 0,
         reference: Some("ST-12".into()),
         designation: Some("SET DE TABLE BAMBOU".into()),
-        gencod: Some("3700000000024".into()),
+        gencod: Some("3700000000020".into()),
         quantite: Some(12.0),
         prix_unitaire_ht: Some(1.2),
         magasin: Some(ArticleMagasin {
@@ -551,7 +551,7 @@ fn set_produit_unique_comme_les_autres() {
             no_id: "9001".into(),
             codein: Some("550001".into()),
             libelle: Some("SET DE TABLE BAMBOU".into()),
-            gencod: Some("3700000000024".into()),
+            gencod: Some("3700000000020".into()),
             composants: Vec::new(),
         }),
         ..Default::default()
@@ -575,7 +575,7 @@ fn colonnes_reference_ou_gencod_selon_le_fournisseur() {
         rang: 0,
         reference: Some("AB123".into()),
         designation: Some("LAMPE LED".into()),
-        gencod: Some("3532156987412".into()),
+        gencod: Some("3532156987418".into()),
         quantite: Some(4.0),
         prix_unitaire_ht: Some(5.2),
         ..Default::default()
@@ -586,10 +586,10 @@ fn colonnes_reference_ou_gencod_selon_le_fournisseur() {
     assert_eq!(txt(&m.rangees[0], "GENCOD"), None);
     let t = export_phenix::trame(un, Some("R0041"), Colonnes::Gencod);
     assert_eq!(txt(&t.rangees[0], "Ref Fournisseur"), None);
-    assert_eq!(txt(&t.rangees[0], "Gencod"), Some("3532156987412"));
+    assert_eq!(txt(&t.rangees[0], "Gencod"), Some("3532156987418"));
     let t = export_phenix::trame(un, Some("R0041"), Colonnes::LesDeux);
     assert_eq!(txt(&t.rangees[0], "Ref Fournisseur"), Some("AB123"));
-    assert_eq!(txt(&t.rangees[0], "Gencod"), Some("3532156987412"));
+    assert_eq!(txt(&t.rangees[0], "Gencod"), Some("3532156987418"));
     // Gencod seul demandé mais absent du BL : alerte.
     let sans = LigneBl {
         gencod: None,
@@ -607,4 +607,62 @@ fn colonnes_reference_ou_gencod_selon_le_fournisseur() {
     assert_eq!(txt(&m.rangees[2], "REFERENCE"), Some("REF-440112"));
     assert_eq!(Colonnes::depuis(Some("ref")), Colonnes::Reference);
     assert_eq!(Colonnes::depuis(None), Colonnes::LesDeux);
+}
+
+#[test]
+fn gencod_a_la_cle_fausse_laisse_vide_et_signale() {
+    let l = LigneBl {
+        rang: 0,
+        reference: Some("AB123".into()),
+        designation: Some("SEAU".into()),
+        quantite: Some(4.0),
+        prix_unitaire_ht: Some(5.2),
+        gencod: Some("3532156987412".into()),
+        ..Default::default()
+    };
+    let m = export_phenix::matrice(std::slice::from_ref(&l), Colonnes::LesDeux);
+    assert_eq!(txt(&m.rangees[0], "GENCOD"), None);
+    assert_eq!(txt(&m.rangees[0], "REFERENCE"), Some("AB123"));
+    assert_eq!(m.alertes.len(), 1, "{:?}", m.alertes);
+    assert!(m.alertes[0].message.contains("« 3532156987412 » invalide"));
+    let t = export_phenix::trame(std::slice::from_ref(&l), Some("R0041"), Colonnes::LesDeux);
+    assert_eq!(txt(&t.rangees[0], "Gencod"), None);
+    // Gencod non repris pour ce fournisseur : pas d'alerte.
+    let m = export_phenix::matrice(std::slice::from_ref(&l), Colonnes::Reference);
+    assert!(m.alertes.is_empty(), "{:?}", m.alertes);
+}
+
+#[test]
+fn quantite_differente_de_colis_fois_pcb_signalee() {
+    // 12 unités livrées, mais 12 lu aussi comme nombre de colis de 6 : 72 exportés, alerte.
+    let l = LigneBl {
+        rang: 0,
+        designation: Some("BOL".into()),
+        reference: Some("B1".into()),
+        quantite: Some(12.0),
+        colis: Some(12.0),
+        pcb: Some(6.0),
+        prix_unitaire_ht: Some(1.0),
+        ..Default::default()
+    };
+    let m = export_phenix::matrice(std::slice::from_ref(&l), Colonnes::LesDeux);
+    assert_eq!(num(&m.rangees[0], "QTECDE"), Some(72.0));
+    assert_eq!(m.alertes.len(), 1, "{:?}", m.alertes);
+    assert!(
+        m.alertes[0]
+            .message
+            .contains("quantité imprimée 12 mais colis × PCB = 12 × 6 = 72"),
+        "{}",
+        m.alertes[0].message
+    );
+    // Quantité égale à colis × PCB : rien.
+    let l = LigneBl {
+        quantite: Some(72.0),
+        ..l
+    };
+    assert!(
+        export_phenix::matrice(&[l], Colonnes::LesDeux)
+            .alertes
+            .is_empty()
+    );
 }

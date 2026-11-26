@@ -61,7 +61,7 @@ async fn export_du_bl_apres_la_recherche_au_magasin() {
         "insert into ligne_document (document_id, rang, reference, designation, quantite,
              prix_unitaire_ht, gencod, colis, pcb, ecomob_ht)
          values ($1, 0, '03/3484', 'BOITE LOT DE 3', 2, 18, null, 2, 1, 0.19),
-                ($1, 1, 'AB123', 'SEAU', 4, 5.2, '3532156987412', null, null, null)",
+                ($1, 1, 'AB123', 'SEAU', 4, 5.2, '3532156987418', null, null, null)",
     )
     .bind(bl)
     .execute(app.pool())
@@ -153,7 +153,7 @@ async fn export_du_bl_apres_la_recherche_au_magasin() {
     assert_eq!(l[1][4], Data::Float(4.0));
     assert_eq!(l[2][3], Data::Float(4.0));
     assert_eq!(l[2][4], Data::Float(7.0));
-    assert_eq!(l[3][1], Data::String("3532156987412".into()));
+    assert_eq!(l[3][1], Data::String("3532156987418".into()));
 
     let r = app
         .requete("GET", &format!("{chemin}/trame"), None, Some(&admin))
