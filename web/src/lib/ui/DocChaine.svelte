@@ -195,7 +195,7 @@
   <div class="addition">
     {#each a.lignes as l, i (i)}
       <div class="l g-{l.genre}" data-genre={l.genre} data-montant={l.montant ?? ''}>
-        <span>{l.libelle}{#if l.note}<span class="t2 petit"> · {l.note}</span>{/if}</span>
+        <span>{l.libelle}{#if l.note}<span class="t2 petit">{' · '}{l.note}</span>{/if}</span>
         <span class="num">{signe(l.genre, l.montant)}</span>
       </div>
     {/each}
@@ -233,7 +233,7 @@
       {@render point(courantValide ? 'ok' : 'alerte')}
       <span class="quoi">
         <b>{typeNumero(d.type, d.numero)}</b>
-        <span class="marque">{bl ? 'ce BL' : 'cette pièce'}</span>
+        <span class="etiq-m">{bl ? 'ce BL' : 'cette pièce'}</span>
         <span class="sous t2">
           {[d.date_document ? dateFr(d.date_document, true) : '', bl && rap?.lignes.length ? `${rap.lignes.length} article${rap.lignes.length > 1 ? 's' : ''}` : '', d.date_echeance ? `échéance ${dateFr(d.date_echeance, true)}` : '']
             .filter(Boolean)
@@ -263,7 +263,7 @@
       {@render point('ok')}
       <span class="quoi">
         <b class="lib">{typeNumero('bl', b.numero)}</b>
-        {#if !lien}<span class="marque">même facture</span>{/if}
+        {#if !lien}<span class="etiq-m">même facture</span>{/if}
         <span class="sous t2">{[b.date_document ? dateFr(b.date_document, true) : '', lien ? libelleMethode(lien.methode) + (lien.methode === 'manuel' && lien.auteur ? ` (${lien.auteur})` : '') : ''].filter(Boolean).join(' · ')}</span>
       </span>
       {@render montantCol(b.montant_ht)}
@@ -294,7 +294,7 @@
           {@render point('creux')}
           <span class="quoi">
             <b>{typeNumero(c.type, c.numero ?? c.nom_fichier)}</b>
-            <span class="marque">à lier ?</span>
+            <span class="etiq-m">à lier ?</span>
             <span class="sous t2">{[c.date_document ? dateFr(c.date_document, true) : '', raison(c)].filter(Boolean).join(' · ')}</span>
           </span>
           {@render montantCol(c.montant_ht)}
@@ -390,7 +390,7 @@
           {/if}
         </li>
       {:else}
-        <li class="maillon vide">
+        <li class="maillon sans-facture">
           <div class="tete-m">
             {@render point('creux')}
             <span class="quoi t2">{rap.ignore ? 'Pas de facture attendue' : 'Pas encore de facture'}</span>
@@ -530,7 +530,7 @@
       flex-basis: 100%;
     }
   }
-  .marque {
+  .etiq-m {
     font-size: 13px;
     color: var(--text2);
     background: var(--sunk);
@@ -554,7 +554,7 @@
   .courant .pt {
     box-shadow: 0 0 0 3px var(--accent-clair);
   }
-  .courant .marque {
+  .courant .etiq-m {
     background: var(--white);
   }
   .depli {
@@ -577,7 +577,7 @@
   .cand-actions {
     margin: 4px 0 var(--e1) 28px;
   }
-  .vide .quoi {
+  .sans-facture .quoi {
     font-size: 15px;
   }
   .pied {

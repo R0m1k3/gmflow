@@ -815,7 +815,7 @@
   {:else if Number.isNaN(lireMontant(s))}
     <span class="num">{s}</span><span class="indice">montant illisible</span>
   {:else}
-    <Montant valeur={lireMontant(s)} />
+    <Montant valeur={lireMontant(s)} devise="" />
   {/if}
 {/snippet}
 
@@ -1481,6 +1481,10 @@
   .doc-montants :global(.champ-ligne > .v .val) {
     justify-content: flex-end;
     text-align: right;
+  }
+  /* taux de TVA à gauche du montant : les chiffres restent dans la colonne */
+  .doc-montants :global(.champ-ligne > .v .indice) {
+    order: -1;
   }
   .doc-montants :global(.champ-ligne:last-child) {
     border-bottom: 0;

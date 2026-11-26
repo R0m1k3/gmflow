@@ -129,7 +129,7 @@
     </table>
   </div>
   {#if rangees.length > MAX}
-    <button type="button" class="btn-lien plus" aria-expanded={tout} onclick={() => (tout = !tout)}>
+    <button type="button" class="btn-lien plus-articles" aria-expanded={tout} onclick={() => (tout = !tout)}>
       {tout ? 'Montrer les 8 premiers' : `${rangees.length - MAX} autre${rangees.length - MAX > 1 ? 's' : ''} article${rangees.length - MAX > 1 ? 's' : ''}`}
     </button>
   {/if}
@@ -167,7 +167,7 @@
     font-weight: 600;
     padding-top: var(--e3);
   }
-  .plus {
+  .plus-articles {
     margin-top: var(--e2);
   }
   .note {
