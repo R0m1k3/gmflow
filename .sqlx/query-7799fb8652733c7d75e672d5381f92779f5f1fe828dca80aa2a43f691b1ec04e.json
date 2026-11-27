@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select document_id from envoi_prevu where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envoi_prevu",
+            "name": "document_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7799fb8652733c7d75e672d5381f92779f5f1fe828dca80aa2a43f691b1ec04e"
+}

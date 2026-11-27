@@ -315,6 +315,10 @@ export interface FicheDocument {
   recu_le: string;
   /** Envoi en échec relancé il y a moins de 30 min, pas encore repris : ne pas renvoyer. */
   envoi_relance: boolean;
+  /** Écartée par un humain : quand, par qui, pourquoi. */
+  ecartement: Ecartement | null;
+  /** Lignes articles corrigées à la main : une relecture les remplacerait. */
+  lignes_corrigees: number;
   envois: Envoi[];
   /** Boîtes de réception du mail d'origine (visibles). */
   boites: { boite_id: number; libelle: string; adresse: string; societe_id: number; societe: string }[];
@@ -650,6 +654,43 @@ export interface LigneArticle {
   montant_ht: number | null;
 }
 
+/** Valeurs d'une ligne article qu'on corrige à la main (`/api/documents/{id}/lignes`). */
+export interface SaisieLigne {
+  reference: string | null;
+  designation: string | null;
+  quantite: number | null;
+  unite: string | null;
+  prix_unitaire_ht: number | null;
+  montant_ht: number | null;
+  gencod: string | null;
+  colis: number | null;
+  pcb: number | null;
+  remise_taux: number | null;
+  taux_tva: number | null;
+  deee_ht: number | null;
+  ecomob_ht: number | null;
+}
+
+export interface LigneEdition extends SaisieLigne {
+  id: number;
+  rang: number;
+  corrigee_le: string | null;
+  corrigee_par: string | null;
+}
+
+export interface LignesDocument {
+  modifiable: boolean;
+  raison: string | null;
+  type: TypeDocument | null;
+  lignes: LigneEdition[];
+}
+
+export interface ResultatLigne {
+  ligne: LigneEdition | null;
+  totaux: { montant_ht: number | null; montant_tva: number | null; montant_ttc: number | null; montants_calcules: string[] };
+  magasin_relance: boolean;
+}
+
 export interface DetailRapprochement {
   lignes: LigneArticle[];
   lignes_lues: boolean;
@@ -670,7 +711,8 @@ export type CodeRefus =
   | 'doublon'
   | 'sans_adresse'
   | 'smtp_absent'
-  | 'essai';
+  | 'essai'
+  | 'alertes';
 
 export interface CompteursATraiter {
   bloque: number;
@@ -773,6 +815,50 @@ export interface ResultatValidation {
   envoi: boolean;
   /** Document suivant de la file, ou null : « Tout est validé ». */
   suivant: number | null;
+  /** Envoi demandé : il part après `delai_s` secondes, sauf « Annuler ». */
+  annulation?: Annulable;
+}
+
+/** Envoi à Dext/Yooz encore annulable (délai donné par le serveur). */
+export interface Annulable {
+  lot: string;
+  delai_s: number;
+}
+
+/** Réponse de `POST /api/documents/annuler-envoi`. */
+export interface ResultatAnnulation {
+  annulees: number;
+  deja_parties: number;
+  pieces: { id: number; issue: 'annulee' | 'deja_partie' | 'rien_a_annuler' }[];
+}
+
+export type MotifEcartement = 'doublon' | 'pas_pour_nous' | 'autre';
+
+/** Écartement d'une pièce par un humain (fiche). */
+export interface Ecartement {
+  le: string;
+  par: number | null;
+  par_nom: string | null;
+  motif: MotifEcartement | null;
+  texte: string | null;
+}
+
+/** `POST /api/documents/lot/eligibilite` : la pièce peut-elle être validée avec les autres. */
+export interface EligibiliteLot {
+  id: number;
+  possible: boolean;
+  /** « 2 alertes à lire », « Doublon possible : à ouvrir »… */
+  raison: string | null;
+}
+
+/** Réponse de `POST /api/documents/lot/valider`. */
+export interface ResultatLot {
+  validees: number;
+  laissees: number;
+  pieces: { id: number; validee: boolean; raison: string | null }[];
+  annulation?: Annulable;
+  /** Outil de dépôt des pièces validées, s'il n'y en a qu'un. */
+  outil: string | null;
 }
 
 export interface EtatFournisseur {

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update envoi_prevu set etat = 'annule', fini_le = now(), annule_par = $2\n         where id = $1 and etat = 'attente' returning avant",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "avant",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "envoi_prevu",
+            "name": "avant"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4be5605914b1a138d864b1918548744a8df6b66d35527e46885c292892d787a1"
+}

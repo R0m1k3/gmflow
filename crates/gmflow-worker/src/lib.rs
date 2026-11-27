@@ -136,6 +136,12 @@ async fn tache_envoi(
                     forcer,
                     auteur_id,
                 } => envoi::deposer(&ctx, document_id, forcer, auteur_id).await?,
+                TacheEnvoi::DeposerPrevu {
+                    prevu_id,
+                    document_id,
+                    forcer,
+                    auteur_id,
+                } => envoi::deposer_prevu(&ctx, prevu_id, document_id, forcer, auteur_id).await?,
                 TacheEnvoi::TestExpedition { destinataire } => {
                     envoi::tester_expedition(&ctx, &destinataire).await?
                 }

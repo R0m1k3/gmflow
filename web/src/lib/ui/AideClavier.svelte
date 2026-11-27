@@ -17,14 +17,16 @@
         { touches: [['K'], ['ArrowUp']], texte: 'Document ou mail précédent' },
         { touches: [['Enter']], texte: 'Ouvrir le premier de la liste' },
         { touches: [['Escape']], texte: 'Fermer la fiche' },
+        { touches: [['Espace']], texte: 'Factures et avoirs à contrôler : cocher ou décocher la pièce ouverte' },
         { touches: [['/']], texte: 'Chercher' }
       ]
     },
     {
       titre: 'Dans une fiche document',
       lignes: [
-        { touches: [['Enter']], texte: 'Valider (le bouton principal)' },
+        { touches: [['Enter']], texte: 'Valider (le bouton principal), ou remettre à contrôler une pièce écartée' },
         { touches: [['E']], texte: 'Écarter' },
+        { touches: [['Ctrl', 'Z']], texte: 'Annuler la dernière validation, tant que l’envoi n’est pas parti' },
         { touches: [['F']], texte: 'Ouvrir en pleine page' }
       ]
     },

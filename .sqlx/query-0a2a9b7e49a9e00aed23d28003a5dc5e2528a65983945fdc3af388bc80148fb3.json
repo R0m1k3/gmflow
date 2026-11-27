@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select etat from envoi_prevu where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "envoi_prevu",
+            "name": "etat"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0a2a9b7e49a9e00aed23d28003a5dc5e2528a65983945fdc3af388bc80148fb3"
+}

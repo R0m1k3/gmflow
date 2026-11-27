@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select p.id from envoi_prevu p\n           where p.etat = 'attente' and p.prevu_pour < now() - make_interval(secs => $1::float8)\n             and not exists (\n                 select 1 from apalis.jobs j\n                 where j.job_type = $2 and j.status in ('Pending', 'Queued', 'Running')\n                   and (convert_from(j.job, 'UTF8')::jsonb #>> '{DeposerPrevu,prevu_id}')::bigint = p.id)\n           order by p.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envoi_prevu",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "139e944950288d67fc8ad85d6903d2fe6fb0388a65bb5c14cbf8ca6f3fb61b8b"
+}

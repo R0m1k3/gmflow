@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select to_jsonb(x) as \"v!\" from (\n             select type, societe_id, fournisseur_id, numero, date_document, numero_commande,\n                    montant_ht, montant_tva, montant_ttc, date_echeance, corrections, corrige_le,\n                    type_corrige, societe_corrigee, verifie_le, verifie_par, valide_le, valide_par,\n                    statut_depot, controles\n             from document where id = $1) x",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "v!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fec7211bf6cba498131c2812bdd1c8370f30f4a9f4f5b231ce87077b05661a2d"
+}

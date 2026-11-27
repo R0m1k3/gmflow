@@ -34,6 +34,8 @@ pub async fn tour(pool: &PgPool) -> anyhow::Result<usize> {
     crate::lecture::pompe_apres_releve(pool).await;
     crate::tri::pompe_apres_releve(pool).await;
     file::pousser_envoi(pool, file::TacheEnvoi::Alertes).await?;
+    // Validations dont la tâche d'envoi s'est perdue (worker arrêté pendant le délai).
+    gmflow_core::envoi_prevu::relancer_en_retard(pool).await?;
     if crate::serveur_api::synchro_due(pool).await? {
         file::pousser_envoi(pool, file::TacheEnvoi::SynchroMagasin).await?;
     }

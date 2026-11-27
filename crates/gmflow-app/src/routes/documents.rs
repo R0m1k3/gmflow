@@ -240,6 +240,10 @@ pub struct FicheDocument {
     recu_le: time::OffsetDateTime,
     /// Envoi en échec relancé il y a moins de 30 min, pas encore repris par le worker.
     envoi_relance: bool,
+    /// Écartée par un humain : quand, par qui, motif (`retour::noter_ecartement`).
+    ecartement: Option<Value>,
+    /// Lignes articles corrigées à la main (`routes::lignes`) : une relecture les remplacerait.
+    lignes_corrigees: i64,
 }
 
 #[derive(Serialize)]
@@ -325,7 +329,10 @@ pub async fn fiche(
                   coalesce(d.statut_depot = 'erreur'
                            and d.valide_le > (select max(e.quand) from envoi_depot e
                                               where e.document_id = d.id)
-                           and d.valide_le > now() - interval '30 minutes', false) as "envoi_relance!"
+                           and d.valide_le > now() - interval '30 minutes', false) as "envoi_relance!",
+                  d.ecartement - 'avant' as ecartement,
+                  (select count(*) from ligne_document l
+                   where l.document_id = d.id and l.corrigee_le is not null) as "lignes_corrigees!"
            from document d
            join mail m on m.id = d.mail_id
            join piece_jointe p on p.id = d.piece_jointe_id
@@ -1026,22 +1033,42 @@ pub struct DemandeValidation {
     /// Administrateur seulement : envoyer un doublon quand même.
     #[serde(default)]
     forcer: bool,
+    /// Validation par lot (`routes::lot`), jamais lue du corps : envois regroupés sous ce lot,
+    /// et seulement une pièce sans alerte.
+    #[serde(skip)]
+    pub(crate) lot: Option<uuid::Uuid>,
+    #[serde(skip)]
+    pub(crate) sans_alerte: bool,
+}
+
+impl DemandeValidation {
+    /// Validation d'une pièce d'un lot : sans correction, sans forçage, sans alerte.
+    pub(crate) fn pour_lot(lot: uuid::Uuid) -> Self {
+        Self {
+            lot: Some(lot),
+            sans_alerte: true,
+            ..Default::default()
+        }
+    }
 }
 
 /// Société choisie dans l'interface, pour donner le document suivant de la même file.
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct ContexteFile {
     societe: Option<i64>,
 }
 
 #[derive(Serialize)]
 pub struct Validation {
-    id: i64,
-    statut_depot: Option<String>,
+    pub(crate) id: i64,
+    pub(crate) statut_depot: Option<String>,
     /// L'envoi à Dext/Yooz a été demandé (facture ou avoir).
-    envoi: bool,
+    pub(crate) envoi: bool,
     /// Document suivant de la file « À valider » (même ordre que `GET /api/a-traiter`).
     suivant: Option<i64>,
+    /// Envoi demandé : il part après ce délai, sauf « Annuler » (`POST /api/documents/annuler-envoi`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) annulation: Option<super::retour::Annulable>,
 }
 
 fn refus(code: &'static str, message: &str) -> ErreurApi {
@@ -1087,6 +1114,13 @@ pub async fn valider(
             "document déjà envoyé ou en cours d'envoi",
         ));
     }
+    // État d'avant la validation, remis par « Annuler » ; lot : pièce sans alerte seulement.
+    let avant = gmflow_core::envoi_prevu::photo_avant(&mut tx, id).await?;
+    if dv.sans_alerte
+        && let Some(r) = super::lot::raison_hors_lot(&mut tx, id).await?
+    {
+        return Err(refus("alertes", &r));
+    }
     match &correction {
         Some(c) => appliquer_correction(&mut tx, &acces, id, c).await?,
         None => {
@@ -1111,6 +1145,9 @@ pub async fn valider(
     let statut = depot::evaluer_dans(&mut tx, id)
         .await
         .map_err(ErreurApi::Interne)?;
+    if dv.sans_alerte && statut.as_deref() != Some("pret") {
+        return Err(refus("alertes", "alertes à lire"));
+    }
     let type_doc = sqlx::query_scalar!("select type from document where id = $1", id)
         .fetch_one(&mut *tx)
         .await?;
@@ -1173,20 +1210,31 @@ pub async fn valider(
         )
         .await?;
     }
+    // Envoi après le délai d'annulation (`envoi_prevu`), noté dans la transaction.
+    let lot = dv.lot.unwrap_or_else(uuid::Uuid::new_v4);
+    let prevu = if envoi {
+        Some(
+            gmflow_core::envoi_prevu::prevoir(
+                &mut tx,
+                id,
+                lot,
+                Some(acces.utilisateur_id),
+                dv.forcer,
+                &avant,
+                gmflow_core::envoi_prevu::DELAI_ANNULATION_S,
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
     tx.commit().await?;
     // La file d'envoi n'est pas dans la transaction (apalis) : poussée juste après. Si elle
-    // échouait, le document resterait validé sans envoi, comme avec `deposer`.
-    if envoi {
-        file::pousser_envoi(
-            &etat.pool,
-            file::TacheEnvoi::Deposer {
-                document_id: id,
-                forcer: dv.forcer,
-                auteur_id: Some(acces.utilisateur_id),
-            },
-        )
-        .await
-        .map_err(ErreurApi::Interne)?;
+    // échouait, le planificateur repousse la tâche (`envoi_prevu::relancer_en_retard`).
+    if let Some(p) = &prevu {
+        gmflow_core::envoi_prevu::pousser(&etat.pool, p.id)
+            .await
+            .map_err(ErreurApi::Interne)?;
     }
     gmflow_core::rapprochement::recalculer(&etat.pool, id)
         .await
@@ -1197,6 +1245,7 @@ pub async fn valider(
         statut_depot: statut,
         envoi,
         suivant,
+        annulation: prevu.map(|_| super::retour::Annulable::pour(lot)),
     }))
 }
 
@@ -1209,8 +1258,10 @@ pub async fn ecarter(
     State(etat): State<Etat>,
     Path(id): Path<i64>,
     Query(f): Query<ContexteFile>,
+    corps: Option<Json<super::retour::Motif>>,
 ) -> Resultat<Json<Validation>> {
     controler_modifiable(&etat, &acces, id).await?;
+    let motif = corps.map(|Json(m)| m).unwrap_or_default().nettoyer()?;
     let place = super::a_traiter::place_dans_file(&etat, id).await?;
     let mut tx = etat.pool.begin().await?;
     let a = sqlx::query!(
@@ -1231,6 +1282,8 @@ pub async fn ecarter(
             "envoi en échec : seul un administrateur peut l'écarter",
         ));
     }
+    // De quoi « Remettre à contrôler » : état d'avant et motif.
+    super::retour::noter_ecartement(&mut tx, &acces, id, &motif).await?;
     let action = if a.statut_depot.as_deref() == Some("doublon") && a.etat == "lu" {
         sqlx::query!(
             "update document set verifie_le = now(), verifie_par = $2 where id = $1",
@@ -1284,5 +1337,6 @@ pub async fn ecarter(
         statut_depot,
         envoi: false,
         suivant,
+        annulation: None,
     }))
 }

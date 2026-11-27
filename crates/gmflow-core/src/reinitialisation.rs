@@ -27,6 +27,7 @@ pub const TABLES_EFFACEES: &[&str] = &[
     "logiflow_livraison",
     "ligne_document",
     "rapprochement",
+    "envoi_prevu",
     "envoi_depot",
     "brouillon_reponse",
     "mail_hors_societe",

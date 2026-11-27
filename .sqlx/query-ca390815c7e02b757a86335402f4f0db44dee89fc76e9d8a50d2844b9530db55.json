@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document d set type = a.type, societe_id = a.societe_id,\n                fournisseur_id = a.fournisseur_id, numero = a.numero,\n                date_document = a.date_document, numero_commande = a.numero_commande,\n                montant_ht = a.montant_ht, montant_tva = a.montant_tva, montant_ttc = a.montant_ttc,\n                date_echeance = a.date_echeance, corrections = coalesce(a.corrections, '{}'),\n                corrige_le = a.corrige_le, type_corrige = coalesce(a.type_corrige, false),\n                societe_corrigee = coalesce(a.societe_corrigee, false),\n                verifie_le = a.verifie_le, verifie_par = a.verifie_par,\n                valide_le = a.valide_le, valide_par = a.valide_par,\n                statut_depot = a.statut_depot, controles = coalesce(a.controles, '[]')\n         from jsonb_populate_record(null::document, $2) a\n         where d.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ca390815c7e02b757a86335402f4f0db44dee89fc76e9d8a50d2844b9530db55"
+}

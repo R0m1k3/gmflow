@@ -10,6 +10,7 @@
   import { page } from '$app/state';
   import { untrack } from 'svelte';
   import { requete, sonder } from '#lib/api.ts';
+  import { annulations } from '#lib/annulations.svelte.ts';
   import { deplacer, fleche, montrer, raccourcis, type Gestionnaire } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libelleStatutEnvoi, nomCourtSociete, tonEtat, tonStatutEnvoi, type Ton } from '#lib/libelles.ts';
@@ -28,6 +29,8 @@
   import Montant from './Montant.svelte';
   import Vide from './Vide.svelte';
   import Volets from './Volets.svelte';
+  import SelectionLot from './SelectionLot.svelte';
+  import { Selection } from '#lib/selection.svelte.ts';
 
   let {
     titre,
@@ -38,7 +41,8 @@
     singulier,
     section,
     sansSuite,
-    pied = 'chercher'
+    pied = 'chercher',
+    filtreLot
   }: {
     /** « Factures », « BL ». */
     titre: string;
@@ -56,6 +60,8 @@
     sansSuite: string;
     /** Rappel de touche du pied de liste, après J K. */
     pied?: 'chercher' | 'valider';
+    /** Filtre où les pièces sans alerte se cochent pour « Valider N pièces » (Factures, Avoirs). */
+    filtreLot?: string;
   } = $props();
 
   let docId = $derived(Number(page.url.searchParams.get('doc')) || null);
@@ -88,10 +94,25 @@
       if (lst.total !== avant) majListe = `Liste mise à jour : ${lst.total} ${lst.total > 1 ? 'éléments' : 'élément'}`;
     }, 60_000);
   });
+  // Validation annulée depuis le message du bas : la pièce revient dans la liste.
+  $effect(() => annulations.surAnnulation(() => void lst.lire(true)));
   /** Annonce aux lecteurs d'écran, quand la liste change toute seule. */
   let majListe = $state('');
 
   let groupes = $derived(parJour(lst.elements, (d) => d.date_mail));
+
+  // Validation par lot : cases à cocher dans le filtre « À contrôler » (Factures, Avoirs).
+  let lotActif = $derived(!!filtreLot && filtreV === filtreLot);
+  const sel = new Selection();
+  let idsListe = $derived(lst.elements.map((d) => d.id));
+  $effect(() => {
+    if (!lotActif) {
+      untrack(() => sel.rien());
+      return;
+    }
+    const ids = idsListe;
+    untrack(() => void sel.actualiser(ids));
+  });
 
   function lien(id: number | null, f = filtreV) {
     // Le filtre d'origine reste implicite, sauf si un autre est gardé : il faut alors le nommer pour le retrouver.
@@ -105,6 +126,8 @@
     if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
     const e = d.type === 'avoir' ? '' : 'e';
     if (d.statut_depot === 'depose') return { texte: `Envoyé${e}`, ton: 'ok' };
+    // Prête à partir mais pas encore validée par un humain : encore à contrôler.
+    if (d.statut_depot === 'pret' && !d.verifie) return { texte: 'À contrôler', ton: 'alerte' };
     if (d.statut_depot === 'pret' && !e) return { texte: 'Validé', ton: tonStatutEnvoi('pret') };
     if (d.statut_depot) return { texte: libelleStatutEnvoi(d.statut_depot), ton: tonStatutEnvoi(d.statut_depot) };
     return d.verifie ? { texte: `Validé${e}`, ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
@@ -188,6 +211,14 @@
       ArrowDown: fleche(() => deplacerDe(1)),
       ArrowUp: fleche(() => deplacerDe(-1))
     };
+    // Espace coche ou décoche la pièce ouverte (sur une case ou un bouton : comportement normal).
+    if (lotActif)
+      carte[' '] = (e) => {
+        const t = e.target as HTMLElement | null;
+        if (!docId || t?.closest('input, button, select, textarea, dialog')) return false;
+        if (!sel.possible(docId) && !sel.coches.has(docId)) return false;
+        sel.basculer(docId);
+      };
     if (docId) carte.Escape = () => void goto(lien(null));
     else
       carte.Enter = () => {
@@ -214,6 +245,7 @@
     </div>
     <div class="sr-seul" role="status" aria-live="polite">{majListe}</div>
     <div class="liste-s" bind:this={listeEl}>
+      {#if lotActif && lst.charge}<SelectionLot {sel} ids={idsListe} partie="tete" />{/if}
       {#if lst.erreur}
         <Bandeau ton="erreur" titre="Liste non chargée.">
           {lst.erreur}
@@ -231,7 +263,22 @@
             {@const s = statut(d)}
             {@const blSansMontant = d.type === 'bl' && d.montant_ttc === null}
             {@const etiquettes = etiquettesDe(d, s)}
-            <a class="ligne" aria-label={nomLigne(d, etiquettes)} class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
+            {@const raison = lotActif ? sel.raison(d.id) : ''}
+            <div class={lotActif ? 'ligne-lot' : 'sans-lot'} class:cur={lotActif && docId === d.id}>
+            {#if lotActif}
+              <div class="case-lot">
+                <input
+                  type="checkbox"
+                  aria-label="Choisir : {nomLigne(d, etiquettes)}"
+                  aria-describedby={raison ? `lot-r-${d.id}` : undefined}
+                  title={raison || undefined}
+                  disabled={!sel.possible(d.id)}
+                  checked={sel.coches.has(d.id)}
+                  onchange={() => sel.basculer(d.id)}
+                />
+              </div>
+            {/if}
+            <a class="ligne" class:avec-case={lotActif} aria-label={nomLigne(d, etiquettes)} class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
               <div class="a">{d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu'}</div>
               {#if blSansMontant}
                 <div class="r doc-heure">{heureDe(d.date_mail)}</div>
@@ -255,17 +302,26 @@
                 </div>
               {/if}
             </a>
+            {#if raison}<div class="raison-lot" id="lot-r-{d.id}">{raison}</div>{/if}
+            </div>
           {/each}
         {/each}
-        {#if lst.reste > 0}
+        {#if lst.reste > 0 && !lotActif}
           <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
             {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
           </button>
         {/if}
+        {#if lotActif && lst.reste > 0}
+          <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
+            {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
+          </button>
+        {/if}
+        {#if lotActif}<SelectionLot {sel} ids={idsListe} partie="barre" onvalide={() => void lst.lire(true)} />{/if}
       {/if}
     </div>
     <div class="liste-f">
       <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
+      {#if lotActif}<span><Kbd t="Espace" /> cocher</span>{/if}
       <span><Kbd t="?" /> aide</span>
       {#if pied === 'valider'}<span><Kbd t="Enter" /> valider</span>{:else}<span><Kbd t="/" /> chercher</span>{/if}
     </div>
@@ -295,6 +351,50 @@
 </Volets>
 
 <style>
+  .sans-lot {
+    display: contents;
+  }
+  /* Filtre « À contrôler » : une case à gauche de chaque ligne, la raison dessous si elle n'est pas cochable. */
+  .ligne-lot {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    border-radius: var(--r2);
+  }
+  .ligne-lot.cur {
+    background: var(--sunk);
+  }
+  .ligne-lot .ligne {
+    padding-left: 4px;
+  }
+  .ligne-lot .ligne.cur {
+    background: none;
+  }
+  .case-lot {
+    display: flex;
+    justify-content: center;
+    padding-top: 14px;
+  }
+  .raison-lot {
+    grid-column: 2;
+    padding: 0 16px 10px 4px;
+    margin-top: -6px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media (max-width: 760px) {
+    .ligne-lot {
+      grid-template-columns: 44px minmax(0, 1fr);
+    }
+    .case-lot {
+      padding-top: 0;
+      align-items: flex-start;
+    }
+    .case-lot input {
+      width: 22px;
+      height: 22px;
+      margin: 12px 0;
+    }
+  }
   .num-d {
     flex: none;
     max-width: 100%;

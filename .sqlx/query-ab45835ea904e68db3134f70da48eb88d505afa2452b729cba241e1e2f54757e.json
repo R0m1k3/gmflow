@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update envoi_prevu set etat = 'sans_suite' where id = $1 and etat = 'pris'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab45835ea904e68db3134f70da48eb88d505afa2452b729cba241e1e2f54757e"
+}

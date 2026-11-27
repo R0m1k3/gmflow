@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document d set ecartement = jsonb_build_object(\n               'le', now(), 'par', $2::bigint,\n               'par_nom', (select identifiant from utilisateur where id = $2),\n               'motif', $3::text, 'texte', $4::text,\n               'avant', jsonb_build_object('etat', d.etat, 'statut_depot', d.statut_depot,\n                                           'controles', d.controles, 'verifie_le', d.verifie_le,\n                                           'verifie_par', d.verifie_par))\n           where d.id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d6ea8b2dca29c54ae54e076e530787c1c69aad46dde95a56e9a407f189dba61"
+}

@@ -1009,7 +1009,7 @@ async fn lire_avec_ocr(
         nom_fichier: &e.nom,
     };
     let mut prompt = extraction::prompt(&mail, soc, &Contenu::Texte(&t.texte));
-    prompt.push_str(&exemples_pour(&ctx.pool, &e.expediteur, Some(&t.texte)).await);
+    prompt.push_str(&exemples_pour(&ctx.pool, id, &e.expediteur, Some(&t.texte)).await);
     prompt.push_str(&t.consigne("document.pdf"));
     let tache = if voie == Voie::Scan {
         reglages::OCR_SCAN
