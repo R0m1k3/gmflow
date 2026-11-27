@@ -33,7 +33,8 @@
     inputmode,
     onvalider,
     affichage,
-    apres
+    apres,
+    marque
   }: {
     libelle: string;
     valeur?: string;
@@ -58,6 +59,8 @@
     affichage?: Snippet;
     /** Contenu à droite de la valeur : un bouton .btn.sm « Mettre 2 210,11 € ». */
     apres?: Snippet;
+    /** À côté du libellé (dispositions « ligne » et « tuile ») : la pastille d'origine de la valeur. */
+    marque?: Snippet;
   } = $props();
 
   const uid = $props.id();
@@ -173,7 +176,7 @@
       <label class="k" for={id}>{libelle}</label>
       <div class="v edition">{@render controle('brouillon')}</div>
     {:else}
-      <div class="k">{libelle}</div>
+      <div class="k">{libelle}{#if marque}{' '}{@render marque()}{/if}</div>
       {#if modifiable && !desactive}
         <button type="button" class="v val modifiable" onclick={ouvrir} aria-label="Modifier {libelle}">{@render lecture()}</button>
       {:else}
@@ -189,7 +192,7 @@
       <label class="k" for={id}>{libelle}</label>
       <div class="v edition">{@render controle('brouillon')}</div>
     {:else}
-      <div class="k">{libelle}</div>
+      <div class="k">{libelle}{#if marque}{' '}{@render marque()}{/if}</div>
       <div class="v" class:modifiable>
         {#if modifiable && !desactive}
           <button type="button" class="val" onclick={ouvrir} aria-label="Modifier {libelle}">
