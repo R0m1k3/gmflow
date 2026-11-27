@@ -7,6 +7,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use gmflow_core::lecture::extraction::TYPES;
+use gmflow_core::montant::{self, Decimal};
 use gmflow_core::{depot, file, journal, parametre};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -67,8 +68,8 @@ pub struct LigneDocument {
     date_document: Option<time::Date>,
     #[serde(with = "date_iso::option")]
     date_echeance: Option<time::Date>,
-    montant_ttc: Option<f64>,
-    remise_ht: Option<f64>,
+    montant_ttc: Option<Decimal>,
+    remise_ht: Option<Decimal>,
     /// Articles en écart avec les BL liés (manquant, en trop, prix changé).
     articles_ecart: i64,
     message: Option<String>,
@@ -172,7 +173,7 @@ pub async fn lister(
         r#"select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,
                   s.raison_sociale as "societe?", d.fournisseur_nom, d.numero, d.date_document,
                   d.date_echeance,
-                  d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht,
+                  d.montant_ttc, d.remise_ht,
                   (select count(*) from rapprochement r cross join jsonb_array_elements(r.ecarts) e
                    where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)) as "articles_ecart!", d.message,
                   d.verifie_le is not null as "verifie!", m.date_mail,
@@ -275,12 +276,12 @@ pub struct FicheDocument {
     numero_commande: Option<String>,
     #[serde(with = "date_iso::option")]
     date_echeance: Option<time::Date>,
-    montant_ht: Option<f64>,
-    montant_tva: Option<f64>,
-    montant_ttc: Option<f64>,
-    remise_ht: Option<f64>,
-    remise_taux: Option<f64>,
-    annexes_ht: Option<f64>,
+    montant_ht: Option<Decimal>,
+    montant_tva: Option<Decimal>,
+    montant_ttc: Option<Decimal>,
+    remise_ht: Option<Decimal>,
+    remise_taux: Option<Decimal>,
+    annexes_ht: Option<Decimal>,
     confiance: Value,
     texte: Option<String>,
     modele: Option<String>,
@@ -429,10 +430,8 @@ pub async fn fiche(
                   p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,
                   d.type, d.societe_id, s.raison_sociale as "societe?", d.fournisseur_nom,
                   d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,
-                  d.numero_commande, d.date_echeance, d.montant_ht::float8 as montant_ht,
-                  d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,
-                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,
-                  d.annexes_ht::float8 as annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,
+                  d.numero_commande, d.date_echeance, d.montant_ht, d.montant_tva, d.montant_ttc,
+                  d.remise_ht, d.remise_taux, d.annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,
                   u.identifiant as "verifie_par?", d.type_corrige, d.societe_corrigee,
                   d.fournisseur_id, fo.nom as "fournisseur?", fo.statut as "fournisseur_statut?",
                   d.statut_depot, d.controles, d.valide_le, uv.identifiant as "valide_par?",
@@ -503,9 +502,9 @@ pub async fn fiche(
         r#"select jsonb_build_object('vu_le', vu_le, 'etat', etat, 'possibles', possibles,
                                      'livraison_id', livraison_id, 'magasin', magasin,
                                      'fournisseur', fournisseur, 'bl', bl, 'livree_le', livree_le,
-                                     'montant_bl', montant_bl::float8, 'facture', facture,
-                                     'facture_ht', facture_ht::float8,
-                                     'facture_ttc', facture_ttc::float8, 'echeance', echeance,
+                                     'montant_bl', montant_bl, 'facture', facture,
+                                     'facture_ht', facture_ht,
+                                     'facture_ttc', facture_ttc, 'echeance', echeance,
                                      'rapprochee', rapprochee) as "v!"
            from logiflow_livraison where bl_id = $1"#,
         id
@@ -817,9 +816,9 @@ pub struct Correction {
     numero: Option<String>,
     date_document: Option<String>,
     numero_commande: Option<String>,
-    montant_ht: Option<f64>,
-    montant_tva: Option<f64>,
-    montant_ttc: Option<f64>,
+    montant_ht: Option<Decimal>,
+    montant_tva: Option<Decimal>,
+    montant_ttc: Option<Decimal>,
     /// Absente : l'échéance lue est gardée ; `null` : effacée.
     #[serde(default, deserialize_with = "present")]
     date_echeance: Option<Option<String>>,
@@ -834,8 +833,18 @@ fn texte_net(v: &Option<String>) -> Option<String> {
     vide(v)
 }
 
-fn centimes(v: Option<f64>) -> Option<f64> {
-    v.map(|x| (x * 100.0).round() / 100.0)
+fn centimes(v: Option<Decimal>) -> Option<Decimal> {
+    v.map(montant::centimes)
+}
+
+/// Montant saisi, arrondi au centime ; trop grand pour la colonne : refusé.
+fn montant_saisi(nom: &str, v: Option<Decimal>) -> Resultat<Option<Decimal>> {
+    match v {
+        Some(x) => montant::montant(x)
+            .map(Some)
+            .ok_or_else(|| ErreurApi::Donnees(format!("{nom} trop grand"))),
+        None => Ok(None),
+    }
 }
 
 /// Correction dont les entrées ont été contrôlées (type, structure permise, fournisseur,
@@ -847,9 +856,9 @@ pub(crate) struct CorrectionNette {
     numero: Option<String>,
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
-    ht: Option<f64>,
-    tva: Option<f64>,
-    ttc: Option<f64>,
+    ht: Option<Decimal>,
+    tva: Option<Decimal>,
+    ttc: Option<Decimal>,
     /// `None` : échéance inchangée.
     echeance: Option<Option<time::Date>>,
 }
@@ -889,9 +898,9 @@ async fn nettoyer_correction(
         date_document: date(&c.date_document)?,
         numero: texte_net(&c.numero),
         numero_commande: texte_net(&c.numero_commande),
-        ht: centimes(c.montant_ht),
-        tva: centimes(c.montant_tva),
-        ttc: centimes(c.montant_ttc),
+        ht: montant_saisi("montant HT", c.montant_ht)?,
+        tva: montant_saisi("montant de TVA", c.montant_tva)?,
+        ttc: montant_saisi("montant TTC", c.montant_ttc)?,
         echeance: match &c.date_echeance {
             Some(e) => Some(date(e)?),
             None => None,
@@ -912,8 +921,8 @@ async fn appliquer_correction(
 ) -> Resultat<()> {
     let a = sqlx::query!(
         r#"select etat, statut_depot, type, societe_id, fournisseur_id, numero, date_document,
-                  numero_commande, montant_ht::float8 as ht, montant_tva::float8 as tva,
-                  montant_ttc::float8 as ttc, corrections, date_echeance
+                  numero_commande, montant_ht as ht, montant_tva as tva, montant_ttc as ttc,
+                  corrections, date_echeance
            from document where id = $1 for update"#,
         id
     )
@@ -968,8 +977,8 @@ async fn appliquer_correction(
     sqlx::query!(
         "update document set type = $2, societe_id = $3, fournisseur_id = $4, numero = $5,
             date_document = $6, numero_commande = $7,
-            montant_ht = $8::float8::numeric(14, 2), montant_tva = $9::float8::numeric(14, 2),
-            montant_ttc = $10::float8::numeric(14, 2),
+            montant_ht = $8::numeric(14, 2), montant_tva = $9::numeric(14, 2),
+            montant_ttc = $10::numeric(14, 2),
             corrections = $11, corrige_le = case when $12 then now() else corrige_le end,
             verifie_le = now(), verifie_par = $13,
             type_corrige = type_corrige or $14, societe_corrigee = societe_corrigee or $15,

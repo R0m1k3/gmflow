@@ -3,6 +3,7 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
+use gmflow_core::montant::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::acces::Acces;
@@ -27,7 +28,7 @@ pub struct LigneSuivi {
     pub(crate) en_erreur: i64,
     pub(crate) doublons: i64,
     /// Montant TTC déposé.
-    pub(crate) montant_depose: f64,
+    pub(crate) montant_depose: Decimal,
 }
 
 #[derive(Serialize)]
@@ -73,7 +74,7 @@ pub async fn suivi(
                   count(*) filter (where d.statut_depot = 'erreur') as "en_erreur!",
                   count(*) filter (where d.statut_depot = 'doublon') as "doublons!",
                   coalesce(sum(case when d.type = 'avoir' then -abs(d.montant_ttc) else d.montant_ttc end)
-                               filter (where d.statut_depot = 'depose'), 0)::float8 as "montant_depose!"
+                               filter (where d.statut_depot = 'depose'), 0) as "montant_depose!"
            from document d
            join mail m on m.id = d.mail_id
            left join societe s on s.id = d.societe_id

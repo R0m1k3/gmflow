@@ -9,6 +9,7 @@ use axum::http::StatusCode;
 use calamine::{Data, Range, Reader, Xlsx};
 use commun::Appli;
 use gmflow_core::export_bilan::{self, LIGNE_ENTETES, ONGLET_BL, ONGLET_DETAIL, ONGLET_SYNTHESE};
+use gmflow_core::montant::{self, dec};
 
 const MDP: &str = "un mot de passe solide";
 
@@ -73,7 +74,8 @@ async fn piece(m: &Monde, boite: i64, p: Piece<'_>) -> i64 {
     );
     let mail = app.mail_vu(&eml, &[boite]).await;
     let pj = app.piece_de(mail).await;
-    let ht = (p.ttc / 1.2 * 100.0).round() / 100.0;
+    let ttc = montant::depuis_f64(p.ttc).unwrap();
+    let ht = montant::centimes(ttc / dec!(1.2));
     sqlx::query_scalar(
         "insert into document (piece_jointe_id, mail_id, sha256, etat, voie, type, societe_id,
              fournisseur_nom, numero, date_document, date_echeance, montant_ht, montant_tva,
@@ -90,7 +92,7 @@ async fn piece(m: &Monde, boite: i64, p: Piece<'_>) -> i64 {
     .bind(p.numero)
     .bind(p.date)
     .bind(ht)
-    .bind(p.ttc)
+    .bind(ttc)
     .bind(p.statut)
     .bind(p.valide)
     .fetch_one(app.pool())

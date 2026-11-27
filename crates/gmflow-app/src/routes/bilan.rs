@@ -91,7 +91,7 @@ async fn donnees(acces: &Acces, etat: &Etat, f: &Filtre) -> Resultat<Donnees> {
                       count(*) filter (where d.statut_depot = 'erreur') as "en_erreur!",
                       count(*) filter (where d.statut_depot = 'doublon') as "doublons!",
                       coalesce(sum(case when d.type = 'avoir' then -abs(d.montant_ttc) else d.montant_ttc end)
-                               filter (where d.statut_depot = 'depose'), 0)::float8 as "montant_depose!"
+                               filter (where d.statut_depot = 'depose'), 0) as "montant_depose!"
                from document d
                join mail m on m.id = d.mail_id
                left join societe s on s.id = coalesce(d.societe_id, $3)
@@ -212,9 +212,9 @@ pub async fn exporter(
         r#"select coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) as "date!",
                   s.raison_sociale as "societe?", coalesce(fo.nom, d.fournisseur_nom) as fournisseur,
                   d.type, d.numero,
-                  (case when d.type = 'avoir' then -abs(d.montant_ht) else d.montant_ht end)::float8 as ht,
-                  (case when d.type = 'avoir' then -abs(d.montant_tva) else d.montant_tva end)::float8 as tva,
-                  (case when d.type = 'avoir' then -abs(d.montant_ttc) else d.montant_ttc end)::float8 as ttc,
+                  (case when d.type = 'avoir' then -abs(d.montant_ht) else d.montant_ht end) as ht,
+                  (case when d.type = 'avoir' then -abs(d.montant_tva) else d.montant_tva end) as tva,
+                  (case when d.type = 'avoir' then -abs(d.montant_ttc) else d.montant_ttc end) as ttc,
                   d.date_echeance, d.statut_depot as "statut_depot!", d.valide_le is not null as "validee!",
                   s.outil_depot as "outil?",
                   (select max(e.quand) at time zone 'Europe/Paris' from envoi_depot e

@@ -5,6 +5,7 @@ mod commun;
 
 use axum::http::StatusCode;
 use commun::Appli;
+use gmflow_core::montant;
 use serde_json::json;
 
 const MDP: &str = "un mot de passe solide";
@@ -53,7 +54,7 @@ async fn doc(
     .bind(fournisseur)
     .bind(numero)
     .bind(commande)
-    .bind(ht)
+    .bind(montant::depuis_f64(ht))
     .fetch_one(app.pool())
     .await
     .unwrap()

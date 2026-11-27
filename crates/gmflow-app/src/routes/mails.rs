@@ -1,6 +1,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use gmflow_core::journal;
+use gmflow_core::montant::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -258,7 +259,7 @@ pub struct PieceVue {
     document_statut_depot: Option<String>,
     document_verifie: Option<bool>,
     document_numero: Option<String>,
-    document_montant_ttc: Option<f64>,
+    document_montant_ttc: Option<Decimal>,
     document_fournisseur_id: Option<i64>,
     /// Fiche fournisseur, à défaut nom lu.
     document_fournisseur: Option<String>,
@@ -361,7 +362,7 @@ pub async fn fiche(
                   d.statut_depot as "document_statut_depot?",
                   (d.verifie_le is not null) as "document_verifie?",
                   d.numero as "document_numero?",
-                  d.montant_ttc::float8 as "document_montant_ttc?",
+                  d.montant_ttc as "document_montant_ttc?",
                   d.fournisseur_id as "document_fournisseur_id?",
                   coalesce(fo.nom, d.fournisseur_nom) as "document_fournisseur?",
                   d.societe_id as "document_societe_id?",

@@ -6,6 +6,7 @@ mod commun;
 
 use axum::http::StatusCode;
 use commun::Appli;
+use gmflow_core::montant::{self, dec};
 use serde_json::{Value, json};
 
 const MDP: &str = "un mot de passe solide";
@@ -70,15 +71,16 @@ async fn doc(m: &Monde, type_doc: &str, fournisseur: &str, ttc: f64, jours: i32)
         .await
         .unwrap();
     let piece = app.piece_de(mail).await;
-    let ht = (ttc / 1.2 * 100.0).round() / 100.0;
-    let tva = ((ttc - ht) * 100.0).round() / 100.0;
+    let ttc = montant::depuis_f64(ttc).unwrap();
+    let ht = montant::centimes(ttc / dec!(1.2));
+    let tva = ttc - ht;
     let id: i64 = sqlx::query_scalar(
         "insert into document (piece_jointe_id, mail_id, sha256, etat, voie, type, societe_id,
              fournisseur_nom, fournisseur_id, numero, date_document, montant_ht, montant_tva, montant_ttc,
              confiance, texte, lu_le)
          select id, mail_id, decode(md5(random()::text), 'hex'), 'lu', 'pdf_texte', $2, $3,
-                $4, case when $2 = 'facture' then $9 end, 'N' || id, current_date - $5, $6::float8::numeric(14, 2),
-                $7::float8::numeric(14, 2), $8::float8::numeric(14, 2),
+                $4, case when $2 = 'facture' then $9 end, 'N' || id, current_date - $5, $6::numeric(14, 2),
+                $7::numeric(14, 2), $8::numeric(14, 2),
                 '{\"type\": 0.95, \"societe\": 0.95, \"numero\": 0.4}', 'TEXTE', now()
          from piece_jointe where id = $1 returning id",
     )

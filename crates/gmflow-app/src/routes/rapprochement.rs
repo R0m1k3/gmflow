@@ -9,6 +9,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use gmflow_core::controles::SEUIL_ECART;
+use gmflow_core::montant::Decimal;
 use gmflow_core::rapprochement::{self as rap, ErreurLien};
 use gmflow_core::{file, journal};
 use serde::{Deserialize, Serialize};
@@ -43,11 +44,11 @@ pub struct DocRap {
     #[serde(with = "date_iso::option")]
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
-    montant_ht: Option<f64>,
+    montant_ht: Option<Decimal>,
     /// Remise HT déduite sur la facture : explique l'écart avec les BL.
-    remise_ht: Option<f64>,
+    remise_ht: Option<Decimal>,
     /// Éco-participation, port… compris dans le HT de la facture, jamais sur un BL.
-    annexes_ht: Option<f64>,
+    annexes_ht: Option<Decimal>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
     societe: Option<String>,
@@ -66,9 +67,9 @@ pub struct BlLie {
 pub struct Rapproche {
     facture: DocRap,
     bls: Vec<BlLie>,
-    ecart_montant: Option<f64>,
+    ecart_montant: Option<Decimal>,
     /// Éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes).
-    eco_bl: Option<f64>,
+    eco_bl: Option<Decimal>,
     ecarts: Value,
 }
 
@@ -101,12 +102,12 @@ struct Lien {
     facture_id: i64,
     bl_id: i64,
     methode: String,
-    ecart_montant: Option<f64>,
-    eco_bl: Option<f64>,
+    ecart_montant: Option<Decimal>,
+    eco_bl: Option<Decimal>,
     ecarts: Value,
 }
 
-fn avec_ecart(ecart: Option<f64>, eco_bl: Option<f64>, ecarts: &Value, f: &DocRap) -> bool {
+fn avec_ecart(ecart: Option<Decimal>, eco_bl: Option<Decimal>, ecarts: &Value, f: &DocRap) -> bool {
     ecart.is_some_and(|e| {
         e.abs() > SEUIL_ECART && !rap::ecart_explique(e, f.remise_ht, f.annexes_ht, eco_bl)
     }) || ecarts.as_array().is_some_and(|a| !a.is_empty())
@@ -122,8 +123,8 @@ pub async fn vue(
     let docs = sqlx::query_as!(
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                  d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                  d.montant_ht,
+                  d.remise_ht, d.annexes_ht,
                   d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d
@@ -158,8 +159,8 @@ pub async fn vue(
     let ids: Vec<i64> = docs.iter().map(|d| d.id).collect();
     let liens: Vec<Lien> = sqlx::query_as!(
         Lien,
-        "select id, facture_id, bl_id, methode, ecart_montant::float8 as ecart_montant,
-                eco_bl::float8 as eco_bl, ecarts
+        "select id, facture_id, bl_id, methode, ecart_montant,
+                eco_bl, ecarts
          from rapprochement where not rejete and (facture_id = any($1) or bl_id = any($1))
          order by facture_id, bl_id",
         &ids
@@ -277,19 +278,19 @@ pub struct LigneVue {
     rang: i32,
     reference: Option<String>,
     designation: Option<String>,
-    quantite: Option<f64>,
+    quantite: Option<Decimal>,
     unite: Option<String>,
-    prix_unitaire_ht: Option<f64>,
-    montant_ht: Option<f64>,
+    prix_unitaire_ht: Option<Decimal>,
+    montant_ht: Option<Decimal>,
 }
 
 #[derive(Serialize)]
 pub struct LienVue {
     id: i64,
     methode: String,
-    ecart_montant: Option<f64>,
+    ecart_montant: Option<Decimal>,
     /// Éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes).
-    eco_bl: Option<f64>,
+    eco_bl: Option<Decimal>,
     ecarts: Value,
     auteur: Option<String>,
     autre: DocRap,
@@ -322,16 +323,16 @@ pub async fn detail(
     .await?;
     let lignes = sqlx::query_as!(
         LigneVue,
-        "select rang, reference, designation, quantite::float8 as quantite, unite,
-                prix_unitaire_ht::float8 as prix_unitaire_ht, montant_ht::float8 as montant_ht
+        "select rang, reference, designation, quantite, unite,
+                prix_unitaire_ht, montant_ht
          from ligne_document where document_id = $1 order by rang",
         id
     )
     .fetch_all(&etat.pool)
     .await?;
     let lignes_liens = sqlx::query!(
-        r#"select r.id, r.methode, r.ecart_montant::float8 as ecart_montant,
-                  r.eco_bl::float8 as eco_bl, r.ecarts,
+        r#"select r.id, r.methode, r.ecart_montant,
+                  r.eco_bl, r.ecarts,
                   u.identifiant as "auteur?",
                   case when r.facture_id = $1 then r.bl_id else r.facture_id end as "autre!"
            from rapprochement r left join utilisateur u on u.id = r.auteur_id
@@ -367,8 +368,8 @@ pub async fn detail(
             sqlx::query_as!(
                 DocRap,
                 r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                          d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                          d.montant_ht,
+                  d.remise_ht, d.annexes_ht,
                   d.fournisseur_id,
                           fo.nom as "fournisseur?", s.raison_sociale as "societe?",
                           p.nom as nom_fichier
@@ -409,8 +410,8 @@ async fn documents(etat: &Etat, acces: &Acces, ids: &[i64]) -> Resultat<Vec<DocR
     Ok(sqlx::query_as!(
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                  d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                  d.montant_ht,
+                  d.remise_ht, d.annexes_ht,
                   d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d

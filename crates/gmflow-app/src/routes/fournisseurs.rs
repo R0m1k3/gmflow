@@ -6,6 +6,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use gmflow_core::controles::{chiffres, siret_valide, tva_compacte, tva_valide};
 use gmflow_core::fournisseurs::{domaine, normaliser};
+use gmflow_core::montant::Decimal;
 use gmflow_core::{depot, journal};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -869,9 +870,9 @@ pub enum ElementFil {
         date: time::Date,
         #[serde(with = "date_iso::option")]
         date_document: Option<time::Date>,
-        montant_ht: Option<f64>,
-        montant_ttc: Option<f64>,
-        remise_ht: Option<f64>,
+        montant_ht: Option<Decimal>,
+        montant_ttc: Option<Decimal>,
+        remise_ht: Option<Decimal>,
         statut_depot: Option<String>,
         verifie: bool,
         societe_id: Option<i64>,
@@ -994,8 +995,8 @@ pub async fn fil(
     let documents = sqlx::query!(
         r#"select d.id, d.mail_id, d.type as "type!", d.numero, d.date_document,
                   coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date) as "date!",
-                  d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,
-                  d.remise_ht::float8 as remise_ht,
+                  d.montant_ht, d.montant_ttc,
+                  d.remise_ht,
                   d.statut_depot, d.verifie_le is not null as "verifie!", d.societe_id,
                   s.raison_sociale as "societe?", s.outil_depot as "outil?",
                   exists (select 1 from rapprochement r

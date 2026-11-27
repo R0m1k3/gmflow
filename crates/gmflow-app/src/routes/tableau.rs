@@ -23,7 +23,7 @@ pub async fn tableau(
     // Travail de l'accueil (U5), même périmètre que la file « À valider » (`a_traiter`) :
     // montant TTC des factures à contrôler, factures à payer bientôt, BL restés sans facture.
     let travail = sqlx::query!(
-        r#"select coalesce(sum(d.montant_ttc) filter (where d.type = 'facture' and a.a_valider), 0)::float8 as "factures_ttc!",
+        r#"select coalesce(sum(d.montant_ttc) filter (where d.type = 'facture' and a.a_valider), 0) as "factures_ttc!",
                   count(*) filter (where d.type = 'facture' and a.a_valider
                                      and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $3::int) as "echeances!",
                   count(*) filter (where d.type = 'bl' and not d.rapprochement_ignore

@@ -8,6 +8,7 @@ use std::io::Cursor;
 use axum::http::StatusCode;
 use calamine::{Data, Reader, Xlsx};
 use commun::Appli;
+use gmflow_core::montant;
 use serde_json::{Value, json};
 
 const MDP: &str = "un mot de passe solide";
@@ -101,16 +102,16 @@ async fn piece(m: &Monde, type_doc: &str, numero: &str, lignes: &[L<'_>]) -> i64
         sqlx::query(
             "insert into ligne_document (document_id, rang, reference, designation, quantite,
                  prix_unitaire_ht, montant_ht, colis, pcb, gencod)
-             values ($1, $2, $3, $4, $5::float8, $6::float8, round(($5 * $6)::numeric, 2), $7::float8, $8::float8, $9)",
+             values ($1, $2, $3, $4, $5::numeric, $6::numeric, round($5::numeric * $6::numeric, 2), $7::numeric, $8::numeric, $9)",
         )
         .bind(id)
         .bind(i as i32)
         .bind(r)
         .bind(d)
-        .bind(q)
-        .bind(pu)
-        .bind(c)
-        .bind(p)
+        .bind(montant::depuis_f64(*q))
+        .bind(montant::depuis_f64(*pu))
+        .bind(c.and_then(montant::depuis_f64))
+        .bind(p.and_then(montant::depuis_f64))
         .bind(g)
         .execute(m.app.pool())
         .await
