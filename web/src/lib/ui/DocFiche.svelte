@@ -97,6 +97,7 @@
   import Montant, { formatMontant } from './Montant.svelte';
   import { LEGENDE, origineChamp, type ChampFiche } from '#lib/origine.ts';
   import Origine, { SIGNES } from './Origine.svelte';
+  import { garderAvantDeQuitter } from '#lib/modifications.svelte.ts';
   import Repli from './Repli.svelte';
   import Poignee from './Poignee.svelte';
   import { largeurGardee } from '#lib/largeurs.ts';
@@ -456,6 +457,17 @@
   }
 
   let fige = $derived(!d || d.etat !== 'lu' || d.statut_depot === 'en_envoi' || d.statut_depot === 'depose');
+
+  // ---------- Modifications non enregistrées (U13) ----------
+  /** Validée ou écartée : la fiche suivante s'ouvre sans demander (les corrections sont parties avec). */
+  let sortieLibre = false;
+  $effect(() => {
+    void id;
+    sortieLibre = false;
+  });
+  let nonEnregistre = $derived(modifie && !fige && d?.etat === 'lu');
+  garderAvantDeQuitter(() => nonEnregistre && !sortieLibre, ['doc']);
+
   let editable = $derived(!fige && occupe === null);
   let outil = $derived(d?.societe_outil_depot ?? null);
   let deposable = $derived(choix.type === 'facture' || choix.type === 'avoir');
@@ -597,6 +609,7 @@
       void rafraichirCompteurs();
       // Envoi différé côté serveur : message « Annuler » en bas de l'écran, la suite s'ouvre.
       if (r.annulation) annulations.annoncer(r.annulation, quoi, `${quoi} validé${choix.type === 'facture' ? 'e' : ''}`, nomOutil(outil));
+      sortieLibre = true;
       onfait({
         id: d.id,
         suivant: r.suivant,
@@ -630,6 +643,7 @@
     try {
       const r = await ecarterDocument(d.id, societe.id, { motif, texte: texte.trim() || null });
       void rafraichirCompteurs();
+      sortieLibre = true;
       onfait({ id: d.id, suivant: r.suivant, info: `Écarté : ${quoi}` });
     } catch (e) {
       erreur = message(e);
@@ -1455,7 +1469,7 @@
             </Bandeau>
           {/if}
           {#if modifie && !fige}
-            <p class="petit t2 doc-note">Corrections gardées à la validation.
+            <p class="petit t2 doc-note" role="status"><b class="non-enregistre">Modifications non enregistrées</b> : elles seront gardées en validant.
               <button type="button" class="btn-lien" onclick={() => (choix = { ...lu })}>Revenir à la lecture</button>
             </p>
           {/if}
