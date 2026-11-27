@@ -40,5 +40,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 zip.workspace = true
+weezl.workspace = true
 webpki-roots.workspace = true
 rust_xlsxwriter.workspace = true

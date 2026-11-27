@@ -1184,6 +1184,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "webpki-roots",
+ "weezl",
  "zip",
 ]
 
