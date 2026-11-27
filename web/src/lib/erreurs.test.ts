@@ -17,7 +17,7 @@ class FausseErreur extends Error {
 test('chaque code a un message simple, un « que faire » et son action', () => {
   const x = expliquer(new FausseErreur(409, 'adresse d’expédition non configurée', 'expedition'), true);
   assert.equal(x.message, 'L’adresse d’envoi vers Dext / Yooz n’est pas réglée.');
-  assert.deepEqual(x.action, { genre: 'lien', libelle: 'Régler l’expédition', href: '/reglages/envoi' });
+  assert.deepEqual(x.action, { genre: 'lien', libelle: 'Régler l’envoi', href: '/reglages/envoi' });
   // Un responsable ne va pas aux réglages : il prévient l'administrateur.
   const r = expliquer(new FausseErreur(409, 'x', 'expedition'), false);
   assert.equal(r.action, null);

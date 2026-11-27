@@ -93,8 +93,8 @@ const PAR_CODE: Record<string, Traduction> = {
     action: reessayer('Recharger')
   }),
   // Refus métier (409 avec code) : docs/api-refonte.md.
-  expedition: reglage('L’adresse d’envoi vers Dext / Yooz n’est pas réglée.', 'envoi', 'Régler l’expédition'),
-  sans_adresse: reglage('Ce magasin n’a pas d’adresse Dext / Yooz.', 'societes', 'Régler les structures'),
+  expedition: reglage('L’adresse d’envoi vers Dext / Yooz n’est pas réglée.', 'envoi', 'Régler l’envoi'),
+  sans_adresse: reglage('Ce magasin n’a pas d’adresse Dext / Yooz.', 'societes', 'Régler les sociétés'),
   smtp_absent: reglage('Le serveur d’envoi (SMTP) de cette boîte n’est pas réglé.', 'boites', 'Régler les boîtes mail'),
   serveur_magasin_absent: reglage('Le serveur du magasin (Apiflow) n’est pas réglé.', 'serveur-api', 'Régler le serveur du magasin'),
   logiflow_absent: reglage('Logiflow n’est pas réglé.', 'logiflow', 'Régler Logiflow'),
