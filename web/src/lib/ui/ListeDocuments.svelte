@@ -13,9 +13,11 @@
 </script>
 
 <script lang="ts">
-  // Onglets Factures et BL (maquette Sauge S4, S5) : les documents reçus, les plus récents en haut,
-  // groupés par jour de réception. Filtres en puces (paramètres de GET /api/documents), fiche du
-  // document à droite (?doc=ID) : aperçu au centre, champs et actions dans la colonne de droite.
+  // Onglets Factures, Avoirs, BL, Envois : les documents reçus, les plus récents en haut, groupés par
+  // jour de réception (paramètres de GET /api/documents).
+  // Ordinateur (≥ 1024 px), rien d'ouvert : tableau pleine largeur, en-têtes de colonnes = tri, filtres
+  // en sélecteur segmenté à côté du titre. Pièce ouverte (?doc=ID) : liste étroite en tuiles | fiche | aperçu
+  // (la liste se replie sous 1600 px, Volets). Tablette et téléphone : la liste en tuiles, filtres en puces.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { untrack } from 'svelte';
@@ -27,6 +29,7 @@
   import { filtreGarde, garderFiltre } from '#lib/filtres.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
   import { lireTri, parametresTri } from '#lib/tri.ts';
+  import EnTetesTableau, { type ColonneTableau } from './EnTetesTableau.svelte';
   import EnTetesTri from './EnTetesTri.svelte';
   import ErreurAction from './ErreurAction.svelte';
   import { societe } from '#lib/societe.svelte.ts';
@@ -160,7 +163,7 @@
   const MAX_ETIQUETTES = 2;
   function etiquettesDe(d: LigneDocument, s: { texte: string; ton: Ton } | null) {
     const l: { texte: string; ton: Ton; title?: string }[] = [];
-    if (s) l.push({ texte: s.texte, ton: s.ton });
+    if (s && !repeteFiltre(s.texte)) l.push({ texte: s.texte, ton: s.ton });
     if (d.articles_ecart)
       l.push({
         texte: `${d.articles_ecart} écart${d.articles_ecart > 1 ? 's' : ''} BL`,
@@ -203,6 +206,45 @@
 
   const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
   const heureDe = (iso: string | null) => (iso ? heure.format(new Date(iso)) : '');
+  const jourHeure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  /** Réception : l'heure sous un intertitre de jour, sinon « 26/11 10:12 ». */
+  const recuDe = (iso: string | null) => (!iso ? '' : parReception ? heureDe(iso) : jourHeure.format(new Date(iso)).replace(',', ''));
+
+  // ---------- Tableau (ordinateur, rien d'ouvert) ----------
+  let large = $state(true);
+  $effect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    large = mq.matches;
+    const suivre = (e: MediaQueryListEvent) => (large = e.matches);
+    mq.addEventListener('change', suivre);
+    return () => mq.removeEventListener('change', suivre);
+  });
+  let enTableau = $derived(large && !docId);
+  let avecEcheance = $derived(colonnesTri.some((c) => c.cle === 'echeance'));
+  let colonnes = $derived<ColonneTableau[]>([
+    { libelle: 'Fournisseur', tri: 'fournisseur' },
+    { libelle: 'N°', tri: 'numero' },
+    { libelle: 'Société' },
+    { libelle: section === 'Facture' ? 'Reçue' : 'Reçu', tri: 'recu' },
+    { libelle: 'Date', tri: 'date' },
+    ...(avecEcheance ? [{ libelle: 'Échéance', tri: 'echeance' }] : []),
+    { libelle: 'État' },
+    { libelle: 'Montant TTC', tri: 'montant', droite: true }
+  ]);
+  let gabarit = $derived(
+    [
+      lotActif ? '44px' : '',
+      'minmax(170px, 2fr) minmax(110px, 1.3fr) minmax(80px, 0.8fr) 104px 96px',
+      avecEcheance ? '96px' : '',
+      'minmax(150px, 1.6fr) minmax(120px, 0.9fr)'
+    ]
+      .filter(Boolean)
+      .join(' ')
+  );
+  /** « Envoyée » sous le filtre « Envoyées » : même mot, sans le pluriel ni le féminin. */
+  const racine = (t: string) => t.toLowerCase().replace(/s$/, '').replace(/e$/, '');
+  /** L'étiquette d'état répète-t-elle le filtre actif (« À contrôler » sous « À contrôler ») ? Alors on la tait. */
+  const repeteFiltre = (texte: string) => racine(texte) === racine(filtre.l);
 
   // BL sans facture liée : étiquette « En attente de facture ».
   let blAttente = $state(new Set<number>());
@@ -255,21 +297,41 @@
 
 <svelte:head><title>{titre} · GMFlow</title></svelte:head>
 
-<Volets ouvert={!!docId} libelleListe={titre}>
+<Volets ouvert={!!docId} tableau={large} libelleListe={titre}>
   {#snippet liste()}
-    <div class="liste-h">
+    <div class="liste-h" class:tete-tableau={enTableau}>
       <h1>{titre} <span class="num">{lst.total}</span></h1>
+      {#if enTableau}
+        <div class="seg" role="group" aria-label="Filtre">
+          {#each filtres as f (f.v)}
+            <a href={lien(null, f.v)} aria-current={filtreV === f.v ? 'true' : undefined} data-sveltekit-replacestate>{f.l}</a>
+          {/each}
+        </div>
+      {/if}
       <span class="sp"></span>
-      <a class="btn-icone" href="/recherche?type={rechercheType}" aria-label="Chercher dans {titre.toLowerCase()}" title="Chercher dans {titre.toLowerCase()}"><Icone nom="chercher" /></a>
+      {#if enTableau || !large}
+        <a class="btn-icone" href="/recherche?type={rechercheType}" aria-label="Chercher dans {titre.toLowerCase()}" title="Chercher dans {titre.toLowerCase()}"><Icone nom="chercher" /></a>
+      {/if}
     </div>
-    <div class="puces" role="group" aria-label="Filtre">
-      {#each filtres as f (f.v)}
-        <a class="btn sm" href={lien(null, f.v)} aria-current={filtreV === f.v ? "true" : undefined} data-sveltekit-replacestate>{f.l}</a>
-      {/each}
-    </div>
-    <EnTetesTri colonnes={colonnesTri} {tri} retirer={['doc']} />
+    {#if large && !enTableau}
+      <!-- pièce ouverte : le filtre en liste déroulante sous le titre (le changer ferme la pièce) -->
+      <label class="filtre-court">
+        <span class="sr-seul">Filtre</span>
+        <select value={filtreV} onchange={(e) => void goto(lien(null, e.currentTarget.value), { replaceState: true })}>
+          {#each filtres as f (f.v)}<option value={f.v}>{f.l}</option>{/each}
+        </select>
+      </label>
+    {/if}
+    {#if !large}
+      <div class="puces" role="group" aria-label="Filtre">
+        {#each filtres as f (f.v)}
+          <a class="btn sm" href={lien(null, f.v)} aria-current={filtreV === f.v ? 'true' : undefined} data-sveltekit-replacestate>{f.l}</a>
+        {/each}
+      </div>
+      <EnTetesTri colonnes={colonnesTri} {tri} retirer={['doc']} />
+    {/if}
     <div class="sr-seul" role="status" aria-live="polite">{majListe}</div>
-    <div class="liste-s" bind:this={listeEl}>
+    <div class="liste-s" class:t-defile={enTableau} bind:this={listeEl}>
       {#if lotActif && lst.charge}<SelectionLot {sel} ids={idsListe} partie="tete" />{/if}
       {#if lst.erreur}
         <ErreurAction erreur={lst.erreurBrute} titre="Liste non chargée." onreessayer={() => lst.lire()} />
@@ -278,6 +340,52 @@
         <Chargement texte="Chargement" />
       {:else if !lst.elements.length}
         <Vide compact icone="fichier" titre={videTitre} texte="Rien avec ce filtre pour l’instant." />
+      {:else if enTableau}
+        <!-- Tableau : une rangée = un lien vers la pièce ; les en-têtes trient (le serveur trie, la pagination suit). -->
+        <div class="tableau" style:--gabarit={gabarit}>
+          <EnTetesTableau {colonnes} {colonnesTri} {tri} retirer={['doc']} caseLot={lotActif} />
+          {#each groupes as g (g.titre)}
+            {#if g.titre}<div class="t-jour">{g.titre} <span class="num">{g.elements.length}</span></div>{/if}
+            {#each g.elements as d (d.id)}
+              {@const etiquettes = etiquettesDe(d, statut(d))}
+              {@const raison = lotActif ? sel.raison(d.id) : ''}
+              <div class="t-ligne">
+                {#if lotActif}
+                  <div class="t-case">
+                    <input
+                      type="checkbox"
+                      aria-label="Choisir : {nomLigne(d, etiquettes)}"
+                      aria-describedby={raison ? `lot-r-${d.id}` : undefined}
+                      title={raison || undefined}
+                      disabled={!sel.possible(d.id)}
+                      checked={sel.coches.has(d.id)}
+                      onchange={() => sel.basculer(d.id)}
+                    />
+                  </div>
+                {/if}
+                <a class="t-lien" aria-label={nomLigne(d, etiquettes)} href={lien(d.id)} data-id={d.id}>
+                  <span class="t-f">{d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu'}</span>
+                  <span class="num">{d.numero ?? '—'}</span>
+                  <span>{d.societe ? nomCourtSociete(d.societe) : ''}</span>
+                  <span class="num">{recuDe(d.date_mail)}</span>
+                  <span class="num">{dateFr(d.date_document, true)}</span>
+                  {#if avecEcheance}<span class="num">{d.date_echeance ? dateFr(d.date_echeance, true) : ''}</span>{/if}
+                  <span class="t-etat">
+                    {#each etiquettes.slice(0, MAX_ETIQUETTES) as e (e.texte)}<Etiquette ton={e.ton} title={e.title}>{e.texte}</Etiquette>{/each}
+                    {#if etiquettes.length > MAX_ETIQUETTES}
+                      {@const reste = etiquettes.slice(MAX_ETIQUETTES)}
+                      <Etiquette ton="pale" title={reste.map((e) => e.texte).join(', ')}>+{reste.length}</Etiquette>
+                    {/if}
+                    {#if d.notes}<span class="pastille-note" title={bulleNotes(d.notes, d.derniere_note)}><Icone nom="crayon" />{d.notes > 1 ? `${d.notes} notes` : 'Note'}</span>{/if}
+                  </span>
+                  <span class="t-m">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} avoir={d.type === 'avoir'} />{:else}—{/if}</span>
+                </a>
+                {#if raison}<div class="raison-lot t-raison" id="lot-r-{d.id}">{raison}</div>{/if}
+              </div>
+            {/each}
+          {/each}
+        </div>
+        {#if lotActif}<SelectionLot {sel} ids={idsListe} partie="barre" onvalide={() => void lst.lire(true)} />{/if}
       {:else}
         {#each groupes as g (g.titre)}
           {#if g.titre}<div class="jour-h">{g.titre} <span class="num">{g.elements.length}</span></div>{/if}
@@ -312,7 +420,7 @@
                 {#if d.societe}<span class="txt">{nomCourtSociete(d.societe)}</span>{/if}
               </div>
               {#if !blSansMontant}
-                <div class="r2">{d.type === 'bl' && parReception ? heureDe(d.date_mail) : tri.cle === 'echeance' && d.date_echeance ? `Échéance ${dateFr(d.date_echeance, true)}` : dateFr(d.date_document, true)}</div>
+                <div class="r2">{parReception ? heureDe(d.date_mail) : tri.cle === 'echeance' && d.date_echeance ? `Échéance ${dateFr(d.date_echeance, true)}` : dateFr(d.date_document, true)}</div>
               {/if}
               {#if etiquettes.length || d.notes}
                 <div class="c">
@@ -329,12 +437,7 @@
             </div>
           {/each}
         {/each}
-        {#if lst.reste > 0 && !lotActif}
-          <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
-            {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
-          </button>
-        {/if}
-        {#if lotActif && lst.reste > 0}
+        {#if lst.reste > 0}
           <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
             {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
           </button>
@@ -342,12 +445,35 @@
         {#if lotActif}<SelectionLot {sel} ids={idsListe} partie="barre" onvalide={() => void lst.lire(true)} />{/if}
       {/if}
     </div>
-    <div class="liste-f">
-      <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
-      {#if lotActif}<span><Kbd t="Espace" /> cocher</span>{/if}
-      <span><Kbd t="?" /> aide</span>
-      {#if pied === 'valider'}<span><Kbd t="Enter" /> valider</span>{:else}<span><Kbd t="/" /> chercher</span>{/if}
-    </div>
+    {#if enTableau}
+      <!-- Sous le tableau : le bas de la page est rempli, avec le compte ou « plus anciens ». -->
+      <div class="t-fin">
+        {#if lst.charge && lst.elements.length}
+          {#if lst.reste > 0}
+            <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
+              {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
+            </button>
+          {:else}
+            <span>{lst.total} {lst.total > 1 ? 'pièces' : 'pièce'} · tout est affiché</span>
+          {/if}
+        {/if}
+      </div>
+      <div class="liste-f">
+        <span><Kbd t="J" /><Kbd t="K" /> se déplacer · <Kbd t="Enter" /> ouvrir</span>
+        {#if lotActif}<span><Kbd t="Espace" /> cocher</span>{/if}
+        <span class="sp"></span>
+        <span><Kbd t="?" /> raccourcis</span>
+      </div>
+    {:else}
+      <div class="liste-f">
+        <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
+        {#if lotActif}<span><Kbd t="Espace" /> cocher</span>{/if}
+        <span><Kbd t="?" /> aide</span>
+        {#if !large}
+          {#if pied === 'valider'}<span><Kbd t="Enter" /> valider</span>{:else}<span><Kbd t="/" /> chercher</span>{/if}
+        {/if}
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet detail()}
@@ -374,6 +500,19 @@
 </Volets>
 
 <style>
+  /* pièce ouverte : le filtre en liste déroulante, sur la ligne du titre */
+  .filtre-court {
+    flex: none;
+    position: relative;
+    padding: var(--e2) var(--e4);
+    border-bottom: 1px solid var(--line);
+  }
+  .filtre-court select {
+    width: 100%;
+    height: 36px;
+    font-size: 15px;
+  }
+
   .sans-lot {
     display: contents;
   }

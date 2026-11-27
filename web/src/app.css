@@ -7,14 +7,14 @@
 @font-face {
   font-family: 'Source Sans 3';
   src: url('/polices/source-sans-3-latin.woff2') format('woff2');
-  font-weight: 400 600;
+  font-weight: 200 900; /* plage réelle du fichier variable (axe wght) */
   font-style: normal;
   font-display: swap;
 }
 @font-face {
   font-family: 'Geist Mono';
   src: url('/polices/geist-mono-latin.woff2') format('woff2');
-  font-weight: 400 500;
+  font-weight: 100 900;
   font-style: normal;
   font-display: swap;
 }
@@ -22,16 +22,16 @@
 /* ---------- Jetons ---------- */
 :root {
   /* neutres verts (Sauge) : blanc pour lire, sauge très pâle pour les fonds.
-     Contraste (WCAG) sur blanc : --text 15.6:1, --text2 8.4:1, --muted 5.8:1. */
+     Contraste (WCAG) sur blanc : --text 15.6:1, --text2 10:1, --muted 5.8:1. */
   --black: #1c2520;
   --text: #1c2520;
-  --text2: #46514a;
+  --text2: #3a4540;
   --muted: #5e6962;
   --bg: #f4f5f3; /* fond de l'application, de la barre latérale et de l'aperçu */
   --pane: #f4f5f3;
-  --sunk: #ecefea; /* élément choisi d'une liste, survol, avatar */
+  --sunk: #e9ede6; /* élément choisi d'une liste, survol, avatar */
   --line: #dde2da; /* bords des cartes, des boutons, séparation des volets */
-  --line-faint: #ecefe9; /* filets entre les lignes */
+  --line-faint: #e6eae3; /* filets entre les lignes */
   --line2: #dde2da;
   --champ: #c5ccc3;
   --white: #fff;
@@ -119,7 +119,7 @@ html {
 }
 body {
   margin: 0;
-  font: 16px/1.45 var(--sans);
+  font: 450 16px/1.45 var(--sans); /* police variable : un peu plus que 400, plus lisible */
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -213,6 +213,8 @@ select {
 }
 .sr {
   position: absolute;
+  top: 0;
+  left: 0; /* ancré en haut : jamais un débordement qui allonge la page */
   width: 1px;
   height: 1px;
   overflow: hidden;
@@ -812,7 +814,7 @@ input.num {
   gap: 4px;
   font-size: 14px;
   line-height: 24px;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--text2);
   white-space: nowrap;
 }
@@ -836,7 +838,7 @@ input.num {
 .flag.i {
   padding: 0 8px;
   border-radius: var(--r-etiq);
-  font-weight: 400;
+  font-weight: 500;
 }
 .flag.w,
 .flag.e,
@@ -874,6 +876,8 @@ input.num {
 /* texte lu par les lecteurs d'écran seulement */
 .sr-seul {
   position: absolute;
+  top: 0;
+  left: 0; /* ancré en haut : jamais un débordement qui allonge la page */
   width: 1px;
   height: 1px;
   margin: -1px;
@@ -1055,7 +1059,7 @@ input.num {
 }
 .ligne .a {
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1067,7 +1071,7 @@ input.num {
   align-items: center;
   gap: 6px;
   color: var(--text2);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;
@@ -1082,7 +1086,7 @@ input.num {
   grid-column: 2;
   text-align: right;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -1091,7 +1095,7 @@ input.num {
   grid-column: 2;
   text-align: right;
   color: var(--text2);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
 }
@@ -1231,54 +1235,111 @@ tr.cliquable:hover td {
   background: var(--pane);
 }
 
-/* ---------- Volets : liste à gauche, élément ouvert à droite ---------- */
+/* ---------- Volets : liste à gauche, élément ouvert à droite ----------
+   La page ne défile pas, les volets oui : .volets remplit la hauteur sous la barre du haut
+   (le cadre la borne, +layout.svelte) et chaque colonne défile seule. Tout conteneur qui défile
+   est positionné (position: relative) : un texte pour lecteur d'écran (.sr-seul, en absolu)
+   reste dedans au lieu d'allonger la page (cause de l'ascenseur qui descendait sur du vide). */
 .volets {
   display: flex;
   height: calc(100dvh - var(--haut-barre));
   min-height: 0;
+  position: relative;
 }
 .volet-liste {
   width: var(--larg-liste);
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: var(--e4);
-  padding: var(--e5) var(--e3) var(--e3);
+  position: relative;
   background: var(--white);
   border-right: 1px solid var(--line);
   min-height: 0;
+  min-width: 0;
+}
+/* rien d'ouvert : la liste prend toute la largeur (tableau) */
+.volets.plein > .volet-liste {
+  flex: 1;
+  width: auto;
+  border-right: 0;
+}
+.volets.plein > .volet {
+  display: none;
 }
 /* largeur choisie à la souris (Poignee), prioritaire sur les seuils d'écran sauf téléphone */
 .volet-liste.choisie {
   width: var(--larg-choisie);
-  max-width: calc(100% - 480px); /* le volet de droite garde 480 px */
+  max-width: calc(100% - 720px); /* fiche et aperçu gardent 720 px */
+}
+/* liste repliée (pièce ouverte, écran < 1600 px) : un rail pour la rouvrir */
+.volets.replie > .volet-liste {
+  display: none;
+}
+.rail-liste {
+  flex: none;
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--e3);
+  padding: var(--e3) 0;
+  background: var(--white);
+  border-right: 1px solid var(--line);
+}
+.rail-t {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  color: var(--text2);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.replier-liste {
+  position: absolute;
+  top: 12px;
+  right: 10px;
+  z-index: 2;
+}
+.volets.ouvert .liste-h {
+  padding-right: 52px;
 }
 .liste-h {
   flex: none;
   display: flex;
-  align-items: baseline;
-  gap: var(--e2);
-  padding: 0 4px;
+  align-items: center;
+  gap: var(--e2) var(--e4);
+  padding: var(--e4) var(--e4) var(--e3);
+  border-bottom: 1px solid var(--line);
 }
 .liste-h h1 {
-  font-size: 22px;
+  font-size: 19px;
   line-height: 1.25;
-  font-weight: 500;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .liste-h h1 .num,
 .liste-h > .num {
   color: var(--muted);
-  font-weight: 400;
+  font-weight: 500;
 }
 .liste-h .btn {
   margin-left: auto;
   align-self: center;
 }
+/* sous l'en-tête : filtres puis tri, rangés dans la colonne */
+.volet-liste > .puces,
+.volet-liste > .tri {
+  padding: var(--e2) var(--e3) 0;
+}
+.volet-liste > .tri {
+  padding-bottom: var(--e2);
+  border-bottom: 1px solid var(--line-faint);
+}
 .liste-s {
   flex: 1;
+  position: relative;
   overflow: auto;
-  margin: 0 calc(-1 * var(--e3));
-  padding: 0 var(--e3);
+  min-height: 0;
 }
 .liste-f {
   flex: none;
@@ -1286,8 +1347,8 @@ tr.cliquable:hover td {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px 16px;
-  padding: 12px 4px 0;
-  border-top: 1px solid var(--line-faint);
+  padding: 10px var(--e4);
+  border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 14px;
 }
@@ -1300,6 +1361,7 @@ tr.cliquable:hover td {
   flex: 1;
   display: flex;
   flex-direction: column;
+  position: relative;
   min-width: 0;
   min-height: 0;
   background: var(--white);
@@ -1325,13 +1387,15 @@ tr.cliquable:hover td {
 .volet-b {
   flex: 1;
   display: flex;
+  position: relative;
   min-height: 0;
   overflow: auto;
 }
-/* aperçu au centre (fond sauge), champs dans une colonne fixe à droite */
+/* pièce ouverte : la fiche (champs, cheminement, actions) puis l'aperçu, qui prend le reste à droite */
 .apercu-zone {
   flex: 1;
   min-width: 0;
+  position: relative;
   overflow: auto;
   background: var(--pane);
   display: flex;
@@ -1340,6 +1404,7 @@ tr.cliquable:hover td {
 .contenu-fiche {
   flex: none;
   width: var(--larg-fiche);
+  position: relative;
   overflow: auto;
   padding: var(--e6);
   min-width: 0;
@@ -1901,7 +1966,8 @@ dialog.confirmation .dlg-pied {
     height: 44px;
   }
   .volets.ouvert > .volet-liste,
-  .volets:not(.ouvert) > .volet {
+  .volets:not(.ouvert) > .volet,
+  .rail-liste {
     display: none;
   }
   .ligne {
@@ -2010,8 +2076,12 @@ dialog.confirmation .dlg-pied {
   .onglets,
   .pas-imprime,
   .liste-f,
+  .t-fin,
+  .rail-liste,
+  .replier-liste,
   .barre-action,
   .puces,
+  .seg,
   dialog,
   .aide,
   .sr-seul {
@@ -2027,6 +2097,17 @@ dialog.confirmation .dlg-pied {
     border: 0 !important;
     background: none !important;
     padding-bottom: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  /* liste ou tableau imprimé en entier : plus de colonnes qui défilent */
+  .volets,
+  .liste-s {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .t-tete {
+    position: static;
   }
   .page {
     padding: 0;
@@ -2097,20 +2178,246 @@ dialog.confirmation .dlg-pied {
   color: var(--muted);
   font-weight: 400;
 }
-/* titre d'un jour dans une liste par date */
+/* ---------- Tableau pleine largeur (écran A : Factures, Avoirs, BL, Envois, Mails) ----------
+   Rien d'ouvert, ordinateur : <div class="liste-h tete-tableau">titre + .seg</div>
+   <div class="liste-s t-defile"><div class="tableau" style:--gabarit="…">.t-tete, .t-jour, .t-ligne > a.t-lien > span…</div></div>
+   <div class="t-fin">…</div><div class="liste-f">…</div>. Une rangée = un lien ; les en-têtes trient. */
+.tete-tableau {
+  flex-wrap: wrap;
+  padding: var(--e5) var(--e8) var(--e4);
+  border-bottom: 0;
+}
+.tete-tableau h1 {
+  font-size: 26px;
+}
+/* le tableau défile seul et ne prend que sa hauteur ; le bas (.t-fin) remplit le reste */
+.liste-s.t-defile {
+  flex: 0 1 auto;
+  padding: 0 var(--e8);
+}
+.tableau {
+  display: grid;
+  grid-template-columns: var(--gabarit);
+}
+.t-tete,
+.t-ligne,
+.t-lien {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+}
+.t-tete {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--white);
+  border-bottom: 1px solid var(--line);
+}
+.t-th {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  white-space: nowrap;
+  text-decoration: none;
+}
+a.t-th:hover {
+  color: var(--text);
+  background: var(--pane);
+}
+.t-th.actif {
+  color: var(--accent-ink);
+}
+.t-th.droite,
+.t-m {
+  text-align: right;
+}
+.t-th:focus-visible,
+.t-lien:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.t-jour {
+  grid-column: 1 / -1;
+  padding: 6px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.t-jour .num {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.t-ligne {
+  border-bottom: 1px solid var(--line-faint);
+}
+.t-ligne:hover {
+  background: #f8faf7;
+}
+.t-lien {
+  grid-column: 1 / -1;
+  min-height: 50px;
+  color: var(--text2);
+  font-size: 15.5px;
+  text-decoration: none;
+}
+.t-lien:hover {
+  color: var(--text2);
+}
+.t-lien > span {
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t-lien > .t-f {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+.t-lien > .t-etat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.t-lien > .t-m {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.t-case + .t-lien {
+  grid-column: 2 / -1;
+}
+.t-case {
+  display: flex;
+  justify-content: center;
+}
+.t-case input {
+  width: 18px;
+  height: 18px;
+}
+.t-raison {
+  grid-column: 2 / -1;
+  margin-top: -8px;
+  padding: 0 12px 8px;
+}
+.t-fin {
+  flex: 1 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 18px var(--e8);
+  background: var(--pane);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-weight: 500;
+}
+.t-fin .plus {
+  width: auto;
+  text-align: center;
+}
+/* sélecteur segmenté : une rangée de filtres à côté du titre (tableau des pièces) ; défile en largeur s'il le faut */
+.seg {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  gap: 2px;
+  padding: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--r2);
+}
+.seg > a,
+.seg > button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text2);
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.seg > a:hover,
+.seg > button:hover {
+  color: var(--text);
+  background: var(--sunk);
+}
+.seg > [aria-current='true'],
+.seg > [aria-pressed='true'] {
+  background: var(--white);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 0 0 1px var(--line);
+}
+.seg > [aria-current='true']:hover,
+.seg > [aria-pressed='true']:hover {
+  background: var(--white);
+}
+.seg .num {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.seg > a:focus-visible,
+.seg > button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* titre d'un jour dans une liste par date : bande pleine largeur, fond sauge */
 .jour-h {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 4px 4px 6px;
-  background: var(--white);
-  color: var(--text2);
-  font-size: 15px;
-  font-weight: 500;
+  margin: 0;
+  padding: 7px var(--e4);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
 }
 .jour-h .num {
   color: var(--muted);
-  font-weight: 400;
+  font-weight: 500;
+}
+/* tuiles d'une liste en volet : pleine largeur, un filet entre deux, la ligne choisie marquée d'une barre d'accent */
+.liste-s .ligne {
+  padding: 10px var(--e4);
+  border-radius: 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+.liste-s .ligne.cur,
+.liste-s .ligne[aria-current='true'],
+.liste-s .ligne-lot.cur {
+  background: var(--sunk);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.liste-s .ligne-lot {
+  border-bottom: 1px solid var(--line-faint);
+}
+.liste-s .ligne-lot .ligne {
+  border-bottom: 0;
+  box-shadow: none;
+}
+.liste-s > .plus,
+.liste-s > .vide,
+.liste-s > .chargement {
+  margin: var(--e2) 0;
 }
 .ligne.lu-pas .a {
   font-weight: 600;

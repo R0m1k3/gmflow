@@ -126,11 +126,12 @@
     onsuivant?: () => void;
   } = $props();
 
-  // Fiche élargissable à la souris (poignée entre l'aperçu et la fiche), une largeur pour la vue
-  // en volets et une pour le plein écran.
-  let cleFiche = $derived(pleinEcran ? 'fiche.pleine' : 'fiche');
-  let defautFiche = $derived(pleinEcran ? 400 : 360);
-  let largFiche = $state(360);
+  // Fiche élargissable à la souris (poignée entre la fiche et l'aperçu, à sa droite), une largeur
+  // pour la vue en volets et une pour le plein écran. Clés `fiche.milieu` : les largeurs choisies
+  // quand la fiche était à droite de l'aperçu (`fiche`, `fiche.pleine`) ne reviennent pas.
+  let cleFiche = $derived(pleinEcran ? 'fiche.milieu.pleine' : 'fiche.milieu');
+  let defautFiche = $derived(pleinEcran ? 600 : 560);
+  let largFiche = $state(560);
   let ficheChoisie = $state(false);
   $effect.pre(() => {
     largFiche = largeurGardee(cleFiche, defautFiche);
@@ -1234,43 +1235,7 @@
 {/snippet}
 
 <div class="volet-b doc-corps">
-  <section class="apercu-zone doc-apercu" aria-label="Document" class:sr={erreurChargement !== ''}>
-    <div class="apercu-barre">
-      {#if pleinEcran}
-        <a class="retour" href={retour}><Icone nom="gauche" />{retourLibelle} <Kbd t="Escape" /></a>
-      {:else}
-        <a class="retour tel-seul" href={retour}><Icone nom="gauche" />{retourLibelle}</a>
-      {/if}
-      {#if position}
-        <span class="pos large-seul">{position.section} <span class="num">{position.n}</span> sur <span class="num">{position.total}</span></span>
-      {/if}
-      {#if pages}<span class="num large-seul">{pages === 1 ? 'Page 1 / 1' : `${pages} pages`}</span>{/if}
-      <div class="outils">
-        {#if onprecedent}
-          <button type="button" class="outil carre" class:tel-seul={!pleinEcran} aria-label="Précédent (K)" title="Précédent (K)" onclick={onprecedent}><Icone nom="haut" /></button>
-        {/if}
-        {#if onsuivant}
-          <button type="button" class="outil carre" class:tel-seul={!pleinEcran} aria-label="Suivant (J)" title="Suivant (J)" onclick={onsuivant}><Icone nom="bas" /></button>
-        {/if}
-        {#if zoomable}
-          <button type="button" class="outil carre large-seul" aria-label="Dézoomer" disabled={zoom <= ZOOMS[0]} onclick={() => zoomer(-1)}>−</button>
-          <button type="button" class="outil carre large-seul" aria-label="Zoomer" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onclick={() => zoomer(1)}>+</button>
-        {/if}
-        {#if pleinEcran && d}
-          {#if /^(application\/pdf|image\/)/.test(d.type_mime)}
-            <a class="outil large-seul" href={urlApercu(d.piece_id)} target="_blank" rel="noopener"><Icone nom="ouvrir" />Ouvrir</a>
-          {/if}
-          <a class="outil" href="/api/pieces/{d.piece_id}" download={d.nom_fichier}><Icone nom="telecharger" />{d.type_mime === 'application/pdf' ? 'PDF' : 'Fichier'}</a>
-        {:else if !pleinEcran}
-          <a class="outil large-seul" href="/documents/{id}">Plein écran <Kbd t="F" /></a>
-        {/if}
-      </div>
-    </div>
-    {#if d}<ApercuPiece id={d.piece_id} typeMime={d.type_mime} nom={d.nom_fichier} outils={false} carte {zoom} bind:pages bind:zoomable />{/if}
-  </section>
-
-  <Poignee bind:largeur={largFiche} bind:choisie={ficheChoisie} defaut={defautFiche} min={300} max={900} cote="droite" cle={cleFiche} libelle="Largeur de la fiche" fiche />
-
+  <!-- Fiche au milieu (champs, cheminement, actions en bas), aperçu PDF ou tableur à droite : il prend le reste. -->
   <section bind:this={ficheEl} class="doc-fiche" class:choisie={ficheChoisie} style:--larg-choisie="{largFiche}px" aria-label={estBl ? 'Détails du BL' : 'Détails de la pièce'}>
     <div class="contenu-fiche avec-barre">
       {#if annonce}<Bandeau ton="ok" role="status">{annonce}</Bandeau>{/if}
@@ -1613,6 +1578,43 @@
       />
     {/if}
   </section>
+
+  <Poignee bind:largeur={largFiche} bind:choisie={ficheChoisie} defaut={defautFiche} min={380} max={900} cote="gauche" cle={cleFiche} libelle="Largeur de la fiche" fiche />
+
+  <section class="apercu-zone doc-apercu" aria-label="Document" class:sr={erreurChargement !== ''}>
+    <div class="apercu-barre">
+      {#if pleinEcran}
+        <a class="retour" href={retour}><Icone nom="gauche" />{retourLibelle} <Kbd t="Escape" /></a>
+      {:else}
+        <a class="retour tel-seul" href={retour}><Icone nom="gauche" />{retourLibelle}</a>
+      {/if}
+      {#if position}
+        <span class="pos large-seul">{position.section} <span class="num">{position.n}</span> sur <span class="num">{position.total}</span></span>
+      {/if}
+      {#if pages}<span class="num large-seul">{pages === 1 ? 'Page 1 / 1' : `${pages} pages`}</span>{/if}
+      <div class="outils">
+        {#if onprecedent}
+          <button type="button" class="outil carre" class:tel-seul={!pleinEcran} aria-label="Précédent (K)" title="Précédent (K)" onclick={onprecedent}><Icone nom="haut" /></button>
+        {/if}
+        {#if onsuivant}
+          <button type="button" class="outil carre" class:tel-seul={!pleinEcran} aria-label="Suivant (J)" title="Suivant (J)" onclick={onsuivant}><Icone nom="bas" /></button>
+        {/if}
+        {#if zoomable}
+          <button type="button" class="outil carre large-seul" aria-label="Dézoomer" disabled={zoom <= ZOOMS[0]} onclick={() => zoomer(-1)}>−</button>
+          <button type="button" class="outil carre large-seul" aria-label="Zoomer" disabled={zoom >= ZOOMS[ZOOMS.length - 1]} onclick={() => zoomer(1)}>+</button>
+        {/if}
+        {#if pleinEcran && d}
+          {#if /^(application\/pdf|image\/)/.test(d.type_mime)}
+            <a class="outil large-seul" href={urlApercu(d.piece_id)} target="_blank" rel="noopener"><Icone nom="ouvrir" />Ouvrir</a>
+          {/if}
+          <a class="outil" href="/api/pieces/{d.piece_id}" download={d.nom_fichier}><Icone nom="telecharger" />{d.type_mime === 'application/pdf' ? 'PDF' : 'Fichier'}</a>
+        {:else if !pleinEcran}
+          <a class="outil large-seul" href="/documents/{id}">Plein écran <Kbd t="F" /></a>
+        {/if}
+      </div>
+    </div>
+    {#if d}<ApercuPiece id={d.piece_id} typeMime={d.type_mime} nom={d.nom_fichier} outils={false} carte {zoom} bind:pages bind:zoomable />{/if}
+  </section>
 </div>
 
 <Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger desactive={!motifEcart} onconfirmer={() => ecarter(motifEcart, texteEcart)}>
@@ -1683,7 +1685,7 @@
       align-items: center;
     }
   }
-  /* trois colonnes avec la liste : aperçu au centre, fiche de 360 px à droite (pied d'action compris) */
+  /* liste | fiche (560 px, pied d'action compris) | aperçu, qui prend le reste à droite */
   .doc-corps {
     overflow: hidden;
   }
@@ -1693,19 +1695,20 @@
   }
   .doc-fiche {
     flex: none;
-    width: 360px;
+    width: 560px;
+    max-width: calc(100% - 360px); /* l'aperçu garde sa barre d'outils */
     min-height: 0;
     display: flex;
     flex-direction: column;
-    border-left: 1px solid var(--line);
+    position: relative;
+    border-right: 1px solid var(--line);
     background: var(--white);
   }
   :global(.pleine) .doc-fiche {
-    width: 400px;
+    width: 600px;
   }
   .doc-fiche.choisie {
     width: var(--larg-choisie);
-    max-width: calc(100% - 380px); /* l'aperçu garde sa barre d'outils */
   }
   .doc-fiche :global(.contenu-fiche) {
     flex: 1;
@@ -1880,6 +1883,7 @@
       overflow: auto;
     }
     .doc-apercu {
+      order: -1; /* l'aperçu reste au-dessus de la fiche */
       flex: none;
       height: 420px;
       border-bottom: 1px solid var(--line);
@@ -1891,7 +1895,7 @@
       flex: none;
       width: auto;
       min-height: auto;
-      border-left: 0;
+      border-right: 0;
     }
     .doc-fiche :global(.contenu-fiche) {
       overflow: visible;

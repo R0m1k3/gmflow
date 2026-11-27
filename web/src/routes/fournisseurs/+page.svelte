@@ -320,7 +320,7 @@
     align-items: center;
     gap: 8px;
     height: 40px;
-    margin: 0 4px;
+    margin: var(--e3) var(--e3) 0;
     padding: 0 12px;
     border: 1px solid var(--line);
     border-radius: var(--r2);

@@ -121,6 +121,12 @@
     };
   });
 
+  /** « michael.schal@… » → « Michael » : le prénom affiché en bas de la barre latérale. */
+  function prenom(identifiant: string): string {
+    const p = identifiant.split('@')[0].split(/[.\-_\s]+/).filter(Boolean)[0] ?? identifiant;
+    return p.charAt(0).toUpperCase() + p.slice(1);
+  }
+
   function initiales(identifiant: string): string {
     const nom = identifiant.split('@')[0];
     const morceaux = nom.split(/[.\-_\s]+/).filter(Boolean);
@@ -223,8 +229,8 @@
   <main class="seul">{@render children()}</main>
 {:else if session.moi}
   <div class="cadre" class:sur-accueil={page.url.pathname === '/'}>
-    <!-- Barre du haut : recherche à gauche ; état, réglages et compte à droite.
-         Écran étroit : bouton du menu (tiroir) et logo en plus, loupe à la place du champ. -->
+    <!-- Barre du haut : la recherche seule (état, réglages et compte sont en bas de la barre latérale).
+         Écran étroit : bouton du menu (tiroir), logo, loupe à la place du champ, et l'état s'il y a un problème. -->
     <header class="barre">
       <button type="button" class="btn-icone etroit-seul" aria-label="Ouvrir le menu" aria-expanded={tiroir} aria-controls="menu-lateral" onclick={() => (tiroir = true)}>
         <Icone nom="menu" />
@@ -248,30 +254,11 @@
       <span class="sp"></span>
       <a class="btn-icone etroit-seul" href="/recherche" aria-label="Chercher"><Icone nom="chercher" /></a>
 
-      {#if etat}
-        <a class="etat" class:ok={etat.ok} href={etat.href} title={etat.titre} aria-label={etat.texte}>
-          <span class="pastille"></span><span class="etat-t">{etat.texte}</span>{#if !etat.ok && compteurs.problemes}<span class="etat-n">{compteurs.problemes}</span>{/if}
+      {#if etat && !etat.ok}
+        <a class="etat etroit-seul" href={etat.href} title={etat.titre} aria-label={etat.texte}>
+          <span class="pastille"></span><span class="etat-n">{compteurs.problemes || '!'}</span>
         </a>
       {/if}
-      {#if admin}
-        <a class="btn-icone reglages" href="/reglages" aria-label="Réglages" title="Réglages" aria-current={reglagesActif ? 'page' : undefined}><Icone nom="curseurs" /></a>
-      {/if}
-      <div class="moi" data-menu>
-        <button type="button" class="initiales" aria-haspopup="menu" aria-expanded={menuOuvert} aria-label="Compte {session.moi.identifiant}" title={session.moi.identifiant} onclick={() => (menuOuvert = !menuOuvert)}>
-          {initiales(session.moi.identifiant)}
-        </button>
-        {#if menuOuvert}
-          <div class="deroulant" role="menu">
-            <div class="qui">
-              <div class="ident">{session.moi.identifiant}</div>
-              <div class="muted petit">{libelleRole(session.moi.role)}</div>
-            </div>
-            <a class="item" role="menuitem" href="/compte"><Icone nom="utilisateur" />Mon compte</a>
-            {#if admin}<a class="item" role="menuitem" href="/reglages"><Icone nom="reglages" />Réglages</a>{/if}
-            <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
-          </div>
-        {/if}
-      </div>
     </header>
 
     {#if tiroir}
@@ -306,8 +293,8 @@
             {#each g.liens as l (l.href)}
               {@const n = l.compteur?.() ?? 0}
               {@const e = l.echecs?.() ?? 0}
-              <a class="lien" href={n > 0 && l.aFaire ? l.aFaire : e > 0 && l.echec ? l.echec : l.href} title={n > 0 && l.aFaire ? `${n} à contrôler` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
-                <Icone nom={l.icone} /><span class="t">{l.texte}</span>
+              <a class="lien" class:en-groupe={!!g.numero} href={n > 0 && l.aFaire ? l.aFaire : e > 0 && l.echec ? l.echec : l.href} title={n > 0 && l.aFaire ? `${n} à contrôler` : undefined} class:cur={actif(l.href)} aria-current={actif(l.href) ? 'page' : undefined}>
+                {#if !g.numero}<Icone nom={l.icone} />{/if}<span class="t">{l.texte}</span>
                 {#if e > 0}<span class="echec-point" role="img" aria-label="{e} envoi{e > 1 ? 's' : ''} en échec" title="{e} envoi{e > 1 ? 's' : ''} en échec"></span>{/if}
                 {#if n > 0}<span class="compteur">{n}</span>{/if}
               </a>
@@ -316,6 +303,34 @@
         {/each}
       </nav>
 
+      <span class="sp-lat"></span>
+      <!-- Bas de la barre latérale : état du service, réglages, compte (menu ouvert vers le haut). -->
+      <div class="bas">
+        {#if etat}
+          <a class="etat" class:ok={etat.ok} href={etat.href} title={etat.titre}>
+            <span class="pastille"></span><span class="etat-t">{etat.texte}</span>
+          </a>
+        {/if}
+        {#if admin}
+          <a class="lien" href="/reglages" class:cur={reglagesActif} aria-current={reglagesActif ? 'page' : undefined}><Icone nom="curseurs" /><span class="t">Réglages</span></a>
+        {/if}
+        <div class="moi" data-menu>
+          <button type="button" class="lien compte" aria-haspopup="menu" aria-expanded={menuOuvert} title={session.moi.identifiant} onclick={() => (menuOuvert = !menuOuvert)}>
+            <span class="initiales" aria-hidden="true">{initiales(session.moi.identifiant)}</span><span class="t"><span class="sr-seul">Compte </span>{prenom(session.moi.identifiant)}</span>
+          </button>
+          {#if menuOuvert}
+            <div class="deroulant" role="menu">
+              <div class="qui">
+                <div class="ident">{session.moi.identifiant}</div>
+                <div class="muted petit">{libelleRole(session.moi.role)}</div>
+              </div>
+              <a class="item" role="menuitem" href="/compte"><Icone nom="utilisateur" />Mon compte</a>
+              {#if admin}<a class="item" role="menuitem" href="/reglages"><Icone nom="reglages" />Réglages</a>{/if}
+              <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
+            </div>
+          {/if}
+        </div>
+      </div>
     </aside>
 
     <main class="contenu">{@render children()}</main>
@@ -368,8 +383,19 @@
   .contenu {
     grid-column: 2;
     grid-row: 2;
+    position: relative; /* un élément en absolu (.sr-seul) reste dans le contenu */
     background: var(--white);
     border-left: 1px solid var(--line);
+  }
+  /* Pages à volets (Factures, BL, Mails…) et fiche plein écran : la page ne défile jamais,
+     seules les colonnes défilent ; ce qui dépasserait est coupé au lieu d'allonger la page. */
+  @media (min-width: 761px) {
+    .contenu:has(> :global(.volets)),
+    .contenu:has(> :global(.pleine.fixe)) {
+      height: calc(100dvh - var(--haut-barre));
+      min-height: 0;
+      overflow: clip;
+    }
   }
   /* Accueil : pas de colonne blanche, des cartes sur le fond sauge. */
   .cadre.sur-accueil .barre {
@@ -392,11 +418,24 @@
     height: 100dvh;
     display: flex;
     flex-direction: column;
-    gap: var(--e6);
-    padding: var(--e6) var(--e4);
+    gap: var(--e5);
+    padding: var(--e5) var(--e4) var(--e4);
     background: var(--bg);
     overflow-y: auto;
     overscroll-behavior: contain;
+  }
+  .sp-lat {
+    flex: 1 0 0;
+    margin-top: calc(-1 * var(--e5));
+  }
+  /* bas de la barre latérale : état, Réglages, compte */
+  .bas {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-top: var(--e3);
+    border-top: 1px solid var(--line);
   }
   .lat-h {
     flex: none;
@@ -496,7 +535,7 @@
   .groupes {
     display: flex;
     flex-direction: column;
-    gap: var(--e6);
+    gap: var(--e5);
   }
   .groupe {
     display: flex;
@@ -505,39 +544,56 @@
   }
   /* Écran peu haut (portable 768 px) : les quatre étapes tiennent sans faire défiler la barre. */
   @media (max-height: 860px) {
+    .lateral {
+      gap: var(--e3);
+      padding-top: var(--e4);
+    }
+    .sp-lat {
+      margin-top: calc(-1 * var(--e3));
+    }
     .groupes {
-      gap: var(--e4);
+      gap: var(--e3);
     }
     .groupe {
       gap: 0;
     }
-    .groupes .lien {
-      height: 36px;
+    .groupes .lien,
+    .bas .lien {
+      height: 32px;
+    }
+    .bas .etat {
+      height: 32px;
+    }
+    .sel select {
+      height: 38px;
     }
     .g-titre {
-      padding-bottom: var(--e1);
+      padding-bottom: 2px;
     }
   }
+  /* pastille d'étape : 1 Courrier, 2 Pièces, 3 Fournisseurs, 4 Compta */
   .g-num {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    flex: none;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
-    background: var(--sunk);
-    color: var(--text2);
-    font-size: 12.5px;
-    font-weight: 600;
+    background: var(--accent-weak);
+    color: var(--accent-ink);
+    font-size: 13px;
+    font-weight: 700;
   }
   .g-titre {
     display: flex;
     align-items: center;
     gap: var(--e2);
-    padding: 0 var(--e3) var(--e2);
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--muted);
+    padding: 0 var(--e3) var(--e1);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--text2);
   }
   .lien {
     display: flex;
@@ -546,8 +602,9 @@
     height: 40px;
     padding: 0 var(--e3);
     border-radius: var(--r2);
-    color: var(--text2);
+    color: var(--text);
     font-size: 16px;
+    font-weight: 450;
     text-decoration: none;
     white-space: nowrap;
     transition:
@@ -567,17 +624,38 @@
     background: var(--sunk);
     color: var(--text);
   }
-  /* page ouverte : tuile blanche bordée, comme une carte posée sur le fond */
+  /* lien d'un groupe : aligné sur le titre, après la pastille d'étape (12 + 22 + 8 px) */
+  .lien.en-groupe {
+    padding-left: 42px;
+  }
+  /* page ouverte : tuile blanche bordée, barre d'accent à gauche */
   .lien.cur {
     background: var(--white);
     color: var(--text);
-    font-weight: 500;
+    font-weight: 600;
     box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.05),
+      inset 3px 0 0 var(--accent),
       0 0 0 1px var(--line);
   }
+  /* compteur en pastille ; ambre sur la page ouverte (des choses à contrôler) */
   .lien .compteur {
     margin-left: auto;
+    display: inline-grid;
+    place-items: center;
+    min-width: 24px;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 11px;
+    border: 1px solid var(--line);
+    background: var(--white);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .lien.cur .compteur {
+    background: var(--warn-p);
+    border-color: var(--warn-line);
+    color: var(--warn-ink);
   }
   .echec-point {
     flex: none;
@@ -598,19 +676,20 @@
     display: flex;
     align-items: center;
     gap: var(--e2);
-    height: 40px;
-    padding: 0 var(--e2);
+    height: 36px;
+    padding: 0 var(--e3);
     border-radius: var(--r2);
-    color: var(--err);
-    font-size: 16px;
+    background: var(--err-p);
+    color: var(--err-ink);
+    font-size: 15px;
     font-weight: 500;
     text-decoration: none;
     white-space: nowrap;
     transition: background-color var(--vite) var(--ease);
   }
   .etat:hover {
-    background: var(--err-bg);
-    color: var(--err);
+    color: var(--err-ink);
+    box-shadow: 0 0 0 1px var(--err-line);
   }
   .pastille {
     width: 8px;
@@ -620,57 +699,52 @@
     flex: none;
   }
   .etat.ok {
-    color: var(--text2);
-    font-weight: 400;
+    background: var(--ok-p);
+    color: var(--ok-ink);
   }
   .etat.ok .pastille {
     background: var(--ok-point);
   }
   .etat.ok:hover {
-    background: var(--pane);
-    color: var(--text);
+    color: var(--ok-ink);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+  .etat-t {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .etat-n {
-    display: none;
-  }
-  .reglages {
-    width: 44px;
-    height: 44px;
-    border: 1px solid var(--line);
-    border-radius: var(--r2);
-    background: var(--white);
-    color: var(--muted);
-  }
-  .reglages:hover {
-    background: var(--pane);
-    color: var(--text);
-  }
-  .reglages[aria-current='page'] {
-    background: var(--sunk);
-    color: var(--text);
+    font-weight: 600;
   }
 
   .moi {
     position: relative;
   }
-  .initiales {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
+  .lien.compte {
+    width: 100%;
     border: 0;
-    padding: 0;
+    background: none;
+    text-align: left;
+  }
+  .lien.compte[aria-expanded='true'] {
+    background: var(--sunk);
+  }
+  .initiales {
+    flex: none;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
     background: var(--sunk);
     display: grid;
     place-items: center;
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: 700;
     color: var(--text2);
-    transition: background-color var(--vite) var(--ease);
   }
-  .initiales:hover,
-  .initiales[aria-expanded='true'] {
+  .lien.compte:hover .initiales,
+  .lien.compte[aria-expanded='true'] .initiales {
     background: var(--line);
-    color: var(--text);
   }
   .qui {
     padding: var(--e2) 10px 10px;
@@ -682,10 +756,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* menu du compte : s'ouvre vers le haut, au-dessus du bouton */
   .deroulant {
     position: absolute;
-    right: 0;
-    top: calc(100% + 8px);
+    left: 0;
+    bottom: calc(100% + 8px);
+    z-index: 30;
     min-width: 260px;
     padding: var(--e2);
     border: 0;
@@ -699,7 +775,7 @@
   @keyframes menu-entre {
     from {
       opacity: 0;
-      transform: translateY(-4px);
+      transform: translateY(4px);
     }
   }
   .item {
@@ -759,10 +835,6 @@
     .contenu {
       border-left: 0;
     }
-    .reglages {
-      width: 40px;
-      height: 40px;
-    }
     .barre > .etroit-seul {
       display: inline-grid;
     }
@@ -773,19 +845,10 @@
     .recherche {
       display: none;
     }
-    .etat.ok {
-      display: none;
-    }
-    .etat {
+    .barre > .etat {
+      display: inline-flex;
       gap: 6px;
-      background: var(--err-bg);
-      font-weight: 500;
-    }
-    .etat-t {
-      display: none;
-    }
-    .etat-n {
-      display: inline;
+      height: 40px;
     }
     .lateral {
       position: fixed;
@@ -834,9 +897,6 @@
 
   /* Téléphone : onglets en bas pour les pages de tous les jours. */
   @media (max-width: 760px) {
-    .reglages {
-      display: none; /* dans le menu du compte */
-    }
     .item {
       height: 44px;
     }

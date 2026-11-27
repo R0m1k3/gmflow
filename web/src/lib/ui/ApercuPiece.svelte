@@ -186,6 +186,7 @@
   .tableur {
     flex: 1;
     min-height: 0;
+    position: relative;
     overflow: auto;
     background: var(--bg);
   }
