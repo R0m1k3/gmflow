@@ -2076,8 +2076,12 @@ dialog.confirmation .dlg-pied {
   .onglets,
   .pas-imprime,
   .liste-f,
+  .t-fin,
+  .rail-liste,
+  .replier-liste,
   .barre-action,
   .puces,
+  .seg,
   dialog,
   .aide,
   .sr-seul {
@@ -2093,6 +2097,17 @@ dialog.confirmation .dlg-pied {
     border: 0 !important;
     background: none !important;
     padding-bottom: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  /* liste ou tableau imprimé en entier : plus de colonnes qui défilent */
+  .volets,
+  .liste-s {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .t-tete {
+    position: static;
   }
   .page {
     padding: 0;
