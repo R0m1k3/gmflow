@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update logiflow_livraison\n         set facture = $2, facture_ht = $3::numeric(14, 2),\n             facture_ttc = $4::numeric(14, 2), echeance = $5::text::date,\n             rapprochee = $6, vu_le = now()\n         where livraison_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c53974e4ad97b858ff0103d1b3d5757539e807c0e854014e566dbb64ea3d8766"
+}

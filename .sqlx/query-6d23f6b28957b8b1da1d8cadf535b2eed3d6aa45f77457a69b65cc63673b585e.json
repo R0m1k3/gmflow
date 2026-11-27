@@ -1,0 +1,196 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select rang, reference, designation, quantite, prix_unitaire_ht as prix,\n                  montant_ht as montant, gencod, colis, pcb, remise_taux as remise,\n                  taux_tva as tva, deee_ht as deee, ecomob_ht as ecomob, pv_conseille as pvc,\n                  magasin\n           from ligne_document where document_id = $1 order by rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rang",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "reference",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "reference"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "designation",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "designation"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "quantite",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "quantite"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "prix",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "prix_unitaire_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "montant",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "montant_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "gencod",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "gencod"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "colis",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "colis"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "pcb",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "pcb"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "remise",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "remise_taux"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "tva",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "taux_tva"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "deee",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "deee_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "ecomob",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "ecomob_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "pvc",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "pv_conseille"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "magasin",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "magasin"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "6d23f6b28957b8b1da1d8cadf535b2eed3d6aa45f77457a69b65cc63673b585e"
+}

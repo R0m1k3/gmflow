@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = $2, voie = $3, message = $4, type = $5, societe_id = $6,\n            fournisseur_nom = $7, fournisseur_siret = $8, fournisseur_tva = $9, numero = $10,\n            date_document = $11, numero_commande = $12,\n            montant_ht = $13::numeric(14, 2), montant_tva = $14::numeric(14, 2),\n            montant_ttc = $15::numeric(14, 2), confiance = $16, texte = $17,\n            resultat = $18, modele = $19, effort = $20, fournisseur_groupe = $21,\n            fournisseur_entite = $22, remise_ht = $23::numeric(14, 2),\n            remise_taux = $24::numeric(6, 3),\n            annexes_ht = $25::numeric(14, 2), copie_de = null, pris_le = null,\n            ecartement = null,\n            lu_le = case when $2 in ('lu', 'ignore', 'erreur') then now() else lu_le end\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Date",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Jsonb",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Numeric"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "03b26a069ada216b687015c276824f2cf0ba9090c40e63d8238c4119e4a55bb3"
+}

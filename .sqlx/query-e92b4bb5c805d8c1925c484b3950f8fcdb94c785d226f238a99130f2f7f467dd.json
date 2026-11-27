@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select montant_ht as ht, montant_tva as tva, montant_ttc as ttc,\n                  coalesce(confiance->'montants_calcules', '[]') as \"calcules!\",\n                  coalesce((confiance->>'lignes_tronquees')::boolean, false) as \"tronque!\"\n           from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "tva",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_tva"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "ttc",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ttc"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "calcules!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "tronque!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "e92b4bb5c805d8c1925c484b3950f8fcdb94c785d226f238a99130f2f7f467dd"
+}

@@ -1,0 +1,310 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.etat, d.type, d.statut_depot, d.societe_id,\n                  coalesce((d.confiance->>'societe')::float8, 0) as \"conf_societe!\",\n                  d.verifie_le is not null or d.corrections ? 'societe_id' as \"societe_humaine!\",\n                  f.statut as \"fournisseur_statut?\",\n                  coalesce(d.fournisseur_siret, f.siret) as siret,\n                  coalesce(d.fournisseur_tva, f.tva) as tva,\n                  d.numero, d.date_document,\n                  d.montant_ht as ht, d.montant_tva as tva_montant, d.montant_ttc as ttc,\n                  s.adresse_depot as \"adresse_depot?\",\n                  d.date_echeance, d.fournisseur_siret as siret_lu, d.fournisseur_tva as tva_lue,\n                  f.siret as \"siret_fiche?\", f.tva as \"tva_fiche?\",\n                  g.siret as \"siret_groupe?\", g.tva as \"tva_groupe?\",\n                  d.remise_ht, d.remise_taux, d.annexes_ht, d.resultat->>'devise' as devise,\n                  coalesce((d.confiance->>'lignes_tronquees')::boolean, false) as \"tronque!\"\n           from document d\n           left join fournisseur f on f.id = d.fournisseur_id\n           left join fournisseur g on g.id = f.groupe_id\n           left join societe s on s.id = d.societe_id\n           where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "conf_societe!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "societe_humaine!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "fournisseur_statut?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "statut"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "siret",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "tva",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "date_document",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_document"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "tva_montant",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_tva"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "ttc",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ttc"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "adresse_depot?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "adresse_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "date_echeance",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_echeance"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "siret_lu",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_siret"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "tva_lue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_tva"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "siret_fiche?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "siret"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "tva_fiche?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "tva"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "siret_groupe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "siret"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "tva_groupe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "tva"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "remise_ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "remise_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "remise_taux",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "remise_taux"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "annexes_ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "annexes_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 25,
+        "name": "devise",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 26,
+        "name": "tronque!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      null,
+      null,
+      true,
+      null,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "4c34eca04fd1d68cbc02b78f4bb389859771776d15846e783b9988a6a886b9a9"
+}

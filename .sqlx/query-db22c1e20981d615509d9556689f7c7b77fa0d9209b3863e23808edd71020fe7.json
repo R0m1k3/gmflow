@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select jsonb_build_object('vu_le', vu_le, 'etat', etat, 'possibles', possibles,\n                                     'livraison_id', livraison_id, 'magasin', magasin,\n                                     'fournisseur', fournisseur, 'bl', bl, 'livree_le', livree_le,\n                                     'montant_bl', montant_bl, 'facture', facture,\n                                     'facture_ht', facture_ht,\n                                     'facture_ttc', facture_ttc, 'echeance', echeance,\n                                     'rapprochee', rapprochee) as \"v!\"\n           from logiflow_livraison where bl_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "v!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "db22c1e20981d615509d9556689f7c7b77fa0d9209b3863e23808edd71020fe7"
+}

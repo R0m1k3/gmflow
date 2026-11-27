@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update ligne_document set reference = $2, designation = $3,\n                       quantite = $4::numeric(14, 3), unite = $5,\n                       prix_unitaire_ht = $6::numeric(14, 4),\n                       montant_ht = $7::numeric(14, 2), gencod = $8,\n                       colis = $9::numeric(14, 3), pcb = $10::numeric(14, 3),\n                       remise_taux = $11::numeric(8, 4), taux_tva = $12::numeric(6, 3),\n                       deee_ht = $13::numeric(14, 4), ecomob_ht = $14::numeric(14, 4),\n                       magasin = case when $15 then null else magasin end,\n                       corrigee_le = now(), corrigee_par = $16\n                   where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Numeric",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c3d7ba77ab5a05677a2be471bfb9beb9cbf2a4cc5de51b1006414c95d7ed594d"
+}

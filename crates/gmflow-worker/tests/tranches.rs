@@ -8,6 +8,7 @@ mod commun;
 use commun::{Banc, faux_claude, mail};
 use gmflow_core::fixtures::{self, PageTest};
 use gmflow_core::lecture::tranches::TRANCHES_MAX;
+use gmflow_core::montant::{self, Decimal};
 use gmflow_core::{parametre, reglages};
 use serde_json::{Value, json};
 
@@ -72,15 +73,15 @@ async fn quota(b: &Banc, n: i64) {
     reglages::ecrire(b.pool(), &r).await.unwrap();
 }
 
-fn euros(m: f64) -> String {
-    format!("{m:.2}").replace('.', ",")
+fn euros(m: Decimal) -> String {
+    montant::euros(m).replace('.', ",")
 }
 
 /// BL PDF de `n` lignes, `par_page` par page, en-tête de tableau répété sur chaque page ; rend
 /// le PDF, le nombre de pages et le total HT (imprimé en pied de la dernière page).
-fn bl(n: usize, par_page: usize) -> (Vec<u8>, usize, f64) {
+fn bl(n: usize, par_page: usize) -> (Vec<u8>, usize, Decimal) {
     let pages = n.div_ceil(par_page);
-    let mut total = 0.0;
+    let mut total = Decimal::ZERO;
     let mut v = Vec::new();
     for p in 0..pages {
         let mut l = vec![
@@ -88,7 +89,10 @@ fn bl(n: usize, par_page: usize) -> (Vec<u8>, usize, f64) {
             "Réf Désignation Qté PU Montant".to_string(),
         ];
         for i in p * par_page..((p + 1) * par_page).min(n) {
-            let (q, pu) = ((i % 5 + 1) as f64, (i % 7) as f64 + 0.5);
+            let (q, pu) = (
+                Decimal::from(i % 5 + 1),
+                Decimal::from(i % 7) + Decimal::new(5, 1),
+            );
             total += q * pu;
             l.push(format!(
                 "REF{i:04} Article {i} {q} {} {}",
@@ -102,14 +106,10 @@ fn bl(n: usize, par_page: usize) -> (Vec<u8>, usize, f64) {
         }
         v.push(PageTest::Texte(l));
     }
-    (
-        fixtures::pdf_pages(v),
-        pages,
-        (total * 100.0).round() / 100.0,
-    )
+    (fixtures::pdf_pages(v), pages, montant::centimes(total))
 }
 
-fn entete(ht: f64, lignes: usize) -> Value {
+fn entete(ht: Decimal, lignes: usize) -> Value {
     json!({
         "type": "bl", "societe_id": null,
         "fournisseur": { "nom": "Durand", "siret": null, "tva": null, "groupe": null, "entite": null },
@@ -153,18 +153,16 @@ async fn deposer_et_lire(b: &Banc, pdf: &[u8]) -> i64 {
 struct Doc {
     etat: String,
     message: Option<String>,
-    montant_ht: Option<f64>,
+    montant_ht: Option<Decimal>,
     confiance: Value,
 }
 
 async fn doc(b: &Banc, id: i64) -> Doc {
-    sqlx::query_as(
-        "select etat, message, montant_ht::float8 as montant_ht, confiance from document where id = $1",
-    )
-    .bind(id)
-    .fetch_one(b.pool())
-    .await
-    .unwrap()
+    sqlx::query_as("select etat, message, montant_ht, confiance from document where id = $1")
+        .bind(id)
+        .fetch_one(b.pool())
+        .await
+        .unwrap()
 }
 
 async fn references(b: &Banc, id: i64) -> Vec<String> {
@@ -301,7 +299,7 @@ async fn tranche_toujours_en_echec_lecture_incomplete_avec_les_pages() {
 async fn somme_des_lignes_fausse_lecture_incomplete() {
     let (pdf, _, ht) = bl(400, 30);
     // Total HT lu différent de la somme des lignes, et un nombre de lignes annoncé faux.
-    let faux = FauxTranches::new(&entete(ht + 10.0, 401));
+    let faux = FauxTranches::new(&entete(ht + Decimal::TEN, 401));
     let b = banc(&faux).await;
     let id = deposer_et_lire(&b, &pdf).await;
     let d = doc(&b, id).await;
@@ -455,7 +453,7 @@ async fn scan_lu_par_l_ocr_en_tranches_pdf_joint_a_chaque_appel() {
         pages.push(page);
     }
     let pdf = fixtures::pdf_pages(pages);
-    let faux = FauxTranches::new(&entete(675.0, 225));
+    let faux = FauxTranches::new(&entete(Decimal::from(675), 225));
     let b = banc(&faux).await;
     let id = deposer_et_lire(&b, &pdf).await;
     let d = doc(&b, id).await;

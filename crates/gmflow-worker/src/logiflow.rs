@@ -7,21 +7,22 @@
 use std::collections::{BTreeSet, HashMap};
 
 use gmflow_core::logiflow::{self, Choix, Client, LigneResultat, Reperes, bl_comparable};
+use gmflow_core::montant::{self, Decimal};
 use gmflow_core::parametre;
 use serde_json::json;
 
 use crate::Contexte;
 
-fn euros(x: f64) -> String {
-    format!("{x:.2} €").replace('.', ",")
+fn euros(x: Decimal) -> String {
+    format!("{} €", montant::euros(x)).replace('.', ",")
 }
 
 /// Après une écriture, la livraison mise à jour remplace celle retenue pour ses BL.
 async fn retenir_ecriture(pool: &sqlx::PgPool, l: &logiflow::Livraison) -> anyhow::Result<()> {
     sqlx::query!(
         "update logiflow_livraison
-         set facture = $2, facture_ht = $3::float8::numeric(14, 2),
-             facture_ttc = $4::float8::numeric(14, 2), echeance = $5::text::date,
+         set facture = $2, facture_ht = $3::numeric(14, 2),
+             facture_ttc = $4::numeric(14, 2), echeance = $5::text::date,
              rapprochee = $6, vu_le = now()
          where livraison_id = $1",
         l.id,
@@ -134,7 +135,7 @@ pub async fn rapprocher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> 
     };
     let Some(d) = sqlx::query!(
         r#"select d.type, d.statut_depot, d.numero, d.numeros_bl,
-                  d.montant_ht::float8 as ht, d.montant_ttc::float8 as ttc, d.fournisseur_nom,
+                  d.montant_ht as ht, d.montant_ttc as ttc, d.fournisseur_nom,
                   d.date_echeance, fo.id as "fournisseur_id?", fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", s.autres_noms as "autres_noms?"
            from document d
@@ -165,14 +166,14 @@ pub async fn rapprocher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> 
     // N° de BL : cités par la facture, puis ceux des BL rapprochés dans GMFlow.
     // Montant HT de chaque BL rattaché, pour répartir la facture entre ses BL.
     let lies = sqlx::query!(
-        r#"select b.numero as "numero!", b.montant_ht::float8 as ht
+        r#"select b.numero as "numero!", b.montant_ht as ht
            from rapprochement r join document b on b.id = r.bl_id
            where r.facture_id = $1 and not r.rejete and b.numero is not null"#,
         document_id
     )
     .fetch_all(pool)
     .await?;
-    let montants_gmflow: HashMap<String, f64> = lies
+    let montants_gmflow: HashMap<String, Decimal> = lies
         .iter()
         .filter_map(|b| Some((bl_comparable(&b.numero), b.ht?)))
         .collect();
@@ -272,7 +273,7 @@ pub async fn rapprocher(ctx: &Contexte, document_id: i64) -> anyhow::Result<()> 
     // livraisons sont trouvées (sinon la répartition serait fausse) ; montant du BL lu dans
     // GMFlow, sinon celui saisi dans Logiflow.
     let parts = if lignes.is_empty() {
-        let montants: Vec<Option<f64>> = trouvees
+        let montants: Vec<Option<Decimal>> = trouvees
             .iter()
             .map(|(bl, l)| {
                 montants_gmflow
@@ -512,8 +513,8 @@ async fn retenir(
         "insert into logiflow_livraison (bl_id, vu_le, etat, possibles, livraison_id, magasin,
                                          fournisseur, bl, livree_le, montant_bl, facture,
                                          facture_ht, facture_ttc, echeance, rapprochee)
-         values ($1, now(), $2, $3, $4, $5, $6, $7, $8::text::date, $9::float8::numeric(14, 2),
-                 $10, $11::float8::numeric(14, 2), $12::float8::numeric(14, 2), $13::text::date,
+         values ($1, now(), $2, $3, $4, $5, $6, $7, $8::text::date, $9::numeric(14, 2),
+                 $10, $11::numeric(14, 2), $12::numeric(14, 2), $13::text::date,
                  $14)
          on conflict (bl_id) do update
          set vu_le = now(), etat = excluded.etat, possibles = excluded.possibles,

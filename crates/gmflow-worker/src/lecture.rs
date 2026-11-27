@@ -6,6 +6,7 @@ use gmflow_core::claude::{self, Appel, DossierTemp, ErreurClaude};
 use gmflow_core::lecture::extraction::{self, Contenu, ContexteMail, ErreurExtraction, Extraction};
 use gmflow_core::lecture::societe::{self, SocieteRef};
 use gmflow_core::lecture::{self as lect, Aiguillage, Voie};
+use gmflow_core::montant::Decimal;
 
 use crate::garde::Borner;
 use gmflow_core::{eml, file, journal, parametre, reglages, stockage};
@@ -141,12 +142,12 @@ struct Lu {
     date: Option<time::Date>,
     echeance: Option<time::Date>,
     commande: Option<String>,
-    ht: Option<f64>,
-    tva: Option<f64>,
-    ttc: Option<f64>,
-    remise_ht: Option<f64>,
-    remise_taux: Option<f64>,
-    annexes_ht: Option<f64>,
+    ht: Option<Decimal>,
+    tva: Option<Decimal>,
+    ttc: Option<Decimal>,
+    remise_ht: Option<Decimal>,
+    remise_taux: Option<Decimal>,
+    annexes_ht: Option<Decimal>,
     confiance: Value,
     /// Lignes articles et n° de BL cités ; `lignes_lues` : les lignes ont été demandées.
     lignes: Vec<extraction::Ligne>,
@@ -172,7 +173,7 @@ fn tronquer(s: String, n: usize) -> String {
 fn avoir_en_positif(lu: &mut Lu) {
     if lu.type_doc.as_deref() == Some("avoir") {
         for m in [&mut lu.ht, &mut lu.tva, &mut lu.ttc] {
-            *m = m.map(f64::abs);
+            *m = m.map(|m| m.abs());
         }
     }
 }
@@ -210,12 +211,12 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
         "update document set etat = $2, voie = $3, message = $4, type = $5, societe_id = $6,
             fournisseur_nom = $7, fournisseur_siret = $8, fournisseur_tva = $9, numero = $10,
             date_document = $11, numero_commande = $12,
-            montant_ht = $13::float8::numeric(14, 2), montant_tva = $14::float8::numeric(14, 2),
-            montant_ttc = $15::float8::numeric(14, 2), confiance = $16, texte = $17,
+            montant_ht = $13::numeric(14, 2), montant_tva = $14::numeric(14, 2),
+            montant_ttc = $15::numeric(14, 2), confiance = $16, texte = $17,
             resultat = $18, modele = $19, effort = $20, fournisseur_groupe = $21,
-            fournisseur_entite = $22, remise_ht = $23::float8::numeric(14, 2),
-            remise_taux = $24::float8::numeric(6, 3),
-            annexes_ht = $25::float8::numeric(14, 2), copie_de = null, pris_le = null,
+            fournisseur_entite = $22, remise_ht = $23::numeric(14, 2),
+            remise_taux = $24::numeric(6, 3),
+            annexes_ht = $25::numeric(14, 2), copie_de = null, pris_le = null,
             ecartement = null,
             lu_le = case when $2 in ('lu', 'ignore', 'erreur') then now() else lu_le end
          where id = $1",
@@ -241,9 +242,10 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
         lu.effort,
         lu.fournisseur.groupe,
         lu.fournisseur.entite,
-        lu.remise_ht.filter(|r| *r > 0.0),
-        lu.remise_taux.filter(|t| *t > 0.0 && *t < 100.0),
-        lu.annexes_ht.filter(|a| *a > 0.0)
+        lu.remise_ht.filter(|r| *r > Decimal::ZERO),
+        lu.remise_taux
+            .filter(|t| *t > Decimal::ZERO && *t < Decimal::ONE_HUNDRED),
+        lu.annexes_ht.filter(|a| *a > Decimal::ZERO)
     )
     .execute(&mut *tx)
     .await?;
@@ -256,8 +258,8 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
 /// nouveau. Ceux dont une ligne n'a pas de prix restent tels quels. Rend le nombre complété.
 pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
     let docs = sqlx::query!(
-        r#"select d.id, d.montant_ht::float8 as ht, d.montant_tva::float8 as tva,
-                  d.montant_ttc::float8 as ttc
+        r#"select d.id, d.montant_ht as ht, d.montant_tva as tva,
+                  d.montant_ttc as ttc
            from document d
            where d.etat = 'lu' and d.type = 'bl'
              and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)
@@ -271,10 +273,10 @@ pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
     let mut n = 0;
     for d in docs {
         let lignes = sqlx::query!(
-            r#"select rang, quantite::float8 as quantite, prix_unitaire_ht::float8 as prix,
-                      montant_ht::float8 as montant, colis::float8 as colis, pcb::float8 as pcb,
-                      remise_taux::float8 as remise, taux_tva::float8 as taux_tva,
-                      deee_ht::float8 as deee, ecomob_ht::float8 as ecomob
+            r#"select rang, quantite, prix_unitaire_ht as prix,
+                      montant_ht as montant, colis, pcb,
+                      remise_taux as remise, taux_tva,
+                      deee_ht as deee, ecomob_ht as ecomob
                from ligne_document where document_id = $1 order by rang"#,
             d.id
         )
@@ -308,7 +310,7 @@ pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
         for (r, ligne) in lignes.iter().zip(&l) {
             if r.montant.is_none() {
                 sqlx::query!(
-                    "update ligne_document set montant_ht = $3::float8::numeric(14, 2)
+                    "update ligne_document set montant_ht = $3::numeric(14, 2)
                      where document_id = $1 and rang = $2",
                     d.id,
                     r.rang,
@@ -319,8 +321,8 @@ pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
             }
         }
         sqlx::query!(
-            r#"update document set montant_ht = $2::float8::numeric(14, 2),
-                   montant_tva = $3::float8::numeric(14, 2), montant_ttc = $4::float8::numeric(14, 2),
+            r#"update document set montant_ht = $2::numeric(14, 2),
+                   montant_tva = $3::numeric(14, 2), montant_ttc = $4::numeric(14, 2),
                    confiance = coalesce(confiance, '{}'::jsonb) || jsonb_build_object('montants_calcules', $5::jsonb)
                where id = $1"#,
             d.id,
@@ -485,8 +487,8 @@ fn lu_depuis_xml(
         ht: d.montant_ht,
         tva: d.montant_tva,
         ttc: d.montant_ttc,
-        remise_ht: d.remise_ht.map(f64::abs),
-        annexes_ht: d.annexes_ht.map(f64::abs),
+        remise_ht: d.remise_ht.map(|m| m.abs()),
+        annexes_ht: d.annexes_ht.map(|m| m.abs()),
         confiance: confiance_xml(societe_id.is_some()),
         lignes: d.lignes.clone(),
         numeros_bl: d.numeros_bl.clone(),
@@ -534,9 +536,9 @@ fn lu_depuis_extraction(
         ht: e.montant_ht,
         tva: e.montant_tva,
         ttc: e.montant_ttc,
-        remise_ht: e.remise_ht.map(f64::abs),
-        remise_taux: e.remise_taux.map(f64::abs),
-        annexes_ht: e.annexes_ht.map(f64::abs),
+        remise_ht: e.remise_ht.map(|m| m.abs()),
+        remise_taux: e.remise_taux.map(|m| m.abs()),
+        annexes_ht: e.annexes_ht.map(|m| m.abs()),
         fournisseur: e.fournisseur,
         confiance,
         lignes_tronquees: e.lignes_tronquees,
@@ -1328,26 +1330,30 @@ async fn lire_par_claude(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gmflow_core::montant::dec;
 
     #[test]
     fn avoir_toujours_en_positif() {
         let mut lu = Lu {
             type_doc: Some("avoir".into()),
-            ht: Some(-10.0),
-            tva: Some(-2.0),
-            ttc: Some(-12.0),
+            ht: Some(dec!(-10.0)),
+            tva: Some(dec!(-2.0)),
+            ttc: Some(dec!(-12.0)),
             ..Default::default()
         };
         avoir_en_positif(&mut lu);
-        assert_eq!((lu.ht, lu.tva, lu.ttc), (Some(10.0), Some(2.0), Some(12.0)));
+        assert_eq!(
+            (lu.ht, lu.tva, lu.ttc),
+            (Some(dec!(10.0)), Some(dec!(2.0)), Some(dec!(12.0)))
+        );
         // Une facture garde son signe (facture négative : à voir par un humain).
         let mut lu = Lu {
             type_doc: Some("facture".into()),
-            ttc: Some(-12.0),
+            ttc: Some(dec!(-12.0)),
             ..Default::default()
         };
         avoir_en_positif(&mut lu);
-        assert_eq!(lu.ttc, Some(-12.0));
+        assert_eq!(lu.ttc, Some(dec!(-12.0)));
     }
 
     #[test]

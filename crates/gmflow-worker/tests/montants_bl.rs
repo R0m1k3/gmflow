@@ -5,6 +5,7 @@ mod commun;
 
 use commun::{Banc, WorkersTest, lire_tout, mail};
 use gmflow_core::fixtures::{self, SIRET_A};
+use gmflow_core::montant::{Decimal, dec};
 use gmflow_core::parametre;
 use serde_json::{Value, json};
 
@@ -57,9 +58,12 @@ impl FauxClaude {
     }
 }
 
-async fn montants(b: &Banc, doc: i64) -> (Option<f64>, Option<f64>, Option<f64>, Value) {
+async fn montants(
+    b: &Banc,
+    doc: i64,
+) -> (Option<Decimal>, Option<Decimal>, Option<Decimal>, Value) {
     sqlx::query_as(
-        "select montant_ht::float8, montant_tva::float8, montant_ttc::float8, confiance
+        "select montant_ht, montant_tva, montant_ttc, confiance
          from document where id = $1",
     )
     .bind(doc)
@@ -114,7 +118,10 @@ async fn bl_sans_totaux_calcules_depuis_les_lignes() {
         .unwrap();
     // 4 × 14,90 + 6 × 2,20 + 6 × 0,30 = 59,60 + 13,20 + 1,80
     let (ht, tva, ttc, confiance) = montants(&b, doc).await;
-    assert_eq!((ht, tva, ttc), (Some(74.6), Some(14.92), Some(89.52)));
+    assert_eq!(
+        (ht, tva, ttc),
+        (Some(dec!(74.6)), Some(dec!(14.92)), Some(dec!(89.52)))
+    );
     assert_eq!(confiance["montants_calcules"], json!(["ht", "tva", "ttc"]));
     // Pas d'alerte « la somme des lignes ne fait pas le total HT » (éco-participation).
     let controles: Value = sqlx::query_scalar("select controles from document where id = $1")
@@ -123,14 +130,14 @@ async fn bl_sans_totaux_calcules_depuis_les_lignes() {
         .await
         .unwrap();
     assert_eq!(controles, json!([]));
-    let lignes: Vec<Option<f64>> = sqlx::query_scalar(
-        "select montant_ht::float8 from ligne_document where document_id = $1 order by rang",
+    let lignes: Vec<Option<Decimal>> = sqlx::query_scalar(
+        "select montant_ht from ligne_document where document_id = $1 order by rang",
     )
     .bind(doc)
     .fetch_all(b.pool())
     .await
     .unwrap();
-    assert_eq!(lignes, vec![Some(59.6), Some(13.2)]);
+    assert_eq!(lignes, vec![Some(dec!(59.6)), Some(dec!(13.2))]);
 
     // BL lu avant ce calcul : complété au démarrage du worker, sans Claude.
     sqlx::query(
@@ -153,7 +160,10 @@ async fn bl_sans_totaux_calcules_depuis_les_lignes() {
         1
     );
     let (ht, tva, ttc, confiance) = montants(&b, doc).await;
-    assert_eq!((ht, tva, ttc), (Some(74.6), Some(14.92), Some(89.52)));
+    assert_eq!(
+        (ht, tva, ttc),
+        (Some(dec!(74.6)), Some(dec!(14.92)), Some(dec!(89.52)))
+    );
     assert_eq!(confiance["montants_calcules"], json!(["ht", "tva", "ttc"]));
     // Rien à refaire ensuite.
     assert_eq!(

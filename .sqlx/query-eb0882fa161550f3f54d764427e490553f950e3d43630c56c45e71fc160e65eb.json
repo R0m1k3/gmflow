@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into ligne_document (document_id, rang, reference, designation, quantite,\n                       unite, prix_unitaire_ht, montant_ht, gencod, colis, pcb, remise_taux,\n                       taux_tva, deee_ht, ecomob_ht, corrigee_le, corrigee_par)\n                   values ($1, $2, $3, $4, $5::numeric(14, 3), $6,\n                           $7::numeric(14, 4), $8::numeric(14, 2), $9,\n                           $10::numeric(14, 3), $11::numeric(14, 3),\n                           $12::numeric(8, 4), $13::numeric(6, 3),\n                           $14::numeric(14, 4), $15::numeric(14, 4), now(), $16)\n                   returning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Text",
+        "Text",
+        "Numeric",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Text",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Numeric",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eb0882fa161550f3f54d764427e490553f950e3d43630c56c45e71fc160e65eb"
+}
