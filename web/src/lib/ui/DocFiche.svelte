@@ -80,6 +80,7 @@
     type CleChamp
   } from './DocOutils.ts';
   import Etiquette from './Etiquette.svelte';
+  import { jourParis, phraseCourte, phraseEcheance, rangerPhrases, type CodePhrase, type Phrase, type TonPhrase } from './phraseEtat.ts';
   import Icone from './Icone.svelte';
   import Kbd from './Kbd.svelte';
   import Montant, { formatMontant } from './Montant.svelte';
@@ -891,6 +892,111 @@
   );
   /** BL lu, sans facture liée : il attend la sienne. */
   let blEnAttente = $derived(!!d && d.etat === 'lu' && estBl && !!rap && !rap.ignore && rap.liens.length === 0);
+
+  // ---------- Phrase d'état (U21) ----------
+  /**
+   * Les phrases qui s'appliquent à la pièce, avec les conditions des anciens bandeaux : d'abord
+   * l'état (une seule phrase), puis chaque alerte. `rangerPhrases` choisit celle de tête.
+   */
+  let phrasesEtat = $derived.by((): Phrase[] => {
+    if (!d) return [];
+    const doc = d;
+    const p: Phrase[] = [];
+    const aj = (code: CodePhrase, ton: TonPhrase, titre: string, texte = '', id?: string) => p.push({ code, ton, titre, texte, id });
+    const nomOutilOu = outil ? nomOutil(outil) : 'Dext ou Yooz';
+    const adresseManquante = () =>
+      aj('sans_adresse', 'erreur', 'Ne peut pas partir :', `${doc.societe ?? 'La société'} n’a pas d’adresse d’envoi vers ${nomOutilOu}.${admin ? '' : ' Un administrateur doit l’indiquer.'}`);
+    const envoye = doc.statut_depot === 'depose' || doc.statut_depot === 'en_envoi';
+
+    // 1. L'état de la pièce : une seule phrase.
+    if (doc.etat === 'a_lire' || doc.etat === 'en_cours') {
+      aj('attente', attenteBloquee ? 'attention' : 'info', `${libelleEtat(doc.etat)}.`, [doc.attente ? phrase(doc.attente.raison) : '', doc.etat === 'a_lire' ? depuisAttente : ''].filter(Boolean).join(' '));
+    } else if (doc.etat === 'erreur') {
+      aj('illisible', 'erreur', 'Illisible.', `${doc.message ? phrase(doc.message) : 'La lecture a échoué.'}${admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}`);
+    } else if (decoupe) {
+      aj('decoupe', 'neutre', `Fichier découpé en ${doc.parties.length} pièces.`, 'Chacune se contrôle à part.');
+    } else if (doc.etat === 'ignore') {
+      if (doc.ecartement) aj('ecartee', 'neutre', `${libelleEtat('ignore')}.`, phraseEcartement);
+      else aj('pas_une_piece', 'neutre', `${libelleEtat('ignore')}.`, `Ce document n’est ni une facture, ni un avoir, ni un BL.${doc.message ? ` ${doc.message}` : ''}`);
+    } else if (ecartee) {
+      aj('ecartee', 'neutre', 'Doublon écarté.', phraseEcartement);
+    } else if (doc.statut_depot === 'en_envoi') {
+      aj('envoi_en_cours', 'info', `${libelleStatutEnvoi('en_envoi')}.`, 'La fiche se met à jour toute seule.');
+    } else if (envoiDemande(doc)) {
+      aj('validee', 'info', `Envoi à ${nomOutil(outil)} demandé.`, `Validée le ${jourHeure(doc.valide_le)}${doc.valide_par ? ` par ${doc.valide_par}` : ''} : elle part dans quelques instants.`);
+    } else if (doc.statut_depot === 'depose') {
+      aj('envoyee', 'ok', `${libelleStatutEnvoi('depose', outil)}.`, dernierEnvoi ? `Le ${jourHeure(dernierEnvoi.quand)}, à ${dernierEnvoi.adresse}.` : '');
+    } else if (doc.envoi_relance) {
+      aj('validee', 'info', `Envoi à ${nomOutil(outil)} relancé.`, `Relancé le ${jourHeure(doc.valide_le)}${doc.valide_par ? ` par ${doc.valide_par}` : ''} : il part dans quelques instants.`);
+    } else if (doc.statut_depot === 'erreur') {
+      aj('envoi_echec', 'erreur', `Envoi à ${nomOutil(outil)} échoué.`, `${dernierEnvoi?.message ? phrase(dernierEnvoi.message) : ''} La pièce n’est pas en compta.${admin ? '' : ' Un administrateur peut la renvoyer.'}`.trim());
+    } else if (!refus) {
+      // 2. Les contrôles du serveur (le doublon ne cache plus les autres).
+      if (doublon && !doc.verifie_le) aj('doublon', 'erreur', 'Doublon.', phrase(doublon.message));
+      autresAlertes.forEach((a, i) => {
+        if (a.code === 'iban') aj('iban', 'erreur', `${titreAlerte(a)} :`, `${phrase(a.message)}${admin ? '' : ' Seul un administrateur peut enregistrer ce nouvel IBAN.'}`);
+        else if (a.code === 'depot') adresseManquante();
+        else {
+          const detail = detailAlerte(a);
+          aj(a.code === 'fournisseur' ? 'fournisseur' : 'controle', 'attention', detail ? `${titreAlerte(a)} :` : `${titreAlerte(a)}.`, detail ? phrase(detail) : '', `${a.code}-${i}`);
+        }
+      });
+    }
+
+    // 3. Les alertes de la fiche elle-même.
+    if (sansAdresse && !refus) adresseManquante();
+    if (alerteSociete && !refus && doc.etat === 'lu' && !envoiDemande(doc) && !envoye) {
+      aj(
+        'societe',
+        'attention',
+        doc.societe_id === null ? 'Pour quel magasin est cette pièce ?' : `${titreAlerte(alerteSociete)}.`,
+        `${doc.societe_id === null ? 'Aucune de vos sociétés n’est trouvée sur le document.' : `${doc.societe ?? 'La société'} est trouvée avec peu de certitude.`}`
+      );
+    }
+    if (articlesEcart.length && doc.etat === 'lu') {
+      const e = articlesEcart[0];
+      const n = articlesEcart.length;
+      aj(
+        'articles',
+        'attention',
+        n > 1 ? `${n} articles en écart avec ${doc.type === 'bl' ? 'la facture' : 'le BL'}.` : `${e.titre}.`,
+        `${e.article} : ${e.detail}${e.montant !== null && Math.abs(e.montant) > 0.005 ? ` (${e.montant > 0 ? '+' : ''}${formatMontant(e.montant)} HT)` : ''}.${n > 1 ? ' Détail dans la chaîne.' : ''}`
+      );
+    }
+    if (doc.etat === 'lu' && doc.message && !envoiDemande(doc) && doc.statut_depot !== 'depose' && !doc.verifie_le) {
+      const m = phrase(doc.message.replace(/^Lecture à vérifier : /, ''));
+      if (doc.confiance?.trop_volumineux) aj('trop_volumineux', 'erreur', 'Fichier trop volumineux pour être lu.', `${m} Ouvrez-le et saisissez les montants à la main.`);
+      else aj('lecture_incomplete', 'attention', 'Lecture incomplète.', `${m} Vérifiez sur l’aperçu${relisible ? ', ou faites-le relire en détail' : ''}.`);
+    } else if (montantsManquants && relisible) {
+      aj('montants_non_lus', 'attention', 'Montants non lus.', 'Les totaux sont sur le document mais la lecture les a manqués. La relecture en détail lit le PDF entier avec un modèle plus fort.');
+    }
+    if (blEnAttente) aj('bl_attente', 'info', 'En attente de facture.', `Il sera rapproché dès que la facture ${de(choix.fournisseurNom || doc.fournisseur_nom || 'du fournisseur')} arrivera.`);
+
+    // 4. Pièce à contrôler : BL manquant, échéance proche, ou « tout va bien ».
+    const enControle = doc.etat === 'lu' && !doc.valide_le && !doc.verifie_le && (!doc.statut_depot || doc.statut_depot === 'a_verifier') && !refus;
+    const liens = rap && !rap.ignore ? rap.liens : null;
+    if (enControle && doc.type === 'facture') {
+      if (liens && liens.length === 0) {
+        if (rap!.numeros_bl.length) aj('sans_bl', 'attention', 'Aucun BL trouvé.', `La facture cite ${rap!.numeros_bl.join(', ')}. Vous pouvez valider quand même, ou rattacher un BL.`);
+        else aj('sans_bl_info', 'info', 'Aucun BL rattaché.');
+      }
+      const echeance = phraseEcheance(doc.date_echeance, jourParis());
+      if (echeance) aj('echeance', 'attention', echeance, p.some((x) => x.ton === 'erreur' || x.ton === 'attention') ? '' : 'Aucune autre alerte : vous pouvez valider.');
+    }
+    if (enControle && (doc.type === 'facture' || doc.type === 'avoir')) {
+      const n = liens?.length ?? 0;
+      const lue =
+        doc.type === 'avoir'
+          ? n && liens![0].autre.numero ? `Avoir lu, rattaché à la facture ${liens![0].autre.numero}.` : 'Avoir lu.'
+          : n ? `Facture lue et rapprochée ${n > 1 ? `de ${n} BL` : 'd’un BL'}.` : 'Facture lue.';
+      aj('prete', 'ok', lue, `Aucune alerte : vous pouvez ${doc.type === 'avoir' ? 'le' : 'la'} valider.`);
+    } else if (doc.etat === 'lu' && doc.type === 'bl' && liens?.length && !articlesEcart.length && liens.every((l) => Math.abs(l.ecart_montant ?? 0) <= 0.02)) {
+      const numeros = liens.map((l) => l.autre.numero).filter(Boolean);
+      aj('prete', 'ok', numeros.length ? `BL rapproché de la facture ${numeros.join(', ')}, sans écart.` : 'BL rapproché de sa facture, sans écart.');
+    }
+    return p;
+  });
+  let phraseEtat = $derived(rangerPhrases(phrasesEtat));
   let resumeLecture = $derived.by(() => {
     if (!d) return '';
     const n = rap?.lignes.length ?? 0;
@@ -1189,7 +1295,7 @@
           </p>
         </div>
 
-        <!-- Une phrase en tête : refus, état, ou première alerte -->
+        <!-- Un refus du serveur, puis la phrase d’état : une seule en tête, le reste dans « Aussi » -->
         {#if refus}
           {#if refus.code === 'doublon'}
             <Bandeau ton="erreur" titre="Doublon.">{phrase(refus.message)}</Bandeau>
@@ -1207,110 +1313,57 @@
             <Bandeau ton="erreur">{phrase(refus.message)}</Bandeau>
           {/if}
         {/if}
-        {#if d.etat === 'a_lire' || d.etat === 'en_cours'}
-          <Bandeau ton={attenteBloquee ? 'attention' : 'info'} titre="{libelleEtat(d.etat)}.">
-            {#if d.attente}{phrase(d.attente.raison)}{/if}
-            {#if d.etat === 'a_lire'}{depuisAttente}{/if}
-            {#if d.attente?.dernier_essai}<span class="dernier-essai">Dernier essai : {phrase(d.attente.dernier_essai)}</span>{/if}
-            <span class="dernier-essai">La fiche se met à jour toute seule.</span>
-            {#snippet action()}
-              {#if lisibleMaintenant}
-                <button type="button" class="btn sm principal" onclick={lireMaintenant} disabled={occupe !== null}>
-                  {occupe === 'relire' ? 'Demande…' : 'Lire maintenant'}
-                </button>
-              {/if}
-            {/snippet}
+        {#snippet actionPhrase(p: Phrase)}
+          {#if p.code === 'attente' && lisibleMaintenant}
+            <button type="button" class="btn sm principal" onclick={lireMaintenant} disabled={occupe !== null}>{occupe === 'relire' ? 'Demande…' : 'Lire maintenant'}</button>
+          {:else if p.code === 'iban' && admin}
+            <button type="button" class="btn sm" class:en-cours={ibanEnCours} disabled={ibanEnCours || occupe !== null} onclick={confirmerIbanDoc}>C’est le bon IBAN</button>
+          {:else if p.code === 'sans_adresse' && admin}
+            <a class="btn sm" href="/reglages/societes">Indiquer l’adresse</a>
+          {:else if p.code === 'articles'}
+            <button type="button" class="btn sm" onclick={voirEcarts}>Voir</button>
+          {:else if (p.code === 'lecture_incomplete' || p.code === 'montants_non_lus') && relisible}
+            <button type="button" class="btn sm" class:principal={p === phraseEtat.principale} onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>
+          {/if}
+        {/snippet}
+        {#if phraseEtat.principale}
+          {@const p = phraseEtat.principale}
+          <Bandeau ton={p.ton} titre={p.titre}>
+            {p.texte}
+            {#if p.code === 'attente'}
+              {#if d.attente?.dernier_essai}<span class="dernier-essai">Dernier essai : {phrase(d.attente.dernier_essai)}</span>{/if}
+              <span class="dernier-essai">La fiche se met à jour toute seule.</span>
+            {:else if p.code === 'decoupe'}
+              {#each d.parties as partie, i (partie.id)}{i > 0 ? ', ' : ' '}<a href="/documents/{partie.id}">{pagesPartie(partie)}</a>{/each}.
+            {:else if p.code === 'societe'}
+              Choisissez la bonne société, ou écartez la pièce si elle n’est pas pour vous.
+              <span class="choix-societe">
+                {#each societe.liste as s (s.id)}
+                  <button
+                    type="button"
+                    class="btn sm"
+                    class:principal={choix.societe === String(s.id)}
+                    aria-pressed={choix.societe === String(s.id)}
+                    disabled={!editable}
+                    onclick={() => (choix.societe = String(s.id))}>{nomCourtSociete(s.raison_sociale)}</button
+                  >
+                {/each}
+                <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgEcarterSociete = true)}>Écarter</button>
+              </span>
+            {/if}
+            {#snippet action()}{@render actionPhrase(p)}{/snippet}
           </Bandeau>
-        {:else if d.etat === 'erreur'}
-          <Bandeau ton="erreur" titre="Illisible.">{d.message ? phrase(d.message) : 'La lecture a échoué.'}{admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}</Bandeau>
-        {:else if decoupe}
-          <Bandeau ton="neutre" titre="Fichier découpé en {d.parties.length} pièces.">
-            Chacune se contrôle à part :
-            {#each d.parties as p, i (p.id)}{i > 0 ? ', ' : ' '}<a href="/documents/{p.id}">{pagesPartie(p)}</a>{/each}.
-          </Bandeau>
-        {:else if d.etat === 'ignore'}
-          <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">{#if d.ecartement}{phraseEcartement}{:else}Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}{/if}</Bandeau>
-        {:else if ecartee}
-          <Bandeau ton="neutre" titre="Doublon écarté.">{phraseEcartement}</Bandeau>
-        {:else if d.statut_depot === 'en_envoi'}
-          <Bandeau ton="info" titre="{libelleStatutEnvoi('en_envoi')}.">La fiche se met à jour toute seule.</Bandeau>
-        {:else if envoiDemande(d)}
-          <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} demandé.">Validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : elle part dans quelques instants.</Bandeau>
-        {:else if d.statut_depot === 'depose'}
-          <Bandeau ton="ok" titre="{libelleStatutEnvoi('depose', outil)}.">{dernierEnvoi ? `Le ${jourHeure(dernierEnvoi.quand)}, à ${dernierEnvoi.adresse}.` : ''}</Bandeau>
-        {:else if d.envoi_relance}
-          <Bandeau ton="info" titre="Envoi à {nomOutil(outil)} relancé.">Relancé le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''} : il part dans quelques instants.</Bandeau>
-        {:else if d.statut_depot === 'erreur'}
-          <Bandeau ton="erreur" titre="Envoi à {nomOutil(outil)} échoué.">
-            {dernierEnvoi?.message ? phrase(dernierEnvoi.message) : ''}{admin ? '' : ' Un administrateur peut la renvoyer.'}
-          </Bandeau>
-        {:else if doublon && !refus && !d.verifie_le}
-          <Bandeau ton="erreur" titre="Doublon.">{phrase(doublon.message)}</Bandeau>
-        {:else if autresAlertes[0]?.code === 'iban' && !refus}
-          <!-- IBAN changé (fraude au RIB) : en rouge, avec « C’est le bon IBAN » pour un admin. -->
-          {#snippet boutonIban()}<button type="button" class="btn sm" class:en-cours={ibanEnCours} disabled={ibanEnCours || occupe !== null} onclick={confirmerIbanDoc}>C’est le bon IBAN</button>{/snippet}
-          <Bandeau ton="erreur" titre="{titreAlerte(autresAlertes[0])} :" action={admin ? boutonIban : undefined}>
-            {phrase(autresAlertes[0].message)}{admin ? '' : ' Seul un administrateur peut enregistrer ce nouvel IBAN.'}
-          </Bandeau>
-        {:else if autresAlertes.length && !refus}
-          {@const a0 = autresAlertes[0]}
-          <Bandeau titre={detailAlerte(a0) ? `${titreAlerte(a0)} :` : `${titreAlerte(a0)}.`}>
-            {#if detailAlerte(a0)}{phrase(detailAlerte(a0))}{/if}{#if a0.code === 'depot' && admin}{' '}<a href="/reglages/societes">Indiquer l’adresse</a>{/if}{#if autresAlertes.length > 1}
-              {' '}{autresAlertes.length - 1 === 1 ? 'Une autre alerte' : `${autresAlertes.length - 1} autres alertes`}, surlignée{autresAlertes.length > 2 ? 's' : ''} dans les champs.{/if}
-          </Bandeau>
-        {/if}
-        {#if sansAdresse && !refus}
-          <Bandeau titre="À vérifier :">
-            {d.societe ?? 'La société'} n’a pas d’adresse d’envoi vers {outil ? nomOutil(outil) : 'Dext ou Yooz'}.{#if admin}{' '}<a href="/reglages/societes">Indiquer l’adresse</a>{:else}{' '}Un administrateur doit l’indiquer.{/if}
-          </Bandeau>
-        {/if}
-        {#if alerteSociete && !refus && d.etat === 'lu' && !envoiDemande(d) && d.statut_depot !== 'depose' && d.statut_depot !== 'en_envoi'}
-          <Bandeau titre="{titreAlerte(alerteSociete)}.">
-            {d.societe_id === null
-              ? 'Aucune de vos sociétés n’est trouvée sur le document.'
-              : `${d.societe ?? 'La société'} est trouvée avec peu de certitude.`}
-            Choisissez la bonne société, ou écartez la pièce si elle n’est pas pour vous.
-            <span class="choix-societe">
-              {#each societe.liste as s (s.id)}
-                <button
-                  type="button"
-                  class="btn sm"
-                  class:principal={choix.societe === String(s.id)}
-                  aria-pressed={choix.societe === String(s.id)}
-                  disabled={!editable}
-                  onclick={() => (choix.societe = String(s.id))}>{nomCourtSociete(s.raison_sociale)}</button
-                >
+          {#if phraseEtat.aussi.length}
+            <ul class="aussi">
+              {#each phraseEtat.aussi as a (a.code + (a.id ?? ''))}
+                <li>Aussi : {phraseCourte(a)} {@render actionPhrase(a)}</li>
               {/each}
-              <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgEcarterSociete = true)}>Écarter</button>
-            </span>
-          </Bandeau>
-        {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
+            </ul>
+          {/if}
+        {/if}
+        {#if !phrasesEtat.some((p) => p.code === 'societe') && change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
           <Bandeau ton="info">Attribué à {nomSocieteChoisie}. Validez pour l’enregistrer.</Bandeau>
         {/if}
-        {#if articlesEcart.length && d.etat === 'lu'}
-          {@const p = articlesEcart[0]}
-          <Bandeau titre="{articlesEcart.length > 1 ? `${articlesEcart.length} articles en écart avec ${d.type === 'bl' ? 'la facture' : 'le BL'}` : `${p.titre}`}.">
-            {p.article} : {p.detail}{p.montant !== null && Math.abs(p.montant) > 0.005 ? ` (${p.montant > 0 ? '+' : ''}${formatMontant(p.montant)} HT)` : ''}.{articlesEcart.length > 1 ? ' Détail dans la chaîne.' : ''}
-            {#snippet action()}<button type="button" class="btn sm" onclick={voirEcarts}>Voir</button>{/snippet}
-          </Bandeau>
-        {/if}
-        {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
-          <Bandeau titre="Lecture incomplète.">
-            {phrase(d.message.replace(/^Lecture à vérifier : /, ''))} Vérifiez sur l’aperçu{relisible ? ', ou faites-le relire en détail' : ''}.
-            {#snippet action()}{#if relisible}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/if}{/snippet}
-          </Bandeau>
-        {:else if montantsManquants && relisible}
-          <Bandeau titre="Montants non lus.">
-            Les totaux sont sur le document mais la lecture les a manqués. La relecture en détail lit le PDF entier avec un modèle plus fort.
-            {#snippet action()}<button type="button" class="btn sm principal" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>{/snippet}
-          </Bandeau>
-        {/if}
-        {#if blEnAttente}
-          <Bandeau ton="info" titre="En attente de facture.">
-            Il sera rapproché dès que la facture {de(choix.fournisseurNom || d.fournisseur_nom || 'du fournisseur')} arrivera.
-          </Bandeau>
-        {/if}
-
 
         {#if avecChaine}
           <DocChaine
@@ -1760,6 +1813,20 @@
     flex-wrap: wrap;
     gap: var(--e2) var(--e4);
     font-size: 15px;
+  }
+  /* Sous la phrase d'état : les autres alertes, une par ligne. */
+  .aussi {
+    margin: calc(-1 * var(--e4) + 8px) 0 var(--e4);
+    padding-left: 44px;
+    color: var(--text2);
+    font-size: 15px;
+  }
+  .aussi li + li {
+    margin-top: 4px;
+  }
+  .aussi .btn {
+    margin-left: 4px;
+    vertical-align: baseline;
   }
   .dernier-essai {
     display: block;
