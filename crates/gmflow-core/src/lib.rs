@@ -30,6 +30,7 @@ pub mod rapprochement;
 pub mod reglages;
 pub mod reinitialisation;
 pub mod reponse;
+pub mod sante;
 pub mod serveur_api;
 pub mod stockage;
 #[cfg(feature = "test-utils")]

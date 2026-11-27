@@ -664,3 +664,36 @@ fn iban_a_la_cle_fausse_est_une_anomalie_de_lecture() {
             .any(|x| x.contains("IBAN"))
     );
 }
+
+#[test]
+fn bornes_d_analyse_un_bl_de_40_pages_passe_un_pdf_anormal_non() {
+    use gmflow_core::lecture::limites::{self, Depassement, Limites};
+    let lignes: Vec<String> = (1..=40)
+        .map(|i| {
+            format!("BON DE LIVRAISON BL-2026-{i:03} page {i}/40 article {i} quantité 3 prix 12,50")
+        })
+        .collect();
+    let pages: Vec<_> = lignes
+        .iter()
+        .map(|l| fixtures::PageTest::Texte(vec![l.clone()]))
+        .collect();
+    let bl = fixtures::pdf_pages(pages);
+    assert_eq!(pdf::pages(&bl), 40);
+    assert_eq!(limites::controler("bl.pdf", "application/pdf", &bl), Ok(()));
+    assert!(!matches!(
+        aiguiller("bl.pdf", "application/pdf", &bl, false),
+        Aiguillage::TropVolumineux(_)
+    ));
+    // Au-delà de la borne de pages : pas d'analyse, raison lisible.
+    let l = Limites {
+        pages_max: 39,
+        ..Limites::default()
+    };
+    match gmflow_core::lecture::aiguiller_avec(&l, "bl.pdf", "application/pdf", &bl, false) {
+        Aiguillage::TropVolumineux(d) => {
+            assert_eq!(d, Depassement::Pages { pages: 40, max: 39 });
+            assert!(d.message().contains("40 pages"), "{}", d.message());
+        }
+        autre => panic!("{autre:?}"),
+    }
+}

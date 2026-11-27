@@ -791,7 +791,7 @@
       {/if}
 
       {#if m.html}
-        <CorpsHtml id={m.id} />
+        <CorpsHtml id={m.id} expediteur={m.expediteur} />
       {:else}
       <div class="mailtext">
         {#each corps.paragraphes as p, i (i)}<p>{p}</p>{:else}<p class="muted">(corps vide)</p>{/each}

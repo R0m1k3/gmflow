@@ -4,6 +4,7 @@
 
 pub mod decoupage;
 pub mod extraction;
+pub mod limites;
 pub mod ocr;
 pub mod pdf;
 pub mod societe;
@@ -11,8 +12,8 @@ pub mod tableau_articles;
 pub mod tableur;
 pub mod xml;
 
-/// Fichiers plus gros : non lus (Claude refuse au-delà, et ce n'est pas une facture).
-pub const FICHIER_MAX: usize = 25 * 1024 * 1024;
+/// Fichiers plus gros : non lus (Claude refuse au-delà) ; voir `limites` pour les autres bornes.
+pub const FICHIER_MAX: usize = limites::FICHIER_MAX;
 /// Caractères utiles (lettres, chiffres) en dessous desquels un PDF est traité comme un scan.
 pub const TEXTE_UTILE_MIN: usize = 80;
 
@@ -56,6 +57,9 @@ pub enum Aiguillage {
         texte: String,
         tronque: bool,
     },
+    /// PDF, XML ou tableur hors des bornes de `limites` (fichier piégé ou anormal) : pas
+    /// analysé, la pièce reste téléchargeable.
+    TropVolumineux(limites::Depassement),
     /// Fichier à faire lire par Claude (scan, photo), sous ce nom d'extension.
     Scan {
         extension: &'static str,
@@ -137,7 +141,9 @@ fn texte_utile(t: &str) -> usize {
 /// Aperçu d'un tableur (xlsx, xls, ods, csv) en feuilles de cellules ; rien pour les autres
 /// fichiers ou un classeur illisible.
 pub fn apercu_tableur(nom: &str, mime: &str, contenu: &[u8]) -> Option<Vec<tableur::Feuille>> {
-    match genre(nom, &mime.to_ascii_lowercase(), contenu) {
+    let g = genre(nom, &mime.to_ascii_lowercase(), contenu);
+    limites::controler_genre(limites::limites(), g, contenu).ok()?;
+    match g {
         Genre::Classeur => tableur::apercu_classeur(contenu),
         Genre::Csv => Some(vec![tableur::apercu_csv(contenu)]),
         _ => None,
@@ -151,21 +157,38 @@ pub fn grilles_tableur(
     mime: &str,
     contenu: &[u8],
 ) -> Option<Vec<tableau_articles::Grille>> {
-    match genre(nom, &mime.to_ascii_lowercase(), contenu) {
+    let g = genre(nom, &mime.to_ascii_lowercase(), contenu);
+    limites::controler_genre(limites::limites(), g, contenu).ok()?;
+    match g {
         Genre::Classeur => tableau_articles::grilles_classeur(contenu),
         Genre::Csv => Some(vec![tableau_articles::grille_csv(contenu)]),
         _ => None,
     }
 }
 
-pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) -> Aiguillage {
-    if contenu.len() > FICHIER_MAX {
+pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], liste_diffusion: bool) -> Aiguillage {
+    aiguiller_avec(limites::limites(), nom, mime, contenu, liste_diffusion)
+}
+
+/// `aiguiller` avec ces bornes (tests).
+pub fn aiguiller_avec(
+    l: &limites::Limites,
+    nom: &str,
+    mime: &str,
+    contenu: &[u8],
+    _liste_diffusion: bool,
+) -> Aiguillage {
+    let g = genre(nom, mime, contenu);
+    if matches!(g, Genre::Image(_) | Genre::Autre) && contenu.len() > l.fichier_max {
         return Aiguillage::Ignore(format!(
             "fichier de plus de {} Mo",
-            FICHIER_MAX / 1024 / 1024
+            l.fichier_max / 1024 / 1024
         ));
     }
-    match genre(nom, mime, contenu) {
+    if let Err(d) = limites::controler_genre(l, g, contenu) {
+        return Aiguillage::TropVolumineux(d);
+    }
+    match g {
         Genre::Pdf => {
             if let Some(x) = pdf::xml_facturx(contenu)
                 && let Some(donnees) = xml::lire(&x)

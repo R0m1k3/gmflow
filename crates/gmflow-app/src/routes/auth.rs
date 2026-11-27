@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use axum::Json;
 use axum::extract::State;
@@ -10,10 +10,8 @@ use tower_sessions::Session;
 use crate::acces::{Acces, CLE_SESSION, SessionUtilisateur, maintenant_unix};
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+use crate::freinage::{AdresseClient, ESSAIS_LIBRES_ADRESSE, ESSAIS_LIBRES_COMPTE};
 use crate::mdp;
-
-pub const ECHECS_MAX: usize = 5;
-pub const FENETRE: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Deserialize)]
 pub struct Entree {
@@ -40,37 +38,35 @@ impl From<&Acces> for Moi {
     }
 }
 
-fn trop_d_echecs(etat: &Etat, cle: &str) -> bool {
-    let mut echecs = etat.echecs.lock().unwrap();
-    let liste = echecs.entry(cle.to_string()).or_default();
-    liste.retain(|t| t.elapsed() < FENETRE);
-    liste.len() >= ECHECS_MAX
-}
-
-fn noter_echec(etat: &Etat, cle: &str) {
-    let mut echecs = etat.echecs.lock().unwrap();
-    echecs
-        .entry(cle.to_string())
-        .or_default()
-        .push(Instant::now());
-    // Évite que la table grossisse sans fin.
-    if echecs.len() > 10_000 {
-        echecs.retain(|_, v| v.iter().any(|t| t.elapsed() < FENETRE));
-    }
-}
-
+/// `POST /api/connexion`. Les échecs freinent l'adresse IP qui les fait (`freinage`), jamais
+/// le compte lui-même : un tiers ne peut pas empêcher le vrai utilisateur de se connecter.
 pub async fn connexion(
     State(etat): State<Etat>,
+    AdresseClient(ip): AdresseClient,
     session: Session,
     Json(e): Json<Entree>,
 ) -> Resultat<Json<Moi>> {
     let identifiant = e.identifiant.trim().to_string();
     let cle = identifiant.to_lowercase();
-    if trop_d_echecs(&etat, &cle) {
+    let reseau = crate::freinage::cle_reseau(&ip);
+    let (cle_compte, cle_adresse) = (format!("{reseau}|{cle}"), format!("{reseau}|*"));
+    // L'essai compte d'avance comme un échec (essais en parallèle), rendu s'il réussit.
+    if etat
+        .freinage
+        .essayer(
+            &[
+                (&cle_compte, ESSAIS_LIBRES_COMPTE),
+                (&cle_adresse, ESSAIS_LIBRES_ADRESSE),
+            ],
+            Instant::now(),
+        )
+        .is_err()
+    {
         return Err(ErreurApi::TropDEssais);
     }
     let ligne = sqlx::query!(
-        "select id, identifiant, hash_mdp, role, societe_id, actif from utilisateur where lower(identifiant) = $1",
+        "select id, identifiant, hash_mdp, role, societe_id, actif, generation_session
+         from utilisateur where lower(identifiant) = $1",
         cle
     )
     .fetch_optional(&etat.pool)
@@ -83,20 +79,20 @@ pub async fn connexion(
     let u = match ligne {
         Some(u) if bon && u.actif => u,
         autre => {
-            noter_echec(&etat, &cle);
             gmflow_core::journal::ecrire(
                 &etat.pool,
                 autre.as_ref().map(|u| u.id),
                 "connexion_refusee",
                 "utilisateur",
                 autre.as_ref().map(|u| u.id.to_string()),
-                json!({ "identifiant": identifiant }),
+                json!({ "identifiant": identifiant, "adresse": ip }),
             )
             .await?;
             return Err(ErreurApi::NonConnecte);
         }
     };
-    etat.echecs.lock().unwrap().remove(&cle);
+    etat.freinage.reussite(&cle_compte);
+    etat.freinage.rendre(&cle_adresse, ESSAIS_LIBRES_ADRESSE);
     session.cycle_id().await?;
     session
         .insert(
@@ -104,6 +100,7 @@ pub async fn connexion(
             SessionUtilisateur {
                 id: u.id,
                 connecte_le: maintenant_unix(),
+                generation: u.generation_session,
             },
         )
         .await?;
@@ -136,4 +133,95 @@ pub async fn deconnexion(session: Session) -> Resultat<StatusCode> {
 
 pub async fn moi(acces: Acces) -> Json<Moi> {
     Json(Moi::from(&acces))
+}
+
+#[derive(Deserialize)]
+pub struct ChangementMdp {
+    ancien: String,
+    nouveau: String,
+}
+
+/// Garde la session en cours valable après un changement de mot de passe (les autres sont
+/// coupées par la nouvelle génération) : nouvel identifiant de session, même connexion.
+pub async fn garder_session(session: &Session, generation: i32) -> Resultat<()> {
+    if let Some(mut su) = session.get::<SessionUtilisateur>(CLE_SESSION).await? {
+        su.generation = generation;
+        session.cycle_id().await?;
+        session.insert(CLE_SESSION, su).await?;
+    }
+    Ok(())
+}
+
+/// `POST /api/moi/mot-de-passe` : l'utilisateur connecté change son mot de passe (ancien
+/// exigé, mêmes règles qu'à la création). Ses autres sessions sont coupées.
+pub async fn changer_mot_de_passe(
+    acces: Acces,
+    State(etat): State<Etat>,
+    session: Session,
+    Json(c): Json<ChangementMdp>,
+) -> Resultat<StatusCode> {
+    let cle = format!("mdp|{}", acces.utilisateur_id);
+    if etat
+        .freinage
+        .essayer(&[(&cle, ESSAIS_LIBRES_COMPTE)], Instant::now())
+        .is_err()
+    {
+        return Err(ErreurApi::TropDEssais);
+    }
+    let hash = sqlx::query_scalar!(
+        "select hash_mdp from utilisateur where id = $1",
+        acces.utilisateur_id
+    )
+    .fetch_one(&etat.pool)
+    .await?;
+    if !mdp::verifier_async(c.ancien.clone(), hash).await {
+        gmflow_core::journal::ecrire(
+            &etat.pool,
+            Some(acces.utilisateur_id),
+            "mot_de_passe_refuse",
+            "utilisateur",
+            Some(acces.utilisateur_id.to_string()),
+            json!({}),
+        )
+        .await?;
+        return Err(ErreurApi::Champ {
+            champ: "ancien",
+            message: "le mot de passe actuel n'est pas le bon".into(),
+        });
+    }
+    etat.freinage.reussite(&cle);
+    if let Err(ErreurApi::Donnees(m)) = mdp::valider(&c.nouveau) {
+        return Err(ErreurApi::Champ {
+            champ: "nouveau",
+            message: m,
+        });
+    }
+    if c.nouveau == c.ancien {
+        return Err(ErreurApi::Champ {
+            champ: "nouveau",
+            message: "le nouveau mot de passe doit être différent de l'actuel".into(),
+        });
+    }
+    let hash = mdp::hacher_async(c.nouveau).await?;
+    let mut tx = etat.pool.begin().await?;
+    let generation = sqlx::query_scalar!(
+        "update utilisateur set hash_mdp = $2, generation_session = generation_session + 1
+         where id = $1 returning generation_session",
+        acces.utilisateur_id,
+        hash
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    gmflow_core::journal::ecrire(
+        &mut *tx,
+        Some(acces.utilisateur_id),
+        "mot_de_passe_change",
+        "utilisateur",
+        Some(acces.utilisateur_id.to_string()),
+        json!({ "par": "lui-meme", "autres_sessions_coupees": true }),
+    )
+    .await?;
+    tx.commit().await?;
+    garder_session(&session, generation).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

@@ -1159,6 +1159,7 @@ dependencies = [
  "async-imap",
  "base64 0.23.1",
  "calamine",
+ "flate2",
  "futures",
  "hex",
  "lettre",
@@ -1183,6 +1184,8 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "webpki-roots",
+ "weezl",
+ "zip",
 ]
 
 [[package]]

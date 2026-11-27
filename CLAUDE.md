@@ -10,7 +10,7 @@ relève les mails et les affiche.
   (`file.rs`), lecture des `.eml` (`eml.rs`), IMAP (`imap.rs`), stockage des `.eml`, appels Claude CLI.
 - `crates/gmflow-app` : API axum (`/api/*`) et frontend statique ; sessions en base.
 - `crates/gmflow-worker` : relève IMAP, test des boîtes, séance `claude setup-token`, test du jeton,
-  planification toutes les 5 min, `/health` sur 8081.
+  planification toutes les 5 min, `/health` et `/metrics` sur 8081 (surveillance : `docs/exploitation.md`).
 - `web/` : SvelteKit 3 (SPA, `adapter-static`). Imports internes par `#lib/xxx.ts` (`$lib` n'existe plus).
 - `migrations/` : SQL de GMFlow. apalis et les sessions ont leurs propres migrations, lancées par
   `db::initialiser` sous un verrou consultatif.
@@ -31,6 +31,8 @@ L'app et le worker ne se parlent que par la base. Toute connexion IMAP et tout a
 - Mutations : l'en-tête `X-GMFlow: 1` est exigé (`web/src/lib/api.ts` le pose).
 - Claude CLI : jamais `--bare` (il ignore le jeton OAuth) ; passer par `gmflow_core::claude::appeler`.
 - Noms en français dans le code et la base.
+- Pièces jointes : toute analyse (lopdf, pdf-extract, calamine, zip) passe d'abord par
+  `gmflow_core::lecture::limites::controler` (ou `aiguiller`, qui le fait) ; voir `docs/exploitation.md`.
 
 ## Développement
 

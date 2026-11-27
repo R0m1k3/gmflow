@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update utilisateur set hash_mdp = $2, generation_session = generation_session + 1\n         where id = $1 returning generation_session",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation_session",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "generation_session"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f727ffdb79c8a98471d23978a4d76bb6a6ac33248a23d196efb03caff49c7cc2"
+}

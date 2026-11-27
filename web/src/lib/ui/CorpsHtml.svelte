@@ -4,8 +4,45 @@
    * `GET /api/mails/{id}/html` (CSP sans script) et s'affiche dans un iframe `sandbox` sans
    * `allow-scripts` : aucun code du mail ne s'exécute. `allow-same-origin` sert seulement à lire
    * la hauteur du contenu pour agrandir le cadre ; les liens s'ouvrent dans un nouvel onglet.
+   *
+   * Images distantes (C23) : bloquées par la CSP du serveur (pixel espion). S'il y en a, un
+   * bandeau discret propose « Afficher » (ce mail, cette fois) ou « Toujours pour cet
+   * expéditeur » (retenu dans ce navigateur) ; la page est alors rechargée avec `?images=1`.
    */
-  let { id }: { id: number } = $props();
+  import {
+    adresseCorps,
+    adresseDe,
+    contientImagesDistantes,
+    expediteursAutorises,
+    memoriser
+  } from './imagesDistantes.ts';
+
+  let { id, expediteur = '' }: { id: number; expediteur?: string } = $props();
+
+  function stockage(): Storage | null {
+    try {
+      return typeof localStorage === 'undefined' ? null : localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  let autorises = $state(expediteursAutorises(stockage()));
+  /** Mail dont l'utilisateur a demandé les images, cette fois. */
+  let afficheIci = $state<number | null>(null);
+  let afficher = $derived(afficheIci === id || autorises.includes(adresseDe(expediteur)));
+  /** Le mail affiché sans ses images en contient (vu au chargement). */
+  let masquees = $state(false);
+
+  function afficherUneFois() {
+    afficheIci = id;
+  }
+
+  function afficherToujours() {
+    memoriser(expediteur, stockage());
+    autorises = expediteursAutorises(stockage());
+    afficheIci = id;
+  }
 
   let cadre = $state<HTMLIFrameElement | null>(null);
   let hauteur = $state(160);
@@ -29,6 +66,7 @@
     observateur?.disconnect();
     const doc = cadre?.contentDocument;
     if (!cadre || !doc?.body) return;
+    masquees = !afficher && contientImagesDistantes(doc.documentElement.outerHTML);
     ajuster();
     // Largeur du volet qui change, puis images distantes arrivées après le chargement.
     observateur = new ResizeObserver(ajuster);
@@ -39,11 +77,22 @@
   $effect(() => () => observateur?.disconnect());
 </script>
 
+{#if masquees && !afficher}
+  <p class="images-masquees" role="status">
+    Images distantes masquées
+    <span aria-hidden="true">·</span>
+    <button type="button" class="btn-lien" onclick={afficherUneFois}>Afficher</button>
+    {#if adresseDe(expediteur)}
+      <span aria-hidden="true">·</span>
+      <button type="button" class="btn-lien" onclick={afficherToujours}>Toujours pour cet expéditeur</button>
+    {/if}
+  </p>
+{/if}
 <iframe
   bind:this={cadre}
   class="corps-html"
   title="Contenu du mail"
-  src="/api/mails/{id}/html"
+  src={adresseCorps(id, afficher)}
   sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
   referrerpolicy="no-referrer"
   style:height="{hauteur}px"
@@ -51,6 +100,15 @@
 ></iframe>
 
 <style>
+  .images-masquees {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--e1) var(--e2);
+    margin: 0 0 var(--e2);
+    font-size: 16px;
+    color: var(--muted);
+  }
   .corps-html {
     display: block;
     flex: none;
