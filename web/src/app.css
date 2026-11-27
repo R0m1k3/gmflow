@@ -1966,7 +1966,8 @@ dialog.confirmation .dlg-pied {
     height: 44px;
   }
   .volets.ouvert > .volet-liste,
-  .volets:not(.ouvert) > .volet {
+  .volets:not(.ouvert) > .volet,
+  .rail-liste {
     display: none;
   }
   .ligne {
