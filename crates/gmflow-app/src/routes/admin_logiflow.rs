@@ -137,9 +137,10 @@ pub async fn supprimer(
 
 pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resultat<StatusCode> {
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
-        return Err(ErreurApi::Conflit(
-            "adresse de Logiflow non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: "logiflow_absent",
+            message: "adresse de Logiflow non configurée".into(),
+        });
     }
     parametre::supprimer(&etat.pool, logiflow::CLE_TEST).await?;
     file::pousser_envoi(&etat.pool, file::TacheEnvoi::TestLogiflow)
@@ -160,9 +161,10 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
 /// « Vérifier maintenant » : la vérification régulière part tout de suite.
 pub async fn suivre(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resultat<StatusCode> {
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
-        return Err(ErreurApi::Conflit(
-            "adresse de Logiflow non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: "logiflow_absent",
+            message: "adresse de Logiflow non configurée".into(),
+        });
     }
     parametre::ecrire(
         &etat.pool,
@@ -197,9 +199,10 @@ pub async fn relancer(
 ) -> Resultat<StatusCode> {
     super::documents::controler_visible(&etat, &acces, id).await?;
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
-        return Err(ErreurApi::Conflit(
-            "Logiflow n'est pas configuré (Réglages > Serveur du magasin)".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: "logiflow_absent",
+            message: "Logiflow n'est pas configuré".into(),
+        });
     }
     let envoyee = sqlx::query_scalar!(
         r#"select coalesce(type = 'facture' and statut_depot = 'depose', false) as "e!"

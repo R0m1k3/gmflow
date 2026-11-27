@@ -1,9 +1,13 @@
 <script lang="ts">
   // Page d'erreur : adresse inconnue (ancien lien, faute de frappe) ou erreur de chargement.
   import { page } from '$app/state';
+  import { expliquerStatut } from '#lib/erreurs.ts';
+  import { session } from '#lib/session.svelte.ts';
   import Icone from '#lib/ui/Icone.svelte';
 
   let introuvable = $derived(page.status === 404);
+  // Autre erreur : message simple, que faire et bouton d'action (#lib/erreurs.ts).
+  let x = $derived(expliquerStatut(page.status, page.error?.message ?? '', session.moi?.role === 'admin'));
 </script>
 
 <svelte:head><title>{introuvable ? 'Page introuvable' : 'Erreur'} · GMFlow</title></svelte:head>
@@ -15,12 +19,17 @@
     <p>
       {introuvable
         ? 'Le lien est peut-être ancien. Ce qui attend une action est sur l’accueil, et signalé par un badge dans le menu.'
-        : (page.error?.message ?? 'Réessayez dans un instant.')}
+        : x.message}
     </p>
+    {#if !introuvable && x.quoiFaire}<p>{x.quoiFaire}</p>{/if}
     <div class="actions">
       <a class="btn principal" href="/">Retour à l’accueil</a>
       {#if introuvable}
         <a class="btn" href="/factures?filtre=a-valider">Factures à contrôler</a>
+      {:else if x.action?.genre === 'lien'}
+        <a class="btn" href={x.action.href}>{x.action.libelle}</a>
+      {:else if x.action?.genre === 'reconnecter'}
+        <a class="btn" href="/connexion">{x.action.libelle}</a>
       {:else}
         <button type="button" class="btn" onclick={() => location.reload()}>Réessayer</button>
       {/if}
