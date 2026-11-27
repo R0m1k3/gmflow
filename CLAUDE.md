@@ -49,6 +49,11 @@ L'app et le worker ne se parlent que par la base. Toute connexion IMAP et tout a
   quel (`ts(as = "super::formes::X")`, formes décrites dans `routes/formes.rs`), champ omis
   (`skip_serializing_if` → `ts(optional)`). Pas de `Json<Value>` construit avec `json!` pour une
   réponse que le front lit : une structure. Un nom TypeScript est unique (`rename` sinon).
+- **Codes d'erreur** : un refus métier est une variante de `erreur::Refus` (409, `ConflitCode`),
+  rangée dans `Refus::TOUS` ; chaque code a sa traduction dans `web/src/lib/erreurs.ts` (`PAR_CODE`,
+  typé par le `CodeErreur` généré ; tests `chaque_code_a_sa_traduction` et `erreurs.test.ts`). Un
+  fichier se télécharge par `telecharger` (`api.ts`), jamais par un lien `download` qui
+  enregistrerait l'erreur comme fichier.
 - Pièces jointes : toute analyse (lopdf, pdf-extract, calamine, zip) passe d'abord par
   `gmflow_core::lecture::limites::controler` (ou `aiguiller`, qui le fait) ; voir `docs/exploitation.md`.
 

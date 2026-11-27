@@ -13,7 +13,7 @@ use time::OffsetDateTime;
 use super::documents::controler_visible;
 use super::fichiers::{CSP_TELECHARGEMENT, disposition};
 use crate::acces::Acces;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
@@ -180,7 +180,7 @@ pub async fn verifier(
         .is_none()
     {
         return Err(ErreurApi::ConflitCode {
-            code: "serveur_magasin_absent",
+            code: Refus::ServeurMagasinAbsent,
             message: "serveur du magasin non configuré".into(),
         });
     }

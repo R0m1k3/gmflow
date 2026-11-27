@@ -5,6 +5,7 @@ export type * from './api-types/index.ts';
 
 import type {
   AppelVue,
+  CodeErreur,
   BilanLecture,
   BrouillonVue,
   DemandeEssai,
@@ -43,25 +44,6 @@ export type EligibiliteLot = Eligibilite;
 export type DemandeEssaiBoite = DemandeEssai;
 
 // ---------------------------------------------------------------------------------------------
-// Codes d'erreur de l'API (`code` du corps d'erreur) : voir erreurs.ts.
+// Codes d'erreur de l'API (`code` du corps d'erreur, `erreur.rs`) : traduits par erreurs.ts.
 
-export type CodeRefus =
-  | 'donnees'
-  | 'champ'
-  | 'non_connecte'
-  | 'interdit'
-  | 'absent'
-  | 'conflit'
-  | 'trop_d_essais'
-  | 'interne'
-  | 'serveur_magasin_absent'
-  | 'logiflow_absent'
-  | 'etat'
-  | 'deja_envoye'
-  | 'expedition'
-  | 'erreur_envoi'
-  | 'doublon'
-  | 'sans_adresse'
-  | 'smtp_absent'
-  | 'essai'
-  | 'alertes';
+export type CodeRefus = CodeErreur;

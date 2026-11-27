@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::acces::{Acces, AccesAdmin};
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
@@ -142,7 +142,7 @@ pub async fn supprimer(
 pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resultat<StatusCode> {
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
         return Err(ErreurApi::ConflitCode {
-            code: "logiflow_absent",
+            code: Refus::LogiflowAbsent,
             message: "adresse de Logiflow non configurée".into(),
         });
     }
@@ -166,7 +166,7 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
 pub async fn suivre(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resultat<StatusCode> {
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
         return Err(ErreurApi::ConflitCode {
-            code: "logiflow_absent",
+            code: Refus::LogiflowAbsent,
             message: "adresse de Logiflow non configurée".into(),
         });
     }
@@ -204,7 +204,7 @@ pub async fn relancer(
     super::documents::controler_visible(&etat, &acces, id).await?;
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
         return Err(ErreurApi::ConflitCode {
-            code: "logiflow_absent",
+            code: Refus::LogiflowAbsent,
             message: "Logiflow n'est pas configuré".into(),
         });
     }

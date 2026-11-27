@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::acces::AccesAdmin;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 #[cfg(feature = "ts")]
 use gmflow_core::vocabulaire as v;
@@ -199,7 +199,7 @@ async fn test_de_l_essai(
 ) -> Resultat<Value> {
     use gmflow_core::essai_boite;
     let refus = |m: &str| ErreurApi::ConflitCode {
-        code: "essai",
+        code: Refus::Essai,
         message: format!("{m} : relancez l'essai de connexion"),
     };
     let essai = match super::mise_en_route::lire_essai(etat, essai_id).await {

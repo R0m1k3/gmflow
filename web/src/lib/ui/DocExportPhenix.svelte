@@ -31,7 +31,7 @@
   // alertes, et les deux fichiers : matrice d'intégration (commande) et trame BO Phénix
   // (fiches produits). Endpoints /api/documents/{id}/export-phenix.
   import { onDestroy } from 'svelte';
-  import { api, message, sonder } from '#lib/api.ts';
+  import { api, message, sonder, telecharger } from '#lib/api.ts';
   import Bandeau from './Bandeau.svelte';
   import { jourHeure } from './DocOutils.ts';
   import Etiquette from './Etiquette.svelte';
@@ -63,6 +63,13 @@
       .catch((e) => onerreur(message(e)));
   });
   onDestroy(() => arret?.());
+
+  /** Fichier demandé par l'API : un refus (serveur du magasin absent…) s'affiche, il n'est pas
+   *  enregistré comme fichier. */
+  function enregistrer(e: MouseEvent, cle: string, nom: string) {
+    e.preventDefault();
+    telecharger(`/api/documents/${id}/export-phenix/${cle}`, `${nom}.xlsx`).catch((x) => onerreur(`${nom} : ${message(x)}`));
+  }
 
   async function verifier() {
     demande = true;
@@ -112,7 +119,7 @@
     <div class="fichiers">
       {#each fichiers as f (f.cle)}
         {#if etat.pret}
-          <a class="fichier" href="/api/documents/{id}/export-phenix/{f.cle}" download>
+          <a class="fichier" href="/api/documents/{id}/export-phenix/{f.cle}" download onclick={(e) => enregistrer(e, f.cle, f.nom)}>
             <Icone nom="fichier" /><span class="txt"><span class="nom">{f.nom}</span><span class="det">{f.detail}</span></span><Icone nom="telecharger" class="dl" />
           </a>
         {:else}

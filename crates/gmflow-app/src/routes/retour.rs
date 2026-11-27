@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::documents::controler_modifiable;
 use crate::acces::Acces;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 #[cfg(feature = "ts")]
 use gmflow_core::vocabulaire as v;
@@ -158,7 +158,7 @@ pub async fn noter_ecartement(
     Ok(())
 }
 
-fn refus(code: &'static str, message: &str) -> ErreurApi {
+fn refus(code: Refus, message: &str) -> ErreurApi {
     ErreurApi::ConflitCode {
         code,
         message: message.into(),
@@ -196,7 +196,7 @@ pub async fn remettre(
     let doublon_ecarte =
         a.etat == "lu" && a.statut_depot.as_deref() == Some("doublon") && a.verifie;
     if a.etat != "ignore" && !doublon_ecarte {
-        return Err(refus("etat", "cette pièce n'est pas écartée"));
+        return Err(refus(Refus::Etat, "cette pièce n'est pas écartée"));
     }
     // Origine d'un PDF découpé (`lecture::decoupage`) : ignorée par la lecture, jamais écartée
     // par un humain ; ses pièces se contrôlent chacune à part. La remettre en circuit doublerait
@@ -210,7 +210,7 @@ pub async fn remettre(
     .await?;
     if decoupe {
         return Err(refus(
-            "decoupe",
+            Refus::Decoupe,
             "ce fichier a été découpé en plusieurs pièces : contrôlez chacune d'elles",
         ));
     }
@@ -227,7 +227,7 @@ pub async fn remettre(
         }
         _ => {
             return Err(refus(
-                "etat",
+                Refus::Etat,
                 "état d'avant l'écartement inconnu : faites relire la pièce",
             ));
         }

@@ -4,7 +4,7 @@
   import Aide from '#lib/ui/Aide.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, bilanMois, message } from '#lib/api.ts';
+  import { api, bilanMois, message, telecharger } from '#lib/api.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { dateSimple } from '#lib/format.ts';
   import { BL_EN_ATTENTE, libelleVoie, nomCourtSociete } from '#lib/libelles.ts';
@@ -61,6 +61,21 @@
   // ---------- Données ----------
   let bilan = $state<BilanMois | null>(null);
   let erreur = $state('');
+  /** Export Excel : refus du serveur montré ici, jamais enregistré comme fichier. */
+  let erreurExport = $state('');
+  let exportEnCours = $state(false);
+  async function exporter() {
+    if (exportEnCours) return;
+    exportEnCours = true;
+    erreurExport = '';
+    try {
+      await telecharger(lienExportBilan(mois, admin ? societe.id : null), `Bilan ${mois}.xlsx`);
+    } catch (e) {
+      erreurExport = `Export impossible : ${message(e)}`;
+    } finally {
+      exportEnCours = false;
+    }
+  }
   let jeton = 0;
   async function charger() {
     const moi = ++jeton;
@@ -170,8 +185,8 @@
   <div class="page-h">
     <h1>Bilan du mois <span class="imprime-seul">: {libelleMois(mois)}</span></h1>
     <span class="sp"></span>
-    <a class="btn sm pas-imprime" href={lienExportBilan(mois, admin ? societe.id : null)} download title="Synthèse, une ligne par pièce et BL en attente, au format Excel"
-      ><Icone nom="telecharger" />Exporter (Excel)</a
+    <button type="button" class="btn sm pas-imprime" onclick={exporter} disabled={exportEnCours} title="Synthèse, une ligne par pièce et BL en attente, au format Excel"
+      ><Icone nom="telecharger" />Exporter (Excel)</button
     >
     <button type="button" class="btn sm pas-imprime" onclick={() => window.print()}>Imprimer</button>
     <nav class="choix-mois pas-imprime" aria-label="Mois">
@@ -190,6 +205,12 @@
     </nav>
   </div>
 
+  {#if erreurExport}
+    <Bandeau ton="erreur">
+      {erreurExport}
+      {#snippet action()}<button type="button" class="btn sm" onclick={exporter}>Réessayer</button>{/snippet}
+    </Bandeau>
+  {/if}
   {#if erreur && !bilan}
     <Bandeau ton="erreur">
       {erreur}

@@ -18,7 +18,7 @@ use sqlx::PgConnection;
 
 use super::documents::{controler_modifiable, controler_visible};
 use crate::acces::Acces;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 #[cfg(feature = "ts")]
 use gmflow_core::vocabulaire as v;
@@ -466,7 +466,7 @@ async fn appliquer(
     let (raison, piece) = raison_figee(&mut tx, id).await?;
     if let Some(r) = raison {
         return Err(ErreurApi::ConflitCode {
-            code: "etat",
+            code: Refus::Etat,
             message: r,
         });
     }

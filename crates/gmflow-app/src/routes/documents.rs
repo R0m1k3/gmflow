@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::mails::{Page, date, decalage, mail_visible, motif};
 use crate::acces::{Acces, AccesAdmin};
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 #[cfg(feature = "ts")]
 use gmflow_core::vocabulaire as v;
@@ -1155,7 +1155,10 @@ pub async fn deposer(
         .await?
         .is_none()
     {
-        return Err(refus("expedition", "adresse d'expédition non configurée"));
+        return Err(refus(
+            Refus::Expedition,
+            "adresse d'expédition non configurée",
+        ));
     }
     let statut = depot::evaluer(&etat.pool, id)
         .await
@@ -1189,7 +1192,7 @@ pub async fn deposer(
         }
         _ if sans_adresse => {
             return Err(refus(
-                "sans_adresse",
+                Refus::SansAdresse,
                 "la structure n'a pas d'adresse de dépôt",
             ));
         }
@@ -1277,7 +1280,7 @@ pub struct Validation {
     pub(crate) annulation: Option<super::retour::Annulable>,
 }
 
-fn refus(code: &'static str, message: &str) -> ErreurApi {
+fn refus(code: Refus, message: &str) -> ErreurApi {
     ErreurApi::ConflitCode {
         code,
         message: message.into(),
@@ -1312,11 +1315,11 @@ pub async fn valider(
     .fetch_one(&mut *tx)
     .await?;
     if a.etat != "lu" {
-        return Err(refus("etat", "seul un document lu peut être validé"));
+        return Err(refus(Refus::Etat, "seul un document lu peut être validé"));
     }
     if matches!(a.statut_depot.as_deref(), Some("en_envoi" | "depose")) {
         return Err(refus(
-            "deja_envoye",
+            Refus::DejaEnvoye,
             "document déjà envoyé ou en cours d'envoi",
         ));
     }
@@ -1325,7 +1328,7 @@ pub async fn valider(
     if dv.sans_alerte
         && let Some(r) = super::lot::raison_hors_lot(&mut tx, id).await?
     {
-        return Err(refus("alertes", &r));
+        return Err(refus(Refus::Alertes, &r));
     }
     match &correction {
         Some(c) => appliquer_correction(&mut tx, &acces, id, c).await?,
@@ -1352,7 +1355,7 @@ pub async fn valider(
         .await
         .map_err(ErreurApi::Interne)?;
     if dv.sans_alerte && statut.as_deref() != Some("pret") {
-        return Err(refus("alertes", "alertes à lire"));
+        return Err(refus(Refus::Alertes, "alertes à lire"));
     }
     let type_doc = sqlx::query_scalar!("select type from document where id = $1", id)
         .fetch_one(&mut *tx)
@@ -1366,7 +1369,7 @@ pub async fn valider(
             .is_none()
         {
             return Err(refus(
-                "expedition",
+                Refus::Expedition,
                 "adresse d'envoi vers Dext/Yooz non configurée (Réglages)",
             ));
         }
@@ -1379,7 +1382,7 @@ pub async fn valider(
         match statut.as_deref() {
             Some("erreur") if !acces.est_admin() => {
                 return Err(refus(
-                    "erreur_envoi",
+                    Refus::ErreurEnvoi,
                     "envoi précédent en échec : seul un administrateur peut renvoyer",
                 ));
             }
@@ -1389,11 +1392,11 @@ pub async fn valider(
                     .and_then(|v| v.iter().find(|c| c["code"] == "doublon"))
                     .and_then(|c| c["message"].as_str())
                     .unwrap_or("Facture déjà reçue");
-                return Err(refus("doublon", message));
+                return Err(refus(Refus::Doublon, message));
             }
             _ if sans_adresse => {
                 return Err(refus(
-                    "sans_adresse",
+                    Refus::SansAdresse,
                     "la société n'a pas d'adresse d'envoi vers Dext ou Yooz",
                 ));
             }
@@ -1478,13 +1481,13 @@ pub async fn ecarter(
     .await?;
     if matches!(a.statut_depot.as_deref(), Some("en_envoi" | "depose")) {
         return Err(refus(
-            "deja_envoye",
+            Refus::DejaEnvoye,
             "document déjà envoyé ou en cours d'envoi",
         ));
     }
     if a.statut_depot.as_deref() == Some("erreur") && !acces.est_admin() {
         return Err(refus(
-            "erreur_envoi",
+            Refus::ErreurEnvoi,
             "envoi en échec : seul un administrateur peut l'écarter",
         ));
     }
@@ -1516,7 +1519,7 @@ pub async fn ecarter(
         }
     } else {
         return Err(refus(
-            "etat",
+            Refus::Etat,
             "seul un document lu ou illisible peut être écarté",
         ));
     };

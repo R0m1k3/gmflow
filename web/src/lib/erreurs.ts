@@ -3,7 +3,11 @@
 // les réglages concernés, se reconnecter). Le serveur donne à chaque erreur un `code` stable
 // (`crates/gmflow-app/src/erreur.rs`) : c'est lui qui est lu ici, jamais la phrase, sauf pour
 // les refus dont la phrase du serveur est déjà le bon message (donnée refusée, conflit).
-// Module pur (pas d'import de SvelteKit) : testé par `node --test` (erreurs.test.ts).
+// Module pur (pas d'import de SvelteKit) : testé par `node --test` (erreurs.test.ts). Chaque code
+// que le serveur peut rendre (`CodeErreur`, généré depuis `erreur.rs`) doit avoir sa traduction :
+// `PAR_CODE` est typé par lui, et deux tests le vérifient (erreurs.test.ts, `chaque_code_a_sa_traduction`).
+
+import type { CodeErreur } from './api-types/CodeErreur.ts';
 
 /** Ce que le bouton d'une erreur fait : ouvrir une page, relancer l'action, ou se reconnecter. */
 export type ActionErreur =
@@ -54,7 +58,7 @@ function reglage(message: string, section: string, libelle: string): Traduction 
 }
 
 /** Par code stable du serveur. */
-const PAR_CODE: Record<string, Traduction> = {
+const PAR_CODE: Record<CodeErreur | 'reseau', Traduction> = {
   non_connecte: () => ({
     message: 'Votre session a expiré.',
     quoiFaire: 'Reconnectez-vous pour continuer.',
@@ -70,9 +74,11 @@ const PAR_CODE: Record<string, Traduction> = {
     quoiFaire: 'Il a peut-être été supprimé, fusionné ou rangé dans l’autre magasin. Rechargez la liste.',
     action: reessayer('Recharger')
   }),
+  // Connexion ou mot de passe actuel faux trop de fois : attente de 30 s qui double à chaque
+  // échec, 15 minutes au plus (freinage.rs).
   trop_d_essais: () => ({
-    message: 'Trop d’essais de connexion à la suite.',
-    quoiFaire: 'Attendez 15 minutes avant de réessayer.',
+    message: 'Trop d’essais avec un mauvais mot de passe.',
+    quoiFaire: 'Patientez quelques minutes, puis réessayez.',
     action: null
   }),
   interne: () => ({
@@ -125,6 +131,11 @@ const PAR_CODE: Record<string, Traduction> = {
     quoiFaire: 'Rechargez la pièce pour voir où elle en est.',
     action: reessayer('Recharger')
   }),
+  decoupe: () => ({
+    message: 'Ce fichier a été découpé en plusieurs pièces : il ne se remet pas en circuit d’un bloc.',
+    quoiFaire: 'Contrôlez chacune de ses pièces à part.',
+    action: null
+  }),
   alertes: (s) => ({
     message: phrase(s) || 'Cette pièce a des alertes.',
     quoiFaire: 'Ouvrez la pièce, lisez ses alertes et corrigez avant de valider.',
@@ -132,8 +143,15 @@ const PAR_CODE: Record<string, Traduction> = {
   })
 };
 
+/** Codes traduits (tests : tout code du serveur en fait partie). */
+export const CODES_TRADUITS = Object.keys(PAR_CODE);
+
+function connu(code: string): code is keyof typeof PAR_CODE {
+  return Object.hasOwn(PAR_CODE, code);
+}
+
 /** Sans code (ancien serveur, proxy) : d'après le code HTTP. */
-function codeDuStatut(statut: number): string {
+function codeDuStatut(statut: number): keyof typeof PAR_CODE {
   if (statut === 0) return 'reseau';
   if (statut === 400 || statut === 422) return 'donnees';
   if (statut === 401) return 'non_connecte';
@@ -160,7 +178,7 @@ export function expliquer(e: unknown, admin = false): Explication {
   }
   const statut = deLApi ? (x.code as number) : 0;
   const raison = typeof x.raison === 'string' && x.raison ? x.raison : '';
-  const code = reseau ? 'reseau' : raison && PAR_CODE[raison] ? raison : codeDuStatut(statut);
+  const code = reseau ? 'reseau' : connu(raison) ? raison : codeDuStatut(statut);
   const serveur = typeof x.message === 'string' ? x.message : '';
   // Phrase du serveur générique (« Erreur 502 ») : jamais montrée telle quelle.
   const propre = /^Erreur \d+$/.test(serveur) ? '' : serveur;

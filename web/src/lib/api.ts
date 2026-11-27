@@ -1,7 +1,8 @@
 import { goto } from '$app/navigation';
 import { texteErreur } from './erreurs.ts';
+import { nomFichier } from './telechargement.ts';
 import { session } from './session.svelte.ts';
-import type { BilanMois, Boite, ChangementsFournisseur, CodeRefus, CompteursATraiter, ConfirmationIban, DemandeAnnulation, DemandeEssaiBoite, DemandeLot, DemandeValidation, EligibiliteLot, EntreeBoite, EssaiBoite, EssaiCree, FileATraiter, FilFournisseur, Fournisseur, IbanConnu, LigneFournisseur, LignesDocument, MiseEnRoute, MotifEcartement, Page, QualiteLecture, RemiseEnLecture, ResultatAnnulation, ResultatLigne, ResultatLot, ResultatsRecherche, ResultatValidation, SaisieLigne } from './types';
+import type { BilanMois, CorpsErreur, Boite, ChangementsFournisseur, CodeRefus, CompteursATraiter, ConfirmationIban, DemandeAnnulation, DemandeEssaiBoite, DemandeLot, DemandeValidation, EligibiliteLot, EntreeBoite, EssaiBoite, EssaiCree, FileATraiter, FilFournisseur, Fournisseur, IbanConnu, LigneFournisseur, LignesDocument, MiseEnRoute, MotifEcartement, Page, QualiteLecture, RemiseEnLecture, ResultatAnnulation, ResultatLigne, ResultatLot, ResultatsRecherche, ResultatValidation, SaisieLigne } from './types';
 
 export class ErreurApi extends Error {
   constructor(
@@ -20,6 +21,44 @@ export class ErreurApi extends Error {
   }
 }
 
+/** L'erreur d'une réponse refusée (corps `CorpsErreur`) ; 401 : renvoi vers la connexion. */
+async function erreurDe(rep: Response, chemin: string): Promise<ErreurApi> {
+  if (rep.status === 401 && !chemin.startsWith('/api/connexion')) {
+    if (!location.pathname.startsWith('/connexion'))
+      await goto(`/connexion?retour=${encodeURIComponent(location.pathname + location.search)}`);
+    return new ErreurApi(401, 'Session expirée, reconnectez-vous.', 'non_connecte');
+  }
+  let message = `Erreur ${rep.status}`;
+  let raison: CodeRefus | undefined;
+  let champ: string | undefined;
+  try {
+    const j = (await rep.json()) as Partial<CorpsErreur> | null;
+    if (j?.erreur) message = j.erreur;
+    if (typeof j?.code === 'string') raison = j.code;
+    if (typeof j?.champ === 'string') champ = j.champ;
+  } catch {
+    /* corps vide */
+  }
+  return new ErreurApi(rep.status, message, raison, champ);
+}
+
+/**
+ * Télécharge un fichier de l'API (export Excel…). Un lien `download` enregistrerait la réponse
+ * d'erreur comme fichier : ici, un refus lève une `ErreurApi`, à montrer comme les autres.
+ */
+export async function telecharger(chemin: string, nomParDefaut: string): Promise<void> {
+  const rep = await fetch(chemin, { credentials: 'same-origin' });
+  if (!rep.ok) throw await erreurDe(rep, chemin);
+  const url = URL.createObjectURL(await rep.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nomFichier(rep.headers.get('content-disposition'), nomParDefaut);
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 async function appel<T>(methode: string, chemin: string, corps?: unknown): Promise<T> {
   const entetes: Record<string, string> = {};
   if (methode !== 'GET') entetes['X-GMFlow'] = '1';
@@ -30,25 +69,7 @@ async function appel<T>(methode: string, chemin: string, corps?: unknown): Promi
     headers: entetes,
     body: corps === undefined ? undefined : JSON.stringify(corps)
   });
-  if (rep.status === 401 && !chemin.startsWith('/api/connexion')) {
-    if (!location.pathname.startsWith('/connexion'))
-      await goto(`/connexion?retour=${encodeURIComponent(location.pathname + location.search)}`);
-    throw new ErreurApi(401, 'Session expirée, reconnectez-vous.');
-  }
-  if (!rep.ok) {
-    let message = `Erreur ${rep.status}`;
-    let raison: CodeRefus | undefined;
-    let champ: string | undefined;
-    try {
-      const j = await rep.json();
-      if (j?.erreur) message = j.erreur;
-      if (typeof j?.code === 'string') raison = j.code;
-      if (typeof j?.champ === 'string') champ = j.champ;
-    } catch {
-      /* corps vide */
-    }
-    throw new ErreurApi(rep.status, message, raison, champ);
-  }
+  if (!rep.ok) throw await erreurDe(rep, chemin);
   // 202 sans corps (tâche lancée) : rien ; 202 avec corps (essai de boîte) : son JSON.
   if (rep.status === 204 || rep.headers.get('content-length') === '0') {
     return undefined as T;

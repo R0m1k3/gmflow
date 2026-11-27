@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::acces::AccesAdmin;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 #[cfg(feature = "ts")]
 use gmflow_core::vocabulaire as v;
@@ -514,7 +514,7 @@ pub async fn tester_smtp(
     .ok_or(ErreurApi::Absent)?;
     let Some(smtp) = param_smtp(net(b.smtp_serveur), b.smtp_port, b.smtp_securite)? else {
         return Err(ErreurApi::ConflitCode {
-            code: "smtp_absent",
+            code: Refus::SmtpAbsent,
             message: "serveur SMTP de la boîte non configuré".into(),
         });
     };

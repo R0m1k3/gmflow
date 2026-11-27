@@ -12,7 +12,7 @@ use serde_json::json;
 
 use super::mails::{Page, decalage, mail_visible};
 use crate::acces::{Acces, AccesAdmin};
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 #[cfg(feature = "ts")]
 use gmflow_core::vocabulaire as v;
@@ -553,7 +553,7 @@ pub async fn envoyer_brouillon(
     }
     if !b.smtp {
         return Err(ErreurApi::ConflitCode {
-            code: "smtp_absent",
+            code: Refus::SmtpAbsent,
             message: "le serveur SMTP de la boîte n'est pas configuré".into(),
         });
     }

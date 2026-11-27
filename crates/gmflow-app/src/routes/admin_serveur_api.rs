@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::acces::AccesAdmin;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
@@ -154,7 +154,7 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
         .is_none()
     {
         return Err(ErreurApi::ConflitCode {
-            code: "serveur_magasin_absent",
+            code: Refus::ServeurMagasinAbsent,
             message: "adresse du serveur non configurée".into(),
         });
     }
@@ -181,7 +181,7 @@ pub async fn synchroniser(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<
         .is_none()
     {
         return Err(ErreurApi::ConflitCode {
-            code: "serveur_magasin_absent",
+            code: Refus::ServeurMagasinAbsent,
             message: "adresse du serveur non configurée".into(),
         });
     }

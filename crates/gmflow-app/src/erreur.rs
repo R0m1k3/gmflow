@@ -22,9 +22,9 @@ pub enum ErreurApi {
     Absent,
     #[error("{0}")]
     Conflit(String),
-    /// Conflit avec un code stable pour l'interface (`{"erreur": "...", "code": "doublon"}`).
+    /// Refus métier avec son propre code pour l'interface (`{"erreur": "...", "code": "doublon"}`).
     #[error("{message}")]
-    ConflitCode { code: &'static str, message: String },
+    ConflitCode { code: Refus, message: String },
     #[error("trop d'essais : patientez quelques minutes avant de réessayer")]
     TropDEssais,
     #[error("erreur interne")]
@@ -32,6 +32,104 @@ pub enum ErreurApi {
 }
 
 pub type Resultat<T> = Result<T, ErreurApi>;
+
+/// Codes des refus métier (409, `ErreurApi::ConflitCode`), chacun traduit par le front
+/// (`web/src/lib/erreurs.ts`, vérifié par `erreurs.test.ts` et `chaque_code_a_sa_traduction`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, rename_all = "snake_case")
+)]
+pub enum Refus {
+    /// La pièce a des alertes à lire avant d'être validée.
+    Alertes,
+    /// Fichier découpé en plusieurs pièces : on ne le remet pas en lecture d'un bloc.
+    Decoupe,
+    /// Pièce déjà envoyée, ou en cours d'envoi.
+    DejaEnvoye,
+    /// Facture déjà reçue (même fournisseur et numéro).
+    Doublon,
+    /// L'envoi précédent a échoué : seul un administrateur la renvoie.
+    ErreurEnvoi,
+    /// Essai de connexion d'une boîte absent, expiré ou fait avec d'autres paramètres.
+    Essai,
+    /// La pièce n'est plus dans l'état attendu.
+    Etat,
+    /// Adresse d'expédition vers Dext/Yooz non réglée.
+    Expedition,
+    LogiflowAbsent,
+    /// Magasin sans adresse Dext/Yooz.
+    SansAdresse,
+    ServeurMagasinAbsent,
+    SmtpAbsent,
+}
+
+impl Refus {
+    pub const TOUS: [Refus; 12] = [
+        Refus::Alertes,
+        Refus::Decoupe,
+        Refus::DejaEnvoye,
+        Refus::Doublon,
+        Refus::ErreurEnvoi,
+        Refus::Essai,
+        Refus::Etat,
+        Refus::Expedition,
+        Refus::LogiflowAbsent,
+        Refus::SansAdresse,
+        Refus::ServeurMagasinAbsent,
+        Refus::SmtpAbsent,
+    ];
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Refus::Alertes => "alertes",
+            Refus::Decoupe => "decoupe",
+            Refus::DejaEnvoye => "deja_envoye",
+            Refus::Doublon => "doublon",
+            Refus::ErreurEnvoi => "erreur_envoi",
+            Refus::Essai => "essai",
+            Refus::Etat => "etat",
+            Refus::Expedition => "expedition",
+            Refus::LogiflowAbsent => "logiflow_absent",
+            Refus::SansAdresse => "sans_adresse",
+            Refus::ServeurMagasinAbsent => "serveur_magasin_absent",
+            Refus::SmtpAbsent => "smtp_absent",
+        }
+    }
+}
+
+/// Tous les codes d'erreur de l'API (`code` du corps d'erreur), pour le front.
+#[cfg(feature = "ts")]
+#[derive(ts_rs::TS)]
+#[ts(export, rename_all = "snake_case")]
+#[allow(dead_code)]
+pub enum CodeErreur {
+    Donnees,
+    Champ,
+    NonConnecte,
+    Interdit,
+    Absent,
+    Conflit,
+    TropDEssais,
+    Interne,
+    #[ts(untagged)]
+    Refus(Refus),
+}
+
+/// Corps d'une réponse d'erreur.
+#[cfg(feature = "ts")]
+#[derive(ts_rs::TS)]
+#[ts(export)]
+#[allow(dead_code)]
+pub struct CorpsErreur {
+    /// Phrase du serveur, en français.
+    erreur: String,
+    code: CodeErreur,
+    /// Champ en faute (`code` = `champ`).
+    #[ts(optional)]
+    champ: Option<String>,
+}
 
 impl From<sqlx::Error> for ErreurApi {
     /// `RowNotFound` (un `fetch_one` sans ligne) reste un 404 pour l'utilisateur, mais il est
@@ -81,7 +179,7 @@ impl ErreurApi {
             ErreurApi::Interdit => "interdit",
             ErreurApi::Absent => "absent",
             ErreurApi::Conflit(_) => "conflit",
-            ErreurApi::ConflitCode { code, .. } => code,
+            ErreurApi::ConflitCode { code, .. } => code.code(),
             ErreurApi::TropDEssais => "trop_d_essais",
             ErreurApi::Interne(_) => "interne",
         }
@@ -139,7 +237,7 @@ mod tests {
             ),
             (
                 ErreurApi::ConflitCode {
-                    code: "expedition",
+                    code: Refus::Expedition,
                     message: "x".into(),
                 },
                 409,
@@ -164,5 +262,65 @@ mod tests {
         // Le détail d'une erreur interne ne sort jamais.
         let (_, j) = corps(ErreurApi::Interne(anyhow::anyhow!("mot de passe"))).await;
         assert_eq!(j["erreur"], "erreur interne");
+    }
+
+    /// Rang de chaque refus : un nouveau refus oblige à le ranger ici, donc dans `Refus::TOUS`.
+    fn rang(r: Refus) -> usize {
+        match r {
+            Refus::Alertes => 0,
+            Refus::Decoupe => 1,
+            Refus::DejaEnvoye => 2,
+            Refus::Doublon => 3,
+            Refus::ErreurEnvoi => 4,
+            Refus::Essai => 5,
+            Refus::Etat => 6,
+            Refus::Expedition => 7,
+            Refus::LogiflowAbsent => 8,
+            Refus::SansAdresse => 9,
+            Refus::ServeurMagasinAbsent => 10,
+            Refus::SmtpAbsent => 11,
+        }
+    }
+
+    /// Chaque code que le serveur peut rendre a sa traduction dans `web/src/lib/erreurs.ts`
+    /// (clé de `PAR_CODE`) : sinon le front retombe sur un message générique.
+    #[test]
+    fn chaque_code_a_sa_traduction() {
+        for (i, r) in Refus::TOUS.iter().enumerate() {
+            assert_eq!(rang(*r), i, "Refus::TOUS dans le désordre ou incomplet");
+        }
+        let front = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../web/src/lib/erreurs.ts"
+        ))
+        .unwrap();
+        let par_code = front
+            .split_once("const PAR_CODE")
+            .expect("PAR_CODE dans erreurs.ts")
+            .1;
+        let generiques = [
+            ErreurApi::Donnees(String::new()),
+            ErreurApi::Champ {
+                champ: "x",
+                message: String::new(),
+            },
+            ErreurApi::NonConnecte,
+            ErreurApi::Interdit,
+            ErreurApi::Absent,
+            ErreurApi::Conflit(String::new()),
+            ErreurApi::TropDEssais,
+            ErreurApi::Interne(anyhow::anyhow!("x")),
+        ];
+        let codes = generiques
+            .iter()
+            .map(|e| e.code())
+            .chain(Refus::TOUS.iter().map(|r| r.code()));
+        let manquants: Vec<&str> = codes
+            .filter(|c| !par_code.contains(&format!("\n  {c}:")))
+            .collect();
+        assert!(
+            manquants.is_empty(),
+            "codes sans traduction dans web/src/lib/erreurs.ts : {manquants:?}"
+        );
     }
 }

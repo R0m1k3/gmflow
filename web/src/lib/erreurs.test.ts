@@ -1,7 +1,7 @@
 // Tests de la traduction des erreurs de l'API : `npm test`.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { expliquer, phrase, texteErreur } from './erreurs.ts';
+import { CODES_TRADUITS, expliquer, phrase, texteErreur } from './erreurs.ts';
 
 /** Même forme que `ErreurApi` d'api.ts (non importée : elle tire SvelteKit). */
 class FausseErreur extends Error {
@@ -52,4 +52,20 @@ test('réseau coupé et erreurs ordinaires', () => {
   assert.equal(expliquer(new Error('Montant illisible')).message, 'Montant illisible.');
   assert.equal(expliquer('texte').message, 'Texte.');
   assert.equal(phrase('déjà fini !'), 'Déjà fini !');
+});
+
+test('chaque code d’erreur du serveur a sa traduction', async () => {
+  // Codes générés depuis `erreur.rs` (`CodeErreur`, `Refus`) : un nouveau code sans traduction
+  // retomberait sur le message générique de son code HTTP.
+  const { readFile } = await import('node:fs/promises');
+  const lire = (f: string) => readFile(new URL(`./api-types/${f}`, import.meta.url), 'utf8');
+  const codes = [...`${await lire('CodeErreur.ts')}\n${await lire('Refus.ts')}`.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  assert.ok(codes.includes('donnees') && codes.includes('decoupe'), codes.join(' '));
+  const manquants = codes.filter((c) => !CODES_TRADUITS.includes(c));
+  assert.deepEqual(manquants, []);
+  for (const c of codes) {
+    const x = expliquer(new FausseErreur(409, 'phrase du serveur', c), true);
+    assert.equal(x.code, c);
+    assert.ok(x.message && x.quoiFaire !== undefined, c);
+  }
 });
