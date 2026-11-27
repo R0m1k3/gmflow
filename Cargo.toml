@@ -20,10 +20,16 @@ futures = "0.3"
 hex = "0.4.3"
 lettre = { version = "0.11.24", default-features = false, features = ["smtp-transport", "builder", "hostname", "tokio1-rustls", "ring", "webpki-roots"] }
 calamine = "0.38.0"
+# Garde-fous de lecture (bombes zip, flux PDF) : mêmes versions et fonctions que calamine et lopdf.
+flate2 = "1"
+zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
+weezl = "0.1.12"
 lopdf = "0.42"
 pdf-extract = "0.12.1"
 quick-xml = "0.42.0"
 rust_xlsxwriter = "0.103.0"
+rust_decimal = { version = "1.43", default-features = false, features = ["std", "serde-float"] }
+rust_decimal_macros = "1.40"
 mail-parser = "1.0.1"
 nix = { version = "0.32.0", features = ["fs"] }
 portable-pty = "0.9.0"
@@ -33,7 +39,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
-sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros", "uuid", "time", "json", "derive"] }
+sqlx = { version = "0.9.1", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "migrate", "macros", "uuid", "time", "json", "derive", "rust_decimal"] }
 strip-ansi-escapes = "0.2"
 thiserror = "2.0.21"
 time = { version = "0.3.55", features = ["serde", "formatting", "parsing", "macros"] }
@@ -44,6 +50,8 @@ tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tower-sessions = "0.15.0"
 tower-sessions-sqlx-store = { version = "0.16.0", features = ["postgres"] }
 tracing = "0.1.44"
+# Types TypeScript du front générés depuis les structures de l'API (fonction `ts`, jamais dans les images).
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "uuid-impl", "no-serde-warnings", "format"] }
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 uuid = { version = "1.29.3", features = ["v4", "serde"] }
 webpki-roots = "1.0.12"

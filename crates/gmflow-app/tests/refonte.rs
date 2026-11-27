@@ -6,6 +6,7 @@ mod commun;
 
 use axum::http::StatusCode;
 use commun::Appli;
+use gmflow_core::montant::{self, dec};
 use serde_json::{Value, json};
 
 const MDP: &str = "un mot de passe solide";
@@ -106,15 +107,16 @@ async fn doc(
 ) -> i64 {
     let app = &m.app;
     let (_, piece) = mail(app, boite, "Document", jours).await;
-    let ht = (ttc / 1.2 * 100.0).round() / 100.0;
-    let tva = ((ttc - ht) * 100.0).round() / 100.0;
+    let ttc = montant::depuis_f64(ttc).unwrap();
+    let ht = montant::centimes(ttc / dec!(1.2));
+    let tva = ttc - ht;
     let id: i64 = sqlx::query_scalar(
         "insert into document (piece_jointe_id, mail_id, sha256, etat, voie, type, societe_id,
              fournisseur_nom, fournisseur_id, numero, date_document, montant_ht, montant_tva,
              montant_ttc, confiance, texte, lu_le)
          select id, mail_id, decode(md5(random()::text), 'hex'), 'lu', 'pdf_texte', $2, $3,
-                'Durand', $4, $5, current_date - $6::int, $7::float8::numeric(14, 2),
-                $8::float8::numeric(14, 2), $9::float8::numeric(14, 2),
+                'Durand', $4, $5, current_date - $6::int, $7::numeric(14, 2),
+                $8::numeric(14, 2), $9::numeric(14, 2),
                 '{\"type\": 0.95, \"societe\": 0.95}', 'TEXTE', now()
          from piece_jointe where id = $1 returning id",
     )
@@ -408,13 +410,16 @@ async fn file_a_traiter_et_compteurs() {
         .requete("GET", "/api/a-traiter", None, Some(&m.c_admin))
         .await;
     assert_eq!(r.code, StatusCode::OK, "{}", r.json);
-    // Alertes d'abord (société inconnue, numéro manquant), puis les plus anciens.
+    // Par urgence : validables d'un clic d'abord, puis à corriger (société inconnue, numéro
+    // manquant), les plus anciens d'abord dans chaque rang.
     assert_eq!(
         ids(&r.json["a_valider"]),
-        vec![f.fnull, f.f2, f.fb, f.f1, f.fother, f.bl1]
+        vec![f.fb, f.f1, f.fother, f.bl1, f.fnull, f.f2]
     );
-    assert_eq!(r.json["suivant"], f.fnull);
-    let premier = &r.json["a_valider"][0];
+    assert_eq!(r.json["suivant"], f.fb);
+    assert_eq!(r.json["a_valider"][0]["rang"], 2);
+    let premier = &r.json["a_valider"][4];
+    assert_eq!(premier["rang"], 3);
     assert_eq!(premier["alerte"], "Société destinataire non reconnue");
     assert_eq!(premier["alerte_code"], "societe");
     let bl = r.json["a_valider"]
@@ -515,14 +520,14 @@ async fn file_a_traiter_et_compteurs() {
             Some(&m.c_admin),
         )
         .await;
-    assert_eq!(ids(&r.json["a_valider"]), vec![f.fnull, f.f2, f.f1, f.bl1]);
+    assert_eq!(ids(&r.json["a_valider"]), vec![f.f1, f.bl1, f.fnull, f.f2]);
 
     // Responsable : sa société seulement, ni boîtes ni Claude.
     let r = app
         .requete("GET", "/api/a-traiter", None, Some(&m.c_resp_a))
         .await;
     assert_eq!(r.code, StatusCode::OK);
-    assert_eq!(ids(&r.json["a_valider"]), vec![f.fnull, f.f2, f.f1, f.bl1]);
+    assert_eq!(ids(&r.json["a_valider"]), vec![f.f1, f.bl1, f.fnull, f.f2]);
     let genres: Vec<&str> = r.json["bloque"]
         .as_array()
         .unwrap()

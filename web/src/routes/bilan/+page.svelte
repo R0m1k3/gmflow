@@ -4,13 +4,13 @@
   import Aide from '#lib/ui/Aide.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, bilanMois, message } from '#lib/api.ts';
+  import { api, bilanMois, message, telecharger } from '#lib/api.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { dateSimple } from '#lib/format.ts';
   import { BL_EN_ATTENTE, libelleVoie, nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { BilanMois, Compte, LigneSuivi, SemaineTri, Voie } from '#lib/types.ts';
+  import type { BilanMois, Compte, LigneSuivi, Relectures, SemaineTri, Voie } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Icone from '#lib/ui/Icone.svelte';
@@ -19,6 +19,7 @@
   import QualiteLecture from '#lib/ui/QualiteLecture.svelte';
   import Repli from '#lib/ui/Repli.svelte';
   import Vide from '#lib/ui/Vide.svelte';
+  import { lienExportBilan } from '#lib/ui/BilanOutils.ts';
 
   let admin = $derived(session.moi?.role === 'admin');
 
@@ -60,6 +61,21 @@
   // ---------- Données ----------
   let bilan = $state<BilanMois | null>(null);
   let erreur = $state('');
+  /** Export Excel : refus du serveur montré ici, jamais enregistré comme fichier. */
+  let erreurExport = $state('');
+  let exportEnCours = $state(false);
+  async function exporter() {
+    if (exportEnCours) return;
+    exportEnCours = true;
+    erreurExport = '';
+    try {
+      await telecharger(lienExportBilan(mois, admin ? societe.id : null), `Bilan ${mois}.xlsx`);
+    } catch (e) {
+      erreurExport = `Export impossible : ${message(e)}`;
+    } finally {
+      exportEnCours = false;
+    }
+  }
   let jeton = 0;
   async function charger() {
     const moi = ++jeton;
@@ -148,7 +164,7 @@
     relectureEnCours = true;
     relecture = '';
     try {
-      const r = await api.post<{ n: number }>('/api/admin/rapprochement/relire-bl');
+      const r = await api.post<Relectures>('/api/admin/rapprochement/relire-bl');
       relecture = `${r.n} BL remis en lecture`;
       reluPour = bilan;
     } catch (e) {
@@ -169,6 +185,9 @@
   <div class="page-h">
     <h1>Bilan du mois <span class="imprime-seul">: {libelleMois(mois)}</span></h1>
     <span class="sp"></span>
+    <button type="button" class="btn sm pas-imprime" onclick={exporter} disabled={exportEnCours} title="Synthèse, une ligne par pièce et BL en attente, au format Excel"
+      ><Icone nom="telecharger" />Exporter (Excel)</button
+    >
     <button type="button" class="btn sm pas-imprime" onclick={() => window.print()}>Imprimer</button>
     <nav class="choix-mois pas-imprime" aria-label="Mois">
       <a class="btn sm fantome" href={lienMois(precedent)} data-sveltekit-reset="false" aria-label="Mois précédent" title="Mois précédent (←)"
@@ -186,6 +205,12 @@
     </nav>
   </div>
 
+  {#if erreurExport}
+    <Bandeau ton="erreur">
+      {erreurExport}
+      {#snippet action()}<button type="button" class="btn sm" onclick={exporter}>Réessayer</button>{/snippet}
+    </Bandeau>
+  {/if}
   {#if erreur && !bilan}
     <Bandeau ton="erreur">
       {erreur}
@@ -535,6 +560,46 @@
   }
   .voies {
     margin: var(--e2) 0 var(--e3);
+  }
+  /* Impression (audit U16) : les règles communes d'app.css retirent menus et boutons ; ici, le
+     bilan tient sur la largeur de la page, encadrés en filet fin, sans la partie « Qualité ». */
+  @media print {
+    .bilan {
+      max-width: none;
+    }
+    .page-h {
+      margin-bottom: 6mm;
+    }
+    .page-h h1 {
+      font-size: 18pt;
+    }
+    .bloc {
+      margin-top: 8mm;
+    }
+    .bloc h2 {
+      font-size: 14pt;
+    }
+    .boite {
+      box-shadow: none;
+      border: 1px solid #c9d0c6;
+    }
+    .defile :global(td) {
+      height: auto;
+      padding-top: 6px;
+      padding-bottom: 6px;
+      font-size: 11pt;
+    }
+    .lien-reste.alerte,
+    .lien-reste.erreur {
+      color: inherit;
+      font-weight: 600;
+    }
+    .qualite-b {
+      display: none;
+    }
+    .liste-bl > :global(.ligne) {
+      padding: 6px 4mm;
+    }
   }
   @media (max-width: 760px) {
     .page-h {

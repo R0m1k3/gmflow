@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use commun::{Banc, WorkersTest, attendre, lire_tout, mail};
 use gmflow_core::fixtures::{self, SIRET_A};
+use gmflow_core::montant::{Decimal, dec};
 use gmflow_core::parametre;
 use serde_json::{Value, json};
 
@@ -167,13 +168,13 @@ struct Lien {
     facture_id: i64,
     bl_id: i64,
     methode: String,
-    ecart_montant: Option<f64>,
+    ecart_montant: Option<Decimal>,
     ecarts: Value,
 }
 
 async fn liens(b: &Banc) -> Vec<Lien> {
     sqlx::query_as(
-        "select facture_id, bl_id, methode, ecart_montant::float8 as ecart_montant, ecarts
+        "select facture_id, bl_id, methode, ecart_montant, ecarts
          from rapprochement where not rejete order by facture_id, bl_id",
     )
     .fetch_all(b.pool())
@@ -361,7 +362,10 @@ async fn rapprochement_par_commande_sans_ecart_et_lien_defait_non_recree() {
     );
     // HT facture 75 = 50 + 25 (totaux des BL) ; quantités identiques, mais le balai est à
     // 6 € sur les lignes du BL (30 € pour 5) et à 5 € sur la facture : prix changé.
-    assert!(l.iter().all(|x| x.ecart_montant == Some(0.0)), "{l:?}");
+    assert!(
+        l.iter().all(|x| x.ecart_montant == Some(Decimal::ZERO)),
+        "{l:?}"
+    );
     let e = &l[0].ecarts;
     assert_eq!(e.as_array().map(Vec::len), Some(1), "{e}");
     assert_eq!(e[0]["genre"], "prix");
@@ -395,7 +399,7 @@ async fn rapprochement_par_commande_sans_ecart_et_lien_defait_non_recree() {
     let l = liens(&b).await;
     assert_eq!(l.len(), 1, "{l:?}");
     assert_eq!(l[0].bl_id, d1);
-    assert_eq!(l[0].ecart_montant, Some(25.0));
+    assert_eq!(l[0].ecart_montant, Some(dec!(25)));
     // Lien manuel : remis en place, et gardé par le recalcul.
     let u: i64 = sqlx::query_scalar(
         "insert into utilisateur (identifiant, hash_mdp, role) values ('u', 'x', 'admin') returning id",
@@ -415,7 +419,10 @@ async fn rapprochement_par_commande_sans_ecart_et_lien_defait_non_recree() {
         l.iter().find(|x| x.bl_id == d2).map(|x| x.methode.as_str()),
         Some("manuel")
     );
-    assert!(l.iter().all(|x| x.ecart_montant == Some(0.0)), "{l:?}");
+    assert!(
+        l.iter().all(|x| x.ecart_montant == Some(Decimal::ZERO)),
+        "{l:?}"
+    );
     // Un BL ne se relie pas à la place d'une facture.
     assert!(
         gmflow_core::rapprochement::lier(b.pool(), d1, d2, u)

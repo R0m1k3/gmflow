@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::societe::SocieteRef;
+use crate::montant::{self, Decimal, centimes, dec};
 
 pub const TYPES: &[&str] = &["facture", "avoir", "bl", "relance", "devis", "autre"];
 
@@ -49,37 +50,37 @@ pub struct Ligne {
     #[serde(default)]
     pub designation: Option<String>,
     #[serde(default)]
-    pub quantite: Option<f64>,
+    pub quantite: Option<Decimal>,
     #[serde(default)]
     pub unite: Option<String>,
     #[serde(default)]
-    pub prix_unitaire_ht: Option<f64>,
+    pub prix_unitaire_ht: Option<Decimal>,
     #[serde(default)]
-    pub montant_ht: Option<f64>,
+    pub montant_ht: Option<Decimal>,
     /// Code-barres EAN / GTIN de l'article (8, 12, 13 ou 14 chiffres).
     #[serde(default)]
     pub gencod: Option<String>,
     /// Nombre de colis (cartons) livrés.
     #[serde(default)]
-    pub colis: Option<f64>,
+    pub colis: Option<Decimal>,
     /// Unités par colis (PCB, colisage).
     #[serde(default)]
-    pub pcb: Option<f64>,
+    pub pcb: Option<Decimal>,
     /// Remise de la ligne en % (« 5 » pour 5 %).
     #[serde(default)]
-    pub remise_taux: Option<f64>,
+    pub remise_taux: Option<Decimal>,
     /// Taux de TVA de la ligne en % quand le document le précise.
     #[serde(default)]
-    pub taux_tva: Option<f64>,
+    pub taux_tva: Option<Decimal>,
     /// Éco-participation DEEE (équipements électriques) HT, par unité.
     #[serde(default)]
-    pub deee_ht: Option<f64>,
+    pub deee_ht: Option<Decimal>,
     /// Éco-mobilier (Ecomaison, éco-participation meubles) HT, par unité.
     #[serde(default)]
-    pub ecomob_ht: Option<f64>,
+    pub ecomob_ht: Option<Decimal>,
     /// Prix de vente conseillé TTC imprimé par le fournisseur.
     #[serde(default)]
-    pub pv_conseille: Option<f64>,
+    pub pv_conseille: Option<Decimal>,
 }
 
 impl Ligne {
@@ -103,14 +104,48 @@ pub fn lignes_utiles(lignes: Vec<Ligne>) -> Vec<Ligne> {
 }
 
 /// Taux de TVA d'une ligne qui ne le précise pas.
-pub const TVA_PAR_DEFAUT: f64 = 20.0;
+pub const TVA_PAR_DEFAUT: Decimal = dec!(20);
 
-fn centimes(m: f64) -> f64 {
-    (m * 100.0).round() / 100.0
+impl Ligne {
+    /// Arrondit chaque nombre à la précision de sa colonne (`ligne_document`) ; un nombre qui
+    /// n'y tient pas est oublié. À faire une fois, à l'entrée (réponse de Claude, tableur).
+    pub fn normaliser(&mut self) {
+        let b = |v: &mut Option<Decimal>, f: fn(Decimal) -> Option<Decimal>| {
+            *v = v.and_then(f);
+        };
+        b(&mut self.quantite, montant::quantite);
+        b(&mut self.prix_unitaire_ht, montant::prix);
+        b(&mut self.montant_ht, montant::montant);
+        b(&mut self.colis, montant::quantite);
+        b(&mut self.pcb, montant::quantite);
+        b(&mut self.remise_taux, montant::taux_ligne);
+        b(&mut self.taux_tva, montant::taux);
+        b(&mut self.deee_ht, montant::prix);
+        b(&mut self.ecomob_ht, montant::prix);
+        b(&mut self.pv_conseille, montant::prix);
+    }
+}
+
+impl Extraction {
+    /// Arrondit les montants et les lignes à la précision des colonnes de `document` et de
+    /// `ligne_document` (voir [`Ligne::normaliser`]).
+    pub fn normaliser(&mut self) {
+        for m in [
+            &mut self.montant_ht,
+            &mut self.montant_tva,
+            &mut self.montant_ttc,
+            &mut self.remise_ht,
+            &mut self.annexes_ht,
+        ] {
+            *m = m.and_then(montant::montant);
+        }
+        self.remise_taux = self.remise_taux.and_then(montant::taux);
+        self.lignes.iter_mut().for_each(Ligne::normaliser);
+    }
 }
 
 /// Quantité d'une ligne : la quantité lue, sinon colis × PCB.
-fn quantite_ligne(l: &Ligne) -> Option<f64> {
+fn quantite_ligne(l: &Ligne) -> Option<Decimal> {
     l.quantite.or(match (l.colis, l.pcb) {
         (Some(c), Some(p)) => Some(c * p),
         _ => None,
@@ -118,12 +153,13 @@ fn quantite_ligne(l: &Ligne) -> Option<f64> {
 }
 
 /// Éco-participations HT d'une ligne (DEEE et éco-mobilier par unité × quantité).
-fn eco_ligne(l: &Ligne) -> f64 {
-    quantite_ligne(l).unwrap_or(0.0) * (l.deee_ht.unwrap_or(0.0) + l.ecomob_ht.unwrap_or(0.0))
+fn eco_ligne(l: &Ligne) -> Decimal {
+    quantite_ligne(l).unwrap_or_default()
+        * (l.deee_ht.unwrap_or_default() + l.ecomob_ht.unwrap_or_default())
 }
 
 /// Éco-participations HT des lignes, celles que `completer_montants_bl` ajoute au HT calculé.
-pub fn eco_lignes(lignes: &[Ligne]) -> f64 {
+pub fn eco_lignes(lignes: &[Ligne]) -> Decimal {
     centimes(lignes.iter().map(eco_ligne).sum())
 }
 
@@ -135,17 +171,18 @@ pub fn eco_lignes(lignes: &[Ligne]) -> f64 {
 /// « tva », « ttc »).
 pub fn completer_montants_bl(
     lignes: &mut [Ligne],
-    ht: &mut Option<f64>,
-    tva: &mut Option<f64>,
-    ttc: &mut Option<f64>,
+    ht: &mut Option<Decimal>,
+    tva: &mut Option<Decimal>,
+    ttc: &mut Option<Decimal>,
 ) -> Vec<&'static str> {
     for l in lignes.iter_mut().filter(|l| l.montant_ht.is_none()) {
         if let (Some(q), Some(pu)) = (quantite_ligne(l), l.prix_unitaire_ht) {
             let remise = l
                 .remise_taux
-                .filter(|r| *r > 0.0 && *r < 100.0)
-                .unwrap_or(0.0);
-            l.montant_ht = Some(centimes(q * pu * (1.0 - remise / 100.0)));
+                .filter(|r| *r > Decimal::ZERO && *r < Decimal::ONE_HUNDRED)
+                .unwrap_or_default();
+            l.montant_ht =
+                montant::montant(q * pu * (Decimal::ONE - remise / Decimal::ONE_HUNDRED));
         }
     }
     if lignes.is_empty()
@@ -154,11 +191,11 @@ pub fn completer_montants_bl(
     {
         return Vec::new();
     }
-    let (mut ht_lignes, mut tva_lignes) = (0.0, 0.0);
+    let (mut ht_lignes, mut tva_lignes) = (Decimal::ZERO, Decimal::ZERO);
     for l in lignes.iter() {
-        let base = l.montant_ht.unwrap_or(0.0) + eco_ligne(l);
+        let base = l.montant_ht.unwrap_or_default() + eco_ligne(l);
         ht_lignes += base;
-        tva_lignes += base * l.taux_tva.unwrap_or(TVA_PAR_DEFAUT) / 100.0;
+        tva_lignes += base * l.taux_tva.unwrap_or(TVA_PAR_DEFAUT) / Decimal::ONE_HUNDRED;
     }
     let calcules: Vec<&'static str> = [
         ("ht", ht.is_none()),
@@ -171,10 +208,10 @@ pub fn completer_montants_bl(
     let h = *ht.get_or_insert(centimes(ht_lignes));
     let t = *tva.get_or_insert_with(|| {
         // HT imprimé mais pas la TVA : taux moyen des lignes appliqué au HT imprimé.
-        if ht_lignes.abs() > 0.005 {
+        if ht_lignes.abs() > dec!(0.005) {
             centimes(h * tva_lignes / ht_lignes)
         } else {
-            centimes(h * TVA_PAR_DEFAUT / 100.0)
+            centimes(h * TVA_PAR_DEFAUT / Decimal::ONE_HUNDRED)
         }
     });
     ttc.get_or_insert(centimes(h + t));
@@ -202,18 +239,18 @@ pub struct Extraction {
     /// Date d'échéance du paiement (facture), AAAA-MM-JJ. Absente des anciennes réponses.
     #[serde(default)]
     pub echeance: Option<String>,
-    pub montant_ht: Option<f64>,
-    pub montant_tva: Option<f64>,
-    pub montant_ttc: Option<f64>,
+    pub montant_ht: Option<Decimal>,
+    pub montant_tva: Option<Decimal>,
+    pub montant_ttc: Option<Decimal>,
     /// Total HT des remises déduites sur le document, en positif (déjà retiré du HT).
     #[serde(default)]
-    pub remise_ht: Option<f64>,
+    pub remise_ht: Option<Decimal>,
     /// Taux de la remise en %, quand il est imprimé.
     #[serde(default)]
-    pub remise_taux: Option<f64>,
+    pub remise_taux: Option<Decimal>,
     /// Total HT des montants annexes compris dans le HT (éco-participation, port…).
     #[serde(default)]
-    pub annexes_ht: Option<f64>,
+    pub annexes_ht: Option<Decimal>,
     /// IBAN (et BIC) du fournisseur à payer imprimés sur une facture (`crate::iban`).
     #[serde(default)]
     pub iban: Option<String>,
@@ -292,7 +329,7 @@ pub const AVOIRS_POSITIFS: &str = "Pour un avoir, tous les montants (montant_ht,
      à rendre.\n";
 
 /// Détail des lignes, surtout pour les BL (fiches produits et commande dans le logiciel du magasin).
-const DETAIL_LIGNES: &str = "Pour chaque ligne, recopie aussi ce que le document imprime, \
+pub const DETAIL_LIGNES: &str = "Pour chaque ligne, recopie aussi ce que le document imprime, \
      null sinon : gencod = le code-barres EAN/GTIN de l'article (8, 12, 13 ou 14 chiffres, \
      colonne EAN, Gencod, Code barre ; jamais la référence fournisseur) ; colis = le nombre de \
      colis ou cartons livrés ; pcb = le nombre d'unités par colis (PCB, colisage, « par », \
@@ -563,6 +600,7 @@ pub fn depuis_reponse(
     let mut e: Extraction =
         serde_json::from_value(valeur).map_err(|err| ErreurExtraction::Schema(err.to_string()))?;
     controler(&e, societes)?;
+    e.normaliser();
     // Une date impossible ne fait pas échouer la lecture : le champ reste vide, et
     // `anomalies` le signale (nouvel essai pour une facture ou un avoir).
     if let Some(d) = e.date.take() {
@@ -625,20 +663,20 @@ fn espace(c: char) -> bool {
 /// Lectures possibles d'un nombre sans espace : le dernier « . » ou « , » est la virgule
 /// décimale, les autres séparent les milliers ; suivi de 3 chiffres, il peut aussi séparer les
 /// milliers (« 1.535 »).
-fn lectures(s: &str) -> Vec<f64> {
+fn lectures(s: &str) -> Vec<Decimal> {
     let s: String = s.chars().filter(|c| *c != '\'').collect();
     let Some(pos) = s.rfind(['.', ',']) else {
-        return s.parse().ok().into_iter().collect();
+        return montant::depuis_texte(&s).into_iter().collect();
     };
     let entier: String = s[..pos].chars().filter(char::is_ascii_digit).collect();
     let dec = &s[pos + 1..];
     let mut v = Vec::new();
     let e = if entier.is_empty() { "0" } else { &entier };
-    if let Ok(x) = format!("{e}.{dec}").parse() {
+    if let Some(x) = montant::depuis_texte(&format!("{e}.{dec}")) {
         v.push(x);
     }
     if dec.len() == 3
-        && let Ok(x) = format!("{entier}{dec}").parse()
+        && let Some(x) = montant::depuis_texte(&format!("{entier}{dec}"))
     {
         v.push(x);
     }
@@ -648,7 +686,7 @@ fn lectures(s: &str) -> Vec<f64> {
 /// Nombres imprimés dans un texte, sous toutes leurs lectures possibles : « 1 535,40 »,
 /// « 1.535,40 », « 1,535.40 », « 1535.4 », « 1'535.40 ». Des groupes de 3 chiffres séparés
 /// par des espaces (« 12 345 678,90 ») sont aussi lus d'un seul tenant.
-pub fn nombres(texte: &str) -> Vec<f64> {
+pub fn nombres(texte: &str) -> Vec<Decimal> {
     // Morceaux de chiffres et de séparateurs ; vrai : séparé du précédent par des espaces seuls.
     let mut morceaux: Vec<(String, bool)> = Vec::new();
     let mut cur = String::new();
@@ -692,8 +730,8 @@ pub fn nombres(texte: &str) -> Vec<f64> {
 }
 
 /// Le montant (au centime, signe ignoré) est-il l'un des nombres du texte ?
-fn figure(m: f64, nombres: &[f64]) -> bool {
-    nombres.iter().any(|n| (n - m.abs()).abs() < 0.005)
+fn figure(m: Decimal, nombres: &[Decimal]) -> bool {
+    nombres.iter().any(|n| (n - m.abs()).abs() < dec!(0.005))
 }
 
 /// Ce qui manque ou ne tient pas debout dans une lecture de facture, d'avoir ou de BL (vide si
@@ -714,10 +752,13 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
             match (e.montant_ht, e.montant_tva, e.montant_ttc) {
                 (_, _, None) => a.push("le montant TTC manque".to_string()),
                 (Some(ht), Some(tva), Some(ttc))
-                    if (ht + tva - ttc).abs() > crate::controles::SEUIL_ECART + 1e-9 =>
+                    if (ht + tva - ttc).abs() > crate::controles::SEUIL_ECART =>
                 {
                     a.push(format!(
-                        "HT + TVA ({ht:.2} + {tva:.2}) ne donne pas le TTC ({ttc:.2})"
+                        "HT + TVA ({} + {}) ne donne pas le TTC ({})",
+                        montant::euros(ht),
+                        montant::euros(tva),
+                        montant::euros(ttc)
                     ))
                 }
                 _ => {}
@@ -739,11 +780,11 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
 /// annexes ajoutés au total HT imprimé (HT − annexes imprimé), et le HT ou la TVA se déduire des
 /// deux autres montants quand ceux-ci sont dans le texte et que HT + TVA = TTC (plusieurs taux,
 /// TVA des annexes) : seul un montant qui ne vient de nulle part est signalé.
-fn verifier_dans_le_texte(e: &Extraction, n: &[f64], a: &mut Vec<String>) {
-    let vu = |m: Option<f64>| m.is_some_and(|m| figure(m, n));
+fn verifier_dans_le_texte(e: &Extraction, n: &[Decimal], a: &mut Vec<String>) {
+    let vu = |m: Option<Decimal>| m.is_some_and(|m| figure(m, n));
     let (ht, tva, ttc) = (e.montant_ht, e.montant_tva, e.montant_ttc);
     let coherent = matches!((ht, tva, ttc), (Some(h), Some(t), Some(c))
-        if (h + t - c).abs() <= crate::controles::SEUIL_ECART + 1e-9);
+        if (h + t - c).abs() <= crate::controles::SEUIL_ECART);
     let ttc_vu = vu(ttc);
     let ht_vu = vu(ht)
         || ht
@@ -758,7 +799,8 @@ fn verifier_dans_le_texte(e: &Extraction, n: &[f64], a: &mut Vec<String>) {
     ] {
         if let (Some(m), false) = (m, ok) {
             a.push(format!(
-                "le montant {nom} {m:.2} n'apparaît pas dans le texte du document"
+                "le montant {nom} {} n'apparaît pas dans le texte du document",
+                montant::euros(m)
             ));
         }
     }
@@ -832,7 +874,7 @@ pub fn numeros_utiles(numeros: Vec<String>) -> Vec<String> {
 mod tests_montants_bl {
     use super::*;
 
-    fn ligne(q: f64, pu: Option<f64>) -> Ligne {
+    fn ligne(q: Decimal, pu: Option<Decimal>) -> Ligne {
         Ligne {
             reference: None,
             designation: Some("Article".into()),
@@ -856,58 +898,104 @@ mod tests_montants_bl {
         // Lignes du BL LL1261103672 : PARURE 4 × 14,90 ; RIDEAU 6 × 4,50 + éco 0,11 ;
         // COUSSIN 6 × 2,20 + éco 0,30.
         let mut l = vec![
-            ligne(4.0, Some(14.9)),
-            ligne(6.0, Some(4.5)),
-            ligne(6.0, Some(2.2)),
+            ligne(dec!(4.0), Some(dec!(14.9))),
+            ligne(dec!(6.0), Some(dec!(4.5))),
+            ligne(dec!(6.0), Some(dec!(2.2))),
         ];
-        l[1].deee_ht = Some(0.11);
-        l[2].ecomob_ht = Some(0.3);
+        l[1].deee_ht = Some(dec!(0.11));
+        l[2].ecomob_ht = Some(dec!(0.3));
         let (mut ht, mut tva, mut ttc) = (None, None, None);
         assert_eq!(
             completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc),
             ["ht", "tva", "ttc"]
         );
-        assert_eq!(l[0].montant_ht, Some(59.6));
-        assert_eq!(l[1].montant_ht, Some(27.0));
+        assert_eq!(l[0].montant_ht, Some(dec!(59.6)));
+        assert_eq!(l[1].montant_ht, Some(dec!(27.0)));
         // 59,60 + 27,00 + 0,66 + 13,20 + 1,80
-        assert_eq!(ht, Some(102.26));
-        assert_eq!(tva, Some(20.45));
-        assert_eq!(ttc, Some(122.71));
+        assert_eq!(ht, Some(dec!(102.26)));
+        assert_eq!(tva, Some(dec!(20.45)));
+        assert_eq!(ttc, Some(dec!(122.71)));
     }
 
     #[test]
     fn remise_taux_et_ht_imprime() {
-        let mut l = vec![ligne(10.0, Some(10.0)), ligne(2.0, Some(50.0))];
-        l[0].remise_taux = Some(10.0);
-        l[1].taux_tva = Some(5.5);
+        let mut l = vec![
+            ligne(dec!(10.0), Some(dec!(10.0))),
+            ligne(dec!(2.0), Some(dec!(50.0))),
+        ];
+        l[0].remise_taux = Some(dec!(10.0));
+        l[1].taux_tva = Some(dec!(5.5));
         let (mut ht, mut tva, mut ttc) = (None, None, None);
         assert_eq!(
             completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc).len(),
             3
         );
-        assert_eq!(ht, Some(190.0));
-        assert_eq!(tva, Some(23.5)); // 90 × 20 % + 100 × 5,5 %
-        assert_eq!(ttc, Some(213.5));
+        assert_eq!(ht, Some(dec!(190.0)));
+        assert_eq!(tva, Some(dec!(23.5))); // 90 × 20 % + 100 × 5,5 %
+        assert_eq!(ttc, Some(dec!(213.5)));
         // HT imprimé : gardé, seuls TVA et TTC sont calculés.
-        let (mut ht, mut tva, mut ttc) = (Some(100.0), None, None);
-        let mut l = vec![ligne(1.0, Some(100.0))];
+        let (mut ht, mut tva, mut ttc) = (Some(dec!(100.0)), None, None);
+        let mut l = vec![ligne(dec!(1.0), Some(dec!(100.0)))];
         assert_eq!(
             completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc),
             ["tva", "ttc"]
         );
-        assert_eq!((ht, tva, ttc), (Some(100.0), Some(20.0), Some(120.0)));
+        assert_eq!(
+            (ht, tva, ttc),
+            (Some(dec!(100.0)), Some(dec!(20.0)), Some(dec!(120.0)))
+        );
+    }
+
+    #[test]
+    fn centimes_exacts_sur_les_demis() {
+        // 3 × 3,335 = 10,005 : 10,01 au centime ; en f64, 10.004999… donnait 10,00.
+        assert_eq!(
+            ((std::hint::black_box(3.0_f64) * 3.335) * 100.0).round() / 100.0,
+            10.0
+        );
+        // 0,1 + 0,2 sur trois lignes, TVA 20 % d'un HT en ,x5.
+        let mut l = vec![
+            ligne(dec!(3), Some(dec!(3.335))),
+            ligne(dec!(1), Some(dec!(0.1))),
+            ligne(dec!(1), Some(dec!(0.2))),
+        ];
+        let (mut ht, mut tva, mut ttc) = (None, None, None);
+        completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc);
+        assert_eq!(l[0].montant_ht, Some(dec!(10.01)));
+        assert_eq!(ht, Some(dec!(10.31)));
+        // 10,31 × 20 % = 2,062 → 2,06 ; TTC = HT + TVA exactement.
+        assert_eq!(tva, Some(dec!(2.06)));
+        assert_eq!(ttc, Some(dec!(12.37)));
+        // HT imprimé en ,x25 : 20 % de 10,125 = 2,025 → 2,03.
+        let mut l = vec![ligne(dec!(1), Some(dec!(10.125)))];
+        let (mut ht, mut tva, mut ttc) = (Some(dec!(10.125)), None, None);
+        completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc);
+        assert_eq!(tva, Some(dec!(2.03)));
+    }
+
+    #[test]
+    fn normaliser_a_la_precision_des_colonnes() {
+        let mut l = ligne(dec!(1.23456), Some(dec!(1.234567)));
+        l.montant_ht = Some(dec!(1000000000000));
+        l.taux_tva = Some(dec!(5.5));
+        l.normaliser();
+        assert_eq!(l.quantite, Some(dec!(1.235)));
+        assert_eq!(l.prix_unitaire_ht, Some(dec!(1.2346)));
+        // Hors de numeric(14, 2) : oublié plutôt que de faire échouer l'écriture.
+        assert_eq!(l.montant_ht, None);
+        assert_eq!(l.taux_tva, Some(dec!(5.5)));
     }
 
     #[test]
     fn rien_si_une_ligne_sans_prix_ou_tout_imprime() {
-        let mut l = vec![ligne(4.0, Some(14.9)), ligne(6.0, None)];
+        let mut l = vec![ligne(dec!(4.0), Some(dec!(14.9))), ligne(dec!(6.0), None)];
         let (mut ht, mut tva, mut ttc) = (None, None, None);
         assert!(completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc).is_empty());
         assert_eq!((ht, tva, ttc), (None, None, None));
-        let mut l = vec![ligne(1.0, Some(10.0))];
-        let (mut ht, mut tva, mut ttc) = (Some(11.0), Some(2.2), Some(13.2));
+        let mut l = vec![ligne(dec!(1.0), Some(dec!(10.0)))];
+        let (mut ht, mut tva, mut ttc) = (Some(dec!(11.0)), Some(dec!(2.2)), Some(dec!(13.2)));
         assert!(completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc).is_empty());
-        assert_eq!(ht, Some(11.0));
+        assert_eq!(ht, Some(dec!(11.0)));
         assert!(completer_montants_bl(&mut [], &mut None, &mut None, &mut None).is_empty());
     }
 }

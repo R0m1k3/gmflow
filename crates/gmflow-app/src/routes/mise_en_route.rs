@@ -13,12 +13,16 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::acces::AccesAdmin;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 #[derive(Serialize)]
-pub struct Etape {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct EtapeMiseEnRoute {
     /// `societes`, `boites`, `claude`, `envoi`, `utilisateurs`.
+    #[cfg_attr(feature = "ts", ts(as = "v::CleEtape"))]
     cle: &'static str,
     fait: bool,
     /// Ce qui est en place, en une phrase.
@@ -28,8 +32,9 @@ pub struct Etape {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct MiseEnRoute {
-    etapes: Vec<Etape>,
+    etapes: Vec<EtapeMiseEnRoute>,
     terminee: bool,
 }
 
@@ -71,7 +76,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
 
     // 1. Sociétés.
     let n = societes.len() as i64;
-    etapes.push(Etape {
+    etapes.push(EtapeMiseEnRoute {
         cle: "societes",
         fait: n > 0,
         resume: if n == 0 {
@@ -126,7 +131,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
             ));
         }
     }
-    etapes.push(Etape {
+    etapes.push(EtapeMiseEnRoute {
         cle: "boites",
         fait: actives > 0 && manques.is_empty(),
         resume: if total == 0 {
@@ -180,7 +185,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
             vec!["Se connecter avec le compte Claude".to_string()],
         ),
     };
-    etapes.push(Etape {
+    etapes.push(EtapeMiseEnRoute {
         cle: "claude",
         fait,
         resume,
@@ -222,7 +227,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
                 .is_some_and(|a| !a.trim().is_empty())
         })
         .count() as i64;
-    etapes.push(Etape {
+    etapes.push(EtapeMiseEnRoute {
         cle: "envoi",
         fait: exp.is_some() && n > 0 && manques.is_empty(),
         resume: match &exp {
@@ -268,7 +273,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
             )
         })
         .collect();
-    etapes.push(Etape {
+    etapes.push(EtapeMiseEnRoute {
         cle: "utilisateurs",
         fait: n > 0 && manques.is_empty(),
         resume: format!(
@@ -288,6 +293,7 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Mis
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeEssai {
     /// Boîte existante : les champs absents (et le mot de passe) sont pris dans la boîte.
     #[serde(default)]
@@ -302,12 +308,14 @@ pub struct DemandeEssai {
     mot_de_passe: Option<String>,
     /// Faux : SMTP seulement.
     #[serde(default = "vrai")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     imap: bool,
     #[serde(default)]
     smtp_serveur: Option<String>,
     #[serde(default)]
     smtp_port: Option<i32>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::SecuriteSmtp>"))]
     smtp_securite: Option<String>,
 }
 
@@ -327,6 +335,7 @@ fn port(p: i32) -> Resultat<u16> {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct EssaiCree {
     id: Uuid,
 }
@@ -505,7 +514,7 @@ pub async fn tester_smtp(
     .ok_or(ErreurApi::Absent)?;
     let Some(smtp) = param_smtp(net(b.smtp_serveur), b.smtp_port, b.smtp_securite)? else {
         return Err(ErreurApi::ConflitCode {
-            code: "smtp_absent",
+            code: Refus::SmtpAbsent,
             message: "serveur SMTP de la boîte non configuré".into(),
         });
     };

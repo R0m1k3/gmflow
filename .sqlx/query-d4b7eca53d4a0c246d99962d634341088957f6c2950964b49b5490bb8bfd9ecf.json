@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update rapprochement set ecart_montant = $2::numeric(14, 2), ecarts = $3,\n                eco_bl = $4::numeric(14, 2)\n         where facture_id = $1 and not rejete",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Numeric",
+        "Jsonb",
+        "Numeric"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d4b7eca53d4a0c246d99962d634341088957f6c2950964b49b5490bb8bfd9ecf"
+}

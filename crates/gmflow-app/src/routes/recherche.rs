@@ -5,12 +5,15 @@
 
 use axum::Json;
 use axum::extract::{Query, State};
+use gmflow_core::montant::{self, Decimal};
 use serde::{Deserialize, Serialize};
 
 use super::mails::date;
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 
@@ -18,6 +21,7 @@ time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 pub const LIMITE: i64 = 50;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct DateCherchee {
     pub jour: i32,
     pub mois: i32,
@@ -27,11 +31,13 @@ pub struct DateCherchee {
 
 /// Ce que la saisie a été comprise comme.
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
-pub struct Interpretation {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct InterpretationRecherche {
     /// Mots cherchés dans les textes (tous doivent se retrouver).
     pub mots: Vec<String>,
     /// Montant (TTC ou HT d'un document), en euros.
-    pub montant: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub montant: Option<Decimal>,
     /// Nombres entiers seuls : un mot ou un montant.
     pub nombres: Vec<i64>,
     pub date: Option<DateCherchee>,
@@ -42,7 +48,7 @@ fn chiffres(s: &str) -> bool {
 }
 
 /// « 1250,40 », « 1250.4 », « 1.250,40 », « 1,250.40 » : montant à décimales.
-fn montant_decimal(t: &str) -> Option<f64> {
+fn montant_decimal(t: &str) -> Option<Decimal> {
     let (entier, dec) = match (t.rfind(','), t.rfind('.')) {
         (Some(v), Some(p)) => {
             let (sep_dec, sep_mil) = if v > p { (',', '.') } else { ('.', ',') };
@@ -69,7 +75,7 @@ fn montant_decimal(t: &str) -> Option<f64> {
     if !chiffres(&entier) || !chiffres(&dec) || dec.len() > 2 {
         return None;
     }
-    format!("{entier}.{dec}").parse().ok()
+    montant::depuis_texte(&format!("{entier}.{dec}"))
 }
 
 fn date_saisie(t: &str) -> Option<DateCherchee> {
@@ -110,7 +116,7 @@ fn date_saisie(t: &str) -> Option<DateCherchee> {
 }
 
 /// Découpe la saisie en montant, date, nombres et mots.
-pub fn interpreter(q: &str) -> Interpretation {
+pub fn interpreter(q: &str) -> InterpretationRecherche {
     let propre: String = q
         .chars()
         .map(|c| if c.is_whitespace() { ' ' } else { c })
@@ -118,7 +124,7 @@ pub fn interpreter(q: &str) -> Interpretation {
     // « 60€ », « 60 € », « 60 EUR » : le symbole marque un montant.
     let propre = propre.replace('€', " € ");
     let jetons: Vec<&str> = propre.split(' ').filter(|t| !t.is_empty()).collect();
-    let mut r = Interpretation::default();
+    let mut r = InterpretationRecherche::default();
     let mut i = 0;
     while i < jetons.len() {
         let t = jetons[i];
@@ -140,7 +146,7 @@ pub fn interpreter(q: &str) -> Interpretation {
         if r.montant.is_none() && t.len() <= 3 && chiffres(t) {
             let mut j = i + 1;
             let mut entier = t.to_string();
-            let mut dec: Option<f64> = None;
+            let mut dec: Option<Decimal> = None;
             while let Some(g) = jetons.get(j) {
                 if g.len() == 3 && chiffres(g) {
                     entier.push_str(g);
@@ -150,7 +156,7 @@ pub fn interpreter(q: &str) -> Interpretation {
                     && chiffres(&g[..3])
                     && matches!(g.as_bytes()[3], b',' | b'.')
                 {
-                    dec = Some(v - v.trunc());
+                    dec = Some(v.fract());
                     entier.push_str(&g[..3]);
                     j += 1;
                     break;
@@ -159,8 +165,9 @@ pub fn interpreter(q: &str) -> Interpretation {
                 }
             }
             if j > i + 1 {
-                let v = entier.parse::<f64>().unwrap_or_default() + dec.unwrap_or_default();
-                r.montant = Some((v * 100.0).round() / 100.0);
+                let v =
+                    montant::depuis_texte(&entier).unwrap_or_default() + dec.unwrap_or_default();
+                r.montant = montant::montant(v);
                 i = j;
                 continue;
             }
@@ -168,13 +175,13 @@ pub fn interpreter(q: &str) -> Interpretation {
         if r.montant.is_none()
             && let Some(v) = montant_decimal(t)
         {
-            r.montant = Some((v * 100.0).round() / 100.0);
+            r.montant = montant::montant(v);
             i += 1;
             continue;
         }
         if chiffres(t) && t.len() <= 12 {
             if suivi_euro && r.montant.is_none() {
-                r.montant = t.parse().ok();
+                r.montant = montant::depuis_texte(t).and_then(montant::montant);
             } else if let Ok(n) = t.parse() {
                 r.nombres.push(n);
             }
@@ -206,53 +213,68 @@ pub struct Filtres {
 }
 
 #[derive(Serialize)]
-pub struct DocTrouve {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct DocumentTrouve {
     id: i64,
     mail_id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
-    montant_ht: Option<f64>,
-    montant_ttc: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ttc: Option<Decimal>,
     societe_id: Option<i64>,
     societe: Option<String>,
     /// Outil de la société : `dext` ou `yooz` (nul si pas encore rangé ou pas réglé).
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil: Option<String>,
     nom_fichier: String,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     recu_le: time::OffsetDateTime,
     verifie: bool,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct MailTrouve {
     id: i64,
     expediteur: String,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
     categorie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutReponse>"))]
     statut_reponse: Option<String>,
     resume: Option<String>,
     nb_pieces: i64,
 }
 
 #[derive(Serialize)]
-pub struct Groupe<T> {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct GroupeRecherche<T> {
     total: i64,
     elements: Vec<T>,
 }
 
 #[derive(Serialize)]
-pub struct Resultats {
-    interpretation: Interpretation,
-    documents: Groupe<DocTrouve>,
-    mails: Groupe<MailTrouve>,
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ResultatsRecherche {
+    interpretation: InterpretationRecherche,
+    documents: GroupeRecherche<DocumentTrouve>,
+    mails: GroupeRecherche<MailTrouve>,
 }
 
 /// `GET /api/recherche` : documents (sauf pièces écartées) et mails (publicités comprises)
@@ -261,7 +283,7 @@ pub async fn chercher(
     acces: Acces,
     State(etat): State<Etat>,
     Query(f): Query<Filtres>,
-) -> Resultat<Json<Resultats>> {
+) -> Resultat<Json<ResultatsRecherche>> {
     let (du, au) = (date(&f.du)?, date(&f.au)?);
     let type_choisi = f.r#type.as_deref().map(str::trim).filter(|t| !t.is_empty());
     if let Some(t) = type_choisi
@@ -272,7 +294,7 @@ pub async fn chercher(
     let i = interpreter(f.q.as_deref().unwrap_or_default());
     let mots = motifs(&i.mots);
     let nombres_motifs: Vec<String> = i.nombres.iter().map(|n| format!("%{n}%")).collect();
-    let nombres: Vec<f64> = i.nombres.iter().map(|n| *n as f64).collect();
+    let nombres: Vec<Decimal> = i.nombres.iter().map(|n| Decimal::from(*n)).collect();
     let (jour, mois, annee) = match &i.date {
         Some(d) => (Some(d.jour), Some(d.mois), d.annee),
         None => (None, None, None),
@@ -283,7 +305,7 @@ pub async fn chercher(
     let type_doc = type_choisi.filter(|t| *t != "mail" && *t != "document");
 
     let documents = if type_choisi == Some("mail") {
-        Groupe {
+        GroupeRecherche {
             total: 0,
             elements: Vec::new(),
         }
@@ -291,7 +313,7 @@ pub async fn chercher(
         let lignes = sqlx::query!(
             r#"select d.id, d.mail_id, d.type, d.etat, d.statut_depot, d.fournisseur_id,
                       coalesce(fo.nom, d.fournisseur_nom) as fournisseur, d.numero, d.date_document,
-                      d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,
+                      d.montant_ht, d.montant_ttc,
                       d.societe_id, s.raison_sociale as "societe?", s.outil_depot as "outil?",
                       p.nom as nom_fichier,
                       coalesce(m.date_mail, m.recu_le) as "recu_le!",
@@ -319,12 +341,12 @@ pub async fn chercher(
                                   or d.numero_commande ilike w or m.objet ilike w
                                   or m.expediteur ilike w or p.nom ilike w, false))
                  and not exists (
-                       select 1 from unnest($7::text[], $8::float8[]) as n(motif, valeur)
+                       select 1 from unnest($7::text[], $8::numeric[]) as n(motif, valeur)
                        where not coalesce(d.numero ilike n.motif or d.numero_commande ilike n.motif
                                   or m.objet ilike n.motif or p.nom ilike n.motif
                                   or d.montant_ttc = n.valeur::numeric(14, 2)
                                   or d.montant_ht = n.valeur::numeric(14, 2), false))
-                 and ($9::float8 is null or d.montant_ttc = $9::numeric(14, 2)
+                 and ($9::numeric is null or d.montant_ttc = $9::numeric(14, 2)
                       or d.montant_ht = $9::numeric(14, 2) or d.montant_tva = $9::numeric(14, 2))
                  and ($10::int is null
                       or (extract(day from d.date_document)::int = $10
@@ -352,11 +374,11 @@ pub async fn chercher(
         )
         .fetch_all(&etat.pool)
         .await?;
-        Groupe {
+        GroupeRecherche {
             total: lignes.first().map(|l| l.total).unwrap_or(0),
             elements: lignes
                 .into_iter()
-                .map(|l| DocTrouve {
+                .map(|l| DocumentTrouve {
                     id: l.id,
                     mail_id: l.mail_id,
                     r#type: l.r#type,
@@ -380,7 +402,7 @@ pub async fn chercher(
     };
 
     let mails = if documents_seuls {
-        Groupe {
+        GroupeRecherche {
             total: 0,
             elements: Vec::new(),
         }
@@ -405,13 +427,13 @@ pub async fn chercher(
                                              where d.mail_id = m.id
                                                and (d.fournisseur_nom ilike w or fo.nom ilike w or d.numero ilike w)), false))
                  and not exists (
-                       select 1 from unnest($6::text[], $7::float8[]) as n(motif, valeur)
+                       select 1 from unnest($6::text[], $7::numeric[]) as n(motif, valeur)
                        where not coalesce(m.objet ilike n.motif
                                   or exists (select 1 from document d where d.mail_id = m.id
                                              and (d.numero ilike n.motif
                                                   or d.montant_ttc = n.valeur::numeric(14, 2)
                                                   or d.montant_ht = n.valeur::numeric(14, 2))), false))
-                 and ($8::float8 is null
+                 and ($8::numeric is null
                       or exists (select 1 from document d where d.mail_id = m.id
                                  and (d.montant_ttc = $8::numeric(14, 2) or d.montant_ht = $8::numeric(14, 2)
                                       or d.montant_tva = $8::numeric(14, 2))))
@@ -437,7 +459,7 @@ pub async fn chercher(
         )
         .fetch_all(&etat.pool)
         .await?;
-        Groupe {
+        GroupeRecherche {
             total: lignes.first().map(|l| l.total).unwrap_or(0),
             elements: lignes
                 .into_iter()
@@ -454,7 +476,7 @@ pub async fn chercher(
                 .collect(),
         }
     };
-    Ok(Json(Resultats {
+    Ok(Json(ResultatsRecherche {
         interpretation: i,
         documents,
         mails,
@@ -464,17 +486,18 @@ pub async fn chercher(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gmflow_core::montant::dec;
 
     #[test]
     fn montants() {
-        assert_eq!(interpreter("1 250,40").montant, Some(1250.40));
-        assert_eq!(interpreter("1250.4").montant, Some(1250.4));
-        assert_eq!(interpreter("1.250,40").montant, Some(1250.40));
-        assert_eq!(interpreter("1,250.40").montant, Some(1250.40));
-        assert_eq!(interpreter("60 €").montant, Some(60.0));
-        assert_eq!(interpreter("60€").montant, Some(60.0));
-        assert_eq!(interpreter("12 000").montant, Some(12000.0));
-        assert_eq!(interpreter("1\u{a0}250,40 €").montant, Some(1250.40));
+        assert_eq!(interpreter("1 250,40").montant, Some(dec!(1250.40)));
+        assert_eq!(interpreter("1250.4").montant, Some(dec!(1250.4)));
+        assert_eq!(interpreter("1.250,40").montant, Some(dec!(1250.40)));
+        assert_eq!(interpreter("1,250.40").montant, Some(dec!(1250.40)));
+        assert_eq!(interpreter("60 €").montant, Some(dec!(60.0)));
+        assert_eq!(interpreter("60€").montant, Some(dec!(60.0)));
+        assert_eq!(interpreter("12 000").montant, Some(dec!(12000.0)));
+        assert_eq!(interpreter("1\u{a0}250,40 €").montant, Some(dec!(1250.40)));
         let i = interpreter("durand 1250");
         assert_eq!(i.montant, None);
         assert_eq!(i.nombres, vec![1250]);
@@ -513,7 +536,7 @@ mod tests {
     fn melange() {
         let i = interpreter("Metro facture 18/11 1 250,40 €");
         assert_eq!(i.mots, vec!["Metro", "facture"]);
-        assert_eq!(i.montant, Some(1250.40));
+        assert_eq!(i.montant, Some(dec!(1250.40)));
         assert_eq!(i.date.unwrap().jour, 18);
         assert!(i.nombres.is_empty());
     }

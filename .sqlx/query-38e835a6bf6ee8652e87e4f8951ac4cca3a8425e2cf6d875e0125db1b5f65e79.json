@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from note_interne where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38e835a6bf6ee8652e87e4f8951ac4cca3a8425e2cf6d875e0125db1b5f65e79"
+}

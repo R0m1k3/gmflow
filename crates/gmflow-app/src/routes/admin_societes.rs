@@ -6,15 +6,20 @@ use serde_json::{Value, json};
 use crate::acces::AccesAdmin;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Societe {
     id: i64,
     raison_sociale: String,
     autres_noms: Vec<String>,
     siret: Option<String>,
     tva: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Vec<String>"))]
     adresses: Value,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil_depot: Option<String>,
     adresse_depot: Option<String>,
     archivee: bool,
@@ -22,7 +27,8 @@ pub struct Societe {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct EntreeSociete {
     raison_sociale: String,
     #[serde(default)]
     autres_noms: Vec<String>,
@@ -31,8 +37,10 @@ pub struct Entree {
     #[serde(default)]
     tva: Option<String>,
     #[serde(default = "tableau_vide")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>", optional))]
     adresses: Value,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil_depot: Option<String>,
     #[serde(default)]
     adresse_depot: Option<String>,
@@ -50,7 +58,7 @@ fn vide_en_null(v: Option<String>) -> Option<String> {
     v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
-impl Entree {
+impl EntreeSociete {
     fn nettoyer(mut self) -> Resultat<Self> {
         self.raison_sociale = self.raison_sociale.trim().to_string();
         if self.raison_sociale.is_empty() {
@@ -100,7 +108,7 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<V
 pub async fn creer(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeSociete>,
 ) -> Resultat<Json<Societe>> {
     let e = e.nettoyer()?;
     let mut tx = etat.pool.begin().await?;
@@ -142,7 +150,7 @@ pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeSociete>,
 ) -> Resultat<Json<Societe>> {
     let e = e.nettoyer()?;
     let mut tx = etat.pool.begin().await?;

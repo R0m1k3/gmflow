@@ -48,8 +48,19 @@ jobs:
           cargo run -p gmflow-app -- initialiser
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-features --all-targets -- -D warnings
-      # Après clippy : les dépendances (apalis-postgres) sont déjà compilées hors ligne,
-      # sinon prepare enregistrerait leurs requêtes dans .sqlx.
+      - name: Types TypeScript du front à jour (scripts/types-ts.sh)
+        run: |
+          ./scripts/types-ts.sh
+          if [ -n "$(git status --porcelain -- web/src/lib/api-types)" ]; then
+            git status --short -- web/src/lib/api-types
+            git diff -- web/src/lib/api-types | head -100
+            echo "::error::web/src/lib/api-types/ n'est pas à jour : lancer ./scripts/types-ts.sh et commiter le résultat."
+            exit 1
+          fi
+      # Les dépendances (apalis-postgres) doivent être déjà compilées hors ligne, dans la même
+      # configuration que prepare (fonctions par défaut : la fonction `ts` change celles des
+      # dépendances partagées), sinon prepare enregistrerait leurs requêtes dans .sqlx.
+      - run: cargo check --workspace
       - name: .sqlx à jour
         run: SQLX_OFFLINE=false cargo sqlx prepare --workspace --check
       - name: Attente de GreenMail

@@ -2,6 +2,7 @@
 
 use gmflow_core::lecture::grilles_tableur;
 use gmflow_core::lecture::tableau_articles::{self as ta, Apprises};
+use gmflow_core::montant::dec;
 
 fn classeur(feuilles: &[(&str, bool, &[&[&str]])]) -> Vec<u8> {
     // La première feuille (active) ne peut pas être masquée.
@@ -75,9 +76,12 @@ fn feuille_cachee_ignoree_et_plusieurs_feuilles() {
     let l = &lu.lignes[0];
     assert_eq!(l.reference.as_deref(), Some("A1"));
     assert_eq!(l.gencod.as_deref(), Some("3760000000017"));
-    assert_eq!((l.colis, l.pcb, l.quantite), (Some(2.0), Some(6.0), None));
+    assert_eq!(
+        (l.colis, l.pcb, l.quantite),
+        (Some(dec!(2.0)), Some(dec!(6.0)), None)
+    );
     // 0,1 dans la cellule (format pourcentage) : 10 %.
-    assert_eq!(l.remise_taux, Some(10.0));
+    assert_eq!(l.remise_taux, Some(dec!(10.0)));
     assert!(lu.extrait.contains("BL n° 4512"));
     assert!(lu.extrait.contains("Conditions générales"));
     assert!(!lu.extrait.contains("CACHE"));
@@ -111,8 +115,8 @@ fn csv_utf16_point_virgule_et_nombres_en_texte() {
     let g = grilles_tableur("bl.csv", "text/csv", &octets).unwrap();
     let lu = ta::lire(&g, &Apprises::new()).unwrap();
     assert_eq!(lu.lignes.len(), 2);
-    assert_eq!(lu.lignes[0].prix_unitaire_ht, Some(1234.5));
-    assert_eq!(lu.lignes[0].taux_tva, Some(20.0));
-    assert_eq!(lu.lignes[1].taux_tva, Some(5.5));
+    assert_eq!(lu.lignes[0].prix_unitaire_ht, Some(dec!(1234.5)));
+    assert_eq!(lu.lignes[0].taux_tva, Some(dec!(20.0)));
+    assert_eq!(lu.lignes[1].taux_tva, Some(dec!(5.5)));
     assert_eq!(lu.lignes[1].designation.as_deref(), Some("Plaid"));
 }

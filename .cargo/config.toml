@@ -1,0 +1,6 @@
+# Génération des types TypeScript (fonction `ts`, voir scripts/types-ts.sh).
+[env]
+TS_RS_EXPORT_DIR = { value = "web/src/lib/api-types", relative = true }
+# Les entiers 64 bits de l'API (identifiants, compteurs) restent des `number` côté front.
+TS_RS_LARGE_INT = "number"
+TS_RS_IMPORT_EXTENSION = "ts"

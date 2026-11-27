@@ -6,6 +6,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use gmflow_core::controles::{chiffres, siret_valide, tva_compacte, tva_valide};
 use gmflow_core::fournisseurs::{domaine, normaliser};
+use gmflow_core::montant::Decimal;
 use gmflow_core::{depot, journal};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -14,6 +15,8 @@ use super::mails::{Page, decalage, motif};
 use crate::acces::{Acces, AccesAdmin};
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 #[derive(Deserialize)]
 pub struct Filtres {
@@ -23,9 +26,23 @@ pub struct Filtres {
     /// compteurs d'état sont limités à cette société.
     societe: Option<i64>,
     page: Option<i64>,
+    /// Colonne de tri (`TRI_FOURNISSEURS`) et sens (`asc`, `desc`).
+    tri: Option<String>,
+    sens: Option<String>,
 }
 
+/// Colonnes triables de la liste des fournisseurs ; la première est le tri par défaut
+/// (fiches à confirmer d'abord, puis par nom).
+pub const TRI_FOURNISSEURS: &[super::tri::Colonne] = &[
+    ("statut", true),
+    ("nom", true),
+    ("documents", false),
+    ("a_valider", false),
+    ("dernier", false),
+];
+
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneFournisseur {
     id: i64,
     nom: String,
@@ -33,6 +50,7 @@ pub struct LigneFournisseur {
     siret: Option<String>,
     tva: Option<String>,
     domaines: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::StatutFournisseur"))]
     statut: String,
     societe_defaut_id: Option<i64>,
     societe_defaut: Option<String>,
@@ -49,6 +67,7 @@ pub struct LigneFournisseur {
     bl_sans_facture: i64,
     /// date du document le plus récent.
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     dernier_document: Option<time::Date>,
 }
 
@@ -63,7 +82,11 @@ pub async fn lister(
     let statut = f.statut.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let (page, decalage) = decalage(f.page);
     let perimetre = acces.societe_filtre();
-    let total = sqlx::query_scalar!(
+    let tri = super::tri::lire(&f.tri, &f.sens, TRI_FOURNISSEURS)?;
+    let total = if page > 1 {
+        None
+    } else {
+        Some(sqlx::query_scalar!(
         r#"select count(*) as "n!" from fournisseur f
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
              and ($2::text is null or f.nom ilike $2 or f.code_gestion ilike $2 or f.siret ilike $2 or f.tva ilike $2
@@ -91,17 +114,14 @@ pub async fn lister(
         f.societe
     )
     .fetch_one(&etat.pool)
-    .await?;
+    .await?)
+    };
     let elements = sqlx::query_as!(
         LigneFournisseur,
         r#"select f.id, f.nom, f.code_gestion, f.siret, f.tva, f.domaines, f.statut, f.societe_defaut_id,
                   s.raison_sociale as "societe_defaut?",
                   (select g.nom from fournisseur g where g.id = f.groupe_id) as "groupe?",
-                  (select count(*) from document d where d.fournisseur_id = f.id
-                     and ($5::bigint is null
-                          or ((d.societe_id is null or d.societe_id = $5)
-                              and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
-                                          where mb.mail_id = d.mail_id and b.societe_id = $5)))) as "nb_documents!",
+                  nd.n as "nb_documents!",
                   (select count(*) from document d where d.fournisseur_id = f.id
                      and d.statut_depot = 'a_verifier'
                      and ($5::bigint is null
@@ -112,6 +132,13 @@ pub async fn lister(
                   e.bl_sans_facture as "bl_sans_facture!", e.dernier as dernier_document
            from fournisseur f
            left join societe s on s.id = f.societe_defaut_id
+           cross join lateral (
+               select count(*) as n from document d where d.fournisseur_id = f.id
+                 and ($5::bigint is null
+                      or ((d.societe_id is null or d.societe_id = $5)
+                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
+                                      where mb.mail_id = d.mail_id and b.societe_id = $5)))
+           ) nd
            cross join lateral (
                select count(*) filter (where d.type in ('facture', 'avoir') and d.statut_depot is distinct from 'doublon'
                                          and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date)
@@ -147,26 +174,33 @@ pub async fn lister(
                                and (d.societe_id is null or d.societe_id = $5)
                                and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                            where mb.mail_id = d.mail_id and b.societe_id = $5)))
-           order by (f.statut = 'a_confirmer') desc, f.nom
+           order by case when $7 = 'statut' then (f.statut = 'a_confirmer') end desc,
+                    case when $7 = 'nom' and not $8 then lower(f.nom) end desc,
+                    case when $7 = 'documents' and $8 then nd.n end asc,
+                    case when $7 = 'documents' and not $8 then nd.n end desc,
+                    case when $7 = 'a_valider' and $8 then e.a_valider end asc,
+                    case when $7 = 'a_valider' and not $8 then e.a_valider end desc,
+                    case when $7 = 'dernier' and $8 then e.dernier end asc nulls last,
+                    case when $7 = 'dernier' and not $8 then e.dernier end desc nulls last,
+                    lower(f.nom), f.id
            limit $3 offset $4"#,
         statut,
         q,
-        super::mails::PAR_PAGE,
+        super::mails::LIMITE_LUE,
         decalage,
         perimetre,
-        f.societe
+        f.societe,
+        tri.cle,
+        tri.croissant
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::lue(total, page, elements)))
 }
 
 #[derive(Serialize)]
-pub struct Fiche {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct Fournisseur {
     id: i64,
     nom: String,
     /// Code du fournisseur dans le logiciel de gestion du magasin.
@@ -174,6 +208,7 @@ pub struct Fiche {
     siret: Option<String>,
     tva: Option<String>,
     domaines: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::StatutFournisseur"))]
     statut: String,
     societe_defaut_id: Option<i64>,
     /// Nom de la société par défaut.
@@ -194,9 +229,11 @@ pub struct Fiche {
     prefixes_codes: Vec<String>,
     /// Export Phénix : « ref » ou « gencod » seul depuis le BL ; absent : les deux (ou le
     /// réglage du groupe).
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::ColonnesExport>"))]
     colonnes_export: Option<String>,
     fusionne_dans: Option<i64>,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     cree_le: time::OffsetDateTime,
 }
 
@@ -225,12 +262,12 @@ pub async fn fiche(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<Fiche>> {
+) -> Resultat<Json<Fournisseur>> {
     if !fournisseur_visible(&etat, &acces, id).await? {
         return Err(ErreurApi::Absent);
     }
     let f = sqlx::query_as!(
-        Fiche,
+        Fournisseur,
         r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
@@ -246,7 +283,8 @@ pub async fn fiche(
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeFournisseur {
     nom: String,
     #[serde(default)]
     code_gestion: Option<String>,
@@ -255,8 +293,10 @@ pub struct Entree {
     #[serde(default)]
     tva: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>", optional))]
     domaines: Vec<String>,
     #[serde(default = "a_confirmer")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutFournisseur>", optional))]
     statut: String,
     #[serde(default)]
     societe_defaut_id: Option<i64>,
@@ -277,10 +317,13 @@ pub struct Entree {
     #[serde(default)]
     groupe_id: Option<i64>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>", optional))]
     noms_documents: Vec<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>", optional))]
     prefixes_codes: Vec<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::ColonnesExport>"))]
     colonnes_export: Option<String>,
 }
 
@@ -299,7 +342,7 @@ fn faute(champ: &'static str, message: impl Into<String>) -> ErreurApi {
     }
 }
 
-impl Entree {
+impl EntreeFournisseur {
     /// Nettoie et vérifie les champs pour lesquels `verifier(champ)` est vrai. Les autres
     /// (modification partielle : valeurs déjà enregistrées et non touchées) restent tels quels,
     /// pour qu'une ancienne valeur douteuse ne bloque pas la saisie d'un autre champ.
@@ -429,7 +472,7 @@ impl Entree {
 }
 
 /// Un code de gestion désigne un seul fournisseur : refusé s'il est déjà sur une autre fiche.
-async fn code_libre(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
+async fn code_libre(etat: &Etat, e: &EntreeFournisseur, id: Option<i64>) -> Resultat<()> {
     let Some(code) = &e.code_gestion else {
         return Ok(());
     };
@@ -454,7 +497,7 @@ async fn code_libre(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
 
 /// Un seul niveau : le groupe existe, n'est pas lui-même dans un groupe, et une fiche qui a
 /// des marques n'entre pas dans un groupe.
-async fn groupe_valide(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()> {
+async fn groupe_valide(etat: &Etat, e: &EntreeFournisseur, id: Option<i64>) -> Resultat<()> {
     let Some(g) = e.groupe_id else {
         return Ok(());
     };
@@ -496,14 +539,14 @@ async fn groupe_valide(etat: &Etat, e: &Entree, id: Option<i64>) -> Resultat<()>
 pub async fn creer(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
-) -> Resultat<Json<Fiche>> {
+    Json(e): Json<EntreeFournisseur>,
+) -> Resultat<Json<Fournisseur>> {
     let e = e.nettoyer(|_| true)?;
     code_libre(&etat, &e, None).await?;
     groupe_valide(&etat, &e, None).await?;
     let mut tx = etat.pool.begin().await?;
     let f = sqlx::query_as!(
-        Fiche,
+        Fournisseur,
         r#"insert into fournisseur (nom, nom_normalise, siret, tva, domaines, statut,
                                     societe_defaut_id, format_bl, notes, code_gestion,
                                     adresse, telephone, email, interlocuteur, conditions_paiement,
@@ -553,8 +596,8 @@ pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-    Json(e): Json<Entree>,
-) -> Resultat<Json<Fiche>> {
+    Json(e): Json<EntreeFournisseur>,
+) -> Resultat<Json<Fournisseur>> {
     enregistrer(&etat, &a, id, e, |_| true).await
 }
 
@@ -570,7 +613,8 @@ where
 /// Modification partielle : seuls les champs présents changent (`null` efface un champ
 /// facultatif).
 #[derive(Deserialize)]
-pub struct Changements {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct ChangementsFournisseur {
     #[serde(default)]
     nom: Option<String>,
     #[serde(default, deserialize_with = "present")]
@@ -582,6 +626,7 @@ pub struct Changements {
     #[serde(default)]
     domaines: Option<Vec<String>>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutFournisseur>"))]
     statut: Option<String>,
     #[serde(default, deserialize_with = "present")]
     societe_defaut_id: Option<Option<i64>>,
@@ -606,10 +651,11 @@ pub struct Changements {
     #[serde(default)]
     prefixes_codes: Option<Vec<String>>,
     #[serde(default, deserialize_with = "present")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::ColonnesExport>"))]
     colonnes_export: Option<Option<String>>,
 }
 
-impl Changements {
+impl ChangementsFournisseur {
     /// Noms des champs présents dans le corps.
     fn envoyes(&self) -> Vec<&'static str> {
         [
@@ -644,8 +690,8 @@ pub async fn modifier_partiel(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-    Json(c): Json<Changements>,
-) -> Resultat<Json<Fiche>> {
+    Json(c): Json<ChangementsFournisseur>,
+) -> Resultat<Json<Fournisseur>> {
     let f = sqlx::query!(
         "select nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id, format_bl, notes,
                 adresse, telephone, email, interlocuteur, conditions_paiement, groupe_id, noms_documents,
@@ -657,7 +703,7 @@ pub async fn modifier_partiel(
     .await?
     .ok_or(ErreurApi::Absent)?;
     let envoyes = c.envoyes();
-    let e = Entree {
+    let e = EntreeFournisseur {
         nom: c.nom.unwrap_or(f.nom),
         code_gestion: c.code_gestion.unwrap_or(f.code_gestion),
         siret: c.siret.unwrap_or(f.siret),
@@ -686,9 +732,9 @@ async fn enregistrer(
     etat: &Etat,
     a: &Acces,
     id: i64,
-    e: Entree,
+    e: EntreeFournisseur,
     verifier: impl Fn(&str) -> bool,
-) -> Resultat<Json<Fiche>> {
+) -> Resultat<Json<Fournisseur>> {
     let e = e.nettoyer(&verifier)?;
     if verifier("code_gestion") {
         code_libre(etat, &e, Some(id)).await?;
@@ -711,7 +757,7 @@ async fn enregistrer(
     }
     let mut tx = etat.pool.begin().await?;
     let f = sqlx::query_as!(
-        Fiche,
+        Fournisseur,
         r#"update fournisseur set nom = $2, nom_normalise = $3, siret = $4, tva = $5, domaines = $6,
               statut = $7, societe_defaut_id = $8, format_bl = $9, notes = $10,
               code_gestion = $11, adresse = $12, telephone = $13, email = $14,
@@ -765,11 +811,13 @@ async fn enregistrer(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Fusion {
     cible_id: i64,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatFusion {
     documents: u64,
 }
@@ -824,6 +872,7 @@ pub struct FiltresFil {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct EtatFournisseur {
     factures_mois: i64,
     a_valider: i64,
@@ -831,25 +880,34 @@ pub struct EtatFournisseur {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(tag = "genre", rename_all = "snake_case")]
 pub enum ElementFil {
     Document {
         id: i64,
         mail_id: i64,
+        #[cfg_attr(feature = "ts", ts(as = "v::TypePiece"))]
         r#type: String,
         numero: Option<String>,
         #[serde(with = "date_iso")]
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         date: time::Date,
         #[serde(with = "date_iso::option")]
+        #[cfg_attr(feature = "ts", ts(type = "string | null"))]
         date_document: Option<time::Date>,
-        montant_ht: Option<f64>,
-        montant_ttc: Option<f64>,
-        remise_ht: Option<f64>,
+        #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+        montant_ht: Option<Decimal>,
+        #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+        montant_ttc: Option<Decimal>,
+        #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+        remise_ht: Option<Decimal>,
+        #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
         statut_depot: Option<String>,
         verifie: bool,
         societe_id: Option<i64>,
         societe: Option<String>,
         /// Outil de collecte de la société (`dext`, `yooz`), pour « Envoyée à Dext ».
+        #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
         outil: Option<String>,
         /// BL : rattaché à une facture ; facture : au moins un BL rattaché.
         rapproche: bool,
@@ -858,12 +916,16 @@ pub enum ElementFil {
     Mail {
         id: i64,
         #[serde(with = "date_iso")]
+        #[cfg_attr(feature = "ts", ts(type = "string"))]
         date: time::Date,
         #[serde(with = "time::serde::rfc3339::option")]
+        #[cfg_attr(feature = "ts", ts(type = "string | null"))]
         date_mail: Option<time::OffsetDateTime>,
         expediteur: String,
         objet: String,
+        #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
         categorie: Option<String>,
+        #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutReponse>"))]
         statut_reponse: Option<String>,
         resume: Option<String>,
         /// Documents de ce fournisseur portés par le mail (aussi présents dans le fil).
@@ -882,6 +944,7 @@ impl ElementFil {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct MoisFil {
     /// AAAA-MM.
     mois: String,
@@ -889,6 +952,7 @@ pub struct MoisFil {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ARapprocher {
     bl_sans_facture: Vec<super::rapprochement::DocRap>,
     factures_sans_bl: Vec<super::rapprochement::DocRap>,
@@ -897,8 +961,9 @@ pub struct ARapprocher {
 }
 
 #[derive(Serialize)]
-pub struct Fil {
-    fournisseur: Fiche,
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct FilFournisseur {
+    fournisseur: Fournisseur,
     etat: EtatFournisseur,
     /// Du plus récent au plus ancien ; les mois sans rien n'apparaissent pas.
     mois: Vec<MoisFil>,
@@ -913,12 +978,12 @@ pub async fn fil(
     State(etat): State<Etat>,
     Path(id): Path<i64>,
     Query(f): Query<FiltresFil>,
-) -> Resultat<Json<Fil>> {
+) -> Resultat<Json<FilFournisseur>> {
     if !fournisseur_visible(&etat, &acces, id).await? {
         return Err(ErreurApi::Absent);
     }
     let fiche = sqlx::query_as!(
-        Fiche,
+        Fournisseur,
         r#"select id, nom, code_gestion, siret, tva, domaines, statut, societe_defaut_id,
                   (select raison_sociale from societe where id = societe_defaut_id) as "societe_defaut?",
                   format_bl, notes, adresse, telephone, email, interlocuteur, conditions_paiement,
@@ -967,8 +1032,8 @@ pub async fn fil(
     let documents = sqlx::query!(
         r#"select d.id, d.mail_id, d.type as "type!", d.numero, d.date_document,
                   coalesce(d.date_document, (coalesce(m.date_mail, m.recu_le) at time zone 'Europe/Paris')::date) as "date!",
-                  d.montant_ht::float8 as montant_ht, d.montant_ttc::float8 as montant_ttc,
-                  d.remise_ht::float8 as remise_ht,
+                  d.montant_ht, d.montant_ttc,
+                  d.remise_ht,
                   d.statut_depot, d.verifie_le is not null as "verifie!", d.societe_id,
                   s.raison_sociale as "societe?", s.outil_depot as "outil?",
                   exists (select 1 from rapprochement r
@@ -1079,7 +1144,7 @@ pub async fn fil(
         }),
     )
     .await?;
-    Ok(Json(Fil {
+    Ok(Json(FilFournisseur {
         fournisseur: fiche,
         etat: etat_f,
         mois,
@@ -1093,6 +1158,7 @@ pub async fn fil(
 }
 
 #[derive(Serialize, Clone)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct FicheCourte {
     id: i64,
     nom: String,
@@ -1100,6 +1166,7 @@ pub struct FicheCourte {
     siret: Option<String>,
     tva: Option<String>,
     domaines: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::StatutFournisseur"))]
     statut: String,
     nb_documents: i64,
     /// Groupe dont la fiche fait partie, et son nom.
@@ -1110,6 +1177,7 @@ pub struct FicheCourte {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct PaireDoublon {
     raison: &'static str,
     /// Deux marques d'un même groupe probable : à regrouper, pas à fusionner.
@@ -1155,6 +1223,7 @@ pub async fn doublons(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Distinct {
     a: i64,
     b: i64,
@@ -1208,12 +1277,14 @@ pub async fn distinct(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneMarque {
     id: i64,
     nom: String,
     code_gestion: Option<String>,
     noms_documents: Vec<String>,
     prefixes_codes: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::StatutFournisseur"))]
     statut: String,
     nb_documents: i64,
 }
@@ -1241,6 +1312,7 @@ pub async fn marques(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Repartition {
     deplaces: i64,
     restants: i64,

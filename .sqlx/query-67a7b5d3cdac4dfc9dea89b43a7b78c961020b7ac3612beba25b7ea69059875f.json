@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select raison_sociale from societe where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "raison_sociale",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "67a7b5d3cdac4dfc9dea89b43a7b78c961020b7ac3612beba25b7ea69059875f"
+}

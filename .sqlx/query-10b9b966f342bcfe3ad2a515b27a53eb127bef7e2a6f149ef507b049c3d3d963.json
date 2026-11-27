@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, auteur_id, auteur_nom, texte, cree_le,\n                  ($2 or auteur_id = $3) as \"supprimable!\"\n           from note_interne where document_id = $1\n           order by cree_le desc, id desc",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "note_interne",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "auteur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "note_interne",
+            "name": "auteur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "auteur_nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "note_interne",
+            "name": "auteur_nom"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "texte",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "note_interne",
+            "name": "texte"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "cree_le",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "note_interne",
+            "name": "cree_le"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "supprimable!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "10b9b966f342bcfe3ad2a515b27a53eb127bef7e2a6f149ef507b049c3d3d963"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from lecture_tranche where document_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4dae36895f0198cfa344d519bdf40deb9c5331ca1c7e6e28fa9590400ad25f92"
+}

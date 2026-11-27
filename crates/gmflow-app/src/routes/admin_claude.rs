@@ -12,11 +12,103 @@ use uuid::Uuid;
 use crate::acces::AccesAdmin;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
-pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Value>> {
-    let mut v = parametre::lire(&etat.pool, parametre::CLAUDE_ETAT)
+/// `GET /api/admin/claude` : état de la connexion (`parametre::CLAUDE_ETAT`, écrit par le test du
+/// jeton et par les refus de Claude) et mode d'accès.
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct EtatClaude {
+    #[serde(default = "absent")]
+    #[cfg_attr(
+        feature = "ts",
+        ts(type = "'absent' | 'en_test' | 'valide' | 'erreur'")
+    )]
+    etat: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    teste_le: Option<String>,
+    /// Dernier appel réussi (null : jamais).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    utilise_le: Option<String>,
+    /// 4 derniers caractères du jeton.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    fin: Option<String>,
+    /// Accès par clé API lors du dernier test (worker).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    cle_api: Option<bool>,
+    /// Refus de Claude en cours (`attente::noter_refus`) : genre, heure de reprise, explication.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    refus: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    reprise: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    reprise_texte: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    explication: Option<String>,
+    /// Autres clés enregistrées, rendues telles quelles.
+    #[serde(flatten)]
+    #[cfg_attr(feature = "ts", ts(skip))]
+    autres: serde_json::Map<String, Value>,
+    #[serde(skip_deserializing)]
+    acces: AccesClaude,
+}
+
+fn absent() -> String {
+    "absent".into()
+}
+
+#[derive(Serialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct AccesClaude {
+    #[cfg_attr(feature = "ts", ts(as = "v::ModeAcces"))]
+    mode: String,
+    jeton: bool,
+    cle_api: bool,
+    cle_api_fin: Option<String>,
+}
+
+pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<EtatClaude>> {
+    let v = parametre::lire(&etat.pool, parametre::CLAUDE_ETAT)
         .await?
         .unwrap_or_else(|| json!({ "etat": "absent" }));
+    // Valeur inattendue : rendue telle quelle (`autres`), seul `etat` est sûr.
+    let mut e: EtatClaude = serde_json::from_value(v.clone()).unwrap_or_else(|_| EtatClaude {
+        etat: v
+            .get("etat")
+            .and_then(Value::as_str)
+            .map_or_else(absent, str::to_string),
+        message: None,
+        teste_le: None,
+        utilise_le: None,
+        fin: None,
+        cle_api: None,
+        refus: None,
+        reprise: None,
+        reprise_texte: None,
+        explication: None,
+        autres: v
+            .as_object()
+            .map(|o| {
+                o.iter()
+                    .filter(|(k, _)| *k != "etat")
+                    .map(|(k, x)| (k.clone(), x.clone()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        acces: AccesClaude::default(),
+    });
     let mode = gmflow_core::claude::mode_acces(&etat.pool).await?;
     let jeton = parametre::lire_secret(&etat.pool, parametre::CLAUDE_JETON)
         .await?
@@ -26,12 +118,14 @@ pub async fn etat(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Val
         .is_some();
     let fin_cle = parametre::lire(&etat.pool, parametre::CLAUDE_CLE_API)
         .await?
-        .and_then(|v| v.get("fin").cloned());
-    if v.is_object() {
-        v["acces"] =
-            json!({ "mode": mode, "jeton": jeton, "cle_api": cle, "cle_api_fin": fin_cle });
-    }
-    Ok(Json(v))
+        .and_then(|v| v.get("fin").and_then(Value::as_str).map(str::to_string));
+    e.acces = AccesClaude {
+        mode,
+        jeton,
+        cle_api: cle,
+        cle_api_fin: fin_cle,
+    };
+    Ok(Json(e))
 }
 
 fn fin(s: &str) -> String {
@@ -40,6 +134,7 @@ fn fin(s: &str) -> String {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeCle {
     cle: String,
 }
@@ -113,7 +208,9 @@ pub async fn supprimer_cle(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeAcces {
+    #[cfg_attr(feature = "ts", ts(as = "v::ModeAcces"))]
     mode: String,
 }
 
@@ -163,6 +260,7 @@ pub async fn choisir_acces(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeJeton {
     jeton: String,
 }
@@ -234,6 +332,7 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SeanceCreee {
     id: Uuid,
 }
@@ -268,7 +367,9 @@ pub async fn nouvelle_seance(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Seance {
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatSeance"))]
     etat: String,
     url: Option<String>,
     message: Option<String>,
@@ -302,8 +403,10 @@ async fn expirer_seances(c: impl sqlx::PgExecutor<'_>) -> sqlx::Result<()> {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SeanceEnCours {
     id: Uuid,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatSeance"))]
     etat: String,
     url: Option<String>,
     message: Option<String>,
@@ -366,6 +469,7 @@ pub async fn annuler_seance(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeCode {
     code: String,
 }
@@ -407,6 +511,7 @@ pub async fn code(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ReglagesVue {
     #[serde(flatten)]
     reglages: reglages::Reglages,
@@ -452,8 +557,10 @@ pub struct PageAppels {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct AppelVue {
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     quand: time::OffsetDateTime,
     tache: String,
     modele: String,
@@ -464,6 +571,7 @@ pub struct AppelVue {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct StatTache {
     tache: String,
     modele: String,
@@ -473,6 +581,7 @@ pub struct StatTache {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Appels {
     #[serde(flatten)]
     page: super::mails::Page<AppelVue>,
@@ -509,11 +618,7 @@ pub async fn appels(
     .fetch_all(&etat.pool)
     .await?;
     Ok(Json(Appels {
-        page: super::mails::Page {
-            total,
-            page,
-            elements,
-        },
+        page: super::mails::Page::comptee(total, page, elements),
         stats,
     }))
 }

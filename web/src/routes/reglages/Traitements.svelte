@@ -3,7 +3,7 @@
   // qui attend et pourquoi, avec un bouton pour la relancer. Se met à jour toute seule.
   import { api, message, sonder } from '#lib/api.ts';
   import { RUBRIQUES } from '#lib/libelles.ts';
-  import type { CleEtapeTraitement, EtapeTraitement, Traitements as Vue } from '#lib/types.ts';
+  import type { CleEtapeTraitement, EtapeTraitement, ToutRelire, Traitements as Vue } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Confirmation from '#lib/ui/Confirmation.svelte';
@@ -60,7 +60,7 @@
     occupe = 'tout';
     info = '';
     try {
-      const r = await api.post<{ documents: number }>('/api/admin/traitements/tout-relire');
+      const r = await api.post<ToutRelire>('/api/admin/traitements/tout-relire');
       info =
         r.documents === 0
           ? 'Aucun document à relire : ils sont déjà tous dans la file de lecture.'

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select hash_mdp from utilisateur where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash_mdp",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "hash_mdp"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "46a11b43b0a7f1c3ce095904047539ccccb3f6608d510b5da2627b9786b33e4e"
+}

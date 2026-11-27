@@ -4,7 +4,7 @@
   import { tick } from 'svelte';
   import { api, message, sonder } from '#lib/api.ts';
     import { RUBRIQUES, nomOutil } from '#lib/libelles.ts';
-  import type { ExpeditionVue, Societe } from '#lib/types.ts';
+  import type { EntreeExpedition, Expedition, ExpeditionVue, Societe, TestExpedition } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
@@ -24,7 +24,7 @@
   let edition = $state(false);
   let enCours = $state(false);
   let effacerMdp = $state(false);
-  let f = $state({ serveur: '', port: '465', securite: 'tls' as string, identifiant: '', adresse: '', nom: '', mot_de_passe: '', alertes: '' });
+  let f = $state({ serveur: '', port: '465', securite: 'tls' as Expedition['securite'], identifiant: '', adresse: '', nom: '', mot_de_passe: '', alertes: '' });
   let destinataire = $state('');
   let essai = $state(false);
   let arret: (() => void) | null = null;
@@ -84,7 +84,7 @@
     erreur = '';
     info = '';
     enCours = true;
-    const corps: Record<string, unknown> = {
+    const corps: EntreeExpedition = {
       expedition: {
         serveur: f.serveur.trim(),
         port: Number(f.port),
@@ -117,7 +117,7 @@
     erreur = '';
     info = '';
     try {
-      await api.post('/api/admin/expedition/test', { destinataire: destinataire.trim() });
+      await api.post('/api/admin/expedition/test', { destinataire: destinataire.trim() } satisfies TestExpedition);
       essai = true;
       if (vue) vue.dernier_test = null;
       arret?.();

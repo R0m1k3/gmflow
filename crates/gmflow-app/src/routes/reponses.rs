@@ -12,12 +12,15 @@ use serde_json::json;
 
 use super::mails::{Page, decalage, mail_visible};
 use crate::acces::{Acces, AccesAdmin};
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(jour_iso, Date, "[year]-[month]-[day]");
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BrouillonVue {
     id: i64,
     boite_id: i64,
@@ -25,15 +28,19 @@ pub struct BrouillonVue {
     /// Adresse de la boîte d'envoi (identifiant IMAP), pour « Envoyer depuis compta@… ».
     boite_adresse: String,
     texte: String,
+    #[cfg_attr(feature = "ts", ts(as = "v::StatutBrouillon"))]
     statut: String,
     modele: Option<String>,
     effort: Option<String>,
     erreur: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     cree_le: time::OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     modifie_le: time::OffsetDateTime,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     envoye_le: Option<time::OffsetDateTime>,
     envoye_par: Option<String>,
     /// La boîte d'envoi a un serveur SMTP configuré.
@@ -71,17 +78,22 @@ pub struct FiltresARepondre {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneARepondre {
     id: i64,
     expediteur: String,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     resume: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Priorite>"))]
     priorite: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::CategoriePar>"))]
     categorie_par: Option<String>,
     structures: Vec<String>,
     boites: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutBrouillon>"))]
     brouillon: Option<String>,
 }
 
@@ -149,11 +161,7 @@ pub async fn a_repondre(
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::comptee(total, page, elements)))
 }
 
 pub async fn compte_a_repondre(acces: &Acces, etat: &Etat) -> Resultat<i64> {
@@ -175,16 +183,21 @@ pub async fn compte(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<ser
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct CompteCategorie {
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
     cle: Option<String>,
     n: i64,
 }
 
 #[derive(Serialize)]
-pub struct Semaine {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct SemaineTri {
     #[serde(with = "jour_iso")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     debut: time::Date,
     #[serde(with = "jour_iso")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     fin: time::Date,
     par_categorie: Vec<CompteCategorie>,
     a_repondre: i64,
@@ -198,7 +211,7 @@ pub struct Semaine {
 
 /// Bilan du tri pour la semaine en cours et la précédente (lundi à dimanche, heure de Paris) :
 /// sert à vérifier que les questions de la semaine ressortent toutes.
-pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Vec<Semaine>>> {
+pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Vec<SemaineTri>>> {
     let mut v = Vec::new();
     for decalage in [0i32, 1] {
         let debut = sqlx::query_scalar!(
@@ -236,7 +249,7 @@ pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<V
         )
         .fetch_one(&etat.pool)
         .await?;
-        v.push(Semaine {
+        v.push(SemaineTri {
             debut,
             fin: debut + time::Duration::days(6),
             par_categorie,
@@ -251,7 +264,9 @@ pub async fn semaines(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<V
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeCategorie {
+    #[cfg_attr(feature = "ts", ts(as = "v::Categorie"))]
     categorie: String,
 }
 
@@ -304,7 +319,9 @@ pub async fn changer_categorie(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeStatut {
+    #[cfg_attr(feature = "ts", ts(as = "v::StatutReponse"))]
     statut: String,
 }
 
@@ -349,12 +366,14 @@ pub async fn changer_statut(
 }
 
 #[derive(Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeBrouillon {
     #[serde(default)]
     boite_id: Option<i64>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BrouillonCree {
     id: i64,
 }
@@ -459,6 +478,7 @@ async fn brouillon(etat: &Etat, acces: &Acces, id: i64) -> Resultat<BrouillonDro
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeTexte {
     texte: String,
 }
@@ -532,9 +552,10 @@ pub async fn envoyer_brouillon(
         return Err(ErreurApi::Donnees("la réponse est vide".into()));
     }
     if !b.smtp {
-        return Err(ErreurApi::Conflit(
-            "le serveur SMTP de la boîte n'est pas configuré (Administration > Boîtes)".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: Refus::SmtpAbsent,
+            message: "le serveur SMTP de la boîte n'est pas configuré".into(),
+        });
     }
     let mut tx = etat.pool.begin().await?;
     let n = sqlx::query!(
@@ -570,11 +591,13 @@ pub async fn envoyer_brouillon(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Marque {
     id: i64,
     adresse: Option<String>,
     domaine: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     cree_le: time::OffsetDateTime,
     cree_par: Option<String>,
 }
@@ -593,6 +616,7 @@ pub async fn marques(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct EntreeMarque {
     mail_id: i64,
     /// `adresse` ou `domaine`.
@@ -600,6 +624,7 @@ pub struct EntreeMarque {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct MarqueCreee {
     reclasses: u64,
 }

@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select document_id, reference, designation, quantite, unite,\n                prix_unitaire_ht as prix, montant_ht as montant, gencod, colis, pcb,\n                deee_ht, ecomob_ht\n         from ligne_document where document_id = any($1) order by document_id, rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "reference",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "reference"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "designation",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "designation"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "quantite",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "quantite"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "unite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "unite"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "prix",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "prix_unitaire_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "montant",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "montant_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "gencod",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "gencod"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "colis",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "colis"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "pcb",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "pcb"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "deee_ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "deee_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "ecomob_ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "ecomob_ht"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "855dfd1c10c3b6f9b028af451f9d048553108433d9435307c28bf5d4cb88971a"
+}

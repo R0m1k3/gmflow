@@ -4,6 +4,8 @@ use quick_xml::Reader;
 use quick_xml::events::Event;
 use serde::Serialize;
 
+use crate::montant::Decimal;
+
 use super::extraction::{LIGNES_MAX, Ligne, lignes_utiles, numeros_utiles};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
@@ -25,13 +27,13 @@ pub struct DonneesXml {
     pub echeance: Option<String>,
     pub vendeur: Partie,
     pub acheteur: Partie,
-    pub montant_ht: Option<f64>,
-    pub montant_tva: Option<f64>,
-    pub montant_ttc: Option<f64>,
+    pub montant_ht: Option<Decimal>,
+    pub montant_tva: Option<Decimal>,
+    pub montant_ttc: Option<Decimal>,
     /// Total des remises de pied (`AllowanceTotalAmount`), en positif.
-    pub remise_ht: Option<f64>,
+    pub remise_ht: Option<Decimal>,
     /// Total des frais de pied (`ChargeTotalAmount` : port, éco-participation…).
-    pub annexes_ht: Option<f64>,
+    pub annexes_ht: Option<Decimal>,
     /// Lignes articles (au plus `LIGNES_MAX`).
     pub lignes: Vec<Ligne>,
     /// Numéros des bons de livraison cités (en-tête ou lignes).
@@ -45,7 +47,7 @@ pub struct DonneesXml {
     pub lignes_tronquees: bool,
     /// Quantité de base du prix de chaque ligne (prix pour 100 unités…), dans l'ordre des lignes.
     #[serde(skip)]
-    bases: Vec<Option<f64>>,
+    bases: Vec<Option<Decimal>>,
     /// UBL : identifiant `PartyIdentification/ID` du vendeur et de l'acheteur, gardé comme
     /// SIRET seulement s'il en est un et que `PartyLegalEntity/CompanyID` manque.
     #[serde(skip)]
@@ -65,8 +67,8 @@ fn nom_local(s: &str) -> String {
     }
 }
 
-fn montant(s: &str) -> Option<f64> {
-    s.trim().replace(',', ".").parse().ok()
+fn montant(s: &str) -> Option<Decimal> {
+    crate::montant::depuis_texte(&s.trim().replace(',', "."))
 }
 
 /// AAAAMMJJ (CII, format 102) ou AAAA-MM-JJ (UBL) -> AAAA-MM-JJ.
@@ -94,7 +96,7 @@ fn remplir(champ: &mut Option<String>, v: &str) {
     }
 }
 
-fn remplir_montant(champ: &mut Option<f64>, v: &str) {
+fn remplir_montant(champ: &mut Option<Decimal>, v: &str) {
     if champ.is_none() {
         *champ = montant(v);
     }
@@ -192,11 +194,21 @@ pub fn lire(xml: &[u8]) -> Option<DonneesXml> {
     // Prix pour 100 unités (ou toute autre quantité de base) : ramené à l'unité.
     for (l, b) in d.lignes.iter_mut().zip(std::mem::take(&mut d.bases)) {
         if let (Some(p), Some(b)) = (l.prix_unitaire_ht, b)
-            && b > 0.0
-            && (b - 1.0).abs() > 1e-9
+            && b > Decimal::ZERO
+            && b != Decimal::ONE
         {
-            l.prix_unitaire_ht = Some((p / b * 10_000.0).round() / 10_000.0);
+            l.prix_unitaire_ht = p.checked_div(b);
         }
+    }
+    d.lignes.iter_mut().for_each(Ligne::normaliser);
+    for m in [
+        &mut d.montant_ht,
+        &mut d.montant_tva,
+        &mut d.montant_ttc,
+        &mut d.remise_ht,
+        &mut d.annexes_ht,
+    ] {
+        *m = m.and_then(crate::montant::montant);
     }
     let (sv, sa) = std::mem::take(&mut d.secours);
     for (p, secours) in [(&mut d.vendeur, sv), (&mut d.acheteur, sa)] {

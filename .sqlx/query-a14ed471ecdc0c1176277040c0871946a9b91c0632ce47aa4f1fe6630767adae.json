@@ -1,0 +1,163 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.id, d.type as \"type!\", d.numero, d.date_document, d.numero_commande,\n                          d.montant_ht,\n                  d.remise_ht, d.annexes_ht,\n                  d.fournisseur_id,\n                          fo.nom as \"fournisseur?\", s.raison_sociale as \"societe?\",\n                          p.nom as nom_fichier\n                   from document d\n                   join piece_jointe p on p.id = d.piece_jointe_id\n                   left join fournisseur fo on fo.id = d.fournisseur_id\n                   left join societe s on s.id = d.societe_id\n                   where d.etat = 'lu' and d.type = $1 and d.fournisseur_id = $2 and d.id <> $3\n                     and not exists (select 1 from rapprochement r where not r.rejete\n                                     and ((r.facture_id = $3 and r.bl_id = d.id)\n                                          or (r.bl_id = $3 and r.facture_id = d.id)))\n                     and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                 where mb.mail_id = d.mail_id and ($4::bigint is null or b.societe_id = $4))\n                   order by d.date_document desc nulls last, d.id desc\n                   limit 50",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "type!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_document",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_document"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "numero_commande",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero_commande"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "montant_ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "remise_ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "remise_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "annexes_ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "annexes_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "fournisseur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "nom_fichier",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a14ed471ecdc0c1176277040c0871946a9b91c0632ce47aa4f1fe6630767adae"
+}

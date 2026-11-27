@@ -108,7 +108,7 @@
       let r: Resultats;
       if (!p.q && (p.type === '' || p.type === 'mail')) {
         const l = await api.get<Page<LigneMail>>(`/api/mails${requete({ societe: s, du: p.du, au: p.au })}`);
-        r = { mode: 'derniers', interpretation: null, documents: null, mails: { total: l.total, elements: l.elements.map(versMail) } };
+        r = { mode: 'derniers', interpretation: null, documents: null, mails: { total: l.total ?? l.elements.length, elements: l.elements.map(versMail) } };
       } else {
         const t = await rechercher({ q: p.q, type: p.type, du: p.du, au: p.au, societe: s });
         r = {
@@ -144,7 +144,7 @@
         `/api/mails${requete({ societe: societe.id, du: params.du, au: params.au, page: n })}`
       );
       resultats.mails.elements.push(...l.elements.map(versMail));
-      resultats.mails.total = l.total;
+      if (l.total !== null) resultats.mails.total = l.total;
       pageMails = n;
     } catch (e) {
       erreur = message(e);

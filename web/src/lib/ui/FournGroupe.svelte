@@ -3,7 +3,7 @@
   // Decor10), chacune avec sa fiche et son code BO Phénix. Sur la fiche d'une marque : son groupe.
   // Sur les autres : les marques du groupe, en ajouter, rattacher une fiche existante, répartir.
   import { api, fournisseurs as listerFournisseurs, message, modifierFournisseur } from '#lib/api.ts';
-  import type { Fournisseur, LigneFournisseur, LigneMarque } from '#lib/types.ts';
+  import type { EntreeFournisseur, Fournisseur, LigneFournisseur, LigneMarque, Repartition } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Confirmation from './Confirmation.svelte';
   import Icone from './Icone.svelte';
@@ -62,7 +62,7 @@
         prefixes_codes: prefixes.split(/[\n,;\s]+/).filter(Boolean),
         groupe_id: fiche.id,
         statut: 'valide'
-      });
+      } satisfies EntreeFournisseur);
       info = `« ${nom.trim()} » ajouté au groupe`;
       nom = code = noms = prefixes = '';
       ajoutOuvert = false;
@@ -112,7 +112,7 @@
     info = '';
     enCours = true;
     try {
-      const r = await api.post<{ deplaces: number; restants: number }>(`/api/admin/fournisseurs/${fiche.id}/repartir`, {});
+      const r = await api.post<Repartition>(`/api/admin/fournisseurs/${fiche.id}/repartir`, {});
       info =
         `${r.deplaces} document${r.deplaces > 1 ? 's' : ''} rangé${r.deplaces > 1 ? 's' : ''} chez sa marque` +
         (r.restants ? ` ; ${r.restants} sans marque reconnue restent ici` : '');

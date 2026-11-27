@@ -113,9 +113,9 @@ pub async fn exemples(
         r#"with racine as (select coalesce(groupe_id, id) as id from fournisseur where id = $1)
            select d.id, d.type as "type!", d.numero, d.date_document::text as date,
                   d.date_echeance::text as echeance, d.numero_commande,
-                  d.montant_ht::float8 as ht, d.montant_tva::float8 as tva,
-                  d.montant_ttc::float8 as ttc, d.remise_ht::float8 as remise_ht,
-                  d.remise_taux::float8 as remise_taux, d.annexes_ht::float8 as annexes_ht,
+                  d.montant_ht as ht, d.montant_tva as tva,
+                  d.montant_ttc as ttc, d.remise_ht,
+                  d.remise_taux, d.annexes_ht,
                   d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva,
                   d.fournisseur_groupe, d.fournisseur_entite, d.numeros_bl,
                   d.fournisseur_id = $1 as "meme_fiche!"
@@ -136,10 +136,10 @@ pub async fn exemples(
     .await?;
     if let Some(e) = ex {
         let lignes = sqlx::query!(
-            r#"select reference, designation, quantite::float8 as quantite, unite,
-                      prix_unitaire_ht::float8 as pu, montant_ht::float8 as montant, gencod,
-                      colis::float8 as colis, pcb::float8 as pcb,
-                      remise_taux::float8 as remise_taux, taux_tva::float8 as taux_tva
+            r#"select reference, designation, quantite, unite,
+                      prix_unitaire_ht as pu, montant_ht as montant, gencod,
+                      colis, pcb,
+                      remise_taux, taux_tva
                from ligne_document where document_id = $1 order by rang limit $2"#,
             e.id,
             apprentissage::EXEMPLE_LIGNES as i64

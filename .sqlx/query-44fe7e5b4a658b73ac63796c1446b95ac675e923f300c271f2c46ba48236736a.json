@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.id, d.montant_ht as ht, d.montant_tva as tva,\n                  d.montant_ttc as ttc\n           from document d\n           where d.etat = 'lu' and d.type = 'bl'\n             and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)\n             and not coalesce((d.confiance->>'lignes_tronquees')::boolean, false)\n             and exists (select 1 from ligne_document l where l.document_id = d.id)\n             and not exists (select 1 from ligne_document l where l.document_id = d.id\n                             and l.montant_ht is null and l.prix_unitaire_ht is null)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "tva",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_tva"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ttc",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ttc"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "44fe7e5b4a658b73ac63796c1446b95ac675e923f300c271f2c46ba48236736a"
+}

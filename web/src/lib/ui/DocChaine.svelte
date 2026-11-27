@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { DetailRapprochement, DocRap, FicheDocument } from '#lib/types.ts';
+  import type { DetailRapprochement, DocRap, FicheDocument, Ignore, NouveauLien } from '#lib/types.ts';
   /** Point d'état d'un maillon : vert, ambre ou creux. */
   export type PointChaine = 'ok' | 'alerte' | 'creux';
   /** Facture liée à un BL, lue par ses deux routes (null : lecture en échec). */
@@ -86,7 +86,7 @@
 
   function lier(c: DocRap) {
     const [facture_id, bl_id] = facture ? [d.id, c.id] : [c.id, d.id];
-    void faire(c.id, () => api.post('/api/rapprochement', { facture_id, bl_id }), `${facture ? 'BL' : 'Facture'} ${c.numero ?? c.nom_fichier} lié${facture ? '' : 'e'}`);
+    void faire(c.id, () => api.post('/api/rapprochement', { facture_id, bl_id } satisfies NouveauLien), `${facture ? 'BL' : 'Facture'} ${c.numero ?? c.nom_fichier} lié${facture ? '' : 'e'}`);
   }
   function delier(lienId: number, autre: DocRap) {
     void faire(lienId, () => api.del(`/api/rapprochement/${lienId}`), `Lien avec ${autre.numero ?? autre.nom_fichier} défait`);
@@ -94,7 +94,7 @@
   function basculer() {
     if (!rap) return;
     const ignore = !rap.ignore;
-    void faire('ignore', () => api.post(`/api/documents/${d.id}/rapprochement-ignore`, { ignore }), ignore ? 'Document sorti du rapprochement' : 'Document remis dans le rapprochement');
+    void faire('ignore', () => api.post(`/api/documents/${d.id}/rapprochement-ignore`, { ignore } satisfies Ignore), ignore ? 'Document sorti du rapprochement' : 'Document remis dans le rapprochement');
   }
 
   /** Pourquoi ce candidat est proposé. */

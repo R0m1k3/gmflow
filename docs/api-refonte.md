@@ -1,11 +1,12 @@
 # API de la refonte de l'interface (direction B)
 
-Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md` §5). Rien n'a été retiré : les anciennes routes marchent comme avant. Les types TypeScript sont dans `web/src/lib/types.ts` (section « Refonte »), et les fonctions d'appel dans `web/src/lib/api.ts` (`aTraiter`, `validerDocument`, `ecarterDocument`, `urlApercu`, `fournisseurs`, `filFournisseur`, `rechercher`, `bilanMois`, `miseEnRoute`, `essayerBoite`, `essayerSmtp`, `lireEssai`, `attendreEssai`, `modifierFournisseur`, `lireBoite`, `creerBoite`).
+Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md` §5). Rien n'a été retiré : les anciennes routes marchent comme avant. Les types TypeScript sont générés depuis les structures Rust dans `web/src/lib/api-types/` (`scripts/types-ts.sh`, repris par `web/src/lib/types.ts`), et les fonctions d'appel dans `web/src/lib/api.ts` (`aTraiter`, `validerDocument`, `ecarterDocument`, `urlApercu`, `fournisseurs`, `filFournisseur`, `rechercher`, `bilanMois`, `miseEnRoute`, `essayerBoite`, `essayerSmtp`, `lireEssai`, `attendreEssai`, `modifierFournisseur`, `lireBoite`, `creerBoite`).
 
 ## Règles communes
 
 - Session obligatoire (cookie `gmflow`), sinon `401 {"erreur": "non connecté"}`. Toute mutation exige l'en-tête `X-GMFlow: 1` (`api.ts` le pose), sinon `403`.
-- Erreurs : `{"erreur": "phrase"}` avec `400` (entrée invalide), `403` (droit manquant), `404` (absent ou hors périmètre), `409` (refus métier). Certains `409` ajoutent un `code` stable : `{"erreur": "...", "code": "doublon"}`. Dans le front, `ErreurApi.raison` porte ce code. Certains `400` disent le champ en faute : `{"erreur": "...", "champ": "siret"}` (`ErreurApi.champ`), le formulaire affiche le message sous ce champ.
+- Erreurs : `{"erreur": "phrase", "code": "…"}` avec `400` (entrée invalide), `401`, `403` (droit manquant), `404` (absent ou hors périmètre), `409` (refus métier), `429`, `500`. **Chaque** erreur a un `code` stable (`crates/gmflow-app/src/erreur.rs`) : `donnees`, `champ`, `non_connecte`, `interdit`, `absent`, `conflit`, `trop_d_essais`, `interne`, ou le code d'un refus métier (`erreur::Refus` : `doublon`, `expedition`, `sans_adresse`, `smtp_absent`, `serveur_magasin_absent`, `logiflow_absent`, `essai`, `deja_envoye`, `erreur_envoi`, `etat`, `alertes`, `decoupe`). La liste est générée pour le front (`CodeErreur`, corps `CorpsErreur`) ; chaque code doit avoir sa traduction (typage de `PAR_CODE`, tests `erreurs.test.ts` et `chaque_code_a_sa_traduction`). Les fichiers (exports Excel) se téléchargent par `telecharger` d'`api.ts`, pas par un lien `download` : un refus s'affiche au lieu d'être enregistré comme fichier. Dans le front, `ErreurApi.raison` porte ce code, traduit par `web/src/lib/erreurs.ts` en message simple + « que faire » + bouton (jamais la phrase du serveur pour un code connu). Certains `400` disent le champ en faute : `{"erreur": "...", "code": "champ", "champ": "siret"}` (`ErreurApi.champ`), le formulaire affiche le message sous ce champ.
+- Listes paginées (`GET /api/documents`, `/api/mails`, `/api/fournisseurs`) : `{"total", "page", "elements", "suivante"}`, 50 par page. `total` n'est compté qu'en page 1 (`null` ensuite, le client garde le premier) ; `suivante` dit s'il reste une page (lue avec une ligne de plus, sans `count(*)`). Tri `?tri=&sens=asc|desc` par liste blanche (`400`, `champ` `tri` ou `sens`, sinon) : documents `recu` (défaut), `date`, `echeance`, `fournisseur`, `numero`, `montant` ; mails `date` (défaut), `expediteur`, `objet` ; fournisseurs : `TRI_FOURNISSEURS` de `routes/fournisseurs.rs`. La recherche `q` passe par les index trigrammes (migration 0029). Documents, filtres en plus : `sans_facture=N` (BL lus sans facture rapprochée ni écartés, reçus depuis N jours ou plus), `echeance=N` (factures dues dans N jours ou moins, dépassées comprises).
 - Dates : `AAAA-MM-JJ` ; instants : RFC 3339 (UTC). Montants : nombres en euros (2 décimales).
 - **Périmètre d'un responsable** (rôle non admin) : il voit les documents et mails reçus par une boîte de sa société. Pour les documents, s'y ajoute : rangés dans sa société ou pas encore rangés (`societe_id` nul). Un document de sa boîte rangé dans une autre société ne lui apparaît pas dans À traiter, la recherche, le fil fournisseur ni le bilan, et `valider` ou `ecarter` lui répondent `403`. Les fiches existantes (`GET /api/documents/{id}`, pièces) suivent toujours la règle du mail : visibles si le mail est visible. Fournisseurs : voir §4.
 - **`?societe=ID`** (filtre « société choisie ») : un document compte pour la société où il est rangé ; s'il n'est pas encore rangé, il compte pour la société d'une boîte qui l'a reçu. Un mail compte pour la société de ses boîtes. Pour un responsable, ce filtre s'ajoute à son périmètre : une autre société ne rend rien (pas d'erreur), comme les endpoints existants.
@@ -52,7 +53,7 @@ Champs de `Bloque` : `genre`, `document_id`, `boite_id`, `libelle` (boîte, ou n
 - pas encore vérifiés ;
 - ou, pour une facture ou un avoir, vérifiés mais jamais validés pour l'envoi (`valide_le` nul, `statut_depot` `a_verifier` ou `pret`) : c'est le cas d'une vérification faite avec l'ancienne interface.
 
-Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisseur identifié), puis du plus ancien au plus récent (date du mail), puis par id.
+Tri par urgence, champ `rang` : 1 facture due dans 7 jours ou moins (`JOURS_ECHEANCE`, échéance dépassée comprise ; l'échéance la plus proche d'abord), 2 validable d'un clic (ni alerte ni écart d'articles avec un BL), 3 à corriger (contrôle en échec, BL sans fournisseur identifié, ou écart d'articles avec un BL). Dans les rangs 2 et 3, du plus ancien au plus récent (date du mail), puis par id. `date_echeance` est donnée sur chaque ligne.
 
 ```json
 {
@@ -61,7 +62,7 @@ Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisse
   "numero": "F-2026-118", "societe_id": 1, "societe": "Frouard",
   "date_document": "2026-11-18", "recu_le": "2026-11-18T09:12:00Z", "montant_ttc": 1250.4,
   "alerte": "HT + TVA donnent 1 250,00 €, le TTC lu est 1 250,40 €", "alerte_code": "montants", "nb_alertes": 1,
-  "statut_depot": "a_verifier", "verifie": false
+  "statut_depot": "a_verifier", "verifie": false, "date_echeance": "2026-12-01", "rang": 3
 }
 ```
 
@@ -82,6 +83,8 @@ Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisse
 ### `GET /api/a-traiter/compteurs?societe=`
 
 `{"bloque": 5, "a_valider": 6, "a_repondre": 2, "total": 13}` : mêmes règles que la file (les tests vérifient l'égalité), en quelques requêtes `count`. Sert au badge du menu ; `bloque` sert à la pastille d'état des admins (« Tout fonctionne » si 0). Remplace le double appel à `/api/tableau-de-bord`.
+
+`GET /api/tableau-de-bord?societe=` ajoute `travail` pour l'accueil : `{"factures_ttc", "echeances", "jours_echeance": 7, "bl_sans_facture", "jours_bl_sans_facture": 7}` (montant TTC des factures à contrôler, factures à contrôler dues sous 7 jours, BL sans facture depuis 7 jours ; même périmètre que la file).
 
 ## 3. Valider en un appel
 
@@ -149,9 +152,26 @@ Pas demandé au §5 mais nécessaire au parcours A.5 : sans lui, un doublon rest
 
 Réponse : même forme que `valider` (`envoi: false`).
 
+Motif (audit U23) : corps facultatif `{"motif": "doublon" | "pas_pour_nous" | "publicite" | "autre", "texte": "…"}` (`400` sur un motif inconnu, texte coupé à 500 caractères). Il est gardé dans `document.ecartement` (avec qui et quand, montré par la fiche) et dans le détail du journal (`motif`, `texte`). L'interface le demande toujours dans le dialogue « Écarter » (fiche, accueil, lot) ; à l'accueil, « Écarter » d'un doublon bloqué envoie `doublon`, d'un illisible `autre` + « Document illisible » (un clic, sans dialogue).
+
+### `POST /api/documents/lot/ecarter` (audit U23)
+
+Corps `{"ids": [12, 13], "motif": "pas_pour_nous", "texte": null}` : motif obligatoire (`400 {"champ": "motif"}`), 100 pièces au plus. Chaque pièce passe par `ecarter` (mêmes droits, mêmes refus, même journal). Réponse `{"ecartees": 2, "laissees": 1, "pieces": [{"id", "ecartee", "raison"}]}` ; une pièce hors du périmètre est laissée avec `raison: "Introuvable"`. Bouton « Écarter N pièces » de la barre de validation par lot.
+
+### Notes internes (audit U23, `routes/notes.rs`, table `note_interne`)
+
+- `GET /api/documents/{id}/notes` : `[{"id", "auteur_id", "auteur_nom", "texte", "cree_le", "supprimable"}]`, la plus récente d'abord ; `supprimable` : l'utilisateur en est l'auteur, ou il est admin.
+- `POST /api/documents/{id}/notes` `{"texte": "…"}` → `201` et la note (1 à 2 000 caractères après nettoyage, sinon `400 {"champ": "texte"}`). Journal `note_ajoutee` (`note_id`, `texte`).
+- `DELETE /api/notes/{id}` → `204` ; auteur ou admin (`403` sinon). Journal `note_supprimee` (`note_id`, `auteur_id`, `texte`).
+- Droits : tout utilisateur qui voit la pièce (même règle que la fiche, `404` sinon).
+- Jamais envoyées à l'extérieur : aucun code de dépôt Dext/Yooz ni de réponse aux fournisseurs ne lit `note_interne` (test `gmflow-worker/tests/notes_internes.rs`). Effacées par la réinitialisation, avec les documents.
+- `GET /api/documents` : chaque ligne a `notes` (nombre) et `derniere_note` (140 premiers caractères de la plus récente) : pastille « Note » des listes, début de la note au survol.
+
 ## 3 bis. Fiche document (`GET /api/documents/{id}`, route existante, enrichie)
 
 Ajouts :
+
+- `historique` : corrections à la main des champs, de la plus ancienne à la plus récente, lues dans le journal (`correction`) : `[{"champ": "montant_ttc", "avant": 120.5, "apres": 125.5, "par": "marie", "quand": "2026-11-25T10:18:00Z"}]` (`par` nul : compte supprimé). La fiche en tire l'origine de chaque valeur (`web/src/lib/origine.ts` : lue sûre, lue avec doute, corrigée par X le …, calculée).
 
 ```json
 { "recu_le": "2026-11-18T09:12:00Z", "envoi_relance": false,
@@ -380,6 +400,15 @@ Essai SMTP (envoi des réponses) d'une boîte enregistrée : connexion et authen
 - `bl_en_attente` : par société et fournisseur, BL datés du mois sans facture rapprochée (ni écartés), même règle.
 - `bl_sans_lignes` : BL lus avant le rapprochement, sans leurs lignes (tout l'historique, même règle) : le front n'a plus à appeler `/api/rapprochement` pour ce nombre.
 - `qualite` (partie repliée) : `GET /api/documents/bilan` et `GET /api/tri/semaines` tels quels (périmètre appliqué, mais pas `?societe=` ni `mois`).
+
+### `GET /api/bilan/export?mois=AAAA-MM&societe=` (audit U16)
+
+Le même bilan en classeur Excel (`gmflow_core::export_bilan`, rust_xlsxwriter), nommé `bilan-<société ou toutes>-<AAAA-MM>.xlsx` (société : raison sociale sans accent ni signe, `toutes` pour un admin sans `?societe=`). Mêmes filtres et mêmes droits que `GET /api/bilan` ; un responsable qui demande une autre société reçoit `403`. Trois feuilles, titre et sous-titre puis en-têtes figés (ligne 4, répétée à l'impression, A4 paysage sur une page de large) :
+- « Synthèse » : une ligne par société de `societes` (« Pas encore rangée » pour la ligne nulle) : reçues, envoyées, à contrôler (`pretes + a_verifier`), échecs d'envoi, doublons, montant envoyé TTC ; puis le total (des nombres, pas des formules) ;
+- « Détail » : une ligne par facture ou avoir compté dans la synthèse (doublons compris) : date (du document, à défaut du mail), société, fournisseur, type, numéro, HT, TVA, TTC (avoirs en négatif), échéance, état (« À contrôler », « Validée », « Envoi en cours », « Envoyée à Dext », « Échec d'envoi », « Doublon »), date et heure (Paris) du dernier envoi réussi en compta ; filtre automatique ;
+- « BL en attente » : `bl_en_attente` (société, fournisseur, nombre de BL) et le total.
+
+Montants en cellules numériques au format monétaire, dates en vraies dates Excel.
 
 ## 8. Fiche mail et réponses (routes existantes, enrichies)
 

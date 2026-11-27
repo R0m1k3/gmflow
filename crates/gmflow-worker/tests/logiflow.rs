@@ -14,6 +14,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, patch};
 use commun::Banc;
+use gmflow_core::montant::{Decimal, dec};
 use gmflow_core::{logiflow, parametre};
 use serde_json::{Value, json};
 
@@ -420,8 +421,8 @@ async fn verification_reguliere() {
     let livraison = |id: i64| {
         let pool = b.pool().clone();
         async move {
-            sqlx::query_as::<_, (String, Option<i64>, Option<f64>)>(
-                "select etat, livraison_id, montant_bl::float8 from logiflow_livraison where bl_id = $1",
+            sqlx::query_as::<_, (String, Option<i64>, Option<Decimal>)>(
+                "select etat, livraison_id, montant_bl from logiflow_livraison where bl_id = $1",
             )
             .bind(id)
             .fetch_optional(&pool)
@@ -435,7 +436,7 @@ async fn verification_reguliere() {
     );
     assert_eq!(
         livraison(bl401).await,
-        Some(("trouve".into(), Some(5), Some(60.0)))
+        Some(("trouve".into(), Some(5), Some(dec!(60))))
     );
     assert_eq!(livraison(bl777).await, None);
 

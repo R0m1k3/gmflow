@@ -9,6 +9,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use gmflow_core::controles::SEUIL_ECART;
+use gmflow_core::montant::Decimal;
 use gmflow_core::rapprochement::{self as rap, ErreurLien};
 use gmflow_core::{file, journal};
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,8 @@ use super::mails::date;
 use crate::acces::{Acces, AccesAdmin};
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 
@@ -36,18 +39,24 @@ pub struct Filtres {
 }
 
 #[derive(Serialize, Clone, sqlx::FromRow)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct DocRap {
     id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "v::TypeDocument"))]
     r#type: String,
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
-    montant_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ht: Option<Decimal>,
     /// Remise HT déduite sur la facture : explique l'écart avec les BL.
-    remise_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    remise_ht: Option<Decimal>,
     /// Éco-participation, port… compris dans le HT de la facture, jamais sur un BL.
-    annexes_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    annexes_ht: Option<Decimal>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
     societe: Option<String>,
@@ -55,24 +64,31 @@ pub struct DocRap {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BlLie {
     lien_id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "v::MethodeRapprochement"))]
     methode: String,
     #[serde(flatten)]
     bl: DocRap,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Rapproche {
     facture: DocRap,
     bls: Vec<BlLie>,
-    ecart_montant: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    ecart_montant: Option<Decimal>,
     /// Éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes).
-    eco_bl: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    eco_bl: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Vec<gmflow_core::rapprochement::EcartLigne>"))]
     ecarts: Value,
 }
 
 #[derive(Serialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResumeFournisseur {
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
@@ -84,7 +100,8 @@ pub struct ResumeFournisseur {
 }
 
 #[derive(Serialize)]
-pub struct Vue {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct VueRapprochement {
     pub(crate) resume: Vec<ResumeFournisseur>,
     pub(crate) bl_sans_facture: Vec<DocRap>,
     pub(crate) factures_sans_bl: Vec<DocRap>,
@@ -101,12 +118,12 @@ struct Lien {
     facture_id: i64,
     bl_id: i64,
     methode: String,
-    ecart_montant: Option<f64>,
-    eco_bl: Option<f64>,
+    ecart_montant: Option<Decimal>,
+    eco_bl: Option<Decimal>,
     ecarts: Value,
 }
 
-fn avec_ecart(ecart: Option<f64>, eco_bl: Option<f64>, ecarts: &Value, f: &DocRap) -> bool {
+fn avec_ecart(ecart: Option<Decimal>, eco_bl: Option<Decimal>, ecarts: &Value, f: &DocRap) -> bool {
     ecart.is_some_and(|e| {
         e.abs() > SEUIL_ECART && !rap::ecart_explique(e, f.remise_ht, f.annexes_ht, eco_bl)
     }) || ecarts.as_array().is_some_and(|a| !a.is_empty())
@@ -117,13 +134,13 @@ pub async fn vue(
     acces: Acces,
     State(etat): State<Etat>,
     Query(f): Query<Filtres>,
-) -> Resultat<Json<Vue>> {
+) -> Resultat<Json<VueRapprochement>> {
     let (du, au) = (date(&f.du)?, date(&f.au)?);
     let docs = sqlx::query_as!(
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                  d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                  d.montant_ht,
+                  d.remise_ht, d.annexes_ht,
                   d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d
@@ -158,8 +175,8 @@ pub async fn vue(
     let ids: Vec<i64> = docs.iter().map(|d| d.id).collect();
     let liens: Vec<Lien> = sqlx::query_as!(
         Lien,
-        "select id, facture_id, bl_id, methode, ecart_montant::float8 as ecart_montant,
-                eco_bl::float8 as eco_bl, ecarts
+        "select id, facture_id, bl_id, methode, ecart_montant,
+                eco_bl, ecarts
          from rapprochement where not rejete and (facture_id = any($1) or bl_id = any($1))
          order by facture_id, bl_id",
         &ids
@@ -261,7 +278,7 @@ pub async fn vue(
     factures_sans_bl.truncate(LISTE_MAX);
     avec.truncate(LISTE_MAX);
     sans.truncate(LISTE_MAX);
-    Ok(Json(Vue {
+    Ok(Json(VueRapprochement {
         resume: resume.into_values().collect(),
         bl_sans_facture,
         factures_sans_bl,
@@ -273,30 +290,40 @@ pub async fn vue(
 }
 
 #[derive(Serialize, sqlx::FromRow)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneVue {
     rang: i32,
     reference: Option<String>,
     designation: Option<String>,
-    quantite: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    quantite: Option<Decimal>,
     unite: Option<String>,
-    prix_unitaire_ht: Option<f64>,
-    montant_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    prix_unitaire_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ht: Option<Decimal>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LienVue {
     id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "v::MethodeRapprochement"))]
     methode: String,
-    ecart_montant: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    ecart_montant: Option<Decimal>,
     /// Éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes).
-    eco_bl: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    eco_bl: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Vec<gmflow_core::rapprochement::EcartLigne>"))]
     ecarts: Value,
     auteur: Option<String>,
     autre: DocRap,
 }
 
 #[derive(Serialize)]
-pub struct Detail {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct DetailRapprochement {
     lignes: Vec<LigneVue>,
     lignes_lues: bool,
     numeros_bl: Vec<String>,
@@ -311,7 +338,7 @@ pub async fn detail(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<Detail>> {
+) -> Resultat<Json<DetailRapprochement>> {
     controler_visible(&etat, &acces, id).await?;
     let d = sqlx::query!(
         "select type, fournisseur_id, lignes_lues, numeros_bl, rapprochement_ignore
@@ -322,16 +349,16 @@ pub async fn detail(
     .await?;
     let lignes = sqlx::query_as!(
         LigneVue,
-        "select rang, reference, designation, quantite::float8 as quantite, unite,
-                prix_unitaire_ht::float8 as prix_unitaire_ht, montant_ht::float8 as montant_ht
+        "select rang, reference, designation, quantite, unite,
+                prix_unitaire_ht, montant_ht
          from ligne_document where document_id = $1 order by rang",
         id
     )
     .fetch_all(&etat.pool)
     .await?;
     let lignes_liens = sqlx::query!(
-        r#"select r.id, r.methode, r.ecart_montant::float8 as ecart_montant,
-                  r.eco_bl::float8 as eco_bl, r.ecarts,
+        r#"select r.id, r.methode, r.ecart_montant,
+                  r.eco_bl, r.ecarts,
                   u.identifiant as "auteur?",
                   case when r.facture_id = $1 then r.bl_id else r.facture_id end as "autre!"
            from rapprochement r left join utilisateur u on u.id = r.auteur_id
@@ -367,8 +394,8 @@ pub async fn detail(
             sqlx::query_as!(
                 DocRap,
                 r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                          d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                          d.montant_ht,
+                  d.remise_ht, d.annexes_ht,
                   d.fournisseur_id,
                           fo.nom as "fournisseur?", s.raison_sociale as "societe?",
                           p.nom as nom_fichier
@@ -394,7 +421,7 @@ pub async fn detail(
         }
         _ => Vec::new(),
     };
-    Ok(Json(Detail {
+    Ok(Json(DetailRapprochement {
         lignes,
         lignes_lues: d.lignes_lues,
         numeros_bl: d.numeros_bl,
@@ -409,8 +436,8 @@ async fn documents(etat: &Etat, acces: &Acces, ids: &[i64]) -> Resultat<Vec<DocR
     Ok(sqlx::query_as!(
         DocRap,
         r#"select d.id, d.type as "type!", d.numero, d.date_document, d.numero_commande,
-                  d.montant_ht::float8 as montant_ht,
-                  d.remise_ht::float8 as remise_ht, d.annexes_ht::float8 as annexes_ht,
+                  d.montant_ht,
+                  d.remise_ht, d.annexes_ht,
                   d.fournisseur_id, fo.nom as "fournisseur?",
                   s.raison_sociale as "societe?", p.nom as nom_fichier
            from document d
@@ -436,6 +463,7 @@ fn erreur_lien(e: ErreurLien) -> ErreurApi {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct NouveauLien {
     facture_id: i64,
     bl_id: i64,
@@ -495,6 +523,7 @@ pub async fn delier(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Ignore {
     ignore: bool,
 }
@@ -525,6 +554,7 @@ pub async fn ignorer(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Relectures {
     n: usize,
 }

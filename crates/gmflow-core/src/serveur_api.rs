@@ -27,6 +27,7 @@ pub const SYNCHRO_HEURES: i32 = 12;
 const PAGE: usize = 5000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ServeurApi {
     pub adresse: String,
     /// 4 derniers caractères du jeton, pour le reconnaître.
@@ -254,6 +255,11 @@ pub async fn enregistrer(pool: &PgPool, liste: &[FournisseurMagasin]) -> sqlx::R
 // ---------- Codes proposés pour une fiche ----------
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, rename = "SuggestionCode")
+)]
 pub struct Suggestion {
     pub code: String,
     pub nom: Option<String>,

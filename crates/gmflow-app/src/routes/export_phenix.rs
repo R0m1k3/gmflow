@@ -13,21 +13,24 @@ use time::OffsetDateTime;
 use super::documents::controler_visible;
 use super::fichiers::{CSP_TELECHARGEMENT, disposition};
 use crate::acces::Acces;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
-pub struct Fichier {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct FichierExport {
     pub rangees: usize,
     pub alertes: Vec<Alerte>,
 }
 
 #[derive(Serialize)]
-pub struct EtatExport {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct EtatExportPhenix {
     /// Serveur du magasin configuré : sans lui, ni lots détaillés ni codes article.
     pub serveur: bool,
     pub en_cours: bool,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     pub verifie_le: Option<OffsetDateTime>,
     pub erreur: Option<String>,
     /// Les fichiers peuvent être téléchargés (recherche faite sans erreur, ou pas de serveur).
@@ -43,8 +46,8 @@ pub struct EtatExport {
     pub composants: usize,
     /// Aucun gencod ni colisage lu : BL lu avant l'export, à relire.
     pub a_relire: bool,
-    pub matrice: Fichier,
-    pub trame: Fichier,
+    pub matrice: FichierExport,
+    pub trame: FichierExport,
 }
 
 struct Donnees {
@@ -53,11 +56,11 @@ struct Donnees {
     lignes: Vec<LigneBl>,
     code: Option<String>,
     colonnes: Colonnes,
-    etat: EtatExport,
+    etat: EtatExportPhenix,
 }
 
-fn fichier(e: &Export) -> Fichier {
-    Fichier {
+fn fichier(e: &Export) -> FichierExport {
+    FichierExport {
         rangees: e.rangees.len(),
         alertes: e.alertes.clone(),
     }
@@ -120,7 +123,7 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<Donnees> {
         && lignes
             .iter()
             .all(|l| l.gencod.is_none() && l.pcb.is_none() && l.colis.is_none());
-    let etat_export = EtatExport {
+    let etat_export = EtatExportPhenix {
         serveur,
         en_cours,
         verifie_le: d.magasin_verifie_le,
@@ -161,7 +164,7 @@ pub async fn etat(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<EtatExport>> {
+) -> Resultat<Json<EtatExportPhenix>> {
     Ok(Json(charger(&etat, &acces, id).await?.etat))
 }
 
@@ -176,9 +179,10 @@ pub async fn verifier(
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Donnees(
-            "serveur du magasin non configuré (Réglages > Serveur du magasin)".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: Refus::ServeurMagasinAbsent,
+            message: "serveur du magasin non configuré".into(),
+        });
     }
     articles_magasin::demander(&etat.pool, id)
         .await
@@ -212,7 +216,7 @@ fn nom(modele: &str, d: &Donnees) -> String {
     format!("{}.xlsx", n.trim())
 }
 
-fn telecharger(nom: String, octets: Vec<u8>) -> Response {
+pub(crate) fn telecharger(nom: String, octets: Vec<u8>) -> Response {
     (
         [
             (

@@ -17,31 +17,39 @@ use time::OffsetDateTime;
 use crate::acces::AccesAdmin;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Traitements {
     /// Le worker tourne-t-il (l'orchestre a écrit son état il y a moins de 3 minutes) ?
     service: Service,
     /// Pourquoi Claude ne lit pas en ce moment (jeton, refus, quota), sinon rien.
     claude: Option<String>,
-    etapes: Vec<Etape>,
+    etapes: Vec<EtapeTraitement>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Service {
     en_marche: bool,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     vu_le: Option<OffsetDateTime>,
     /// Files hors étapes (connexion Claude, rédaction des réponses) arrêtées.
     autres_arretees: Vec<&'static str>,
 }
 
 #[derive(Serialize)]
-pub struct Etape {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct EtapeTraitement {
+    #[cfg_attr(feature = "ts", ts(as = "v::CleEtapeTraitement"))]
     cle: &'static str,
     nom: &'static str,
     /// `ok`, `en_retard`, `bloque` (elle ne peut pas avancer et du travail attend) ou
     /// `arrete` (sa file ne bat plus).
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatTraitement"))]
     etat: &'static str,
     /// Une phrase qui résume l'étape.
     resume: String,
@@ -50,6 +58,7 @@ pub struct Etape {
     en_attente: i64,
     plus_vieille: Option<PlusVieille>,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     dernier_passage: Option<OffsetDateTime>,
     file: FileEtat,
     /// Relance demandée, pas encore prise par le worker.
@@ -57,16 +66,20 @@ pub struct Etape {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct PlusVieille {
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     depuis: OffsetDateTime,
     raison: String,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct FileEtat {
     nom: &'static str,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     battement: Option<OffsetDateTime>,
     vivante: bool,
 }
@@ -144,7 +157,7 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<T
     }))
 }
 
-async fn releve(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Etape> {
+async fn releve(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<EtapeTraitement> {
     let boites = sqlx::query!(
         r#"select libelle, pause_auto, derniere_releve, derniere_erreur, erreur_depuis
            from boite_mail where active order by id"#
@@ -195,7 +208,7 @@ async fn releve(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Et
             pluriel(en_retard, "boîte", "boîtes")
         )
     };
-    Ok(Etape {
+    Ok(EtapeTraitement {
         cle: "releve",
         nom: "Relève des boîtes mail",
         etat: etat_de(&file, &None, en_retard > 0),
@@ -214,7 +227,7 @@ async fn lecture(
     b: &HashMap<String, OffsetDateTime>,
     r: &reglages::Reglages,
     claude: Option<String>,
-) -> Resultat<Etape> {
+) -> Resultat<EtapeTraitement> {
     let pool = &etat.pool;
     let c = sqlx::query!(
         r#"select count(*) filter (where etat = 'a_lire') as "a_lire!",
@@ -265,7 +278,7 @@ async fn lecture(
             pluriel(a, "document", "documents")
         ),
     };
-    Ok(Etape {
+    Ok(EtapeTraitement {
         cle: "lecture",
         nom: "Lecture des pièces jointes",
         etat: etat_de(&file, &blocage, en_retard),
@@ -283,7 +296,7 @@ async fn tri(
     etat: &Etat,
     b: &HashMap<String, OffsetDateTime>,
     r: &reglages::Reglages,
-) -> Resultat<Etape> {
+) -> Resultat<EtapeTraitement> {
     let pool = &etat.pool;
     let c = sqlx::query!(
         r#"select count(*) filter (where tri_etat in ('a_trier', 'en_cours')) as "en_attente!",
@@ -327,7 +340,7 @@ async fn tri(
     } else {
         format!("{} à trier", pluriel(c.en_attente, "mail", "mails"))
     };
-    Ok(Etape {
+    Ok(EtapeTraitement {
         cle: "tri",
         nom: "Tri des mails",
         etat: etat_de(&file, &blocage, en_retard),
@@ -341,7 +354,10 @@ async fn tri(
     })
 }
 
-async fn rapprochement(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Etape> {
+async fn rapprochement(
+    etat: &Etat,
+    b: &HashMap<String, OffsetDateTime>,
+) -> Resultat<EtapeTraitement> {
     let pool = &etat.pool;
     let c = sqlx::query!(
         r#"select count(*) as "n!", min(d.lu_le) as plus_vieux
@@ -364,7 +380,7 @@ async fn rapprochement(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resu
             pluriel(c.n, "bon de livraison", "bons de livraison")
         )
     };
-    Ok(Etape {
+    Ok(EtapeTraitement {
         cle: "rapprochement",
         nom: "Rapprochement BL et factures",
         etat: etat_de(&file, &None, false),
@@ -381,7 +397,7 @@ async fn rapprochement(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resu
     })
 }
 
-async fn depot(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Etape> {
+async fn depot(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<EtapeTraitement> {
     let pool = &etat.pool;
     let c = sqlx::query!(
         r#"select count(*) filter (where (d.valide_le is not null and d.statut_depot in ('a_verifier', 'pret'))
@@ -435,7 +451,7 @@ async fn depot(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Eta
             pluriel(c.en_erreur, "dépôt en échec", "dépôts en échec")
         ));
     }
-    Ok(Etape {
+    Ok(EtapeTraitement {
         cle: "depot",
         nom: "Dépôt vers Dext ou Yooz",
         etat: etat_de(&file, &blocage, en_retard),
@@ -453,8 +469,10 @@ async fn depot(etat: &Etat, b: &HashMap<String, OffsetDateTime>) -> Resultat<Eta
 }
 
 #[derive(Serialize)]
-pub struct Demande {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct DemandeRelance {
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     demandee_le: OffsetDateTime,
 }
 
@@ -464,7 +482,7 @@ pub async fn relancer(
     AccesAdmin(acces): AccesAdmin,
     State(etat): State<Etat>,
     Path(etape): Path<String>,
-) -> Resultat<(StatusCode, Json<Demande>)> {
+) -> Resultat<(StatusCode, Json<DemandeRelance>)> {
     if !ETAPES.contains(&etape.as_str()) {
         return Err(ErreurApi::Absent);
     }
@@ -478,10 +496,11 @@ pub async fn relancer(
         json!({}),
     )
     .await?;
-    Ok((StatusCode::ACCEPTED, Json(Demande { demandee_le })))
+    Ok((StatusCode::ACCEPTED, Json(DemandeRelance { demandee_le })))
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ToutRelire {
     documents: usize,
 }

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set pris_le = now() where id = $1 and etat = 'en_cours'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dfdf9dfdbcb5430dca737ee0a3760729875614715ba23c9508790659e782e7d9"
+}

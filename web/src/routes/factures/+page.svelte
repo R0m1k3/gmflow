@@ -5,6 +5,8 @@
   const filtres: FiltreDocuments[] = [
     { v: 'toutes', l: 'Toutes', params: { type: 'facture' } },
     { v: 'a-valider', l: 'À contrôler', params: { type: 'facture', verifie: 'non' } },
+    // Accueil : « N à payer dans 7 jours » (échéance dépassée comprise).
+    { v: 'echeance', l: 'Échéance proche', params: { type: 'facture', verifie: 'non', echeance: '7' } },
     { v: 'echec', l: 'Échec d’envoi', params: { type: 'facture', statut_depot: 'erreur' } },
     { v: 'envoyees', l: 'Envoyées', params: { type: 'facture', statut_depot: 'depose' } },
     { v: 'doublons', l: 'Doublons', params: { type: 'facture', statut_depot: 'doublon' } },

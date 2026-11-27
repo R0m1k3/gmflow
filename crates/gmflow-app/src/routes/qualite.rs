@@ -20,7 +20,8 @@ pub struct Filtre {
 }
 
 #[derive(Serialize)]
-pub struct Reponse {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct QualiteLecture {
     mois: String,
     #[serde(flatten)]
     qualite: Qualite,
@@ -30,7 +31,7 @@ pub async fn qualite(
     AccesAdmin(acces): AccesAdmin,
     State(etat): State<Etat>,
     Query(f): Query<Filtre>,
-) -> Resultat<Json<Reponse>> {
+) -> Resultat<Json<QualiteLecture>> {
     let mois = mois_choisi(f.mois.as_deref())?;
     let debut = time::Date::parse(
         &format!("{mois}-01"),
@@ -39,5 +40,5 @@ pub async fn qualite(
     .map_err(|_| ErreurApi::Donnees("mois invalide".into()))?;
     let societe = f.societe.or(acces.societe_filtre());
     let qualite = qualite::mesurer(&etat.pool, debut, societe).await?;
-    Ok(Json(Reponse { mois, qualite }))
+    Ok(Json(QualiteLecture { mois, qualite }))
 }

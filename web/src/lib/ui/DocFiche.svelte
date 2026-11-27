@@ -50,20 +50,7 @@
   } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type {
-    CodeRefus,
-    Controle,
-    CorrectionDocument,
-    DetailRapprochement,
-    EtatLivraisonLogiflow,
-    FicheDocument,
-    ChangementsFournisseur,
-    Fournisseur,
-    LigneFournisseur,
-    MotifEcartement,
-    Page,
-    TypeDocument
-  } from '#lib/types.ts';
+  import type { ChangementsFournisseur, CodeRefus, Controle, CorrectionDocument, DetailRapprochement, EtatLivraisonLogiflow, FicheDocument, Fournisseur, LigneFournisseur, MotifEcartement, Page, Relecture, TypeDocument } from '#lib/types.ts';
   import ApercuPiece from './ApercuPiece.svelte';
   import Bandeau from './Bandeau.svelte';
   import BarreAction, { type Action } from './BarreAction.svelte';
@@ -72,6 +59,7 @@
   import Confirmation from './Confirmation.svelte';
   import DocArticlesBl from './DocArticlesBl.svelte';
   import LignesEdition from './LignesEdition.svelte';
+  import NotesInternes from './NotesInternes.svelte';
   import DocChaine, { type FactureLiee, type PointChaine } from './DocChaine.svelte';
   import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
   import type { EtatExportPhenix } from '#lib/types.ts';
@@ -95,6 +83,9 @@
   import Icone from './Icone.svelte';
   import Kbd from './Kbd.svelte';
   import Montant, { formatMontant } from './Montant.svelte';
+  import { LEGENDE, origineChamp, type ChampFiche } from '#lib/origine.ts';
+  import Origine, { SIGNES } from './Origine.svelte';
+  import { garderAvantDeQuitter } from '#lib/modifications.svelte.ts';
   import Repli from './Repli.svelte';
   import Poignee from './Poignee.svelte';
   import { largeurGardee } from '#lib/largeurs.ts';
@@ -367,6 +358,60 @@
     (Object.keys(VIDE) as (keyof Choix)[]).some((k) => k !== 'fournisseurNom' && choix[k] !== lu[k])
   );
 
+  // ---------- Origine de chaque valeur (U9) : pastille à côté du libellé ----------
+  const CLE_DE: Record<ChampFiche, keyof Choix> = {
+    type: 'type',
+    societe_id: 'societe',
+    fournisseur_id: 'fournisseur',
+    numero: 'numero',
+    date_document: 'date',
+    numero_commande: 'commande',
+    date_echeance: 'echeance',
+    montant_ht: 'ht',
+    montant_tva: 'tva',
+    montant_ttc: 'ttc'
+  };
+  const CONFIANCE_DE: Partial<Record<ChampFiche, CleChamp>> = {
+    type: 'type',
+    societe_id: 'societe',
+    fournisseur_id: 'fournisseur',
+    numero: 'numero',
+    date_document: 'date',
+    montant_ht: 'ht',
+    montant_tva: 'tva',
+    montant_ttc: 'ttc'
+  };
+  /** Champs lus avec doute, même après vérification (l'origine dit alors « vérifiée par X »). */
+  let douteux = $derived(d && d.etat === 'lu' ? champsPeuSurs(d) : new Set<CleChamp>());
+  function origineDe(champ: ChampFiche) {
+    if (!d || d.etat !== 'lu') return null;
+    const k = CLE_DE[champ];
+    const c = CONFIANCE_DE[champ];
+    return origineChamp(
+      champ,
+      {
+        corrections: d.corrections ?? {},
+        historique: d.historique ?? [],
+        confiance: d.confiance,
+        voie: d.voie,
+        verification: d.verifie_le ? { par: d.verifie_par, quand: d.verifie_le } : null
+      },
+      { vide: lu[k] === '' && choix[k] === '', douteuse: !!c && douteux.has(c), modifiee: choix[k] !== lu[k] }
+    );
+  }
+  /** Valeur lisible dans l'historique des corrections. */
+  function formaterCorrection(champ: ChampFiche): (v: unknown) => string {
+    return (v) => {
+      if (v === null || v === undefined || v === '') return 'vide';
+      if (champ.startsWith('montant_')) return formatMontant(Number(v));
+      if (champ.startsWith('date_')) return dateFr(String(v));
+      if (champ === 'type') return libelleType(String(v) as TypeDocument, true);
+      if (champ === 'societe_id') return societe.liste.find((x) => x.id === Number(v))?.raison_sociale ?? `société ${v}`;
+      if (champ === 'fournisseur_id') return Number(v) === d?.fournisseur_id && d?.fournisseur ? d.fournisseur : `fiche n° ${v}`;
+      return String(v);
+    };
+  }
+
   let ht = $derived(lireMontant(choix.ht));
   let tva = $derived(lireMontant(choix.tva));
   let ttc = $derived(lireMontant(choix.ttc));
@@ -400,6 +445,17 @@
   }
 
   let fige = $derived(!d || d.etat !== 'lu' || d.statut_depot === 'en_envoi' || d.statut_depot === 'depose');
+
+  // ---------- Modifications non enregistrées (U13) ----------
+  /** Validée ou écartée : la fiche suivante s'ouvre sans demander (les corrections sont parties avec). */
+  let sortieLibre = false;
+  $effect(() => {
+    void id;
+    sortieLibre = false;
+  });
+  let nonEnregistre = $derived(modifie && !fige && d?.etat === 'lu');
+  garderAvantDeQuitter(() => nonEnregistre && !sortieLibre, ['doc']);
+
   let editable = $derived(!fige && occupe === null);
   let outil = $derived(d?.societe_outil_depot ?? null);
   let deposable = $derived(choix.type === 'facture' || choix.type === 'avoir');
@@ -541,6 +597,7 @@
       void rafraichirCompteurs();
       // Envoi différé côté serveur : message « Annuler » en bas de l'écran, la suite s'ouvre.
       if (r.annulation) annulations.annoncer(r.annulation, quoi, `${quoi} validé${choix.type === 'facture' ? 'e' : ''}`, nomOutil(outil));
+      sortieLibre = true;
       onfait({
         id: d.id,
         suivant: r.suivant,
@@ -574,6 +631,7 @@
     try {
       const r = await ecarterDocument(d.id, societe.id, { motif, texte: texte.trim() || null });
       void rafraichirCompteurs();
+      sortieLibre = true;
       onfait({ id: d.id, suivant: r.suivant, info: `Écarté : ${quoi}` });
     } catch (e) {
       erreur = message(e);
@@ -604,7 +662,7 @@
     if (!d) return;
     erreur = '';
     try {
-      await api.post(`/api/admin/documents/${d.id}/relire`, { approfondie });
+      await api.post(`/api/admin/documents/${d.id}/relire`, { approfondie } satisfies Relecture);
       info = approfondie
         ? 'Relecture en détail demandée (modèle plus fort, PDF entier) : la fiche se met à jour toute seule, compter une à deux minutes.'
         : 'Relecture demandée : la fiche se met à jour toute seule.';
@@ -894,6 +952,20 @@
   {/if}
 {/snippet}
 
+{#snippet marqueDe(champ: ChampFiche, libelle: string)}
+  <Origine origine={origineDe(champ)} {libelle} formater={formaterCorrection(champ)} />
+{/snippet}
+
+{#snippet legendeOrigine()}
+  <p class="legende-origine">
+    <span class="lo-t">Origine des valeurs :</span>
+    {#each LEGENDE.filter((l) => l.genre !== 'modifie' || modifie) as l (l.genre)}
+      <span class="lo-e"><span class="lo-s {l.genre}" aria-hidden="true">{SIGNES[l.genre]}</span>{l.libelle}</span>
+    {/each}
+    <span class="lo-t">Cliquez sur un signe pour voir qui a corrigé quoi.</span>
+  </p>
+{/snippet}
+
 {#snippet proposer(k: 'ht' | 'tva' | 'ttc')}
   {@const v = propositions[k]}
   {#if v !== undefined && editable}
@@ -906,20 +978,24 @@
     <div class="lignes-champs doc-montants">
       {#if estBl && !lu.ht && !lu.tva && !lu.ttc}
         <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable}>
+          {#snippet marque()}{@render marqueDe('montant_ht', 'Total HT')}{/snippet}
           {#snippet affichage()}
             {#if choix.ht === ''}<span class="vide-val">Non lu sur le BL</span>{:else}{@render montantLu(choix.ht)}{/if}
           {/snippet}
         </Champ>
       {:else}
         <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
+          {#snippet marque()}{@render marqueDe('montant_ht', 'Total HT')}{/snippet}
           {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
           {#snippet apres()}{@render proposer('ht')}{/snippet}
         </Champ>
         <Champ disposition="ligne" libelle="TVA" bind:valeur={choix.tva} mono inputmode="decimal" modifiable={editable} aControler={aControler('tva')} indice={tauxTva(ht, tva) || undefined}>
+          {#snippet marque()}{@render marqueDe('montant_tva', 'TVA')}{/snippet}
           {#snippet affichage()}{@render montantLu(choix.tva)}{/snippet}
           {#snippet apres()}{@render proposer('tva')}{/snippet}
         </Champ>
         <Champ disposition="ligne" libelle="TTC" bind:valeur={choix.ttc} mono inputmode="decimal" modifiable={editable} aControler={aControler('ttc')}>
+          {#snippet marque()}{@render marqueDe('montant_ttc', 'TTC')}{/snippet}
           {#snippet affichage()}{@render montantLu(choix.ttc)}{/snippet}
           {#snippet apres()}{@render proposer('ttc')}{/snippet}
         </Champ>
@@ -941,7 +1017,7 @@
       {#if d.societe_adresse_depot}
         <p>Destination : <span class="num">{d.societe_adresse_depot}</span>{d.societe ? `, ${d.societe}` : ''}</p>
       {:else}
-        <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin}{' '}<a href="/reglages#societes">Réglages</a>{/if}</p>
+        <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin}{' '}<a href="/reglages/societes">Réglages</a>{/if}</p>
       {/if}
       {#if d.statut_depot}
         <p><Etiquette ton={tonStatutEnvoi(d.statut_depot)}>{libelleStatutEnvoi(d.statut_depot, outil)}</Etiquette>
@@ -1120,12 +1196,12 @@
           {:else if refus.code === 'expedition'}
             <Bandeau ton="erreur" titre="Envoi impossible.">
               L’adresse d’envoi vers {nomOutil(outil)} n’est pas encore configurée.
-              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages#envoi">Ouvrir les réglages</a>{/if}{/snippet}
+              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages/envoi">Ouvrir les réglages</a>{/if}{/snippet}
             </Bandeau>
           {:else if refus.code === 'sans_adresse'}
             <Bandeau ton="erreur" titre="Envoi impossible.">
               {d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{admin ? '' : ' Un administrateur doit la renseigner.'}
-              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages#societes">Ouvrir les réglages</a>{/if}{/snippet}
+              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages/societes">Ouvrir les réglages</a>{/if}{/snippet}
             </Bandeau>
           {:else}
             <Bandeau ton="erreur">{phrase(refus.message)}</Bandeau>
@@ -1179,13 +1255,13 @@
         {:else if autresAlertes.length && !refus}
           {@const a0 = autresAlertes[0]}
           <Bandeau titre={detailAlerte(a0) ? `${titreAlerte(a0)} :` : `${titreAlerte(a0)}.`}>
-            {#if detailAlerte(a0)}{phrase(detailAlerte(a0))}{/if}{#if a0.code === 'depot' && admin}{' '}<a href="/reglages#societes">Indiquer l’adresse</a>{/if}{#if autresAlertes.length > 1}
+            {#if detailAlerte(a0)}{phrase(detailAlerte(a0))}{/if}{#if a0.code === 'depot' && admin}{' '}<a href="/reglages/societes">Indiquer l’adresse</a>{/if}{#if autresAlertes.length > 1}
               {' '}{autresAlertes.length - 1 === 1 ? 'Une autre alerte' : `${autresAlertes.length - 1} autres alertes`}, surlignée{autresAlertes.length > 2 ? 's' : ''} dans les champs.{/if}
           </Bandeau>
         {/if}
         {#if sansAdresse && !refus}
           <Bandeau titre="À vérifier :">
-            {d.societe ?? 'La société'} n’a pas d’adresse d’envoi vers {outil ? nomOutil(outil) : 'Dext ou Yooz'}.{#if admin}{' '}<a href="/reglages#societes">Indiquer l’adresse</a>{:else}{' '}Un administrateur doit l’indiquer.{/if}
+            {d.societe ?? 'La société'} n’a pas d’adresse d’envoi vers {outil ? nomOutil(outil) : 'Dext ou Yooz'}.{#if admin}{' '}<a href="/reglages/societes">Indiquer l’adresse</a>{:else}{' '}Un administrateur doit l’indiquer.{/if}
           </Bandeau>
         {/if}
         {#if alerteSociete && !refus && d.etat === 'lu' && !envoiDemande(d) && d.statut_depot !== 'depose' && d.statut_depot !== 'en_envoi'}
@@ -1282,7 +1358,9 @@
                 options={optionsType}
                 modifiable={editable}
                 aControler={aControler('type')}
-              />
+              >
+                {#snippet marque()}{@render marqueDe('type', 'Type')}{/snippet}
+              </Champ>
             {/if}
             <div class="champ-ligne" class:a-controler={!!ctrlF && !editionF}>
               {#if editionF}
@@ -1314,7 +1392,7 @@
                   {/if}
                 </div>
               {:else}
-                <div class="k">Fournisseur</div>
+                <div class="k">Fournisseur {@render marqueDe('fournisseur_id', 'Fournisseur')}</div>
                 <div class="v" class:modifiable={editable}>
                   {#if editable}
                     <button type="button" class="val" onclick={ouvrirF} aria-label="Modifier Fournisseur">{@render lectureF()}</button>
@@ -1339,26 +1417,35 @@
               options={optionsSociete}
               modifiable={editable}
               aControler={aControler('societe')}
-            />
+            >
+              {#snippet marque()}{@render marqueDe('societe_id', 'Société')}{/snippet}
+            </Champ>
             {#if montrerNumero}
-              <Champ disposition="ligne" libelle="N°" bind:valeur={choix.numero} mono modifiable={editable} aControler={aControler('numero')} />
+              <Champ disposition="ligne" libelle="N°" bind:valeur={choix.numero} mono modifiable={editable} aControler={aControler('numero')}>
+                {#snippet marque()}{@render marqueDe('numero', 'N°')}{/snippet}
+              </Champ>
             {/if}
             <Champ disposition="ligne" libelle="Date" type="date" bind:valeur={choix.date} mono modifiable={editable} aControler={aControler('date')}>
+              {#snippet marque()}{@render marqueDe('date_document', 'Date')}{/snippet}
               {#snippet affichage()}
                 {#if choix.date}<span class="num">{dateFr(choix.date)}</span>{:else}<span class="vide-val">Non lue</span>{/if}
               {/snippet}
             </Champ>
             {#if choix.commande || lu.commande}
-              <Champ disposition="ligne" libelle="Commande" bind:valeur={choix.commande} mono modifiable={editable} />
+              <Champ disposition="ligne" libelle="Commande" bind:valeur={choix.commande} mono modifiable={editable}>
+                {#snippet marque()}{@render marqueDe('numero_commande', 'Commande')}{/snippet}
+              </Champ>
             {/if}
             {#if choix.type === 'facture'}
               <Champ disposition="ligne" libelle="Échéance" type="date" bind:valeur={choix.echeance} mono modifiable={editable}>
+                {#snippet marque()}{@render marqueDe('date_echeance', 'Échéance')}{/snippet}
                 {#snippet affichage()}
                   {#if choix.echeance}<span class="num">{dateFr(choix.echeance)}</span>{:else}<span class="vide-val">Non lue</span>{/if}
                 {/snippet}
               </Champ>
             {/if}
           </div>
+          {@render legendeOrigine()}
           </div>
 
           {#if proposerRangement}
@@ -1370,7 +1457,7 @@
             </Bandeau>
           {/if}
           {#if modifie && !fige}
-            <p class="petit t2 doc-note">Corrections gardées à la validation.
+            <p class="petit t2 doc-note" role="status"><b class="non-enregistre">Modifications non enregistrées</b> : elles seront gardées en validant.
               <button type="button" class="btn-lien" onclick={() => (choix = { ...lu })}>Revenir à la lecture</button>
             </p>
           {/if}
@@ -1382,6 +1469,8 @@
             <DocExportPhenix id={d.id} bind:etat={exportPhenix} onerreur={(m) => (erreur = m)} />
           </div>
         {/if}
+
+        {#if d.type === 'facture' || d.type === 'avoir' || d.type === 'bl'}<NotesInternes documentId={d.id} onchange={() => onchange?.()} />{/if}
 
         <div class="carte-fiche">
           <h3 class="titre-carte">Origine</h3>
@@ -1473,10 +1562,10 @@
   </section>
 </div>
 
-<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={() => ecarter(motifEcart, texteEcart)}>
+<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger desactive={!motifEcart} onconfirmer={() => ecarter(motifEcart, texteEcart)}>
   <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la liste. Il reste visible dans la recherche.</p>
   <fieldset class="motif-ecart">
-    <legend>Pourquoi ? (facultatif)</legend>
+    <legend>Pourquoi ?</legend>
     {#each MOTIFS_ECARTEMENT as m (m.valeur)}
       <label class="case"><input type="radio" name="motif-ecart" value={m.valeur} bind:group={motifEcart} /> {m.libelle}</label>
     {/each}
@@ -1751,5 +1840,51 @@
     .doc-fiche :global(.contenu-fiche) {
       padding: var(--e4);
     }
+  }
+  /* Légende des pastilles d'origine (U9) : signe et libellé, jamais la couleur seule. */
+  .legende-origine {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px var(--e3);
+    margin: var(--e3) 0 0;
+    font-size: 14px;
+    color: var(--text2);
+  }
+  .lo-e {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .lo-s {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    border: 1px solid var(--line2);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .lo-s.doute {
+    border-radius: 4px;
+    border-color: var(--warn-line);
+    background: var(--warn-bg);
+    color: var(--warn-ink);
+  }
+  .lo-s.corrige {
+    background: var(--text2);
+    border-color: var(--text2);
+    color: var(--white);
+  }
+  .lo-s.calcule {
+    border-style: dashed;
+    color: var(--text2);
+  }
+  .lo-s.modifie {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--white);
   }
 </style>

@@ -1,21 +1,57 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use gmflow_core::journal;
+use gmflow_core::montant::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 pub const PAR_PAGE: i64 = 50;
 
+/// Une page d'une liste. `total` n'est compté qu'en première page (`null` ensuite : le client
+/// garde celui de la première) ; `suivante` dit s'il reste des éléments après cette page (lu
+/// avec une ligne de plus que la page, sans compter).
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Page<T> {
-    pub total: i64,
+    pub total: Option<i64>,
     pub page: i64,
     pub elements: Vec<T>,
+    pub suivante: bool,
 }
+
+impl<T> Page<T> {
+    /// Page d'une liste comptée à chaque fois (journal, appels, à répondre).
+    pub fn comptee(total: i64, page: i64, elements: Vec<T>) -> Self {
+        Self {
+            suivante: page * PAR_PAGE < total,
+            total: Some(total),
+            page,
+            elements,
+        }
+    }
+
+    /// Page lue avec `PAR_PAGE + 1` lignes (`LIMITE_LUE`) : la ligne de trop dit qu'il y a
+    /// une suite, puis est retirée.
+    pub fn lue(total: Option<i64>, page: i64, mut elements: Vec<T>) -> Self {
+        let suivante = elements.len() as i64 > PAR_PAGE;
+        elements.truncate(PAR_PAGE as usize);
+        Self {
+            total,
+            page,
+            elements,
+            suivante,
+        }
+    }
+}
+
+/// Lignes lues pour une page : une de plus que la page, pour savoir s'il y a une suite.
+pub const LIMITE_LUE: i64 = PAR_PAGE + 1;
 
 pub fn decalage(page: Option<i64>) -> (i64, i64) {
     let p = page.unwrap_or(1).max(1);
@@ -23,6 +59,7 @@ pub fn decalage(page: Option<i64>) -> (i64, i64) {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SocieteVisible {
     id: i64,
     raison_sociale: String,
@@ -43,6 +80,7 @@ pub async fn societes(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BoiteVisible {
     id: i64,
     libelle: String,
@@ -70,18 +108,29 @@ pub struct Filtres {
     /// Une catégorie, `hors_publicite` (toutes sauf les publicités) ou `non_trie`.
     categorie: Option<String>,
     page: Option<i64>,
+    /// Colonne de tri (`TRI_MAILS`) et sens (`asc`, `desc`).
+    tri: Option<String>,
+    sens: Option<String>,
 }
 
+/// Colonnes triables de la liste des mails ; la première est le tri par défaut.
+pub const TRI_MAILS: &[super::tri::Colonne] =
+    &[("date", false), ("expediteur", true), ("objet", true)];
+
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneMail {
     id: i64,
     expediteur: String,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     nb_pieces: i64,
     boites: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
     categorie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutReponse>"))]
     statut_reponse: Option<String>,
 }
 
@@ -129,8 +178,12 @@ pub async fn lister(
     let (page, decalage) = decalage(f.page);
     let acces_societe = acces.societe_filtre();
     let categorie = filtre_categorie(&f.categorie)?;
+    let tri = super::tri::lire(&f.tri, &f.sens, TRI_MAILS)?;
 
-    let total = sqlx::query_scalar!(
+    let total = if page > 1 {
+        None
+    } else {
+        Some(sqlx::query_scalar!(
         r#"select count(*) as "n!" from mail m
            where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
@@ -153,7 +206,8 @@ pub async fn lister(
         categorie
     )
     .fetch_one(&etat.pool)
-    .await?;
+    .await?)
+    };
 
     let elements = sqlx::query_as!(
         LigneMail,
@@ -176,7 +230,12 @@ pub async fn lister(
                   or ($9 = 'hors_publicite' and m.categorie is distinct from 'publicite')
                   or ($9 = 'non_trie' and m.categorie is null)
                   or m.categorie = $9)
-           order by coalesce(m.date_mail, m.recu_le) desc, m.id desc
+           order by case when $10 = 'date' and $11 then coalesce(m.date_mail, m.recu_le) end asc,
+                    case when $10 = 'expediteur' and $11 then lower(m.expediteur) end asc,
+                    case when $10 = 'expediteur' and not $11 then lower(m.expediteur) end desc,
+                    case when $10 = 'objet' and $11 then lower(m.objet) end asc,
+                    case when $10 = 'objet' and not $11 then lower(m.objet) end desc,
+                    coalesce(m.date_mail, m.recu_le) desc, m.id desc
            limit $7 offset $8"#,
         acces_societe,
         f.societe,
@@ -184,47 +243,54 @@ pub async fn lister(
         du,
         au,
         q,
-        PAR_PAGE,
+        LIMITE_LUE,
         decalage,
-        categorie
+        categorie,
+        tri.cle,
+        tri.croissant
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::lue(total, page, elements)))
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct PieceVue {
     id: i64,
     nom: String,
     type_mime: String,
     taille: i64,
     document_id: Option<i64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::EtatDocument>"))]
     document_etat: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     document_type: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Voie>"))]
     document_voie: Option<String>,
     /// Résumé du document lu (pour la liste des pièces, sans ouvrir chaque fiche).
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     document_statut_depot: Option<String>,
     document_verifie: Option<bool>,
     document_numero: Option<String>,
-    document_montant_ttc: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    document_montant_ttc: Option<Decimal>,
     document_fournisseur_id: Option<i64>,
     /// Fiche fournisseur, à défaut nom lu.
     document_fournisseur: Option<String>,
     document_societe_id: Option<i64>,
     document_societe: Option<String>,
     /// Outil de la société du document : `dext` ou `yooz`.
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     document_outil: Option<String>,
     /// Dernier envoi réussi à Dext/Yooz.
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     document_envoye_le: Option<time::OffsetDateTime>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BoiteDuMail {
     boite_id: i64,
     libelle: String,
@@ -238,6 +304,7 @@ pub struct BoiteDuMail {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct FicheMail {
     id: i64,
     message_id: String,
@@ -245,6 +312,7 @@ pub struct FicheMail {
     destinataires: Vec<String>,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     corps_texte: String,
     /// Le mail a un corps HTML d'origine, affiché par `GET /api/mails/{id}/html`.
@@ -254,11 +322,16 @@ pub struct FicheMail {
     fournisseur: Option<String>,
     pieces: Vec<PieceVue>,
     boites: Vec<BoiteDuMail>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
     categorie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::CategoriePar>"))]
     categorie_par: Option<String>,
     resume: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Priorite>"))]
     priorite: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutReponse>"))]
     statut_reponse: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TriEtat>"))]
     tri_etat: Option<String>,
     tri_message: Option<String>,
     brouillons: Vec<super::reponses::BrouillonVue>,
@@ -314,7 +387,7 @@ pub async fn fiche(
                   d.statut_depot as "document_statut_depot?",
                   (d.verifie_le is not null) as "document_verifie?",
                   d.numero as "document_numero?",
-                  d.montant_ttc::float8 as "document_montant_ttc?",
+                  d.montant_ttc as "document_montant_ttc?",
                   d.fournisseur_id as "document_fournisseur_id?",
                   coalesce(fo.nom, d.fournisseur_nom) as "document_fournisseur?",
                   d.societe_id as "document_societe_id?",
@@ -371,15 +444,27 @@ pub async fn fiche(
     }))
 }
 
-/// CSP du corps HTML : aucun script, aucun formulaire, aucune requête sauf les images
-/// (distantes comme dans un lecteur de mails, ou intégrées en `data:`) et les polices.
-const CSP_HTML: &str = "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
+/// CSP du corps HTML : aucun script, aucun formulaire, aucune requête. Les images intégrées
+/// (`cid:`, devenues `data:`) s'affichent ; les images et polices distantes sont bloquées par
+/// défaut (pixel espion : l'expéditeur saurait que le mail est ouvert, C23).
+pub const CSP_HTML: &str = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
+/// CSP du corps HTML quand l'utilisateur affiche les images distantes (`?images=1`).
+pub const CSP_HTML_IMAGES: &str = "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
 
-/// `GET /api/mails/{id}/html` : corps HTML d'origine du mail, pour l'`iframe` de la fiche.
+#[derive(Deserialize)]
+pub struct OptionsHtml {
+    /// `1` : images distantes autorisées (« Afficher » sous le bandeau de la fiche).
+    #[serde(default)]
+    images: Option<u8>,
+}
+
+/// `GET /api/mails/{id}/html[?images=1]` : corps HTML d'origine du mail, pour l'`iframe` de
+/// la fiche ; images distantes bloquées sauf `images=1`.
 pub async fn html(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
+    Query(o): Query<OptionsHtml>,
 ) -> Resultat<axum::response::Response> {
     use axum::http::header;
     use axum::response::IntoResponse;
@@ -401,9 +486,19 @@ pub async fn html(
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::CONTENT_SECURITY_POLICY, CSP_HTML),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                if o.images == Some(1) {
+                    CSP_HTML_IMAGES
+                } else {
+                    CSP_HTML
+                },
+            ),
             (header::REFERRER_POLICY, "no-referrer"),
             (header::CACHE_CONTROL, "private, no-store"),
+            // `<link rel=dns-prefetch>` n'est pas couvert par la CSP : l'expéditeur verrait
+            // la résolution de son nom de domaine (C23).
+            (header::X_DNS_PREFETCH_CONTROL, "off"),
         ],
         page,
     )
@@ -411,6 +506,7 @@ pub async fn html(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct HorsSociete {
     /// Société pour laquelle le mail ne compte pas ; absente : toutes les sociétés dont une
     /// boîte l'a reçu (« ne concerne aucune de nos sociétés »). Un responsable : la sienne.
@@ -419,6 +515,7 @@ pub struct HorsSociete {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatHorsSociete {
     societes: Vec<i64>,
     /// Documents écartés (masquer) ou rendus (annuler).

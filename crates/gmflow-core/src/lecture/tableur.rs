@@ -68,6 +68,11 @@ pub fn texte_classeur(octets: &[u8]) -> Option<(String, bool)> {
 
 /// Feuille d'un tableur pour l'aperçu à l'écran.
 #[derive(Debug, Clone, serde::Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, rename = "FeuilleTableur")
+)]
 pub struct Feuille {
     pub nom: String,
     pub lignes: Vec<Vec<String>>,

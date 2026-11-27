@@ -9,6 +9,11 @@
   import { nomOutil } from '#lib/libelles.ts';
   import { MAX_LOT, resumeLot, type Selection } from '#lib/selection.svelte.ts';
   import Bandeau from './Bandeau.svelte';
+  import ChoixMotifEcart from './ChoixMotifEcart.svelte';
+  import Confirmation from './Confirmation.svelte';
+  import { ecarterLot } from '#lib/notes.ts';
+  import type { MotifEcartement } from '#lib/types.ts';
+  import { corpsEcart, resumeEcartLot } from './NotesOutils.ts';
 
   let {
     sel,
@@ -61,6 +66,37 @@
       enCours = false;
     }
   }
+
+  // « Écarter N pièces » (audit U23) : même motif pour toutes, demandé dans le dialogue.
+  let dlgEcarter = $state(false);
+  let motifEcart = $state<MotifEcartement | null>(null);
+  let texteEcart = $state('');
+  $effect(() => {
+    if (dlgEcarter) {
+      motifEcart = null;
+      texteEcart = '';
+    }
+  });
+  async function ecarter() {
+    const corps = corpsEcart(motifEcart, texteEcart);
+    if (!n || enCours || !corps) return;
+    enCours = true;
+    resultat = '';
+    try {
+      const choisies = ids.filter((id) => sel.coches.has(id)).slice(0, MAX_LOT);
+      const r = await ecarterLot(choisies, corps.motif, corps.texte);
+      for (const p of r.pieces) if (p.ecartee) sel.coches.delete(p.id);
+      resultat = resumeEcartLot(r);
+      ton = r.laissees ? 'attention' : 'ok';
+      void rafraichirCompteurs();
+      onvalide?.();
+    } catch (e) {
+      resultat = `Écartement impossible : ${message(e)}`;
+      ton = 'erreur';
+    } finally {
+      enCours = false;
+    }
+  }
 </script>
 
 {#if partie === 'tete'}
@@ -98,7 +134,14 @@
           <button type="button" class="btn principal" class:en-cours={enCours} disabled={enCours} onclick={valider}>
             Valider {n} pièce{n > 1 ? 's' : ''}
           </button>
+          <button type="button" class="btn ecarter-lot" disabled={enCours} onclick={() => (dlgEcarter = true)}>
+            Écarter {n} pièce{n > 1 ? 's' : ''}
+          </button>
         </div>
+        <Confirmation bind:ouvert={dlgEcarter} titre="Écarter {n} pièce{n > 1 ? 's' : ''} ?" libelle="Écarter" danger desactive={!motifEcart} onconfirmer={ecarter}>
+          <p>Elles seront marquées « Écarté » : pas d’envoi en comptabilité, elles quittent la liste. Elles restent visibles dans la recherche.</p>
+          <ChoixMotifEcart bind:motif={motifEcart} bind:texte={texteEcart} />
+        </Confirmation>
       {/if}
     </div>
   {/if}
@@ -152,7 +195,8 @@
     justify-content: space-between;
     gap: var(--e3);
   }
-  .barre-lot .btn.principal {
+  .barre-lot .btn.principal,
+  .barre-lot .btn.ecarter-lot {
     width: 100%;
     justify-content: center;
   }

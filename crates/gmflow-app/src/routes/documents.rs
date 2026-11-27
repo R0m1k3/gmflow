@@ -7,14 +7,17 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use gmflow_core::lecture::extraction::TYPES;
+use gmflow_core::montant::{self, Decimal};
 use gmflow_core::{depot, file, journal, parametre};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::mails::{Page, date, decalage, mail_visible, motif};
 use crate::acces::{Acces, AccesAdmin};
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 
@@ -32,33 +35,67 @@ pub struct Filtres {
     statut_depot: Option<String>,
     fournisseur: Option<i64>,
     page: Option<i64>,
+    /// Colonne de tri (`TRI_DOCUMENTS`) et sens (`asc`, `desc`).
+    tri: Option<String>,
+    sens: Option<String>,
+    /// BL lus sans facture rapprochée (ni écartés du rapprochement), reçus il y a au moins
+    /// ce nombre de jours (`0` : tous).
+    sans_facture: Option<i32>,
+    /// Factures dont l'échéance tombe dans ce nombre de jours ou moins (dépassée comprise).
+    echeance: Option<i32>,
 }
 
+/// Colonnes triables de la liste des documents ; la première est le tri par défaut.
+pub const TRI_DOCUMENTS: &[super::tri::Colonne] = &[
+    ("recu", false),
+    ("date", false),
+    ("echeance", true),
+    ("fournisseur", true),
+    ("numero", true),
+    ("montant", false),
+];
+
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneDocument {
     id: i64,
     mail_id: i64,
     nom_fichier: String,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Voie>"))]
     voie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
     societe: Option<String>,
     fournisseur_nom: Option<String>,
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
-    montant_ttc: Option<f64>,
-    remise_ht: Option<f64>,
+    #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
+    date_echeance: Option<time::Date>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ttc: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    remise_ht: Option<Decimal>,
     /// Articles en écart avec les BL liés (manquant, en trop, prix changé).
     articles_ecart: i64,
     message: Option<String>,
     verifie: bool,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Vec<gmflow_core::controles::Echec>"))]
     controles: Value,
+    /// Notes internes (`routes/notes.rs`) et début de la plus récente (survol de la pastille).
+    notes: i64,
+    derniere_note: Option<String>,
 }
 
 fn vide(v: &Option<String>) -> Option<String> {
@@ -74,8 +111,12 @@ pub async fn lister(
     Query(f): Query<Filtres>,
 ) -> Resultat<Json<Page<LigneDocument>>> {
     let (du, au) = (date(&f.du)?, date(&f.au)?);
+    // Recherche (C19) : les documents trouvés sont lus à part (`d.id in (… union all …)`), table
+    // par table, pour que chaque `ilike` se serve de son index trigramme (migration 0029) ; un
+    // `or` entre `d` et `m` après la jointure obligerait à tout lire.
     let q = motif(&f.q);
     let (page, decalage) = decalage(f.page);
+    let tri = super::tri::lire(&f.tri, &f.sens, TRI_DOCUMENTS)?;
     // `non` : la même définition que la file à valider et les badges du menu
     // (`a_traiter::compter`) : pièce lue, ni envoyée, ni en échec, ni doublon.
     let verifie = match f.verifie.as_deref() {
@@ -87,7 +128,12 @@ pub async fn lister(
     let sd = vide(&f.statut_depot);
     // Par défaut, les pièces ignorées (logos, signatures) ne sont pas listées.
     let sans_ignores = e.is_none();
-    let total = sqlx::query_scalar!(
+    // Compté en première page seulement (C19) : les pages suivantes se lisent avec une ligne
+    // de plus (`Page::lue`).
+    let total = if page > 1 {
+        None
+    } else {
+        Some(sqlx::query_scalar!(
         r#"select count(*) as "n!" from document d join mail m on m.id = d.mail_id
            where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))
@@ -98,7 +144,10 @@ pub async fn lister(
              and ($6::text is null or d.voie = $6)
              and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)
              and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)
-             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)
+             and ($9::text is null
+                  or d.id in (select x.id from document x where x.fournisseur_nom ilike $9 or x.numero ilike $9
+                              union all
+                              select x.id from document x join mail mx on mx.id = x.mail_id where mx.objet ilike $9))
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
              and ($12::bigint is null or d.fournisseur_id = $12)
@@ -106,7 +155,13 @@ pub async fn lister(
                   and ((d.verifie_le is null
                         and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
                        or (d.verifie_le is not null and d.valide_le is null
-                           and d.statut_depot in ('a_verifier', 'pret')))))"#,
+                           and d.statut_depot in ('a_verifier', 'pret')))))
+             and ($14::int is null
+                  or (d.type = 'bl' and d.etat = 'lu' and not d.rapprochement_ignore
+                      and coalesce(m.date_mail, m.recu_le) <= now() - make_interval(days => $14::int)
+                      and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)))
+             and ($15::int is null
+                  or (d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $15::int))"#,
         acces.societe_filtre(),
         f.societe,
         t,
@@ -119,19 +174,26 @@ pub async fn lister(
         verifie,
         sd,
         f.fournisseur,
-        a_valider
+        a_valider,
+        f.sans_facture,
+        f.echeance
     )
     .fetch_one(&etat.pool)
-    .await?;
+    .await?)
+    };
     let elements = sqlx::query_as!(
         LigneDocument,
         r#"select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,
                   s.raison_sociale as "societe?", d.fournisseur_nom, d.numero, d.date_document,
-                  d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht,
+                  d.date_echeance,
+                  d.montant_ttc, d.remise_ht,
                   (select count(*) from rapprochement r cross join jsonb_array_elements(r.ecarts) e
                    where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)) as "articles_ecart!", d.message,
                   d.verifie_le is not null as "verifie!", m.date_mail,
-                  d.fournisseur_id, fo.nom as "fournisseur?", d.statut_depot, d.controles
+                  d.fournisseur_id, fo.nom as "fournisseur?", d.statut_depot, d.controles,
+                  (select count(*) from note_interne n where n.document_id = d.id) as "notes!",
+                  (select left(n.texte, 140) from note_interne n where n.document_id = d.id
+                   order by n.cree_le desc, n.id desc limit 1) as derniere_note
            from document d
            join mail m on m.id = d.mail_id
            join piece_jointe p on p.id = d.piece_jointe_id
@@ -146,7 +208,10 @@ pub async fn lister(
              and ($6::text is null or d.voie = $6)
              and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)
              and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)
-             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)
+             and ($9::text is null
+                  or d.id in (select x.id from document x where x.fournisseur_nom ilike $9 or x.numero ilike $9
+                              union all
+                              select x.id from document x join mail mx on mx.id = x.mail_id where mx.objet ilike $9))
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
              and ($12::bigint is null or d.fournisseur_id = $12)
@@ -155,7 +220,25 @@ pub async fn lister(
                         and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
                        or (d.verifie_le is not null and d.valide_le is null
                            and d.statut_depot in ('a_verifier', 'pret')))))
-           order by m.date_mail desc nulls last, d.id desc
+             and ($18::int is null
+                  or (d.type = 'bl' and d.etat = 'lu' and not d.rapprochement_ignore
+                      and coalesce(m.date_mail, m.recu_le) <= now() - make_interval(days => $18::int)
+                      and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)))
+             and ($19::int is null
+                  or (d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $19::int))
+           order by case when $16 = 'recu' and $17 then m.date_mail end asc nulls last,
+                    case when $16 = 'recu' and not $17 then m.date_mail end desc nulls last,
+                    case when $16 = 'date' and $17 then d.date_document end asc nulls last,
+                    case when $16 = 'date' and not $17 then d.date_document end desc nulls last,
+                    case when $16 = 'echeance' and $17 then d.date_echeance end asc nulls last,
+                    case when $16 = 'echeance' and not $17 then d.date_echeance end desc nulls last,
+                    case when $16 = 'fournisseur' and $17 then lower(coalesce(fo.nom, d.fournisseur_nom)) end asc nulls last,
+                    case when $16 = 'fournisseur' and not $17 then lower(coalesce(fo.nom, d.fournisseur_nom)) end desc nulls last,
+                    case when $16 = 'numero' and $17 then d.numero end asc nulls last,
+                    case when $16 = 'numero' and not $17 then d.numero end desc nulls last,
+                    case when $16 = 'montant' and $17 then d.montant_ttc end asc nulls last,
+                    case when $16 = 'montant' and not $17 then d.montant_ttc end desc nulls last,
+                    m.date_mail desc nulls last, d.id desc
            limit $14 offset $15"#,
         acces.societe_filtre(),
         f.societe,
@@ -170,20 +253,21 @@ pub async fn lister(
         sd,
         f.fournisseur,
         a_valider,
-        super::mails::PAR_PAGE,
-        decalage
+        super::mails::LIMITE_LUE,
+        decalage,
+        tri.cle,
+        tri.croissant,
+        f.sans_facture,
+        f.echeance
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::lue(total, page, elements)))
 }
 
 #[derive(Serialize)]
-pub struct FicheDocument {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct FicheBase {
     id: i64,
     mail_id: i64,
     mail_objet: String,
@@ -191,9 +275,12 @@ pub struct FicheDocument {
     piece_id: i64,
     nom_fichier: String,
     type_mime: String,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Voie>"))]
     voie: Option<String>,
     message: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
     societe_id: Option<i64>,
     societe: Option<String>,
@@ -202,57 +289,83 @@ pub struct FicheDocument {
     fournisseur_tva: Option<String>,
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_echeance: Option<time::Date>,
-    montant_ht: Option<f64>,
-    montant_tva: Option<f64>,
-    montant_ttc: Option<f64>,
-    remise_ht: Option<f64>,
-    remise_taux: Option<f64>,
-    annexes_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ttc: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    remise_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    remise_taux: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    annexes_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "super::formes::Confiance"))]
     confiance: Value,
     texte: Option<String>,
     modele: Option<String>,
     effort: Option<String>,
     copie_de: Option<i64>,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     lu_le: Option<time::OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     verifie_le: Option<time::OffsetDateTime>,
     verifie_par: Option<String>,
     type_corrige: bool,
     societe_corrigee: bool,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutFournisseur>"))]
     fournisseur_statut: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Vec<gmflow_core::controles::Echec>"))]
     controles: Value,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     valide_le: Option<time::OffsetDateTime>,
     valide_par: Option<String>,
+    #[cfg_attr(
+        feature = "ts",
+        ts(type = "Record<string, { avant: unknown; apres: unknown }>")
+    )]
     corrections: Value,
     societe_adresse_depot: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     societe_outil_depot: Option<String>,
     /// Réception du mail d'origine (date du mail, à défaut date de relève).
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     recu_le: time::OffsetDateTime,
     /// Envoi en échec relancé il y a moins de 30 min, pas encore repris par le worker.
     envoi_relance: bool,
     /// Écartée par un humain : quand, par qui, motif (`retour::noter_ecartement`).
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::Ecartement>"))]
     ecartement: Option<Value>,
     /// Lignes articles corrigées à la main (`routes::lignes`) : une relecture les remplacerait.
     lignes_corrigees: i64,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct EnvoiVue {
     id: i64,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     quand: time::OffsetDateTime,
     adresse: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatEnvoi"))]
     etat: String,
     message: Option<String>,
     auteur: Option<String>,
@@ -260,6 +373,7 @@ pub struct EnvoiVue {
 
 /// Boîte qui a reçu le mail d'origine (visible par cet accès).
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BoiteReception {
     boite_id: i64,
     libelle: String,
@@ -270,28 +384,70 @@ pub struct BoiteReception {
 }
 
 #[derive(Serialize)]
-pub struct FicheComplete {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct FicheDocument {
     #[serde(flatten)]
-    document: FicheDocument,
+    document: FicheBase,
     envois: Vec<EnvoiVue>,
     /// Boîtes de réception du mail d'origine, par libellé.
     boites: Vec<BoiteReception>,
     /// Document pas encore lu (`a_lire`, `en_cours`) : pourquoi il attend.
     attente: Option<gmflow_core::attente::Attente>,
     /// Dernier report de la facture dans Logiflow : `{quand, ok, message, livraisons}`.
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::ResultatLogiflow>"))]
     logiflow: Option<Value>,
     /// Logiflow est configuré (Réglages) : la fiche d'une facture envoyée propose « Relancer ».
     logiflow_configure: bool,
     /// Facture envoyée il y a moins de 10 min, résultat Logiflow pas encore là : la fiche attend.
     logiflow_attendu: bool,
     /// BL : livraison Logiflow retrouvée (`logiflow_livraison`), ou rien.
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::LivraisonLogiflow>"))]
     logiflow_livraison: Option<Value>,
     /// PDF de plusieurs pièces découpé (`lecture::decoupage`) : documents des parties, dans
     /// l'ordre des pages. Vide sinon. Ce document-ci n'est alors que l'origine, ignorée.
     parties: Vec<PartieVue>,
+    /// Corrections à la main des champs de la fiche, de la plus ancienne à la plus récente :
+    /// qui a changé quoi et quand (journal `correction`). La fiche dit d'où vient chaque
+    /// valeur (lue, corrigée par X le …, calculée).
+    historique: Vec<CorrectionChamp>,
+}
+
+#[derive(Serialize, Debug)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct CorrectionChamp {
+    /// Nom du champ en base (`numero`, `montant_ttc`, `fournisseur_id`…).
+    champ: String,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+    avant: Value,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
+    apres: Value,
+    /// Identifiant de l'auteur (`null` : compte supprimé).
+    par: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
+    quand: time::OffsetDateTime,
+}
+
+/// Corrections d'un document, champ par champ, depuis le journal.
+pub(crate) async fn historique_corrections(etat: &Etat, id: i64) -> Resultat<Vec<CorrectionChamp>> {
+    Ok(sqlx::query_as!(
+        CorrectionChamp,
+        r#"select c.key as "champ!", c.value->'avant' as "avant!", c.value->'apres' as "apres!",
+                  u.identifiant as "par?", j.quand
+           from journal j
+           cross join lateral jsonb_each(j.details) c
+           left join utilisateur u on u.id = j.auteur_id
+           where j.objet_type = 'document' and j.objet_id = $1::bigint::text
+             and j.action = 'correction' and jsonb_typeof(c.value) = 'object'
+           order by j.quand, j.id, c.key"#,
+        id
+    )
+    .fetch_all(&etat.pool)
+    .await?)
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct PartieVue {
     id: i64,
     page_debut: Option<i32>,
@@ -318,18 +474,16 @@ pub async fn fiche(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<FicheComplete>> {
+) -> Resultat<Json<FicheDocument>> {
     controler_visible(&etat, &acces, id).await?;
     let d = sqlx::query_as!(
-        FicheDocument,
+        FicheBase,
         r#"select d.id, d.mail_id, m.objet as mail_objet, m.expediteur as mail_expediteur,
                   p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,
                   d.type, d.societe_id, s.raison_sociale as "societe?", d.fournisseur_nom,
                   d.fournisseur_siret, d.fournisseur_tva, d.numero, d.date_document,
-                  d.numero_commande, d.date_echeance, d.montant_ht::float8 as montant_ht,
-                  d.montant_tva::float8 as montant_tva, d.montant_ttc::float8 as montant_ttc,
-                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,
-                  d.annexes_ht::float8 as annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,
+                  d.numero_commande, d.date_echeance, d.montant_ht, d.montant_tva, d.montant_ttc,
+                  d.remise_ht, d.remise_taux, d.annexes_ht, d.confiance, d.texte, d.modele, d.effort, d.copie_de, d.lu_le, d.verifie_le,
                   u.identifiant as "verifie_par?", d.type_corrige, d.societe_corrigee,
                   d.fournisseur_id, fo.nom as "fournisseur?", fo.statut as "fournisseur_statut?",
                   d.statut_depot, d.controles, d.valide_le, uv.identifiant as "valide_par?",
@@ -400,9 +554,9 @@ pub async fn fiche(
         r#"select jsonb_build_object('vu_le', vu_le, 'etat', etat, 'possibles', possibles,
                                      'livraison_id', livraison_id, 'magasin', magasin,
                                      'fournisseur', fournisseur, 'bl', bl, 'livree_le', livree_le,
-                                     'montant_bl', montant_bl::float8, 'facture', facture,
-                                     'facture_ht', facture_ht::float8,
-                                     'facture_ttc', facture_ttc::float8, 'echeance', echeance,
+                                     'montant_bl', montant_bl, 'facture', facture,
+                                     'facture_ht', facture_ht,
+                                     'facture_ttc', facture_ttc, 'echeance', echeance,
                                      'rapprochee', rapprochee) as "v!"
            from logiflow_livraison where bl_id = $1"#,
         id
@@ -429,7 +583,7 @@ pub async fn fiche(
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(FicheComplete {
+    Ok(Json(FicheDocument {
         document: d,
         envois,
         boites,
@@ -439,11 +593,14 @@ pub async fn fiche(
         logiflow_attendu,
         logiflow_livraison,
         parties,
+        historique: historique_corrections(&etat, id).await?,
     }))
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Verification {
+    #[cfg_attr(feature = "ts", ts(as = "v::TypeDocument"))]
     r#type: String,
     societe_id: Option<i64>,
 }
@@ -536,9 +693,11 @@ pub async fn verifier(
 }
 
 #[derive(Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Relecture {
     /// « Relire en détail » : modèle plus fort et fichier d'origine joint dès le premier appel.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     approfondie: bool,
 }
 
@@ -584,26 +743,29 @@ pub async fn relire(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Compte {
     cle: Option<String>,
     n: i64,
 }
 
 #[derive(Serialize)]
-pub struct Bilan {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct BilanLecture {
     par_etat: Vec<Compte>,
     par_voie: Vec<Compte>,
     par_type: Vec<Compte>,
     verifies: i64,
     type_justes: i64,
     societe_justes: i64,
-    semaines: Vec<Semaine>,
+    semaines: Vec<SemaineBilan>,
 }
 
 /// Documents vérifiés ou validés par un humain une semaine donnée (lundi), et combien sans
 /// aucune correction.
 #[derive(Serialize)]
-pub struct Semaine {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct SemaineBilan {
     semaine: String,
     valides: i64,
     sans_correction: i64,
@@ -611,7 +773,7 @@ pub struct Semaine {
 
 /// Bilan des documents visibles : volumes, et justesse du type et de la société sur les
 /// documents vérifiés (critère du lot : plus de 95 % sur 50 documents).
-pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bilan>> {
+pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<BilanLecture>> {
     let s = acces.societe_filtre();
     let compter = |colonne: &'static str| {
         let pool = etat.pool.clone();
@@ -644,7 +806,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
     .fetch_one(&etat.pool)
     .await?;
     let semaines = sqlx::query_as!(
-        Semaine,
+        SemaineBilan,
         r#"select to_char(date_trunc('week', coalesce(d.verifie_le, d.valide_le) at time zone 'Europe/Paris'), 'YYYY-MM-DD') as "semaine!",
                   count(*) as "valides!",
                   count(*) filter (where d.corrige_le is null and not d.type_corrige
@@ -658,7 +820,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Bilan {
+    Ok(Json(BilanLecture {
         semaines,
         par_etat,
         par_voie,
@@ -706,18 +868,24 @@ fn fusionner_corrections(anciennes: &Value, changements: &[(&str, Value, Value)]
 }
 
 #[derive(Deserialize)]
-pub struct Correction {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct CorrectionDocument {
+    #[cfg_attr(feature = "ts", ts(as = "v::TypeDocument"))]
     r#type: String,
     societe_id: Option<i64>,
     fournisseur_id: Option<i64>,
     numero: Option<String>,
     date_document: Option<String>,
     numero_commande: Option<String>,
-    montant_ht: Option<f64>,
-    montant_tva: Option<f64>,
-    montant_ttc: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    montant_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    montant_ttc: Option<Decimal>,
     /// Absente : l'échéance lue est gardée ; `null` : effacée.
     #[serde(default, deserialize_with = "present")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<String>"))]
     date_echeance: Option<Option<String>>,
 }
 
@@ -730,8 +898,18 @@ fn texte_net(v: &Option<String>) -> Option<String> {
     vide(v)
 }
 
-fn centimes(v: Option<f64>) -> Option<f64> {
-    v.map(|x| (x * 100.0).round() / 100.0)
+fn centimes(v: Option<Decimal>) -> Option<Decimal> {
+    v.map(montant::centimes)
+}
+
+/// Montant saisi, arrondi au centime ; trop grand pour la colonne : refusé.
+fn montant_saisi(nom: &str, v: Option<Decimal>) -> Resultat<Option<Decimal>> {
+    match v {
+        Some(x) => montant::montant(x)
+            .map(Some)
+            .ok_or_else(|| ErreurApi::Donnees(format!("{nom} trop grand"))),
+        None => Ok(None),
+    }
 }
 
 /// Correction dont les entrées ont été contrôlées (type, structure permise, fournisseur,
@@ -743,9 +921,9 @@ pub(crate) struct CorrectionNette {
     numero: Option<String>,
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
-    ht: Option<f64>,
-    tva: Option<f64>,
-    ttc: Option<f64>,
+    ht: Option<Decimal>,
+    tva: Option<Decimal>,
+    ttc: Option<Decimal>,
     /// `None` : échéance inchangée.
     echeance: Option<Option<time::Date>>,
 }
@@ -753,7 +931,7 @@ pub(crate) struct CorrectionNette {
 async fn nettoyer_correction(
     etat: &Etat,
     acces: &Acces,
-    c: Correction,
+    c: CorrectionDocument,
 ) -> Resultat<CorrectionNette> {
     if !TYPES.contains(&c.r#type.as_str()) {
         return Err(ErreurApi::Donnees(format!("type inconnu : {}", c.r#type)));
@@ -785,9 +963,9 @@ async fn nettoyer_correction(
         date_document: date(&c.date_document)?,
         numero: texte_net(&c.numero),
         numero_commande: texte_net(&c.numero_commande),
-        ht: centimes(c.montant_ht),
-        tva: centimes(c.montant_tva),
-        ttc: centimes(c.montant_ttc),
+        ht: montant_saisi("montant HT", c.montant_ht)?,
+        tva: montant_saisi("montant de TVA", c.montant_tva)?,
+        ttc: montant_saisi("montant TTC", c.montant_ttc)?,
         echeance: match &c.date_echeance {
             Some(e) => Some(date(e)?),
             None => None,
@@ -808,8 +986,8 @@ async fn appliquer_correction(
 ) -> Resultat<()> {
     let a = sqlx::query!(
         r#"select etat, statut_depot, type, societe_id, fournisseur_id, numero, date_document,
-                  numero_commande, montant_ht::float8 as ht, montant_tva::float8 as tva,
-                  montant_ttc::float8 as ttc, corrections, date_echeance
+                  numero_commande, montant_ht as ht, montant_tva as tva, montant_ttc as ttc,
+                  corrections, date_echeance
            from document where id = $1 for update"#,
         id
     )
@@ -864,8 +1042,8 @@ async fn appliquer_correction(
     sqlx::query!(
         "update document set type = $2, societe_id = $3, fournisseur_id = $4, numero = $5,
             date_document = $6, numero_commande = $7,
-            montant_ht = $8::float8::numeric(14, 2), montant_tva = $9::float8::numeric(14, 2),
-            montant_ttc = $10::float8::numeric(14, 2),
+            montant_ht = $8::numeric(14, 2), montant_tva = $9::numeric(14, 2),
+            montant_ttc = $10::numeric(14, 2),
             corrections = $11, corrige_le = case when $12 then now() else corrige_le end,
             verifie_le = now(), verifie_par = $13,
             type_corrige = type_corrige or $14, societe_corrigee = societe_corrigee or $15,
@@ -916,7 +1094,7 @@ pub async fn corriger(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-    Json(c): Json<Correction>,
+    Json(c): Json<CorrectionDocument>,
 ) -> Resultat<StatusCode> {
     controler_modifiable(&etat, &acces, id).await?;
     let c = nettoyer_correction(&etat, &acces, c).await?;
@@ -933,7 +1111,9 @@ pub async fn corriger(
 }
 
 #[derive(Serialize)]
-pub struct StatutDepot {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ReponseStatutDepot {
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
 }
 
@@ -942,17 +1122,19 @@ pub async fn controler(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<StatutDepot>> {
+) -> Resultat<Json<ReponseStatutDepot>> {
     controler_visible(&etat, &acces, id).await?;
     let statut_depot = depot::evaluer_et_deposer(&etat.pool, id)
         .await
         .map_err(ErreurApi::Interne)?;
-    Ok(Json(StatutDepot { statut_depot }))
+    Ok(Json(ReponseStatutDepot { statut_depot }))
 }
 
 #[derive(Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeDepot {
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     forcer: bool,
 }
 
@@ -973,8 +1155,9 @@ pub async fn deposer(
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Conflit(
-            "adresse d'expédition non configurée (Administration > Expédition)".into(),
+        return Err(refus(
+            Refus::Expedition,
+            "adresse d'expédition non configurée",
         ));
     }
     let statut = depot::evaluer(&etat.pool, id)
@@ -1008,8 +1191,9 @@ pub async fn deposer(
             ));
         }
         _ if sans_adresse => {
-            return Err(ErreurApi::Conflit(
-                "la structure n'a pas d'adresse de dépôt".into(),
+            return Err(refus(
+                Refus::SansAdresse,
+                "la structure n'a pas d'adresse de dépôt",
             ));
         }
         _ => {}
@@ -1046,12 +1230,14 @@ pub async fn deposer(
 }
 
 #[derive(Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeValidation {
     /// Champs corrigés (mêmes champs que `PUT /api/documents/{id}`) ; absent : rien à corriger.
     #[serde(default)]
-    corrections: Option<Correction>,
+    corrections: Option<CorrectionDocument>,
     /// Administrateur seulement : envoyer un doublon quand même.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     forcer: bool,
     /// Validation par lot (`routes::lot`), jamais lue du corps : envois regroupés sous ce lot,
     /// et seulement une pièce sans alerte.
@@ -1079,8 +1265,10 @@ pub struct ContexteFile {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Validation {
     pub(crate) id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     pub(crate) statut_depot: Option<String>,
     /// L'envoi à Dext/Yooz a été demandé (facture ou avoir).
     pub(crate) envoi: bool,
@@ -1088,10 +1276,11 @@ pub struct Validation {
     suivant: Option<i64>,
     /// Envoi demandé : il part après ce délai, sauf « Annuler » (`POST /api/documents/annuler-envoi`).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub(crate) annulation: Option<super::retour::Annulable>,
 }
 
-fn refus(code: &'static str, message: &str) -> ErreurApi {
+fn refus(code: Refus, message: &str) -> ErreurApi {
     ErreurApi::ConflitCode {
         code,
         message: message.into(),
@@ -1126,11 +1315,11 @@ pub async fn valider(
     .fetch_one(&mut *tx)
     .await?;
     if a.etat != "lu" {
-        return Err(refus("etat", "seul un document lu peut être validé"));
+        return Err(refus(Refus::Etat, "seul un document lu peut être validé"));
     }
     if matches!(a.statut_depot.as_deref(), Some("en_envoi" | "depose")) {
         return Err(refus(
-            "deja_envoye",
+            Refus::DejaEnvoye,
             "document déjà envoyé ou en cours d'envoi",
         ));
     }
@@ -1139,7 +1328,7 @@ pub async fn valider(
     if dv.sans_alerte
         && let Some(r) = super::lot::raison_hors_lot(&mut tx, id).await?
     {
-        return Err(refus("alertes", &r));
+        return Err(refus(Refus::Alertes, &r));
     }
     match &correction {
         Some(c) => appliquer_correction(&mut tx, &acces, id, c).await?,
@@ -1166,7 +1355,7 @@ pub async fn valider(
         .await
         .map_err(ErreurApi::Interne)?;
     if dv.sans_alerte && statut.as_deref() != Some("pret") {
-        return Err(refus("alertes", "alertes à lire"));
+        return Err(refus(Refus::Alertes, "alertes à lire"));
     }
     let type_doc = sqlx::query_scalar!("select type from document where id = $1", id)
         .fetch_one(&mut *tx)
@@ -1180,7 +1369,7 @@ pub async fn valider(
             .is_none()
         {
             return Err(refus(
-                "expedition",
+                Refus::Expedition,
                 "adresse d'envoi vers Dext/Yooz non configurée (Réglages)",
             ));
         }
@@ -1193,7 +1382,7 @@ pub async fn valider(
         match statut.as_deref() {
             Some("erreur") if !acces.est_admin() => {
                 return Err(refus(
-                    "erreur_envoi",
+                    Refus::ErreurEnvoi,
                     "envoi précédent en échec : seul un administrateur peut renvoyer",
                 ));
             }
@@ -1203,11 +1392,11 @@ pub async fn valider(
                     .and_then(|v| v.iter().find(|c| c["code"] == "doublon"))
                     .and_then(|c| c["message"].as_str())
                     .unwrap_or("Facture déjà reçue");
-                return Err(refus("doublon", message));
+                return Err(refus(Refus::Doublon, message));
             }
             _ if sans_adresse => {
                 return Err(refus(
-                    "sans_adresse",
+                    Refus::SansAdresse,
                     "la société n'a pas d'adresse d'envoi vers Dext ou Yooz",
                 ));
             }
@@ -1292,13 +1481,13 @@ pub async fn ecarter(
     .await?;
     if matches!(a.statut_depot.as_deref(), Some("en_envoi" | "depose")) {
         return Err(refus(
-            "deja_envoye",
+            Refus::DejaEnvoye,
             "document déjà envoyé ou en cours d'envoi",
         ));
     }
     if a.statut_depot.as_deref() == Some("erreur") && !acces.est_admin() {
         return Err(refus(
-            "erreur_envoi",
+            Refus::ErreurEnvoi,
             "envoi en échec : seul un administrateur peut l'écarter",
         ));
     }
@@ -1330,7 +1519,7 @@ pub async fn ecarter(
         }
     } else {
         return Err(refus(
-            "etat",
+            Refus::Etat,
             "seul un document lu ou illisible peut être écarté",
         ));
     };
@@ -1340,7 +1529,8 @@ pub async fn ecarter(
         action,
         "document",
         Some(id.to_string()),
-        json!({ "etat": a.etat, "statut_depot": a.statut_depot }),
+        json!({ "etat": a.etat, "statut_depot": a.statut_depot,
+                "motif": motif.motif, "texte": motif.texte }),
     )
     .await?;
     tx.commit().await?;

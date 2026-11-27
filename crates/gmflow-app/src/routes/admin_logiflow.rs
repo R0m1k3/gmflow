@@ -11,23 +11,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::acces::{Acces, AccesAdmin};
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
-pub struct Vue {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct LogiflowVue {
     serveur: Option<ServeurApi>,
     jeton_enregistre: bool,
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::DernierTest>"))]
     dernier_test: Option<Value>,
     /// Dernière vérification régulière : `{"quand", "ok", "message"}` (`ok` null : en cours).
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::SuiviLogiflow>"))]
     dernier_suivi: Option<Value>,
 }
 
-pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue>> {
+pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<LogiflowVue>> {
     let serveur = parametre::lire(&etat.pool, logiflow::CLE)
         .await?
         .and_then(|v| serde_json::from_value(v).ok());
-    Ok(Json(Vue {
+    Ok(Json(LogiflowVue {
         serveur,
         jeton_enregistre: parametre::lire_secret(&etat.pool, logiflow::CLE)
             .await?
@@ -38,7 +41,8 @@ pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue
 }
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeLogiflow {
     adresse: String,
     /// Omis : inchangé ; chaîne vide : supprimé.
     #[serde(default)]
@@ -48,7 +52,7 @@ pub struct Entree {
 pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeLogiflow>,
 ) -> Resultat<StatusCode> {
     let adresse = e.adresse.trim().to_string();
     logiflow::controler_adresse(&adresse).map_err(|m| {
@@ -137,9 +141,10 @@ pub async fn supprimer(
 
 pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resultat<StatusCode> {
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
-        return Err(ErreurApi::Conflit(
-            "adresse de Logiflow non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: Refus::LogiflowAbsent,
+            message: "adresse de Logiflow non configurée".into(),
+        });
     }
     parametre::supprimer(&etat.pool, logiflow::CLE_TEST).await?;
     file::pousser_envoi(&etat.pool, file::TacheEnvoi::TestLogiflow)
@@ -160,9 +165,10 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
 /// « Vérifier maintenant » : la vérification régulière part tout de suite.
 pub async fn suivre(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resultat<StatusCode> {
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
-        return Err(ErreurApi::Conflit(
-            "adresse de Logiflow non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: Refus::LogiflowAbsent,
+            message: "adresse de Logiflow non configurée".into(),
+        });
     }
     parametre::ecrire(
         &etat.pool,
@@ -197,9 +203,10 @@ pub async fn relancer(
 ) -> Resultat<StatusCode> {
     super::documents::controler_visible(&etat, &acces, id).await?;
     if parametre::lire(&etat.pool, logiflow::CLE).await?.is_none() {
-        return Err(ErreurApi::Conflit(
-            "Logiflow n'est pas configuré (Réglages > Serveur du magasin)".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: Refus::LogiflowAbsent,
+            message: "Logiflow n'est pas configuré".into(),
+        });
     }
     let envoyee = sqlx::query_scalar!(
         r#"select coalesce(type = 'facture' and statut_depot = 'depose', false) as "e!"

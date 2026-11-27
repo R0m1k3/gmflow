@@ -183,7 +183,7 @@
       return {
         ok: false,
         texte: 'Pas de relève récente',
-        href: '/reglages#traitements',
+        href: '/reglages/traitements',
         titre: r ? `Dernière relève : ${quandCourt(r)}` : 'Aucune relève pour l’instant'
       };
     return {
@@ -242,6 +242,7 @@
               <div class="ident">{session.moi.identifiant}</div>
               <div class="muted petit">{libelleRole(session.moi.role)}</div>
             </div>
+            <a class="item" role="menuitem" href="/compte"><Icone nom="utilisateur" />Mon compte</a>
             {#if admin}<a class="item" role="menuitem" href="/reglages"><Icone nom="reglages" />Réglages</a>{/if}
             <button type="button" class="item" role="menuitem" onclick={deconnecter}><Icone nom="sortir" />Se déconnecter</button>
           </div>

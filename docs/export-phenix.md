@@ -29,7 +29,9 @@ modèles du magasin :
 - **Lots** : une ligne dont l'article est un lot au magasin est remplacée par ses composants
   (codein, gencod, réf., quantité dans le lot, prix de vente, famille, éco-participation du
   magasin). Le prix d'achat des composants est rééquilibré pour que Σ prix × quantité redonne le
-  prix du lot sur le BL (répartition du magasin : prix d'achat, sinon prix de vente). Dans la
+  prix du lot sur le BL (répartition du magasin : prix d'achat, sinon prix de vente ; calcul en
+  décimal exact, prix au dix-millième, le reste d'arrondi sur le composant le plus lourd de quantité
+  1, sinon le plus lourd). Dans la
   trame, c'est un **lot de vente** : ligne mère, puis composants avec `NUM LOT VENTE` = n° de la
   ligne mère, `QTE LOT VENTE` et `% LOT VENTE`. L'éco-participation des composants va dans la
   colonne (DEEE ou Ecomob) que le BL donne pour le lot, l'autre à 0.

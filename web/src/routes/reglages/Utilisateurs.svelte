@@ -4,7 +4,7 @@
   import { api, message } from '#lib/api.ts';
     import { RUBRIQUES, libelleRole, nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
-  import type { Role, Societe, Utilisateur } from '#lib/types.ts';
+  import type { EntreeUtilisateur, Role, Societe, Utilisateur } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
@@ -51,7 +51,7 @@
       return;
     }
     enCours = true;
-    const corps = {
+    const corps: EntreeUtilisateur = {
       identifiant: f.identifiant.trim(),
       mot_de_passe: f.mot_de_passe || null,
       role: f.role as Role,

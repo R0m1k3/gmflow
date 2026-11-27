@@ -1,25 +1,23 @@
 <script lang="ts">
   // Fiche d'une boîte mail : état, pause et reprise, essai de connexion et d'envoi,
   // réglages (connexion, dossiers lus, réponses), compteurs de la relève.
-  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, attendreEssai, ErreurApi, essayerSmtp, lireBoite, message, sonder } from '#lib/api.ts';
   import { dateSimple, quand } from '#lib/format.ts';
   import { RUBRIQUES, nomCourtSociete, type Ton } from '#lib/libelles.ts';
+  import { garderAvantDeQuitter } from '#lib/modifications.svelte.ts';
   import { session } from '#lib/session.svelte.ts';
-  import type { Boite, Compteur, EssaiBoite, Societe } from '#lib/types.ts';
+  import type { Boite, Compteur, EntreeBoite, EssaiBoite, SecuriteSmtp, Societe } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Confirmation from '#lib/ui/Confirmation.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
   import Icone from '#lib/ui/Icone.svelte';
+  import Refus from '../../Refus.svelte';
   import { n, nomDossier, portPourSecurite, ressembleEnvoyes, smtpPourImap, type Securite } from '../../outils.ts';
 
   let admin = $derived(session.moi?.role === 'admin');
-  $effect(() => {
-    if (session.moi && !admin) void goto('/', { replaceState: true });
-  });
 
   const id = Number(page.params.id);
   let b = $state<Boite | null>(null);
@@ -40,7 +38,7 @@
     dossiers: string[];
     smtp_serveur: string;
     smtp_port: string;
-    smtp_securite: string;
+    smtp_securite: SecuriteSmtp;
     dossier_envoyes: string;
   };
   let f = $state<Form>({
@@ -59,6 +57,8 @@
   });
   let initial = $state('');
   let modifie = $derived(JSON.stringify(f) !== initial);
+  // Modifications non enregistrées (U13) : confirmation avant de quitter la page ou l'onglet.
+  garderAvantDeQuitter(() => !!b && modifie);
 
   /** Message du dernier essai sans le « Connexion réussie : » déjà dit par l'étiquette. */
   function detailTest(m: string | null | undefined): string {
@@ -168,7 +168,7 @@
         smtp_port: smtp ? Number(f.smtp_port) || null : null,
         smtp_securite: smtp ? f.smtp_securite : null,
         dossier_envoyes: f.dossier_envoyes || null
-      });
+      } satisfies EntreeBoite);
       remplir(v);
       await chargerCompteurs();
     }, 'Enregistré.');
@@ -281,14 +281,14 @@
 
 {#if admin}
   <div class="page etroite">
-    <a class="retour" href="/reglages#boites"><Icone nom="gauche" />{RUBRIQUES.boites}</a>
+    <a class="retour" href="/reglages/boites"><Icone nom="gauche" />{RUBRIQUES.boites}</a>
 
     {#if !b}
       {#if erreur}
         <Bandeau ton="erreur" titre={introuvable ? 'Boîte introuvable.' : 'Boîte pas chargée.'}>
           {erreur}
           {#snippet action()}
-            {#if introuvable}<a class="btn sm" href="/reglages#boites">Voir les boîtes</a>{:else}<button class="btn sm" onclick={() => { erreur = ''; void charger(); }}>Réessayer</button>{/if}
+            {#if introuvable}<a class="btn sm" href="/reglages/boites">Voir les boîtes</a>{:else}<button class="btn sm" onclick={() => { erreur = ''; void charger(); }}>Réessayer</button>{/if}
           {/snippet}
         </Bandeau>
       {:else}
@@ -424,7 +424,10 @@
 
         <div class="form-f">
           <button class="btn principal" class:en-cours={enregistrement} disabled={enregistrement || !modifie || f.dossiers.length === 0}>Enregistrer</button>
-          {#if modifie}<button type="button" class="btn fantome" onclick={() => b && remplir(b)}>Annuler les changements</button>{/if}
+          {#if modifie}
+            <button type="button" class="btn fantome" onclick={() => b && remplir(b)}>Annuler les changements</button>
+            <span class="petit flag w" role="status">Modifications non enregistrées</span>
+          {/if}
           {#if f.dossiers.length === 0}<span class="petit flag w">Cochez au moins un dossier</span>{/if}
         </div>
       </form>
@@ -464,6 +467,8 @@
         : `, et relève d’abord l’historique (${n(b.reprise_mois, 'mois', 'mois')})`
       : ''}.
   </Confirmation>
+{:else if session.moi}
+  <div class="page etroite"><Refus /></div>
 {/if}
 
 <style>

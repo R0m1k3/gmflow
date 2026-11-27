@@ -4,6 +4,7 @@ use gmflow_core::fixtures::{self, SIRET_A, SIRET_B};
 use gmflow_core::lecture::extraction::{self, ErreurExtraction};
 use gmflow_core::lecture::societe::{self, SocieteRef};
 use gmflow_core::lecture::{Aiguillage, Voie, aiguiller, pdf, xml};
+use gmflow_core::montant::{Decimal, dec};
 use serde_json::json;
 
 fn societes() -> Vec<SocieteRef> {
@@ -94,9 +95,9 @@ fn facturx_lu_sans_claude() {
                 Some("Grossiste Durand & Fils")
             );
             assert_eq!(donnees.vendeur.tva.as_deref(), Some("FR96552100554"));
-            assert_eq!(donnees.montant_ht, Some(100.0));
-            assert_eq!(donnees.montant_tva, Some(20.0));
-            assert_eq!(donnees.montant_ttc, Some(120.0));
+            assert_eq!(donnees.montant_ht, Some(dec!(100.0)));
+            assert_eq!(donnees.montant_tva, Some(dec!(20.0)));
+            assert_eq!(donnees.montant_ttc, Some(dec!(120.0)));
             assert_eq!(
                 societe::pour_acheteur(&donnees.acheteur, &societes()),
                 Some(1)
@@ -114,7 +115,7 @@ fn xml_cii_et_ubl() {
         Aiguillage::Structure { voie, donnees, .. } => {
             assert_eq!(voie, Voie::Xml);
             assert_eq!(donnees.type_doc, "avoir");
-            assert_eq!(donnees.remise_ht, Some(5.0));
+            assert_eq!(donnees.remise_ht, Some(dec!(5.0)));
             assert_eq!(
                 societe::pour_acheteur(&donnees.acheteur, &societes()),
                 Some(2)
@@ -129,9 +130,12 @@ fn xml_cii_et_ubl() {
     assert_eq!(ubl.vendeur.nom.as_deref(), Some("Fournitures Martin"));
     assert_eq!(
         (ubl.montant_ht, ubl.montant_tva, ubl.montant_ttc),
-        (Some(10.0), Some(2.0), Some(12.0))
+        (Some(dec!(10.0)), Some(dec!(2.0)), Some(dec!(12.0)))
     );
-    assert_eq!((ubl.remise_ht, ubl.annexes_ht), (Some(2.5), Some(1.2)));
+    assert_eq!(
+        (ubl.remise_ht, ubl.annexes_ht),
+        (Some(dec!(2.5)), Some(dec!(1.2)))
+    );
     assert_eq!(societe::pour_acheteur(&ubl.acheteur, &societes()), Some(1));
     // Un XML qui n'est pas une facture n'est pas lu.
     assert!(matches!(
@@ -335,7 +339,11 @@ fn liste_de_diffusion() {
     assert!(!gmflow_core::eml::liste_diffusion(&sans));
 }
 
-fn lecture_facture(ht: Option<f64>, tva: Option<f64>, ttc: Option<f64>) -> extraction::Extraction {
+fn lecture_facture(
+    ht: Option<Decimal>,
+    tva: Option<Decimal>,
+    ttc: Option<Decimal>,
+) -> extraction::Extraction {
     serde_json::from_value(json!({
         "type": "facture", "societe_id": null,
         "fournisseur": { "nom": "Access Deco", "siret": null, "tva": null },
@@ -349,7 +357,7 @@ fn lecture_facture(ht: Option<f64>, tva: Option<f64>, ttc: Option<f64>) -> extra
 #[test]
 fn anomalies_de_lecture() {
     let texte = "FACTURE FA00066497\nTotal HT 1 279,50\nTVA 255,90\nNet à payer 1 535,40 €";
-    let bonne = lecture_facture(Some(1279.5), Some(255.9), Some(1535.4));
+    let bonne = lecture_facture(Some(dec!(1279.5)), Some(dec!(255.9)), Some(dec!(1535.4)));
     assert!(extraction::anomalies(&bonne, Some(texte)).is_empty());
     // Formats 1.535,40, 1,535.40 et 1535.4 (tableur) reconnus aussi.
     for t in [
@@ -360,12 +368,12 @@ fn anomalies_de_lecture() {
         assert!(extraction::anomalies(&bonne, Some(t)).is_empty(), "{t}");
     }
 
-    let sans_ttc = lecture_facture(Some(1279.5), Some(255.9), None);
+    let sans_ttc = lecture_facture(Some(dec!(1279.5)), Some(dec!(255.9)), None);
     assert_eq!(
         extraction::anomalies(&sans_ttc, Some(texte)),
         vec!["le montant TTC manque".to_string()]
     );
-    let incoherente = lecture_facture(Some(1279.5), Some(255.9), Some(1555.4));
+    let incoherente = lecture_facture(Some(dec!(1279.5)), Some(dec!(255.9)), Some(dec!(1555.4)));
     let a = extraction::anomalies(&incoherente, Some(texte));
     assert_eq!(a.len(), 2, "{a:?}");
     assert!(a[0].starts_with("HT + TVA"));
@@ -396,7 +404,7 @@ fn texte_long_garde_le_debut_et_la_fin() {
 #[test]
 fn remise_lue_a_part() {
     // Ancienne réponse sans les champs de remise : lue quand même.
-    let sans = lecture_facture(Some(1161.29), Some(232.26), Some(1393.55));
+    let sans = lecture_facture(Some(dec!(1161.29)), Some(dec!(232.26)), Some(dec!(1393.55)));
     assert_eq!((sans.remise_ht, sans.remise_taux), (None, None));
     let mut v = serde_json::to_value(&sans).unwrap();
     v["remise_ht"] = json!(280.16);
@@ -404,7 +412,7 @@ fn remise_lue_a_part() {
     let avec: extraction::Extraction = serde_json::from_value(v).unwrap();
     assert_eq!(
         (avec.remise_ht, avec.remise_taux),
-        (Some(280.16), Some(20.0))
+        (Some(dec!(280.16)), Some(dec!(20.0)))
     );
     // Le schéma la demande toujours, et la consigne explique que le HT reste net.
     let schema = extraction::schema(false);
@@ -484,7 +492,7 @@ fn xml_reference_designation_et_prix_de_base() {
     let l = &d.lignes[0];
     assert_eq!(l.reference.as_deref(), Some("REF-9"));
     assert_eq!(l.gencod.as_deref(), Some("3123450000011"));
-    assert_eq!(l.prix_unitaire_ht, Some(0.125));
+    assert_eq!(l.prix_unitaire_ht, Some(dec!(0.125)));
     assert_eq!(d.devise.as_deref(), Some("USD"));
     // Clé GS1 fausse : pas un gencod, gardé comme référence.
     assert_eq!(d.lignes[1].gencod, None);
@@ -509,7 +517,7 @@ fn xml_reference_designation_et_prix_de_base() {
     assert_eq!(l.designation.as_deref(), Some("Bougie vanille"));
     assert_eq!(l.reference.as_deref(), Some("BV-200"));
     assert_eq!(l.gencod.as_deref(), Some("3123450000011"));
-    assert_eq!(l.prix_unitaire_ht, Some(2.5));
+    assert_eq!(l.prix_unitaire_ht, Some(dec!(2.5)));
     assert_eq!(d.devise.as_deref(), Some("EUR"));
 }
 
@@ -526,22 +534,32 @@ fn cle_des_gencods() {
 #[test]
 fn montants_cherches_parmi_les_nombres_du_texte() {
     let n = extraction::nombres("Qté 2 15,00 € ; total 1 535,40 ; 12 345 678,90 ; 1'250.00");
-    for x in [2.0, 15.0, 1535.4, 535.4, 12_345_678.9, 1250.0] {
-        assert!(n.iter().any(|v| (v - x).abs() < 0.001), "{x} dans {n:?}");
+    for x in [
+        dec!(2.0),
+        dec!(15.0),
+        dec!(1535.4),
+        dec!(535.4),
+        dec!(12345678.9),
+        dec!(1250.0),
+    ] {
+        assert!(
+            n.iter().any(|v| (v - x).abs() < dec!(0.001)),
+            "{x} dans {n:?}"
+        );
     }
     // « 2 15,00 » n'est pas « 215,00 » (15 n'est pas un groupe de milliers).
-    assert!(!n.iter().any(|v| (v - 215.0).abs() < 0.001));
+    assert!(!n.iter().any(|v| (v - dec!(215.0)).abs() < dec!(0.001)));
 
     // TTC inventé dont les chiffres se retrouvent collés dans le texte : signalé.
     let texte = "FACTURE FA00066497 du 12/11/2026\nRéf 15 354 Qté 0\nTotal HT 1 279,50\nTVA 255,90\nNet à payer 1 535,41";
-    let e = lecture_facture(Some(1279.5), Some(255.9), Some(1535.4));
+    let e = lecture_facture(Some(dec!(1279.5)), Some(dec!(255.9)), Some(dec!(1535.4)));
     let a = extraction::anomalies(&e, Some(texte));
     assert!(
         a.iter().any(|x| x.contains("TTC 1535.40 n'apparaît pas")),
         "{a:?}"
     );
     // HT inventé (TVA et TTC imprimés, HT + TVA = TTC faux) : signalé.
-    let e = lecture_facture(Some(1279.0), Some(255.9), Some(1535.41));
+    let e = lecture_facture(Some(dec!(1279.0)), Some(dec!(255.9)), Some(dec!(1535.41)));
     let a = extraction::anomalies(&e, Some(texte));
     assert!(a.iter().any(|x| x.contains("HT 1279.00")), "{a:?}");
 
@@ -549,13 +567,13 @@ fn montants_cherches_parmi_les_nombres_du_texte() {
     // TVA déduite du HT et du TTC imprimés ; rien n'est signalé.
     let texte =
         "Total HT 1 677,74\nTVA 335,55\nEcomaison 12,47\nTVA Ecomaison 2,49\nTotal TTC 2 028,25";
-    let mut e = lecture_facture(Some(1690.21), Some(338.04), Some(2028.25));
-    e.annexes_ht = Some(12.47);
+    let mut e = lecture_facture(Some(dec!(1690.21)), Some(dec!(338.04)), Some(dec!(2028.25)));
+    e.annexes_ht = Some(dec!(12.47));
     assert!(extraction::anomalies(&e, Some(texte)).is_empty());
     // Plusieurs taux, total de TVA non imprimé : déduit, rien n'est signalé.
     let texte =
         "Base 5,5 % 100,00 TVA 5,50\nBase 20 % 100,00 TVA 20,00\nTotal HT 200,00\nTotal TTC 225,50";
-    let e = lecture_facture(Some(200.0), Some(25.5), Some(225.5));
+    let e = lecture_facture(Some(dec!(200.0)), Some(dec!(25.5)), Some(dec!(225.5)));
     assert!(extraction::anomalies(&e, Some(texte)).is_empty());
 }
 
@@ -663,4 +681,37 @@ fn iban_a_la_cle_fausse_est_une_anomalie_de_lecture() {
             .iter()
             .any(|x| x.contains("IBAN"))
     );
+}
+
+#[test]
+fn bornes_d_analyse_un_bl_de_40_pages_passe_un_pdf_anormal_non() {
+    use gmflow_core::lecture::limites::{self, Depassement, Limites};
+    let lignes: Vec<String> = (1..=40)
+        .map(|i| {
+            format!("BON DE LIVRAISON BL-2026-{i:03} page {i}/40 article {i} quantité 3 prix 12,50")
+        })
+        .collect();
+    let pages: Vec<_> = lignes
+        .iter()
+        .map(|l| fixtures::PageTest::Texte(vec![l.clone()]))
+        .collect();
+    let bl = fixtures::pdf_pages(pages);
+    assert_eq!(pdf::pages(&bl), 40);
+    assert_eq!(limites::controler("bl.pdf", "application/pdf", &bl), Ok(()));
+    assert!(!matches!(
+        aiguiller("bl.pdf", "application/pdf", &bl, false),
+        Aiguillage::TropVolumineux(_)
+    ));
+    // Au-delà de la borne de pages : pas d'analyse, raison lisible.
+    let l = Limites {
+        pages_max: 39,
+        ..Limites::default()
+    };
+    match gmflow_core::lecture::aiguiller_avec(&l, "bl.pdf", "application/pdf", &bl, false) {
+        Aiguillage::TropVolumineux(d) => {
+            assert_eq!(d, Depassement::Pages { pages: 40, max: 39 });
+            assert!(d.message().contains("40 pages"), "{}", d.message());
+        }
+        autre => panic!("{autre:?}"),
+    }
 }

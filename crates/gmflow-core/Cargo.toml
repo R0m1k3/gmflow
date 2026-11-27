@@ -7,6 +7,8 @@ edition.workspace = true
 # Outils de test (bases jetables, envoi IMAP en clair vers le serveur de test).
 # Jamais activée dans les images publiées.
 test-utils = []
+# Génère les types TypeScript du front (`scripts/types-ts.sh`). Jamais activée dans les images publiées.
+ts = ["dep:ts-rs"]
 
 [dependencies]
 aes-gcm.workspace = true
@@ -17,6 +19,7 @@ apalis-postgres.workspace = true
 async-imap.workspace = true
 base64.workspace = true
 calamine.workspace = true
+flate2.workspace = true
 futures.workspace = true
 hex.workspace = true
 lettre.workspace = true
@@ -36,7 +39,12 @@ tokio.workspace = true
 tokio-rustls.workspace = true
 tower-sessions-sqlx-store.workspace = true
 tracing.workspace = true
+ts-rs = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
 uuid.workspace = true
+zip.workspace = true
+weezl.workspace = true
 webpki-roots.workspace = true
 rust_xlsxwriter.workspace = true
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) as \"n!\" from boite_mail\n           where active\n             and greatest(derniere_releve, activee_le, cree_le) < now() - make_interval(mins => $1)\n             and (releve_jusqu_a is null or releve_jusqu_a < now())",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fb3eee8809ccb34f55abdeb6a10c39a06e83cb2f388fcf684f9fde58382ae7f9"
+}

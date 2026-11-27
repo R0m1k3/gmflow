@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select id, identifiant, hash_mdp, role, societe_id, actif, generation_session\n         from utilisateur where lower(identifiant) = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "identifiant",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "hash_mdp",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "hash_mdp"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "role",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "role"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "societe_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "societe_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "actif",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "actif"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "generation_session",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "generation_session"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "6ef00b5cd1cd6bb36055958c9899fb8d78c9c67a7bcb724c93ecc7af9218e8fc"
+}

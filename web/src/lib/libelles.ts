@@ -297,6 +297,8 @@ export const RUBRIQUES = {
   avance: 'Avancé',
   expediteursPub: 'Expéditeurs publicitaires',
   historique: 'Historique',
+  journal: 'Journal',
+  zoneDangereuse: 'Zone dangereuse',
   limites: 'Limite par jour',
   adresseEnvoi: 'Adresse d’envoi vers Dext / Yooz',
   envoiAuto: 'Envoi automatique des factures sûres',
@@ -373,6 +375,7 @@ export type SujetAide = keyof typeof AIDES;
 export const MOTIFS_ECARTEMENT: { valeur: MotifEcartement; libelle: string }[] = [
   { valeur: 'doublon', libelle: 'Doublon' },
   { valeur: 'pas_pour_nous', libelle: 'Pas pour nous' },
+  { valeur: 'publicite', libelle: 'Publicité' },
   { valeur: 'autre', libelle: 'Autre' }
 ];
 export function libelleMotif(m: MotifEcartement | null | undefined): string {

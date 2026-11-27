@@ -23,8 +23,10 @@ use crate::{file, journal};
 /// Tables vidées, des plus dépendantes aux plus centrales (ordre des verrous). Aucune table
 /// gardée ne pointe vers elles : `truncate` sans `cascade` le vérifie à chaque fois.
 pub const TABLES_EFFACEES: &[&str] = &[
+    "note_interne",
     "logiflow_rapprochement",
     "logiflow_livraison",
+    "lecture_tranche",
     "ligne_document",
     "rapprochement",
     "envoi_prevu",
@@ -46,6 +48,11 @@ const ENVOI_EN_COURS_MINUTES: i32 = 15;
 const ESSAIS: usize = 3;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, rename = "BilanReinitialisation")
+)]
 pub struct Bilan {
     pub mails: i64,
     pub documents: i64,

@@ -154,6 +154,7 @@ pub async fn dossiers(session: &mut Session) -> Result<Vec<String>, ErreurImap> 
 
 /// Dossier vu par `LIST`, pour l'assistant d'ajout d'une boîte.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename = "DossierImap"))]
 pub struct Dossier {
     /// Nom IMAP tel quel (UTF-7 modifié) : c'est lui qu'on enregistre.
     pub nom: String,

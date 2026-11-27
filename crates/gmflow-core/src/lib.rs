@@ -14,6 +14,7 @@ pub mod eml;
 pub mod envoi_prevu;
 pub mod essai_boite;
 pub mod expedition;
+pub mod export_bilan;
 pub mod export_phenix;
 pub mod file;
 #[cfg(feature = "test-utils")]
@@ -24,18 +25,22 @@ pub mod imap;
 pub mod journal;
 pub mod lecture;
 pub mod logiflow;
+pub mod montant;
 pub mod parametre;
 pub mod qualite;
 pub mod rapprochement;
 pub mod reglages;
 pub mod reinitialisation;
 pub mod reponse;
+pub mod sante;
 pub mod serveur_api;
 pub mod stockage;
 #[cfg(feature = "test-utils")]
 pub mod test_utils;
 pub mod traitements;
 pub mod tri;
+#[cfg(feature = "ts")]
+pub mod vocabulaire;
 
 /// Logs JSON sur la sortie standard (consultables dans Portainer).
 pub fn initialiser_logs() {

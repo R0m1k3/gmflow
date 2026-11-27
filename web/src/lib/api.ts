@@ -1,45 +1,62 @@
 import { goto } from '$app/navigation';
-import type {
-  BilanMois,
-  Boite,
-  ChangementsFournisseur,
-  CodeRefus,
-  CompteursATraiter,
-  ConfirmationIban,
-  DemandeEssaiBoite,
-  DemandeValidation,
-  EligibiliteLot,
-  LignesDocument,
-  ResultatLigne,
-  SaisieLigne,
-  EntreeBoite,
-  EssaiBoite,
-  FileATraiter,
-  FilFournisseur,
-  Fournisseur,
-  IbanConnu,
-  LigneFournisseur,
-  MiseEnRoute,
-  MotifEcartement,
-  Page,
-  QualiteLecture,
-  ResultatAnnulation,
-  ResultatLot,
-  ResultatValidation,
-  ResultatsRecherche
-} from './types';
+import { texteErreur } from './erreurs.ts';
+import { nomFichier } from './telechargement.ts';
+import { session } from './session.svelte.ts';
+import type { BilanMois, CorpsErreur, Boite, ChangementsFournisseur, CodeRefus, CompteursATraiter, ConfirmationIban, DemandeAnnulation, DemandeEssaiBoite, DemandeLot, DemandeValidation, EligibiliteLot, EntreeBoite, EssaiBoite, EssaiCree, FileATraiter, FilFournisseur, Fournisseur, IbanConnu, LigneFournisseur, LignesDocument, MiseEnRoute, MotifEcartement, Page, QualiteLecture, RemiseEnLecture, ResultatAnnulation, ResultatLigne, ResultatLot, ResultatsRecherche, ResultatValidation, SaisieLigne } from './types';
 
 export class ErreurApi extends Error {
   constructor(
     public code: number,
     message: string,
-    /** Code stable de certains refus (409), par exemple `doublon` : voir docs/api-refonte.md. */
+    /**
+     * Code stable de l'erreur, donné par le serveur à chaque erreur (`absent`, `interdit`,
+     * `donnees`…) et aux refus métier (409 : `doublon`, `expedition`…) : voir docs/api-refonte.md.
+     * Traduit pour l'utilisateur par `erreurs.ts`.
+     */
     public raison?: CodeRefus,
     /** Champ en faute d'une donnée refusée (400), par exemple `siret` : le message va sous ce champ. */
     public champ?: string
   ) {
     super(message);
   }
+}
+
+/** L'erreur d'une réponse refusée (corps `CorpsErreur`) ; 401 : renvoi vers la connexion. */
+async function erreurDe(rep: Response, chemin: string): Promise<ErreurApi> {
+  if (rep.status === 401 && !chemin.startsWith('/api/connexion')) {
+    if (!location.pathname.startsWith('/connexion'))
+      await goto(`/connexion?retour=${encodeURIComponent(location.pathname + location.search)}`);
+    return new ErreurApi(401, 'Session expirée, reconnectez-vous.', 'non_connecte');
+  }
+  let message = `Erreur ${rep.status}`;
+  let raison: CodeRefus | undefined;
+  let champ: string | undefined;
+  try {
+    const j = (await rep.json()) as Partial<CorpsErreur> | null;
+    if (j?.erreur) message = j.erreur;
+    if (typeof j?.code === 'string') raison = j.code;
+    if (typeof j?.champ === 'string') champ = j.champ;
+  } catch {
+    /* corps vide */
+  }
+  return new ErreurApi(rep.status, message, raison, champ);
+}
+
+/**
+ * Télécharge un fichier de l'API (export Excel…). Un lien `download` enregistrerait la réponse
+ * d'erreur comme fichier : ici, un refus lève une `ErreurApi`, à montrer comme les autres.
+ */
+export async function telecharger(chemin: string, nomParDefaut: string): Promise<void> {
+  const rep = await fetch(chemin, { credentials: 'same-origin' });
+  if (!rep.ok) throw await erreurDe(rep, chemin);
+  const url = URL.createObjectURL(await rep.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = nomFichier(rep.headers.get('content-disposition'), nomParDefaut);
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 async function appel<T>(methode: string, chemin: string, corps?: unknown): Promise<T> {
@@ -52,24 +69,7 @@ async function appel<T>(methode: string, chemin: string, corps?: unknown): Promi
     headers: entetes,
     body: corps === undefined ? undefined : JSON.stringify(corps)
   });
-  if (rep.status === 401 && !chemin.startsWith('/api/connexion')) {
-    await goto('/connexion');
-    throw new ErreurApi(401, 'Session expirée, reconnectez-vous.');
-  }
-  if (!rep.ok) {
-    let message = `Erreur ${rep.status}`;
-    let raison: CodeRefus | undefined;
-    let champ: string | undefined;
-    try {
-      const j = await rep.json();
-      if (j?.erreur) message = j.erreur;
-      if (typeof j?.code === 'string') raison = j.code;
-      if (typeof j?.champ === 'string') champ = j.champ;
-    } catch {
-      /* corps vide */
-    }
-    throw new ErreurApi(rep.status, message, raison, champ);
-  }
+  if (!rep.ok) throw await erreurDe(rep, chemin);
   // 202 sans corps (tâche lancée) : rien ; 202 avec corps (essai de boîte) : son JSON.
   if (rep.status === 204 || rep.headers.get('content-length') === '0') {
     return undefined as T;
@@ -86,8 +86,12 @@ export const api = {
   del: <T>(chemin: string, corps?: unknown) => appel<T>('DELETE', chemin, corps)
 };
 
+/**
+ * Une erreur en une phrase pour l'utilisateur : ce qui s'est passé et que faire (`erreurs.ts`).
+ * Un bandeau avec le bouton d'action : `ErreurAction.svelte`.
+ */
 export function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
+  return texteErreur(e, session.moi?.role === 'admin');
 }
 
 /** Relance `f` toutes les `ms` tant que la page est ouverte ; rend la fonction d'arrêt. */
@@ -142,16 +146,16 @@ export const ecarterDocument = (id: number, societe?: number | null, motif?: { m
   api.post<ResultatValidation>(`/api/documents/${id}/ecarter${requete({ societe })}`, motif ?? {});
 
 /** « Remettre à contrôler » une pièce écartée : elle retrouve son état d'avant. */
-export const remettreDocument = (id: number) => api.post<{ id: number; etat: string; statut_depot: string | null }>(`/api/documents/${id}/remettre`);
+export const remettreDocument = (id: number) => api.post<RemiseEnLecture>(`/api/documents/${id}/remettre`);
 
 /** « Annuler » : les envois d'une validation (ou d'un lot) pas encore partis sont annulés. */
-export const annulerEnvoi = (lot: string) => api.post<ResultatAnnulation>('/api/documents/annuler-envoi', { lot });
+export const annulerEnvoi = (lot: string) => api.post<ResultatAnnulation>('/api/documents/annuler-envoi', { lot } satisfies DemandeAnnulation);
 
 /** Pièces cochables pour une validation par lot (100 au plus). */
-export const eligibiliteLot = (ids: number[]) => api.post<EligibiliteLot[]>('/api/documents/lot/eligibilite', { ids });
+export const eligibiliteLot = (ids: number[]) => api.post<EligibiliteLot[]>('/api/documents/lot/eligibilite', { ids } satisfies DemandeLot);
 
 /** « Valider N pièces » : chaque pièce sans alerte est validée, les autres laissées à contrôler. */
-export const validerLot = (ids: number[]) => api.post<ResultatLot>('/api/documents/lot/valider', { ids });
+export const validerLot = (ids: number[]) => api.post<ResultatLot>('/api/documents/lot/valider', { ids } satisfies DemandeLot);
 
 /** Lignes articles d'un document, pour les corriger à la main. */
 export const lignesDocument = (id: number) => api.get<LignesDocument>(`/api/documents/${id}/lignes`);
@@ -159,7 +163,7 @@ export const modifierLigne = (id: number, ligne: number, s: SaisieLigne) => api.
 export const ajouterLigne = (id: number, s: SaisieLigne) => api.post<ResultatLigne>(`/api/documents/${id}/lignes`, s);
 export const supprimerLigne = (id: number, ligne: number) => api.del<ResultatLigne>(`/api/documents/${id}/lignes/${ligne}`);
 
-export const fournisseurs = (p: { societe?: number | null; q?: string; statut?: string; page?: number } = {}) =>
+export const fournisseurs = (p: { societe?: number | null; q?: string; statut?: string; page?: number; tri?: string; sens?: string } = {}) =>
   api.get<Page<LigneFournisseur>>(`/api/fournisseurs${requete(p)}`);
 
 export const filFournisseur = (id: number, p: { societe?: number | null; mois?: number } = {}) =>
@@ -193,10 +197,10 @@ export const creerBoite = (entree: EntreeBoite) => api.post<Boite>('/api/admin/b
 export const miseEnRoute = () => api.get<MiseEnRoute>('/api/admin/mise-en-route');
 
 export const essayerBoite = (demande: DemandeEssaiBoite) =>
-  api.post<{ id: string }>('/api/admin/boites/tester', demande);
+  api.post<EssaiCree>('/api/admin/boites/tester', demande);
 
 export const essayerSmtp = (boiteId: number) =>
-  api.post<{ id: string }>(`/api/admin/boites/${boiteId}/tester-smtp`);
+  api.post<EssaiCree>(`/api/admin/boites/${boiteId}/tester-smtp`);
 
 export const lireEssai = (id: string) => api.get<EssaiBoite>(`/api/admin/boites/essais/${id}`);
 

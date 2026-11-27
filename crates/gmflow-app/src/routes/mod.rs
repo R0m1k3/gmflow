@@ -15,18 +15,23 @@ pub mod depots;
 pub mod documents;
 pub mod export_phenix;
 pub mod fichiers;
+#[cfg(feature = "ts")]
+pub mod formes;
 pub mod fournisseurs;
 pub mod iban;
 pub mod lignes;
 pub mod lot;
 pub mod mails;
 pub mod mise_en_route;
+pub mod notes;
 pub mod qualite;
 pub mod rapprochement;
 pub mod recherche;
 pub mod reponses;
 pub mod retour;
+pub mod surveillance;
 pub mod tableau;
+pub mod tri;
 
 use std::path::PathBuf;
 
@@ -104,6 +109,9 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/connexion", post(auth::connexion))
         .route("/deconnexion", post(auth::deconnexion))
         .route("/moi", get(auth::moi))
+        .route("/moi/mot-de-passe", post(auth::changer_mot_de_passe))
+        .route("/sante", get(surveillance::sonde))
+        .route("/metriques", get(surveillance::metriques))
         .route("/premier-compte/{jeton}", get(premier_compte::verifier))
         .route("/premier-compte", post(premier_compte::creer))
         .route("/societes", get(mails::societes))
@@ -158,6 +166,13 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/documents/{id}/remettre", post(retour::remettre))
         .route("/documents/lot/eligibilite", post(lot::eligibilite))
         .route("/documents/lot/valider", post(lot::valider))
+        .route("/documents/lot/ecarter", post(lot::ecarter))
+        // Notes internes (routes/notes.rs).
+        .route(
+            "/documents/{id}/notes",
+            get(notes::lister).post(notes::ajouter),
+        )
+        .route("/notes/{id}", delete(notes::supprimer))
         // Lignes articles corrigées à la main (routes/lignes.rs).
         .route(
             "/documents/{id}/lignes",
@@ -172,6 +187,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/a-traiter/compteurs", get(a_traiter::compteurs))
         .route("/depots/suivi", get(depots::suivi))
         .route("/bilan", get(bilan::bilan))
+        .route("/bilan/export", get(bilan::exporter))
         .route(
             "/rapprochement",
             get(rapprochement::vue).post(rapprochement::lier),

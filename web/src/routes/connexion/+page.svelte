@@ -1,8 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { api, ErreurApi, message } from '#lib/api.ts';
   import { session } from '#lib/session.svelte.ts';
-  import type { Moi } from '#lib/types.ts';
+  import type { EntreeConnexion, Moi } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
 
@@ -16,9 +17,11 @@
     envoi = true;
     erreur = null;
     try {
-      session.moi = await api.post<Moi>('/api/connexion', { identifiant: identifiant.trim(), mot_de_passe: motDePasse });
+      session.moi = await api.post<Moi>('/api/connexion', { identifiant: identifiant.trim(), mot_de_passe: motDePasse } satisfies EntreeConnexion);
       session.charge = true;
-      await goto('/');
+      // Retour à la page quittée par une session expirée (`?retour=`), jamais vers un autre site.
+      const retour = page.url.searchParams.get('retour') ?? '';
+      await goto(/^\/(?![/\\])/.test(retour) && !retour.startsWith('/connexion') ? retour : '/');
     } catch (err) {
       const code = err instanceof ErreurApi ? err.code : 0;
       if (code === 401) erreur = { titre: 'Identifiant ou mot de passe incorrect.', texte: 'Vérifiez la saisie, majuscules comprises.' };

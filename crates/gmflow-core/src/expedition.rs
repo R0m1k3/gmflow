@@ -24,9 +24,11 @@ pub const DELAI: Duration = Duration::from_secs(60);
 pub const SECURITES: &[&str] = &["tls", "starttls"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Expedition {
     pub serveur: String,
     pub port: u16,
+    #[cfg_attr(feature = "ts", ts(type = "'tls' | 'starttls'"))]
     pub securite: String,
     /// Identifiant SMTP ; vide : pas d'authentification.
     #[serde(default)]

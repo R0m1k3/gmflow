@@ -143,11 +143,19 @@ pub async fn tableau(
     Path(id): Path<i64>,
 ) -> Resultat<axum::Json<Vec<gmflow_core::lecture::tableur::Feuille>>> {
     let (p, octets) = charger(&etat, &acces, id).await?;
-    let feuilles = tokio::task::spawn_blocking(move || {
-        gmflow_core::lecture::apercu_tableur(&p.nom, &p.type_mime, &octets)
-    })
-    .await
-    .map_err(|e| ErreurApi::Interne(e.into()))?;
+    // Fichier piégé ou anormal (C9) : pas d'aperçu, le fichier reste téléchargeable.
+    use gmflow_core::lecture::limites;
+    let analyse = tokio::task::spawn_blocking(move || {
+        limites::controler(&p.nom, &p.type_mime, &octets)
+            .map(|()| gmflow_core::lecture::apercu_tableur(&p.nom, &p.type_mime, &octets))
+    });
+    let feuilles = match tokio::time::timeout(limites::limites().duree_max, analyse).await {
+        Ok(r) => r.map_err(|e| ErreurApi::Interne(e.into()))?,
+        Err(_) => Err(limites::Depassement::Duree {
+            secondes: limites::limites().duree_max.as_secs(),
+        }),
+    }
+    .map_err(|d| ErreurApi::Donnees(format!("{} Téléchargez-le pour l'ouvrir.", d.constat())))?;
     feuilles
         .map(axum::Json)
         .ok_or_else(|| ErreurApi::Donnees("ce fichier n'est pas un tableur lisible".into()))

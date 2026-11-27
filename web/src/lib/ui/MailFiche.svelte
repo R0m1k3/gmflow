@@ -112,7 +112,7 @@
   import { session } from '#lib/session.svelte.ts';
   import ApercuPiece from './ApercuPiece.svelte';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { Brouillon, Categorie, EtatFournisseur, FicheMail, MailARepondre } from '#lib/types.ts';
+  import type { Brouillon, Categorie, EntreeBrouillon, EntreeCategorie, EntreeMarque, EntreeStatut, EntreeTexte, EtatFournisseur, FicheMail, HorsSociete, MailARepondre, MarqueCreee, ResultatHorsSociete } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
@@ -293,7 +293,7 @@
 
   // Texte modifié et pas encore enregistré : gardé avant de quitter la fiche.
   beforeNavigate(() => {
-    if (modifieIci && actif) void api.put(`/api/brouillons/${actif.id}`, { texte }).catch(() => {});
+    if (modifieIci && actif) void api.put(`/api/brouillons/${actif.id}`, { texte } satisfies EntreeTexte).catch(() => {});
   });
 
   // ---------- Actions ----------
@@ -347,19 +347,19 @@
 
   const classer = (c: Categorie, texteInfo: string) =>
     agir(`categorie:${c}`, async () => {
-      await api.put(`/api/mails/${id}/categorie`, { categorie: c });
+      await api.put(`/api/mails/${id}/categorie`, { categorie: c } satisfies EntreeCategorie);
       await apres(texteInfo);
     });
 
   const changerStatut = (s: 'a_repondre' | 'repondu' | 'sans_suite', texteInfo: string) =>
     agir(`statut:${s}`, async () => {
-      await api.post(`/api/mails/${id}/statut-reponse`, { statut: s });
+      await api.post(`/api/mails/${id}/statut-reponse`, { statut: s } satisfies EntreeStatut);
       await apres(texteInfo);
     });
 
   const proposer = () =>
     agir('proposer', async () => {
-      await api.post(`/api/mails/${id}/brouillons`, { boite_id: Number(boiteEnvoi) || null });
+      await api.post(`/api/mails/${id}/brouillons`, { boite_id: Number(boiteEnvoi) || null } satisfies EntreeBrouillon);
       await lire();
       maintenant = Date.now();
       suivre();
@@ -368,7 +368,7 @@
 
   const enregistrer = () =>
     agir('enregistrer', async () => {
-      await api.put(`/api/brouillons/${actif!.id}`, { texte });
+      await api.put(`/api/brouillons/${actif!.id}`, { texte } satisfies EntreeTexte);
       await lire();
     });
 
@@ -376,7 +376,7 @@
     if (!modifieIci || occupe || !actif) return;
     const b = actif;
     try {
-      await api.put(`/api/brouillons/${b.id}`, { texte });
+      await api.put(`/api/brouillons/${b.id}`, { texte } satisfies EntreeTexte);
       await lire();
     } catch {
       /* gardé à l'écran ; « Enregistrer » redira l'erreur */
@@ -386,7 +386,7 @@
   const envoyer = () =>
     agir('envoyer', async () => {
       const b = actif!;
-      if (texte !== b.texte) await api.put(`/api/brouillons/${b.id}`, { texte });
+      if (texte !== b.texte) await api.put(`/api/brouillons/${b.id}`, { texte } satisfies EntreeTexte);
       await api.post(`/api/brouillons/${b.id}/envoyer`);
       attenteEnvoi = b.id;
       maintenant = Date.now();
@@ -403,7 +403,7 @@
 
   const marquer = (portee: 'adresse' | 'domaine', cible: string) =>
     agir(`marquer:${portee}`, async () => {
-      const r = await api.post<{ reclasses: number }>('/api/admin/expediteurs-marques', { mail_id: id, portee });
+      const r = await api.post<MarqueCreee>('/api/admin/expediteurs-marques', { mail_id: id, portee } satisfies EntreeMarque);
       const n = r?.reclasses ?? 0;
       await apres(`${cible} classé en publicité (${n} mail${n > 1 ? 's' : ''} reclassé${n > 1 ? 's' : ''}).`);
     });
@@ -530,12 +530,12 @@
   let libelleMasque = $derived(societeMasque ? `Ne concerne pas ${nomCourtSociete(societeMasque.raison_sociale)}` : 'Ne concerne aucune de nos sociétés');
   let dlgMasquer = $state(false);
   let masque = $state<{ documents: number } | null>(null);
-  const corpsMasque = () => ({ societe_id: admin ? (societeMasque?.id ?? null) : null });
+  const corpsMasque = (): HorsSociete => ({ societe_id: admin ? (societeMasque?.id ?? null) : null });
   async function masquer() {
     if (!m) return;
     erreur = '';
     try {
-      masque = await api.post<{ documents: number }>(`/api/mails/${m.id}/hors-societe`, corpsMasque());
+      masque = await api.post<ResultatHorsSociete>(`/api/mails/${m.id}/hors-societe`, corpsMasque());
       void rafraichirCompteurs();
       await ouvrir?.(null);
     } catch (e) {
@@ -791,7 +791,7 @@
       {/if}
 
       {#if m.html}
-        <CorpsHtml id={m.id} />
+        <CorpsHtml id={m.id} expediteur={m.expediteur} />
       {:else}
       <div class="mailtext">
         {#each corps.paragraphes as p, i (i)}<p>{p}</p>{:else}<p class="muted">(corps vide)</p>{/each}

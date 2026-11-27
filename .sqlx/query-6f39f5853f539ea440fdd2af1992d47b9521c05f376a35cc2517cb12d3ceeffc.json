@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select count(*) filter (where succes) as \"reussis!\",\n                  count(*) filter (where not succes) as \"echoues!\",\n                  coalesce(sum(cout_usd), 0)::float8 as \"cout!\"\n           from appel_claude\n           where quand >= (date_trunc('day', now() at time zone 'Europe/Paris')\n                           at time zone 'Europe/Paris')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reussis!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "echoues!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "cout!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6f39f5853f539ea440fdd2af1992d47b9521c05f376a35cc2517cb12d3ceeffc"
+}

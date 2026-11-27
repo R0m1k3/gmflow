@@ -10,6 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use gmflow_core::lecture::extraction::{self, Ligne};
 use gmflow_core::lecture::xml::gencod_valide;
+use gmflow_core::montant::{self, Decimal, dec};
 use gmflow_core::{articles_magasin, depot, journal, parametre, rapprochement, serveur_api};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -17,75 +18,99 @@ use sqlx::PgConnection;
 
 use super::documents::{controler_modifiable, controler_visible};
 use crate::acces::Acces;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 const TEXTE_MAX: usize = 500;
 /// Écart toléré entre le montant d'une ligne et quantité × prix (arrondis du document).
-const TOLERANCE: f64 = 0.011;
+const TOLERANCE: Decimal = dec!(0.011);
 
 /// Ligne telle que la fiche l'affiche et la corrige.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneEdit {
     id: i64,
     rang: i32,
     reference: Option<String>,
     designation: Option<String>,
-    quantite: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    quantite: Option<Decimal>,
     unite: Option<String>,
-    prix_unitaire_ht: Option<f64>,
-    montant_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    prix_unitaire_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ht: Option<Decimal>,
     gencod: Option<String>,
-    colis: Option<f64>,
-    pcb: Option<f64>,
-    remise_taux: Option<f64>,
-    taux_tva: Option<f64>,
-    deee_ht: Option<f64>,
-    ecomob_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    colis: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pcb: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    remise_taux: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    taux_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    deee_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    ecomob_ht: Option<Decimal>,
     /// Corrigée à la main (le, par).
     corrigee_le: Option<String>,
     corrigee_par: Option<String>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LignesDocument {
     /// Les lignes peuvent être corrigées par cet utilisateur maintenant.
     modifiable: bool,
     /// Sinon pourquoi (« déjà envoyée à Dext »…).
     raison: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
     lignes: Vec<LigneEdit>,
 }
 
 /// Valeurs saisies d'une ligne (toutes : la ligne est remplacée telle quelle).
 #[derive(Debug, Deserialize, Default, Clone)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct LigneSaisie {
     #[serde(default)]
     reference: Option<String>,
     #[serde(default)]
     designation: Option<String>,
     #[serde(default)]
-    quantite: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    quantite: Option<Decimal>,
     #[serde(default)]
     unite: Option<String>,
     #[serde(default)]
-    prix_unitaire_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    prix_unitaire_ht: Option<Decimal>,
     #[serde(default)]
-    montant_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    montant_ht: Option<Decimal>,
     #[serde(default)]
     gencod: Option<String>,
     #[serde(default)]
-    colis: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    colis: Option<Decimal>,
     #[serde(default)]
-    pcb: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    pcb: Option<Decimal>,
     #[serde(default)]
-    remise_taux: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    remise_taux: Option<Decimal>,
     #[serde(default)]
-    taux_tva: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    taux_tva: Option<Decimal>,
     #[serde(default)]
-    deee_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    deee_ht: Option<Decimal>,
     #[serde(default)]
-    ecomob_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
+    ecomob_ht: Option<Decimal>,
 }
 
 fn champ(champ: &'static str, message: impl Into<String>) -> ErreurApi {
@@ -100,13 +125,26 @@ fn texte(v: Option<String>) -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
-fn positif(nom: &'static str, v: Option<f64>, max: Option<f64>) -> Resultat<Option<f64>> {
+/// Nombre saisi positif, au plus `max`, arrondi à la précision de sa colonne (`colonne` :
+/// `montant::quantite`, `montant::prix`…) ; trop grand pour la colonne : refusé.
+fn positif(
+    nom: &'static str,
+    v: Option<Decimal>,
+    max: Option<Decimal>,
+    colonne: fn(Decimal) -> Option<Decimal>,
+) -> Resultat<Option<Decimal>> {
     match v {
-        Some(x) if !x.is_finite() || x < 0.0 => Err(champ(nom, "nombre positif attendu")),
-        Some(x) if max.is_some_and(|m| x > m) => {
-            Err(champ(nom, format!("{} au plus", max.unwrap_or_default())))
+        Some(x) if x.is_sign_negative() && !x.is_zero() => {
+            Err(champ(nom, "nombre positif attendu"))
         }
-        _ => Ok(v),
+        Some(x) if max.is_some_and(|m| x > m) => Err(champ(
+            nom,
+            format!("{} au plus", max.unwrap_or_default().normalize()),
+        )),
+        Some(x) => colonne(x)
+            .map(Some)
+            .ok_or_else(|| champ(nom, "nombre trop grand")),
+        None => Ok(None),
     }
 }
 
@@ -125,17 +163,32 @@ impl LigneSaisie {
         let l = Self {
             reference: texte(self.reference),
             designation: texte(self.designation),
-            quantite: positif("quantite", self.quantite, None)?,
+            quantite: positif("quantite", self.quantite, None, montant::quantite)?,
             unite: texte(self.unite),
-            prix_unitaire_ht: positif("prix_unitaire_ht", self.prix_unitaire_ht, None)?,
-            montant_ht: positif("montant_ht", self.montant_ht, None)?,
+            prix_unitaire_ht: positif(
+                "prix_unitaire_ht",
+                self.prix_unitaire_ht,
+                None,
+                montant::prix,
+            )?,
+            montant_ht: positif("montant_ht", self.montant_ht, None, montant::montant)?,
             gencod,
-            colis: positif("colis", self.colis, None)?,
-            pcb: positif("pcb", self.pcb, None)?,
-            remise_taux: positif("remise_taux", self.remise_taux, Some(100.0))?,
-            taux_tva: positif("taux_tva", self.taux_tva, Some(100.0))?,
-            deee_ht: positif("deee_ht", self.deee_ht, None)?,
-            ecomob_ht: positif("ecomob_ht", self.ecomob_ht, None)?,
+            colis: positif("colis", self.colis, None, montant::quantite)?,
+            pcb: positif("pcb", self.pcb, None, montant::quantite)?,
+            remise_taux: positif(
+                "remise_taux",
+                self.remise_taux,
+                Some(Decimal::ONE_HUNDRED),
+                montant::taux_ligne,
+            )?,
+            taux_tva: positif(
+                "taux_tva",
+                self.taux_tva,
+                Some(Decimal::ONE_HUNDRED),
+                montant::taux,
+            )?,
+            deee_ht: positif("deee_ht", self.deee_ht, None, montant::prix)?,
+            ecomob_ht: positif("ecomob_ht", self.ecomob_ht, None, montant::prix)?,
         };
         if l.reference.is_none() && l.designation.is_none() {
             return Err(champ("designation", "désignation ou référence attendue"));
@@ -164,16 +217,16 @@ impl LigneSaisie {
 }
 
 /// Montant attendu d'une ligne : quantité (sinon colis × PCB) × prix, moins la remise.
-fn montant_calcule(l: &Ligne) -> Option<f64> {
+fn montant_calcule(l: &Ligne) -> Option<Decimal> {
     let q = l.quantite.or(match (l.colis, l.pcb) {
         (Some(c), Some(p)) => Some(c * p),
         _ => None,
     })?;
     let remise = l
         .remise_taux
-        .filter(|r| *r > 0.0 && *r < 100.0)
-        .unwrap_or(0.0);
-    Some((q * l.prix_unitaire_ht? * (1.0 - remise / 100.0) * 100.0).round() / 100.0)
+        .filter(|r| *r > Decimal::ZERO && *r < Decimal::ONE_HUNDRED)
+        .unwrap_or_default();
+    montant::montant(q * l.prix_unitaire_ht? * (Decimal::ONE - remise / Decimal::ONE_HUNDRED))
 }
 
 /// Quantité, prix, colis, PCB ou remise changés sans toucher au montant : le montant suit, s'il
@@ -234,11 +287,10 @@ async fn raison_figee(c: &mut PgConnection, id: i64) -> Resultat<(Option<String>
 
 async fn lire_lignes(c: &mut PgConnection, id: i64) -> sqlx::Result<Vec<LigneEdit>> {
     let r = sqlx::query!(
-        r#"select l.id, l.rang, l.reference, l.designation, l.quantite::float8 as quantite, l.unite,
-                  l.prix_unitaire_ht::float8 as prix, l.montant_ht::float8 as montant, l.gencod,
-                  l.colis::float8 as colis, l.pcb::float8 as pcb,
-                  l.remise_taux::float8 as remise, l.taux_tva::float8 as tva,
-                  l.deee_ht::float8 as deee, l.ecomob_ht::float8 as ecomob,
+        r#"select l.id, l.rang, l.reference, l.designation, l.quantite, l.unite,
+                  l.prix_unitaire_ht as prix, l.montant_ht as montant, l.gencod, l.colis, l.pcb,
+                  l.remise_taux as remise, l.taux_tva as tva, l.deee_ht as deee,
+                  l.ecomob_ht as ecomob,
                   to_char(l.corrigee_le at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as corrigee_le,
                   u.identifiant as "corrigee_par?"
            from ligne_document l left join utilisateur u on u.id = l.corrigee_par
@@ -321,15 +373,21 @@ pub async fn liste(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Totaux {
-    montant_ht: Option<f64>,
-    montant_tva: Option<f64>,
-    montant_ttc: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    montant_ttc: Option<Decimal>,
     /// Totaux du BL calculés depuis les lignes (« ht », « tva », « ttc »).
+    #[cfg_attr(feature = "ts", ts(as = "Vec<v::MontantCalcule>"))]
     montants_calcules: Vec<String>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatLigne {
     /// La ligne après la correction (absente après une suppression).
     ligne: Option<LigneEdit>,
@@ -349,7 +407,7 @@ enum Changement {
 /// un BL aux totaux imprimés : le contrôle « somme des lignes » dira l'écart.
 async fn totaux_bl(c: &mut PgConnection, id: i64) -> sqlx::Result<()> {
     let d = sqlx::query!(
-        r#"select montant_ht::float8 as ht, montant_tva::float8 as tva, montant_ttc::float8 as ttc,
+        r#"select montant_ht as ht, montant_tva as tva, montant_ttc as ttc,
                   coalesce(confiance->'montants_calcules', '[]') as "calcules!",
                   coalesce((confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
            from document where id = $1"#,
@@ -364,13 +422,13 @@ async fn totaux_bl(c: &mut PgConnection, id: i64) -> sqlx::Result<()> {
     }
     let lignes = lire_lignes(c, id).await?;
     let mut l: Vec<Ligne> = lignes.iter().map(vers_ligne).collect();
-    let garde = |nom: &str, v: Option<f64>| v.filter(|_| !calcules.iter().any(|x| x == nom));
+    let garde = |nom: &str, v: Option<Decimal>| v.filter(|_| !calcules.iter().any(|x| x == nom));
     let (mut ht, mut tva, mut ttc) = (garde("ht", d.ht), garde("tva", d.tva), garde("ttc", d.ttc));
     let nouveaux = extraction::completer_montants_bl(&mut l, &mut ht, &mut tva, &mut ttc);
     for (avant, apres) in lignes.iter().zip(&l) {
         if avant.montant_ht.is_none() && apres.montant_ht.is_some() {
             sqlx::query!(
-                "update ligne_document set montant_ht = $2::float8::numeric(14, 2) where id = $1",
+                "update ligne_document set montant_ht = $2::numeric(14, 2) where id = $1",
                 avant.id,
                 apres.montant_ht
             )
@@ -379,8 +437,8 @@ async fn totaux_bl(c: &mut PgConnection, id: i64) -> sqlx::Result<()> {
         }
     }
     sqlx::query!(
-        r#"update document set montant_ht = $2::float8::numeric(14, 2),
-               montant_tva = $3::float8::numeric(14, 2), montant_ttc = $4::float8::numeric(14, 2),
+        r#"update document set montant_ht = $2::numeric(14, 2),
+               montant_tva = $3::numeric(14, 2), montant_ttc = $4::numeric(14, 2),
                confiance = coalesce(confiance, '{}'::jsonb) || jsonb_build_object('montants_calcules', $5::jsonb)
            where id = $1"#,
         id,
@@ -408,7 +466,7 @@ async fn appliquer(
     let (raison, piece) = raison_figee(&mut tx, id).await?;
     if let Some(r) = raison {
         return Err(ErreurApi::ConflitCode {
-            code: "etat",
+            code: Refus::Etat,
             message: r,
         });
     }
@@ -434,12 +492,12 @@ async fn appliquer(
                 || a.designation != n.designation;
             sqlx::query!(
                 r#"update ligne_document set reference = $2, designation = $3,
-                       quantite = $4::float8::numeric(14, 3), unite = $5,
-                       prix_unitaire_ht = $6::float8::numeric(14, 4),
-                       montant_ht = $7::float8::numeric(14, 2), gencod = $8,
-                       colis = $9::float8::numeric(14, 3), pcb = $10::float8::numeric(14, 3),
-                       remise_taux = $11::float8::numeric(8, 4), taux_tva = $12::float8::numeric(6, 3),
-                       deee_ht = $13::float8::numeric(14, 4), ecomob_ht = $14::float8::numeric(14, 4),
+                       quantite = $4::numeric(14, 3), unite = $5,
+                       prix_unitaire_ht = $6::numeric(14, 4),
+                       montant_ht = $7::numeric(14, 2), gencod = $8,
+                       colis = $9::numeric(14, 3), pcb = $10::numeric(14, 3),
+                       remise_taux = $11::numeric(8, 4), taux_tva = $12::numeric(6, 3),
+                       deee_ht = $13::numeric(14, 4), ecomob_ht = $14::numeric(14, 4),
                        magasin = case when $15 then null else magasin end,
                        corrigee_le = now(), corrigee_par = $16
                    where id = $1"#,
@@ -486,11 +544,11 @@ async fn appliquer(
                 r#"insert into ligne_document (document_id, rang, reference, designation, quantite,
                        unite, prix_unitaire_ht, montant_ht, gencod, colis, pcb, remise_taux,
                        taux_tva, deee_ht, ecomob_ht, corrigee_le, corrigee_par)
-                   values ($1, $2, $3, $4, $5::float8::numeric(14, 3), $6,
-                           $7::float8::numeric(14, 4), $8::float8::numeric(14, 2), $9,
-                           $10::float8::numeric(14, 3), $11::float8::numeric(14, 3),
-                           $12::float8::numeric(8, 4), $13::float8::numeric(6, 3),
-                           $14::float8::numeric(14, 4), $15::float8::numeric(14, 4), now(), $16)
+                   values ($1, $2, $3, $4, $5::numeric(14, 3), $6,
+                           $7::numeric(14, 4), $8::numeric(14, 2), $9,
+                           $10::numeric(14, 3), $11::numeric(14, 3),
+                           $12::numeric(8, 4), $13::numeric(6, 3),
+                           $14::numeric(14, 4), $15::numeric(14, 4), now(), $16)
                    returning id"#,
                 id,
                 rang,
@@ -571,7 +629,7 @@ async fn appliquer(
         None => None,
     };
     let t = sqlx::query!(
-        r#"select montant_ht::float8 as ht, montant_tva::float8 as tva, montant_ttc::float8 as ttc,
+        r#"select montant_ht as ht, montant_tva as tva, montant_ttc as ttc,
                   coalesce(confiance->'montants_calcules', '[]') as "calcules!"
            from document where id = $1"#,
         id
@@ -634,28 +692,28 @@ mod tests {
     #[test]
     fn le_montant_suit_la_quantite_s_il_etait_coherent() {
         let avant = Ligne {
-            quantite: Some(2.0),
-            prix_unitaire_ht: Some(5.0),
-            montant_ht: Some(10.0),
+            quantite: Some(dec!(2.0)),
+            prix_unitaire_ht: Some(dec!(5.0)),
+            montant_ht: Some(dec!(10.0)),
             ..Default::default()
         };
         let mut apres = Ligne {
-            quantite: Some(3.0),
+            quantite: Some(dec!(3.0)),
             ..avant.clone()
         };
         montant_suivi(&avant, &mut apres);
-        assert_eq!(apres.montant_ht, Some(15.0));
+        assert_eq!(apres.montant_ht, Some(dec!(15.0)));
         // Montant imprimé autrement (prix au colis) : gardé.
         let avant = Ligne {
-            montant_ht: Some(60.0),
+            montant_ht: Some(dec!(60.0)),
             ..avant
         };
         let mut apres = Ligne {
-            quantite: Some(3.0),
+            quantite: Some(dec!(3.0)),
             ..avant.clone()
         };
         montant_suivi(&avant, &mut apres);
-        assert_eq!(apres.montant_ht, Some(60.0));
+        assert_eq!(apres.montant_ht, Some(dec!(60.0)));
     }
 
     #[test]
@@ -663,7 +721,7 @@ mod tests {
         let ok = LigneSaisie {
             designation: Some(" Seau ".into()),
             gencod: Some("3 532156 987418".into()),
-            quantite: Some(2.0),
+            quantite: Some(dec!(2.0)),
             ..Default::default()
         }
         .verifier()
@@ -684,12 +742,45 @@ mod tests {
         ));
         let negatif = LigneSaisie {
             designation: Some("Seau".into()),
-            pcb: Some(-1.0),
+            pcb: Some(dec!(-1.0)),
             ..Default::default()
         };
         assert!(matches!(
             negatif.verifier(),
             Err(ErreurApi::Champ { champ: "pcb", .. })
         ));
+    }
+
+    #[test]
+    fn saisie_arrondie_a_la_colonne_et_montant_exact() {
+        let l = LigneSaisie {
+            designation: Some("Seau".into()),
+            quantite: Some(dec!(1.23456)),
+            prix_unitaire_ht: Some(dec!(3.33333)),
+            ..Default::default()
+        }
+        .verifier()
+        .unwrap();
+        assert_eq!(l.quantite, Some(dec!(1.235)));
+        assert_eq!(l.prix_unitaire_ht, Some(dec!(3.3333)));
+        let trop = LigneSaisie {
+            designation: Some("Seau".into()),
+            montant_ht: Some(dec!(1000000000000)),
+            ..Default::default()
+        };
+        assert!(matches!(
+            trop.verifier(),
+            Err(ErreurApi::Champ {
+                champ: "montant_ht",
+                ..
+            })
+        ));
+        // 3 × 3,335 = 10,005 → 10,01 (10,00 en f64).
+        let l = Ligne {
+            quantite: Some(dec!(3)),
+            prix_unitaire_ht: Some(dec!(3.335)),
+            ..Default::default()
+        };
+        assert_eq!(montant_calcule(&l), Some(dec!(10.01)));
     }
 }

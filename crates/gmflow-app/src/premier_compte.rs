@@ -65,7 +65,8 @@ pub async fn verifier(State(etat): State<Etat>, Path(jeton): Path<String>) -> Re
 }
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreePremierCompte {
     jeton: String,
     identifiant: String,
     mot_de_passe: String,
@@ -73,7 +74,7 @@ pub struct Entree {
 
 pub async fn creer(
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreePremierCompte>,
 ) -> Resultat<(StatusCode, Json<serde_json::Value>)> {
     if !jeton_valide(&etat, &e.jeton) {
         return Err(ErreurApi::Absent);

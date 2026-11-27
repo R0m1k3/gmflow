@@ -114,7 +114,7 @@ async fn deposer_avec(
     let mut tx = pool.begin().await?;
     let Some(d) = sqlx::query!(
         r#"select d.statut_depot, d.valide_le is not null as "valide!", d.societe_id, d.type,
-                  d.numero, d.date_document, d.montant_ttc::float8 as ttc, d.fournisseur_nom,
+                  d.numero, d.date_document, d.montant_ttc as ttc, d.fournisseur_nom,
                   f.nom as "fiche?", s.adresse_depot as "adresse?", s.outil_depot as "outil?",
                   coalesce(s.depot_auto, false) as "auto!", s.raison_sociale as "societe?",
                   p.nom, p.type_mime, coalesce(ps.rang, p.rang) as "rang!", p.page_debut,
@@ -260,7 +260,9 @@ async fn deposer_avec(
             "{genre} déposée par GMFlow.\n\nStructure : {}\nFournisseur : {fournisseur}\nNuméro : {numero}\nDate : {}\nMontant TTC : {}\nFichier : {}\n",
             d.societe.clone().unwrap_or_default(),
             d.date_document.map(|x| x.to_string()).unwrap_or_default(),
-            d.ttc.map(|x| format!("{x:.2} €")).unwrap_or_default(),
+            d.ttc
+                .map(|x| format!("{} €", gmflow_core::montant::euros(x)))
+                .unwrap_or_default(),
             d.nom
         );
         expedition::envoyer(

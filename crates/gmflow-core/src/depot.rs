@@ -6,6 +6,7 @@ use sqlx::{PgConnection, PgExecutor, PgPool};
 
 use crate::controles::{self, Echec};
 use crate::file::{self, TacheEnvoi};
+use crate::montant::Decimal;
 
 /// Types déposés dans Dext ou Yooz.
 pub const TYPES_DEPOSES: &[&str] = &["facture", "avoir"];
@@ -96,14 +97,12 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
                   coalesce(d.fournisseur_siret, f.siret) as siret,
                   coalesce(d.fournisseur_tva, f.tva) as tva,
                   d.numero, d.date_document,
-                  d.montant_ht::float8 as ht, d.montant_tva::float8 as tva_montant,
-                  d.montant_ttc::float8 as ttc,
+                  d.montant_ht as ht, d.montant_tva as tva_montant, d.montant_ttc as ttc,
                   s.adresse_depot as "adresse_depot?",
                   d.date_echeance, d.fournisseur_siret as siret_lu, d.fournisseur_tva as tva_lue,
                   f.siret as "siret_fiche?", f.tva as "tva_fiche?",
                   g.siret as "siret_groupe?", g.tva as "tva_groupe?",
-                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,
-                  d.annexes_ht::float8 as annexes_ht, d.resultat->>'devise' as devise,
+                  d.remise_ht, d.remise_taux, d.annexes_ht, d.resultat->>'devise' as devise,
                   coalesce((d.confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
            from document d
            left join fournisseur f on f.id = d.fournisseur_id
@@ -138,23 +137,22 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
     }
     // Somme des lignes : factures lues en entier dont chaque ligne a un montant.
     let lignes = sqlx::query!(
-        r#"select montant_ht::float8 as montant, quantite::float8 as quantite,
-                  colis::float8 as colis, pcb::float8 as pcb,
-                  coalesce(deee_ht, 0)::float8 + coalesce(ecomob_ht, 0)::float8 as "eco!"
+        r#"select montant_ht as montant, quantite, colis, pcb,
+                  coalesce(deee_ht, 0) + coalesce(ecomob_ht, 0) as "eco!"
            from ligne_document where document_id = $1"#,
         id
     )
     .fetch_all(&mut *conn)
     .await?;
     let somme_lignes = (d.r#type.as_deref() == Some("facture") && !d.tronque && !lignes.is_empty())
-        .then(|| lignes.iter().map(|l| l.montant).sum::<Option<f64>>())
+        .then(|| lignes.iter().map(|l| l.montant).sum::<Option<Decimal>>())
         .flatten();
-    let eco_lignes: f64 = lignes
+    let eco_lignes: Decimal = lignes
         .iter()
         .map(|l| {
             let q = match (l.colis, l.pcb) {
-                (Some(c), Some(p)) if c > 0.0 && p > 0.0 => c * p,
-                _ => l.quantite.unwrap_or(0.0),
+                (Some(c), Some(p)) if c > Decimal::ZERO && p > Decimal::ZERO => c * p,
+                _ => l.quantite.unwrap_or_default(),
             };
             q * l.eco
         })

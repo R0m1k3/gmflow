@@ -11,25 +11,28 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::acces::AccesAdmin;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
-pub struct Vue {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ServeurApiVue {
     serveur: Option<ServeurApi>,
     jeton_enregistre: bool,
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::DernierTest>"))]
     dernier_test: Option<Value>,
     /// Dernière copie des fournisseurs du magasin.
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::SynchroMagasin>"))]
     synchro: Option<Value>,
     /// Fournisseurs du magasin copiés.
     nombre: i64,
 }
 
-pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue>> {
+pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<ServeurApiVue>> {
     let serveur = parametre::lire(&etat.pool, serveur_api::CLE)
         .await?
         .and_then(|v| serde_json::from_value(v).ok());
-    Ok(Json(Vue {
+    Ok(Json(ServeurApiVue {
         serveur,
         jeton_enregistre: parametre::lire_secret(&etat.pool, serveur_api::CLE)
             .await?
@@ -43,7 +46,8 @@ pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue
 }
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeServeurApi {
     adresse: String,
     /// Omis : inchangé ; chaîne vide : supprimé.
     #[serde(default)]
@@ -53,7 +57,7 @@ pub struct Entree {
 pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeServeurApi>,
 ) -> Resultat<StatusCode> {
     let adresse = e.adresse.trim().to_string();
     serveur_api::controler_adresse(&adresse).map_err(ErreurApi::Donnees)?;
@@ -149,9 +153,10 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Conflit(
-            "adresse du serveur non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: Refus::ServeurMagasinAbsent,
+            message: "adresse du serveur non configurée".into(),
+        });
     }
     parametre::supprimer(&etat.pool, serveur_api::CLE_TEST).await?;
     file::pousser_envoi(&etat.pool, file::TacheEnvoi::TestServeurApi)
@@ -175,9 +180,10 @@ pub async fn synchroniser(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Conflit(
-            "adresse du serveur non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: Refus::ServeurMagasinAbsent,
+            message: "adresse du serveur non configurée".into(),
+        });
     }
     parametre::supprimer(&etat.pool, serveur_api::CLE_SYNCHRO).await?;
     file::pousser_envoi(&etat.pool, file::TacheEnvoi::SynchroMagasin)
@@ -193,7 +199,8 @@ pub struct Recherche {
 }
 
 #[derive(Serialize)]
-pub struct Codes {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct CodesMagasin {
     /// Fournisseurs du magasin copiés (0 : serveur pas configuré ou pas encore copié).
     nombre: i64,
     suggestions: Vec<serveur_api::Suggestion>,
@@ -205,8 +212,8 @@ pub async fn codes(
     State(etat): State<Etat>,
     Path(id): Path<i64>,
     Query(r): Query<Recherche>,
-) -> Resultat<Json<Codes>> {
-    Ok(Json(Codes {
+) -> Resultat<Json<CodesMagasin>> {
+    Ok(Json(CodesMagasin {
         nombre: sqlx::query_scalar!(r#"select count(*) as "n!" from fournisseur_magasin"#)
             .fetch_one(&etat.pool)
             .await?,

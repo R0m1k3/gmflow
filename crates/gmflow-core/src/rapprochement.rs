@@ -16,6 +16,15 @@ use sqlx::{PgConnection, PgPool};
 use crate::lecture::extraction::{Ligne, eco_lignes};
 
 use crate::controles::SEUIL_ECART;
+use crate::montant::{self, Decimal, centimes, dec};
+
+/// Quantité en dessous de laquelle deux quantités sont égales (lecture au millième).
+const EPSILON_QTE: Decimal = dec!(0.0005);
+/// Écart de prix unitaire toléré : 1 centime, ou 0,1 % du prix.
+const ECART_PRIX: Decimal = dec!(0.01);
+const ECART_PRIX_RELATIF: Decimal = dec!(0.001);
+/// Montant sous lequel une éco-participation ou un montant annexe est nul.
+const DEMI_CENTIME: Decimal = dec!(0.005);
 
 /// Clé de verrou consultatif (avec l'id du fournisseur) : un calcul à la fois par fournisseur.
 const VERROU: i32 = 0x0052_4150;
@@ -115,20 +124,31 @@ pub fn correspondance(f: &FactureRef, b: &BlRef) -> Option<Methode> {
 }
 
 /// Écart sur un article entre la facture et ses BL : quantité (manquant au BL, livré sans être
-/// facturé) ou prix unitaire différent.
+/// facturé) ou prix unitaire différent. Enregistré dans `rapprochement.ecarts` : ceux d'avant la
+/// comparaison des prix n'ont ni `genre`, ni prix, ni `montant_ht` (champs facultatifs côté front).
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct EcartLigne {
     /// `manquant` (facturé, moins livré), `en_trop` (livré, moins facturé) ou `prix`.
+    #[cfg_attr(
+        feature = "ts",
+        ts(as = "Option<crate::vocabulaire::GenreEcart>", optional)
+    )]
     pub genre: &'static str,
     pub reference: Option<String>,
     pub designation: Option<String>,
-    pub qte_bl: f64,
-    pub qte_facture: f64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub qte_bl: Decimal,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub qte_facture: Decimal,
     /// Prix unitaires HT lus de chaque côté (ou montant / quantité).
-    pub prix_facture: Option<f64>,
-    pub prix_bl: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>", optional = nullable))]
+    pub prix_facture: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>", optional = nullable))]
+    pub prix_bl: Option<Decimal>,
     /// Part de l'écart HT due à cet article : facturé − livré (positif si la facture dépasse).
-    pub montant_ht: Option<f64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>", optional = nullable))]
+    pub montant_ht: Option<Decimal>,
 }
 
 /// Article d'un côté : lignes de même gencod (sinon référence, sinon désignation) regroupées.
@@ -136,9 +156,9 @@ struct Article<'a> {
     gencod: Option<String>,
     reference: Option<String>,
     designation: Option<String>,
-    qte: f64,
+    qte: Decimal,
     /// Montant HT cumulé, quand chaque ligne en donne un (prix × quantité, ou montant lu).
-    montant: Option<f64>,
+    montant: Option<Decimal>,
     ligne: &'a Ligne,
 }
 
@@ -159,14 +179,14 @@ impl Article<'_> {
         }
     }
 
-    fn prix(&self) -> Option<f64> {
+    fn prix(&self) -> Option<Decimal> {
         self.montant
-            .filter(|_| self.qte.abs() > 0.0005)
+            .filter(|_| self.qte.abs() > EPSILON_QTE)
             .map(|m| m / self.qte)
     }
 }
 
-fn montant_ligne(l: &Ligne) -> Option<f64> {
+fn montant_ligne(l: &Ligne) -> Option<Decimal> {
     l.montant_ht
         .or_else(|| Some(l.prix_unitaire_ht? * l.quantite?))
 }
@@ -179,9 +199,9 @@ fn cle_gencod(l: &Ligne) -> Option<String> {
 
 /// Quantité livrée ou facturée en unités : colis × PCB quand la ligne donne les deux (comme
 /// l'export Phénix), sinon la quantité.
-fn quantite(l: &Ligne) -> Option<f64> {
+fn quantite(l: &Ligne) -> Option<Decimal> {
     match (l.colis, l.pcb) {
-        (Some(c), Some(p)) if c > 0.0 && p > 0.0 => Some(c * p),
+        (Some(c), Some(p)) if c > Decimal::ZERO && p > Decimal::ZERO => Some(c * p),
         _ => l.quantite,
     }
 }
@@ -225,17 +245,14 @@ fn articles(lignes: &[Ligne]) -> Vec<Article<'_>> {
 }
 
 /// Même prix, ou prix de la facture net de la remise (`taux` %) : pas un changement de prix.
-fn meme_prix(pf: f64, pb: f64, taux: Option<f64>) -> bool {
-    let proche = |a: f64, b: f64| (a - b).abs() <= 0.01_f64.max(b.abs() * 0.001);
+fn meme_prix(pf: Decimal, pb: Decimal, taux: Option<Decimal>) -> bool {
+    let proche =
+        |a: Decimal, b: Decimal| (a - b).abs() <= ECART_PRIX.max(b.abs() * ECART_PRIX_RELATIF);
     proche(pf, pb)
         || taux.is_some_and(|t| {
-            let k = 1.0 - t / 100.0;
+            let k = Decimal::ONE - t / Decimal::ONE_HUNDRED;
             proche(pf, pb * k) || proche(pf * k, pb)
         })
-}
-
-fn arrondi(v: f64) -> f64 {
-    (v * 100.0).round() / 100.0
 }
 
 /// Écarts entre les lignes d'une facture et celles de ses BL : articles manquants ou en trop,
@@ -243,7 +260,7 @@ fn arrondi(v: f64) -> f64 {
 /// gencod, sinon sa référence, sinon sa désignation (référence fournisseur d'un côté, pas de
 /// l'autre) ; une ligne en colis compte colis × PCB unités. Vide
 /// si l'un des deux côtés n'a pas de lignes avec quantité (rien à comparer).
-pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> Vec<EcartLigne> {
+pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<Decimal>) -> Vec<EcartLigne> {
     let (f, b) = (articles(facture), articles(bls));
     if f.is_empty() || b.is_empty() {
         return Vec::new();
@@ -251,11 +268,14 @@ pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> V
     let mut pris = vec![false; b.len()];
     let mut ecarts = Vec::new();
     let mut ajouter = |fa: Option<&Article>, ba: Option<&Article>| {
-        let (qf, qb) = (fa.map_or(0.0, |a| a.qte), ba.map_or(0.0, |a| a.qte));
+        let (qf, qb) = (
+            fa.map_or(Decimal::ZERO, |a| a.qte),
+            ba.map_or(Decimal::ZERO, |a| a.qte),
+        );
         let (pf, pb) = (fa.and_then(Article::prix), ba.and_then(Article::prix));
-        let genre = if qf - qb > 0.0005 {
+        let genre = if qf - qb > EPSILON_QTE {
             "manquant"
-        } else if qb - qf > 0.0005 {
+        } else if qb - qf > EPSILON_QTE {
             "en_trop"
         } else if let (Some(x), Some(y)) = (pf, pb)
             && !meme_prix(x, y, remise_taux)
@@ -266,7 +286,7 @@ pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> V
         };
         // Part de l'écart : chaque côté à son prix, à défaut au prix de l'autre.
         let montant = match (pf.or(pb), pb.or(pf)) {
-            (Some(x), Some(y)) => Some(arrondi(qf * x - qb * y)),
+            (Some(x), Some(y)) => Some(centimes(qf * x - qb * y)),
             _ => None,
         };
         let l = fa.or(ba).map(|a| a.ligne);
@@ -276,8 +296,8 @@ pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> V
             designation: l.and_then(|l| l.designation.clone()),
             qte_bl: qb,
             qte_facture: qf,
-            prix_facture: pf.map(|p| (p * 10_000.0).round() / 10_000.0),
-            prix_bl: pb.map(|p| (p * 10_000.0).round() / 10_000.0),
+            prix_facture: pf.map(|p| montant::arrondi(p, montant::DEC_PRIX)),
+            prix_bl: pb.map(|p| montant::arrondi(p, montant::DEC_PRIX)),
             montant_ht: montant,
         });
     };
@@ -306,7 +326,7 @@ pub fn comparer(facture: &[Ligne], bls: &[Ligne], remise_taux: Option<f64>) -> V
 }
 
 /// Somme des montants des lignes, si toutes en ont un.
-fn somme_lignes(lignes: &[Ligne]) -> Option<f64> {
+fn somme_lignes(lignes: &[Ligne]) -> Option<Decimal> {
     if lignes.is_empty() {
         return None;
     }
@@ -314,19 +334,19 @@ fn somme_lignes(lignes: &[Ligne]) -> Option<f64> {
 }
 
 /// Montant HT d'un BL : son total, sinon la somme de ses lignes.
-pub fn montant_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Option<f64> {
+pub fn montant_bl(lignes: &[Ligne], total_ht: Option<Decimal>) -> Option<Decimal> {
     total_ht.or_else(|| somme_lignes(lignes))
 }
 
 /// Montants annexes de la facture absents des BL : les annexes (éco-participation, port) moins
 /// les éco-participations déjà comprises dans le montant des BL (HT calculé depuis les lignes,
 /// voir `actualiser_ecarts`), jamais négatif.
-pub fn annexes_hors_bl(annexes: Option<f64>, eco_bl: Option<f64>) -> f64 {
-    let a = annexes.unwrap_or(0.0) - eco_bl.unwrap_or(0.0).max(0.0);
-    if a > 0.005 {
-        (a * 100.0).round() / 100.0
+pub fn annexes_hors_bl(annexes: Option<Decimal>, eco_bl: Option<Decimal>) -> Decimal {
+    let a = annexes.unwrap_or_default() - eco_bl.unwrap_or_default().max(Decimal::ZERO);
+    if a > DEMI_CENTIME {
+        centimes(a)
     } else {
-        0.0
+        Decimal::ZERO
     }
 }
 
@@ -334,35 +354,37 @@ pub fn annexes_hors_bl(annexes: Option<f64>, eco_bl: Option<f64>) -> f64 {
 /// et ses montants annexes absents des BL (`annexes_hors_bl`). Vrai quand, une fois ces
 /// montants retirés, l'écart tombe sous le seuil, que les BL soient avant ou après remise.
 pub fn ecart_explique(
-    ecart: f64,
-    remise: Option<f64>,
-    annexes: Option<f64>,
-    eco_bl: Option<f64>,
+    ecart: Decimal,
+    remise: Option<Decimal>,
+    annexes: Option<Decimal>,
+    eco_bl: Option<Decimal>,
 ) -> bool {
-    let (r, a) = (remise.unwrap_or(0.0), annexes_hors_bl(annexes, eco_bl));
-    if r <= 0.0 && a <= 0.0 {
+    let (r, a) = (remise.unwrap_or_default(), annexes_hors_bl(annexes, eco_bl));
+    if r <= Decimal::ZERO && a <= Decimal::ZERO {
         return false;
     }
     (ecart + r - a).abs() <= SEUIL_ECART || (ecart - a).abs() <= SEUIL_ECART
 }
 
 /// HT de la facture moins la somme des BL, si tous les montants sont connus.
-pub fn ecart_montant(facture_ht: Option<f64>, bls: &[Option<f64>]) -> Option<f64> {
+pub fn ecart_montant(facture_ht: Option<Decimal>, bls: &[Option<Decimal>]) -> Option<Decimal> {
     if bls.is_empty() {
         return None;
     }
-    let total: Option<f64> = bls.iter().copied().sum();
-    Some(((facture_ht? - total?) * 100.0).round() / 100.0)
+    let total: Option<Decimal> = bls.iter().copied().sum();
+    Some(centimes(facture_ht? - total?))
 }
 
 /// Contrôle d'un BL (non bloquant) : la somme des lignes doit faire le total HT, quand les
 /// deux existent.
-pub fn controle_bl(lignes: &[Ligne], total_ht: Option<f64>) -> Vec<Value> {
+pub fn controle_bl(lignes: &[Ligne], total_ht: Option<Decimal>) -> Vec<Value> {
     match (somme_lignes(lignes), total_ht) {
         (Some(s), Some(t)) if (s - t).abs() > SEUIL_ECART => vec![json!({
             "code": "lignes",
             "message": format!(
-                "la somme des lignes ({s:.2} €) ne fait pas le total HT ({t:.2} €)"
+                "la somme des lignes ({} €) ne fait pas le total HT ({} €)",
+                montant::euros(s),
+                montant::euros(t)
             ),
         })],
         _ => Vec::new(),
@@ -383,10 +405,9 @@ pub fn controle_lignes_tronquees() -> Value {
 /// Lignes de plusieurs documents.
 pub async fn lignes(c: &mut PgConnection, ids: &[i64]) -> sqlx::Result<HashMap<i64, Vec<Ligne>>> {
     let r = sqlx::query!(
-        "select document_id, reference, designation, quantite::float8 as quantite, unite,
-                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant, gencod,
-                colis::float8 as colis, pcb::float8 as pcb,
-                deee_ht::float8 as deee_ht, ecomob_ht::float8 as ecomob_ht
+        "select document_id, reference, designation, quantite, unite,
+                prix_unitaire_ht as prix, montant_ht as montant, gencod, colis, pcb,
+                deee_ht, ecomob_ht
          from ligne_document where document_id = any($1) order by document_id, rang",
         ids
     )
@@ -430,10 +451,10 @@ pub async fn ecrire_lignes(
     let rangs: Vec<i32> = (0..lignes.len() as i32).collect();
     let refs: Vec<Option<String>> = lignes.iter().map(|l| l.reference.clone()).collect();
     let des: Vec<Option<String>> = lignes.iter().map(|l| l.designation.clone()).collect();
-    let qte: Vec<Option<f64>> = lignes.iter().map(|l| l.quantite).collect();
+    let qte: Vec<Option<Decimal>> = lignes.iter().map(|l| l.quantite).collect();
     let unites: Vec<Option<String>> = lignes.iter().map(|l| l.unite.clone()).collect();
-    let prix: Vec<Option<f64>> = lignes.iter().map(|l| l.prix_unitaire_ht).collect();
-    let montants: Vec<Option<f64>> = lignes.iter().map(|l| l.montant_ht).collect();
+    let prix: Vec<Option<Decimal>> = lignes.iter().map(|l| l.prix_unitaire_ht).collect();
+    let montants: Vec<Option<Decimal>> = lignes.iter().map(|l| l.montant_ht).collect();
     let gencods: Vec<Option<String>> = lignes
         .iter()
         .map(|l| {
@@ -443,7 +464,7 @@ pub async fn ecrire_lignes(
                 .filter(|g| !g.is_empty())
         })
         .collect();
-    let nombres = |f: fn(&Ligne) -> Option<f64>| lignes.iter().map(f).collect::<Vec<_>>();
+    let nombres = |f: fn(&Ligne) -> Option<Decimal>| lignes.iter().map(f).collect::<Vec<_>>();
     let (colis, pcb, remises, tva) = (
         nombres(|l| l.colis),
         nombres(|l| l.pcb),
@@ -462,26 +483,26 @@ pub async fn ecrire_lignes(
            select $1, r, re, de, q::numeric(14, 3), u, p::numeric(14, 4), m::numeric(14, 2), g,
                   c::numeric(14, 3), pc::numeric(14, 3), rt::numeric(8, 4), tv::numeric(6, 3),
                   dh::numeric(14, 4), eh::numeric(14, 4), pv::numeric(14, 4)
-           from unnest($2::int[], $3::text[], $4::text[], $5::float8[], $6::text[], $7::float8[],
-                       $8::float8[], $9::text[], $10::float8[], $11::float8[], $12::float8[],
-                       $13::float8[], $14::float8[], $15::float8[], $16::float8[])
+           from unnest($2::int[], $3::text[], $4::text[], $5::numeric[], $6::text[], $7::numeric[],
+                       $8::numeric[], $9::text[], $10::numeric[], $11::numeric[], $12::numeric[],
+                       $13::numeric[], $14::numeric[], $15::numeric[], $16::numeric[])
                 as t(r, re, de, q, u, p, m, g, c, pc, rt, tv, dh, eh, pv)"#,
         document_id,
         &rangs,
         &refs as &[Option<String>],
         &des as &[Option<String>],
-        &qte as &[Option<f64>],
+        &qte as &[Option<Decimal>],
         &unites as &[Option<String>],
-        &prix as &[Option<f64>],
-        &montants as &[Option<f64>],
+        &prix as &[Option<Decimal>],
+        &montants as &[Option<Decimal>],
         &gencods as &[Option<String>],
-        &colis as &[Option<f64>],
-        &pcb as &[Option<f64>],
-        &remises as &[Option<f64>],
-        &tva as &[Option<f64>],
-        &deee as &[Option<f64>],
-        &ecomob as &[Option<f64>],
-        &pvc as &[Option<f64>]
+        &colis as &[Option<Decimal>],
+        &pcb as &[Option<Decimal>],
+        &remises as &[Option<Decimal>],
+        &tva as &[Option<Decimal>],
+        &deee as &[Option<Decimal>],
+        &ecomob as &[Option<Decimal>],
+        &pvc as &[Option<Decimal>]
     )
     .execute(&mut *c)
     .await?;
@@ -494,7 +515,7 @@ pub async fn ecrire_lignes(
 /// annexes.
 pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::Result<()> {
     let bls = sqlx::query!(
-        r#"select b.id, b.montant_ht::float8 as ht,
+        r#"select b.id, b.montant_ht as ht,
                   coalesce(b.confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!",
                   coalesce((b.confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
            from rapprochement r
@@ -508,7 +529,7 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
         return Ok(());
     }
     let f = sqlx::query!(
-        r#"select montant_ht::float8 as ht, remise_taux::float8 as taux,
+        r#"select montant_ht as ht, remise_taux as taux,
                   coalesce((confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
            from document where id = $1"#,
         facture_id
@@ -522,7 +543,7 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
     let lf = l.remove(&facture_id).unwrap_or_default();
     let mut lb: Vec<Ligne> = Vec::new();
     let mut montants = Vec::new();
-    let mut eco = 0.0;
+    let mut eco = Decimal::ZERO;
     for b in &bls {
         let lignes_bl = l.remove(&b.id).unwrap_or_default();
         // Lignes incomplètes : leur somme n'est pas le montant du BL.
@@ -532,7 +553,7 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
         }
         lb.extend(lignes_bl);
     }
-    let eco_bl = (eco > 0.005).then(|| (eco * 100.0).round() / 100.0);
+    let eco_bl = (eco > DEMI_CENTIME).then(|| centimes(eco));
     let ecart = ecart_montant(ht_facture, &montants);
     // Des lignes manquent d'un côté : les comparer fabriquerait des articles « en trop » ou
     // « manquants ».
@@ -543,8 +564,8 @@ pub async fn actualiser_ecarts(c: &mut PgConnection, facture_id: i64) -> sqlx::R
         json!(comparer(&lf, &lb, f.taux))
     };
     sqlx::query!(
-        "update rapprochement set ecart_montant = $2::float8::numeric(14, 2), ecarts = $3,
-                eco_bl = $4::float8::numeric(14, 2)
+        "update rapprochement set ecart_montant = $2::numeric(14, 2), ecarts = $3,
+                eco_bl = $4::numeric(14, 2)
          where facture_id = $1 and not rejete",
         facture_id,
         ecart,
@@ -562,7 +583,7 @@ pub async fn recalculer(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
     let mut tx = pool.begin().await?;
     let Some(d) = sqlx::query!(
         r#"select etat, type, fournisseur_id, societe_id, numero, numero_commande, numeros_bl,
-                rapprochement_ignore, montant_ht::float8 as ht, left(texte, $2) as texte,
+                rapprochement_ignore, montant_ht as ht, left(texte, $2) as texte,
                 coalesce(confiance->'montants_calcules' ? 'ht', false) as "ht_calcule!",
                 coalesce((confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
          from document where id = $1"#,

@@ -11,12 +11,15 @@ use serde_json::{Value, json};
 
 use super::documents::controler_modifiable;
 use crate::acces::Acces;
-use crate::erreur::{ErreurApi, Resultat};
+use crate::erreur::{ErreurApi, Refus, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 /// Envoi demandé, encore annulable : le message « Annuler » de l'interface compte `delai_s`
 /// secondes (délai du serveur, jamais écrit en dur dans l'interface).
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Annulable {
     pub lot: uuid::Uuid,
     pub delai_s: i64,
@@ -32,17 +35,20 @@ impl Annulable {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeAnnulation {
     lot: uuid::Uuid,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct IssuePiece {
     id: i64,
     issue: Issue,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatAnnulation {
     /// Validations annulées : rien n'est parti, pièces de nouveau à contrôler.
     annulees: usize,
@@ -92,16 +98,18 @@ pub async fn annuler_envoi(
 }
 
 /// Motifs rapides d'écartement (U23).
-pub const MOTIFS: &[&str] = &["doublon", "pas_pour_nous", "autre"];
+pub const MOTIFS: &[&str] = &["doublon", "pas_pour_nous", "publicite", "autre"];
 const TEXTE_MAX: usize = 500;
 
 /// Corps facultatif de `POST /api/documents/{id}/ecarter`.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Clone)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Motif {
     #[serde(default)]
-    motif: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::MotifEcartement>"))]
+    pub(crate) motif: Option<String>,
     #[serde(default)]
-    texte: Option<String>,
+    pub(crate) texte: Option<String>,
 }
 
 impl Motif {
@@ -150,7 +158,7 @@ pub async fn noter_ecartement(
     Ok(())
 }
 
-fn refus(code: &'static str, message: &str) -> ErreurApi {
+fn refus(code: Refus, message: &str) -> ErreurApi {
     ErreurApi::ConflitCode {
         code,
         message: message.into(),
@@ -158,9 +166,12 @@ fn refus(code: &'static str, message: &str) -> ErreurApi {
 }
 
 #[derive(Serialize)]
-pub struct Remise {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct RemiseEnLecture {
     id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
 }
 
@@ -171,7 +182,7 @@ pub async fn remettre(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<Remise>> {
+) -> Resultat<Json<RemiseEnLecture>> {
     controler_modifiable(&etat, &acces, id).await?;
     let mut tx = etat.pool.begin().await?;
     let a = sqlx::query!(
@@ -185,7 +196,7 @@ pub async fn remettre(
     let doublon_ecarte =
         a.etat == "lu" && a.statut_depot.as_deref() == Some("doublon") && a.verifie;
     if a.etat != "ignore" && !doublon_ecarte {
-        return Err(refus("etat", "cette pièce n'est pas écartée"));
+        return Err(refus(Refus::Etat, "cette pièce n'est pas écartée"));
     }
     // Origine d'un PDF découpé (`lecture::decoupage`) : ignorée par la lecture, jamais écartée
     // par un humain ; ses pièces se contrôlent chacune à part. La remettre en circuit doublerait
@@ -199,7 +210,7 @@ pub async fn remettre(
     .await?;
     if decoupe {
         return Err(refus(
-            "decoupe",
+            Refus::Decoupe,
             "ce fichier a été découpé en plusieurs pièces : contrôlez chacune d'elles",
         ));
     }
@@ -216,7 +227,7 @@ pub async fn remettre(
         }
         _ => {
             return Err(refus(
-                "etat",
+                Refus::Etat,
                 "état d'avant l'écartement inconnu : faites relire la pièce",
             ));
         }
@@ -252,7 +263,7 @@ pub async fn remettre(
     gmflow_core::rapprochement::recalculer(&etat.pool, id)
         .await
         .map_err(ErreurApi::Interne)?;
-    Ok(Json(Remise {
+    Ok(Json(RemiseEnLecture {
         id,
         etat: r.etat,
         statut_depot,

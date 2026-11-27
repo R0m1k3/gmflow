@@ -5,6 +5,7 @@ mod commun;
 
 use commun::{Banc, mail};
 use gmflow_core::fixtures::{self, SIRET_A};
+use gmflow_core::montant::{Decimal, dec};
 use gmflow_core::parametre;
 use gmflow_worker::lecture;
 use serde_json::{Value, json};
@@ -112,14 +113,14 @@ fn v(cellules: &[&str]) -> Vec<String> {
 struct Doc {
     etat: String,
     numero: Option<String>,
-    montant_ht: Option<f64>,
+    montant_ht: Option<Decimal>,
     confiance: Value,
     message: Option<String>,
 }
 
 async fn doc(b: &Banc, id: i64) -> Doc {
     sqlx::query_as(
-        "select etat, numero, montant_ht::float8 as montant_ht, confiance, message
+        "select etat, numero, montant_ht, confiance, message
          from document where id = $1",
     )
     .bind(id)
@@ -191,10 +192,15 @@ async fn six_cents_lignes_lues_dans_les_cellules_sans_coupure() {
     assert_eq!(d.confiance["colonnes_source"], "entete");
     assert!(d.confiance.get("lignes_tronquees").is_none());
     // Totaux calculés depuis les lignes (BL sans totaux) : 600 × 2,50.
-    assert_eq!(d.montant_ht, Some(1500.0));
+    assert_eq!(d.montant_ht, Some(dec!(1500)));
     assert_eq!(d.message, None);
-    let ligne: (Option<String>, Option<f64>, Option<f64>, Option<String>) = sqlx::query_as(
-        "select reference, quantite::float8, prix_unitaire_ht::float8, gencod from ligne_document
+    let ligne: (
+        Option<String>,
+        Option<Decimal>,
+        Option<Decimal>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "select reference, quantite, prix_unitaire_ht, gencod from ligne_document
          where document_id = $1 and rang = 599",
     )
     .bind(id)
@@ -205,8 +211,8 @@ async fn six_cents_lignes_lues_dans_les_cellules_sans_coupure() {
         ligne,
         (
             Some("R599".into()),
-            Some(2.0),
-            Some(1.25),
+            Some(dec!(2)),
+            Some(dec!(1.25)),
             Some("3760123456789".into())
         )
     );

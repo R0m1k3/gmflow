@@ -14,6 +14,8 @@ use super::retour::Annulable;
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 /// Pièces au plus par appel.
 pub const MAX_LOT: usize = 100;
@@ -137,6 +139,7 @@ pub(crate) async fn raison_hors_lot(c: &mut PgConnection, id: i64) -> sqlx::Resu
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeLot {
     ids: Vec<i64>,
 }
@@ -156,6 +159,7 @@ fn ids_nets(ids: Vec<i64>) -> Resultat<Vec<i64>> {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Eligibilite {
     id: i64,
     /// Rien n'empêche de la valider avec les autres.
@@ -190,6 +194,7 @@ pub async fn eligibilite(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatPiece {
     id: i64,
     /// Validée, envoi demandé.
@@ -199,14 +204,17 @@ pub struct ResultatPiece {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatLot {
     validees: usize,
     laissees: usize,
     pieces: Vec<ResultatPiece>,
     /// Envois du lot, annulables ensemble pendant le délai.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     annulation: Option<Annulable>,
     /// Outil de dépôt des pièces validées (`dext`, `yooz`), s'il n'y en a qu'un.
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil: Option<String>,
 }
 
@@ -298,6 +306,83 @@ pub async fn valider(
         .await?;
         if let [o] = outils.as_slice() {
             r.outil = Some(o.clone());
+        }
+    }
+    Ok(Json(r))
+}
+
+/// Corps de `POST /api/documents/lot/ecarter` : les pièces et un motif (obligatoire ici).
+#[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct DemandeEcartLot {
+    ids: Vec<i64>,
+    #[serde(flatten)]
+    motif: super::retour::Motif,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct PieceEcartee {
+    id: i64,
+    ecartee: bool,
+    /// Laissée : pourquoi.
+    raison: Option<String>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ResultatEcart {
+    ecartees: usize,
+    laissees: usize,
+    pieces: Vec<PieceEcartee>,
+}
+
+/// « Écarter N pièces » (audit U23) : chaque pièce passe par `documents::ecarter` (mêmes
+/// droits, mêmes refus, même journal), avec le même motif pour toutes. Résultat par pièce.
+pub async fn ecarter(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Json(d): Json<DemandeEcartLot>,
+) -> Resultat<Json<ResultatEcart>> {
+    let ids = ids_nets(d.ids)?;
+    let motif = d.motif.nettoyer()?;
+    if motif.motif.is_none() {
+        return Err(ErreurApi::Champ {
+            champ: "motif",
+            message: "Choisissez un motif.".into(),
+        });
+    }
+    let mut r = ResultatEcart {
+        ecartees: 0,
+        laissees: 0,
+        pieces: Vec::with_capacity(ids.len()),
+    };
+    for id in ids {
+        let issue = documents::ecarter(
+            acces.clone(),
+            State(etat.clone()),
+            Path(id),
+            Query(ContexteFile::default()),
+            Some(Json(motif.clone())),
+        )
+        .await;
+        match issue {
+            Ok(_) => {
+                r.ecartees += 1;
+                r.pieces.push(PieceEcartee {
+                    id,
+                    ecartee: true,
+                    raison: None,
+                });
+            }
+            Err(e) => {
+                r.laissees += 1;
+                r.pieces.push(PieceEcartee {
+                    id,
+                    ecartee: false,
+                    raison: Some(phrase_refus(e)),
+                });
+            }
         }
     }
     Ok(Json(r))

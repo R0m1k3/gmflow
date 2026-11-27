@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into ligne_document (document_id, rang, reference, designation, quantite, unite,\n                                       prix_unitaire_ht, montant_ht, gencod, colis, pcb,\n                                       remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille)\n           select $1, r, re, de, q::numeric(14, 3), u, p::numeric(14, 4), m::numeric(14, 2), g,\n                  c::numeric(14, 3), pc::numeric(14, 3), rt::numeric(8, 4), tv::numeric(6, 3),\n                  dh::numeric(14, 4), eh::numeric(14, 4), pv::numeric(14, 4)\n           from unnest($2::int[], $3::text[], $4::text[], $5::numeric[], $6::text[], $7::numeric[],\n                       $8::numeric[], $9::text[], $10::numeric[], $11::numeric[], $12::numeric[],\n                       $13::numeric[], $14::numeric[], $15::numeric[], $16::numeric[])\n                as t(r, re, de, q, u, p, m, g, c, pc, rt, tv, dh, eh, pv)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4Array",
+        "TextArray",
+        "TextArray",
+        "NumericArray",
+        "TextArray",
+        "NumericArray",
+        "NumericArray",
+        "TextArray",
+        "NumericArray",
+        "NumericArray",
+        "NumericArray",
+        "NumericArray",
+        "NumericArray",
+        "NumericArray",
+        "NumericArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "43535af252620aefbf611de9eb65972377996b2c029ff63b47c6d84906c3018a"
+}

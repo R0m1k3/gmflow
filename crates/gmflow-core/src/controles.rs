@@ -3,11 +3,17 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::montant::{Decimal, centimes, dec};
+
 /// Écart de montant toléré partout (arrondis) : HT + TVA = TTC au dépôt et à la lecture,
 /// somme des lignes = HT, facture = BL au rapprochement.
-pub const SEUIL_ECART: f64 = 0.05;
+pub const SEUIL_ECART: Decimal = dec!(0.05);
+/// Écart toléré relatif au HT : 0,1 % (somme des lignes = HT).
+pub const SEUIL_ECART_RELATIF: Decimal = dec!(0.001);
+/// Marge d'arrondi de la TVA au-delà du taux normal : 0,2 % du HT.
+pub const MARGE_TVA_RELATIVE: Decimal = dec!(0.002);
 /// Taux de TVA le plus haut en France (%).
-pub const TAUX_TVA_MAX: f64 = 20.0;
+pub const TAUX_TVA_MAX: Decimal = dec!(20);
 /// Confiance minimale sur la société destinataire.
 pub const CONFIANCE_SOCIETE_MIN: f64 = 0.9;
 /// Âge maximal d'une facture, en jours (12 mois).
@@ -16,23 +22,29 @@ pub const AGE_MAX_JOURS: i64 = 366;
 /// Contrôle en échec. `message` : phrase pour l'écran, dans le vocabulaire de l'interface
 /// (société, envoi à Dext/Yooz, montants « 1 250,40 € »), sans point final.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Echec {
     pub code: String,
     pub message: String,
     /// Champs du document visés (noms de l'API : `montant_ttc`, `societe_id`...), pour les
     /// surligner.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<crate::vocabulaire::ChampControle>"))]
     pub champs: Vec<String>,
     /// Correction proposée en un clic (montants : HT + TVA = TTC).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub proposition: Option<Proposition>,
 }
 
 /// Valeur proposée pour un champ.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Proposition {
+    #[cfg_attr(feature = "ts", ts(as = "crate::vocabulaire::ChampControle"))]
     pub champ: String,
-    pub valeur: f64,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub valeur: Decimal,
 }
 
 fn echec(code: &str, message: impl Into<String>, champs: &[&str]) -> Echec {
@@ -44,28 +56,7 @@ fn echec(code: &str, message: impl Into<String>, champs: &[&str]) -> Echec {
     }
 }
 
-fn arrondi(v: f64) -> f64 {
-    (v * 100.0).round() / 100.0
-}
-
-/// Montant à la française : « 1 250,40 € » (espaces insécables).
-pub fn montant_fr(v: f64) -> String {
-    let neg = v < 0.0;
-    let centimes = (v.abs() * 100.0).round() as u64;
-    let entier = (centimes / 100).to_string();
-    let mut groupes = String::new();
-    for (i, c) in entier.chars().enumerate() {
-        if i > 0 && (entier.len() - i).is_multiple_of(3) {
-            groupes.push('\u{a0}');
-        }
-        groupes.push(c);
-    }
-    format!(
-        "{}{groupes},{:02}\u{a0}€",
-        if neg { "-" } else { "" },
-        centimes % 100
-    )
-}
+pub use crate::montant::montant_fr;
 
 /// Date à la française : « 18/11/2026 ».
 pub fn date_fr(d: time::Date) -> String {
@@ -168,9 +159,9 @@ pub struct Facture<'a> {
     pub fournisseur_tva: Option<&'a str>,
     pub numero: Option<&'a str>,
     pub date: Option<time::Date>,
-    pub ht: Option<f64>,
-    pub tva: Option<f64>,
-    pub ttc: Option<f64>,
+    pub ht: Option<Decimal>,
+    pub tva: Option<Decimal>,
+    pub ttc: Option<Decimal>,
     /// La structure a une adresse de dépôt.
     pub adresse_depot: bool,
     /// Échéance du paiement lue.
@@ -183,12 +174,12 @@ pub struct Facture<'a> {
     pub tvas_fiche: Vec<&'a str>,
     /// Somme des montants HT des lignes, quand toutes en ont un et qu'aucune ne manque (facture
     /// lue en entier) ; `eco_lignes` : éco-participations par unité × quantité des lignes.
-    pub somme_lignes: Option<f64>,
-    pub eco_lignes: f64,
+    pub somme_lignes: Option<Decimal>,
+    pub eco_lignes: Decimal,
     /// Remise et montants annexes lus à part (`document.remise_ht`, `remise_taux`, `annexes_ht`).
-    pub remise_ht: Option<f64>,
-    pub remise_taux: Option<f64>,
-    pub annexes_ht: Option<f64>,
+    pub remise_ht: Option<Decimal>,
+    pub remise_taux: Option<Decimal>,
+    pub annexes_ht: Option<Decimal>,
     /// Devise des montants quand le document la donne (facture électronique).
     pub devise: Option<&'a str>,
 }
@@ -197,26 +188,27 @@ pub struct Facture<'a> {
 /// remise de pied déduite ou non, montants annexes (port, éco-participation) et
 /// éco-participations des lignes ajoutés ou non (règle de lecture : ils vont dans le HT) ?
 pub fn lignes_font_le_ht(
-    somme: f64,
-    eco_lignes: f64,
-    ht: f64,
-    remise_ht: Option<f64>,
-    remise_taux: Option<f64>,
-    annexes_ht: Option<f64>,
+    somme: Decimal,
+    eco_lignes: Decimal,
+    ht: Decimal,
+    remise_ht: Option<Decimal>,
+    remise_taux: Option<Decimal>,
+    annexes_ht: Option<Decimal>,
 ) -> bool {
+    let zero = Decimal::ZERO;
     let remise = remise_ht
-        .map(f64::abs)
+        .map(|r| r.abs())
         .or_else(|| {
             remise_taux
-                .filter(|t| *t > 0.0 && *t < 100.0)
-                .map(|t| somme * t / 100.0)
+                .filter(|t| *t > zero && *t < Decimal::ONE_HUNDRED)
+                .map(|t| somme * t / Decimal::ONE_HUNDRED)
         })
-        .unwrap_or(0.0);
-    let annexes = annexes_ht.map(f64::abs).unwrap_or(0.0);
-    let tolerance = SEUIL_ECART.max(ht.abs() * 0.001) + 1e-9;
-    [0.0, remise].iter().any(|r| {
-        [0.0, annexes].iter().any(|a| {
-            [0.0, eco_lignes]
+        .unwrap_or_default();
+    let annexes = annexes_ht.map(|a| a.abs()).unwrap_or_default();
+    let tolerance = SEUIL_ECART.max(ht.abs() * SEUIL_ECART_RELATIF);
+    [zero, remise].iter().any(|r| {
+        [zero, annexes].iter().any(|a| {
+            [zero, eco_lignes]
                 .iter()
                 .any(|e| (somme - r + a + e - ht).abs() <= tolerance)
         })
@@ -230,8 +222,8 @@ fn siren_de(s: &str) -> Option<String> {
 }
 
 /// Pourcentage à la française : « 25,3 % ».
-fn pourcentage_fr(v: f64) -> String {
-    format!("{v:.1}\u{a0}%").replace('.', ",")
+fn pourcentage_fr(v: Decimal) -> String {
+    format!("{}\u{a0}%", crate::montant::fixe(v, 1)).replace('.', ",")
 }
 
 /// Contrôles en échec (vide : la facture peut partir). `aujourdhui` : date du jour (Paris).
@@ -270,7 +262,7 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
     match (f.ht, f.tva, f.ttc) {
         (Some(ht), Some(tva), Some(ttc)) => {
             let ecart = (ht + tva - ttc).abs();
-            if ecart > SEUIL_ECART + 1e-9 {
+            if ecart > SEUIL_ECART {
                 let mut x = echec(
                     "montants",
                     format!(
@@ -291,7 +283,7 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
                 if ht + tva > ttc {
                     x.proposition = Some(Proposition {
                         champ: "montant_ttc".into(),
-                        valeur: arrondi(ht + tva),
+                        valeur: centimes(ht + tva),
                     });
                 }
                 e.push(x);
@@ -301,7 +293,7 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
             let mut x = echec("montants", "Montant HT manquant", &["montant_ht"]);
             x.proposition = Some(Proposition {
                 champ: "montant_ht".into(),
-                valeur: arrondi(ttc - tva),
+                valeur: centimes(ttc - tva),
             });
             e.push(x);
         }
@@ -309,7 +301,7 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
             let mut x = echec("montants", "Montant de TVA manquant", &["montant_tva"]);
             x.proposition = Some(Proposition {
                 champ: "montant_tva".into(),
-                valeur: arrondi(ttc - ht),
+                valeur: centimes(ttc - ht),
             });
             e.push(x);
         }
@@ -410,14 +402,14 @@ pub fn controler(f: &Facture<'_>, aujourdhui: time::Date) -> Vec<Echec> {
         ));
     }
     if let (Some(ht), Some(tva)) = (f.ht, f.tva)
-        && ht > 0.0
-        && tva > ht * TAUX_TVA_MAX / 100.0 + SEUIL_ECART.max(ht * 0.002)
+        && ht > Decimal::ZERO
+        && tva > ht * TAUX_TVA_MAX / Decimal::ONE_HUNDRED + SEUIL_ECART.max(ht * MARGE_TVA_RELATIVE)
     {
         e.push(echec(
             "tva",
             format!(
                 "TVA de {} du HT : plus que le taux normal de 20\u{a0}%",
-                pourcentage_fr(tva / ht * 100.0)
+                pourcentage_fr(tva / ht * Decimal::ONE_HUNDRED)
             ),
             &["montant_tva"],
         ));

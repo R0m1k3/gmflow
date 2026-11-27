@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use commun::{Banc, WorkersTest, attendre, lire_tout, mail};
 use gmflow_core::fixtures::{self, SIRET_A, SIRET_B};
+use gmflow_core::montant::{Decimal, dec};
 use gmflow_core::{parametre, reglages};
 use gmflow_worker::lecture;
 use serde_json::{Value, json};
@@ -108,7 +109,7 @@ struct Doc {
     r#type: Option<String>,
     societe_id: Option<i64>,
     numero: Option<String>,
-    montant_ttc: Option<f64>,
+    montant_ttc: Option<Decimal>,
     texte: Option<String>,
     modele: Option<String>,
     copie_de: Option<i64>,
@@ -117,7 +118,7 @@ struct Doc {
 async fn docs(b: &Banc, mail_id: i64) -> Vec<Doc> {
     sqlx::query_as(
         "select d.id, d.etat, d.voie, d.message, d.type, d.societe_id, d.numero,
-                d.montant_ttc::float8 as montant_ttc, d.texte, d.modele, d.copie_de
+                d.montant_ttc, d.texte, d.modele, d.copie_de
          from document d join piece_jointe p on p.id = d.piece_jointe_id
          where d.mail_id = $1 order by p.rang",
     )
@@ -159,7 +160,7 @@ async fn facturx_et_logo_sans_appel_claude() {
     assert_eq!(d[0].r#type.as_deref(), Some("facture"));
     assert_eq!(d[0].numero.as_deref(), Some("FA-9"));
     assert_eq!(d[0].societe_id, Some(a));
-    assert_eq!(d[0].montant_ttc, Some(120.0));
+    assert_eq!(d[0].montant_ttc, Some(dec!(120)));
     assert_eq!(d[1].etat, "ignore");
     assert!(faux.appels().is_empty(), "aucun appel attendu");
     assert_eq!(

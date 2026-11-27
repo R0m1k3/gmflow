@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.type, d.statut_depot, d.numero, d.numeros_bl,\n                  d.montant_ht as ht, d.montant_ttc as ttc, d.fournisseur_nom,\n                  d.date_echeance, fo.id as \"fournisseur_id?\", fo.nom as \"fournisseur?\",\n                  s.raison_sociale as \"societe?\", s.autres_noms as \"autres_noms?\"\n           from document d\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           left join societe s on s.id = d.societe_id\n           where d.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "numeros_bl",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numeros_bl"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "ht",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ht"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "ttc",
+        "type_info": "Numeric",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "montant_ttc"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "fournisseur_nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_nom"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "date_echeance",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_echeance"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "fournisseur_id?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "fournisseur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "autres_noms?",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "autres_noms"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "500e32759358c7e0f79788556e93e30eb02b1a224dc5198efe9a414ca8eef145"
+}
