@@ -197,3 +197,49 @@ async fn qualite_et_cout_de_la_lecture_du_mois() {
     assert_eq!(r.code, StatusCode::FORBIDDEN);
     app.fermer().await;
 }
+
+/// Voies nouvelles de la lecture (audit L15, L19, L20) : OCR local et lignes des cellules d'un
+/// tableur comptées à part ; appels du découpage et des colonnes de tableur dans le coût.
+#[tokio::test]
+async fn voies_ocr_et_cellules_et_appels_du_decoupage() {
+    let app = Appli::new().await;
+    let sa = app.societe("Frouard").await;
+    let ba = app.boite(sa, "Compta Frouard").await;
+    app.utilisateur("admin", MDP, "admin", None).await;
+    let admin = app.connecter("admin", MDP).await;
+    let durand = fournisseur(&app, "Durand").await;
+    let scan = piece(&app, ba, sa, durand, "scan", json!({})).await;
+    let ocr = piece(&app, ba, sa, durand, "scan", json!({})).await;
+    let tableur = piece(&app, ba, sa, durand, "tableur", json!({})).await;
+    for (id, confiance) in [
+        (
+            ocr,
+            json!({ "texte_source": "ocr_local", "pages_ocr": [1] }),
+        ),
+        (tableur, json!({ "lignes_source": "cellules" })),
+    ] {
+        sqlx::query("update document set confiance = $2 where id = $1")
+            .bind(id)
+            .bind(confiance)
+            .execute(app.pool())
+            .await
+            .unwrap();
+    }
+    appel(&app, Some(scan), "decoupage_pdf", "haiku", Some(0.01)).await;
+    appel(&app, Some(tableur), "colonnes_tableur", "haiku", Some(0.02)).await;
+    let r = app
+        .requete("GET", "/api/admin/qualite", None, Some(&admin))
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
+    let mut cles: Vec<String> = r.json["par_voie"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v["cle"].as_str().unwrap().to_string())
+        .collect();
+    cles.sort();
+    assert_eq!(cles, ["scan", "scan+ocr", "tableur+cellules"]);
+    assert_eq!(r.json["cout"]["appels"], 2);
+    assert_eq!(r.json["cout"]["pieces"], 2);
+    app.fermer().await;
+}

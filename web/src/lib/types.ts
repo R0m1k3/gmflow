@@ -1196,7 +1196,8 @@ export interface QualiteLecture {
   /** Dont au moins un champ corrigé à la main. */
   corrigees: number;
   par_champ: { champ: string; pieces: number }[];
-  par_voie: { cle: Voie | null; validees: number; corrigees: number }[];
+  /** `cle` : voie, suivie de `+ocr` (OCR local) ou `+cellules` (lignes des cellules du tableur). */
+  par_voie: { cle: string | null; validees: number; corrigees: number }[];
   /** Selon le dernier appel de lecture réussi ; `modele` nul : lu sans Claude ou avant la mesure. */
   par_modele: { modele: string | null; nouvel_essai: boolean; validees: number; corrigees: number }[];
   /** Les 10 fournisseurs les plus corrigés (part des pièces corrigées). */

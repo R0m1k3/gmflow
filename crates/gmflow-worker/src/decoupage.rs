@@ -213,6 +213,7 @@ async fn demander(
     let mut a = Appel::avec_acces(reglages::DECOUPAGE_PDF, &reglage.modele, &prompt, &acces);
     a.effort = Some(&reglage.effort);
     a.args_en_plus = &args;
+    a.document_id = Some(o.document_id);
     a.dossier = dossier.as_ref().map(|d| d.0.as_path());
     if dossier.is_some() {
         a.delai = claude::DELAI_LECTURE;

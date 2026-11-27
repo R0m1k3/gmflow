@@ -286,6 +286,14 @@ async fn correspondance_demandee_une_fois_puis_reutilisee() {
             .await,
         1
     );
+    // Mesure (L18) : l'appel est rattaché au premier BL, dont il a lu l'en-tête.
+    assert_eq!(
+        b.compter(&format!(
+            "select count(*) from appel_claude where tache = 'colonnes_tableur' and document_id = {id1}"
+        ))
+        .await,
+        1
+    );
     b.fermer().await;
 }
 

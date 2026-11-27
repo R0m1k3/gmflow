@@ -132,6 +132,16 @@ export function libelleVoie(v: Voie | null | undefined): string {
   }
 }
 
+/** Voie de lecture de l'écran « Qualité de la lecture » : voie, suivie de `+ocr` (texte des pages
+ * scannées lu par l'OCR local) ou de `+cellules` (lignes lues dans les cellules du tableur). */
+export function libelleVoieQualite(cle: string | null | undefined): string {
+  const [v, precision] = (cle ?? '').split('+');
+  const l = libelleVoie((v || null) as Voie | null);
+  if (!l) return 'Voie inconnue';
+  const suite = precision === 'ocr' ? ', texte reconnu sur le serveur (OCR)' : precision === 'cellules' ? ', lignes lues dans les cellules' : '';
+  return l.charAt(0).toUpperCase() + l.slice(1) + suite;
+}
+
 /** Nom d'un champ corrigé à la main (clé de `document.corrections`). */
 export function libelleChampCorrige(champ: string): string {
   const noms: Record<string, string> = {

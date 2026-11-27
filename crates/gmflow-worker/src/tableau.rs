@@ -134,6 +134,7 @@ async fn demander(
     let mut a = Appel::avec_acces(reglages::COLONNES_TABLEUR, &reglage.modele, &prompt, &acces);
     a.effort = Some(&reglage.effort);
     a.args_en_plus = &args;
+    a.document_id = Some(document_id);
     match claude::lancer(pool, &ctx.config.claude_bin, &a).await {
         Ok(s) => Ok(claude::sortie_structuree(&s.json)),
         Err(e) => {

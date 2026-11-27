@@ -37,7 +37,9 @@ pub struct ParChamp {
 
 #[derive(Debug, Serialize)]
 pub struct Groupe {
-    /// Voie de lecture (`facturx`, `xml`, `pdf_texte`, `tableur`, `scan`), vide si inconnue.
+    /// Voie de lecture (`facturx`, `xml`, `pdf_texte`, `tableur`, `scan`), vide si inconnue ;
+    /// suivie de `+ocr` (texte des pages scannées lu par l'OCR local) ou de `+cellules` (lignes
+    /// lues dans les cellules du tableur).
     pub cle: Option<String>,
     pub validees: i64,
     pub corrigees: i64,
@@ -122,14 +124,17 @@ pub async fn mesurer(pool: &PgPool, debut: Date, societe: Option<i64>) -> sqlx::
     .await?;
     let par_voie = sqlx::query_as!(
         Groupe,
-        r#"select d.voie as "cle?", count(*) as "validees!",
+        r#"select d.voie || case when d.confiance->>'texte_source' = 'ocr_local' then '+ocr'
+                                 when d.confiance->>'lignes_source' = 'cellules' then '+cellules'
+                                 else '' end as "cle?",
+                  count(*) as "validees!",
                   count(*) filter (where d.corrections <> '{}'::jsonb) as "corrigees!"
            from document d
            where d.verifie_le >= ($1::date)::timestamp at time zone 'Europe/Paris'
              and d.verifie_le < ($1::date + interval '1 month') at time zone 'Europe/Paris'
              and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
              and ($2::bigint is null or d.societe_id = $2)
-           group by d.voie order by 2 desc, 1"#,
+           group by 1 order by 2 desc, 1"#,
         debut,
         societe
     )

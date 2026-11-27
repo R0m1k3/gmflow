@@ -3,7 +3,7 @@
   // à la main par champ, voie, modèle du dernier essai et fournisseur, coût estimé des appels.
   // Chargé à l'ouverture du repli ; tableaux seulement, nombres alignés à droite.
   import { message, qualiteLecture } from '#lib/api.ts';
-  import { libelleChampCorrige, libelleVoie } from '#lib/libelles.ts';
+  import { libelleChampCorrige, libelleVoieQualite } from '#lib/libelles.ts';
   import type { QualiteLecture } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Chargement from './Chargement.svelte';
@@ -37,10 +37,7 @@
     v === null
       ? ''
       : `${v.toLocaleString('fr-FR', { minimumFractionDigits: v < 1 ? 3 : 2, maximumFractionDigits: v < 1 ? 3 : 2 })} $`;
-  const voie = (v: string | null) => {
-    const l = libelleVoie(v as Parameters<typeof libelleVoie>[0]);
-    return l ? l.charAt(0).toUpperCase() + l.slice(1) : 'Voie inconnue';
-  };
+  const voie = libelleVoieQualite;
   const essai = (m: string | null, nouvel: boolean) =>
     m === null ? 'Sans appel de lecture mesuré' : nouvel ? `${m}, nouvel essai` : `${m} seul`;
   let resume = $derived(q ? `${q.validees} validées, ${pct(q.corrigees, q.validees) || '0 %'} corrigées` : '');

@@ -292,5 +292,14 @@ async fn doute_demande_a_claude_et_reponse_illisible_pas_de_decoupage() {
             .await,
         1
     );
+    // Mesure (L18) : l'appel du découpage est rattaché au document examiné.
+    assert_eq!(
+        b.compter(
+            "select count(*) from appel_claude a join document d on d.id = a.document_id
+             where a.tache = 'decoupage_pdf' and d.mail_id = (select max(mail_id) from document)"
+        )
+        .await,
+        1
+    );
     b.fermer().await;
 }
