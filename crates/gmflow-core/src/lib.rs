@@ -14,6 +14,7 @@ pub mod eml;
 pub mod envoi_prevu;
 pub mod essai_boite;
 pub mod expedition;
+pub mod export_bilan;
 pub mod export_phenix;
 pub mod file;
 #[cfg(feature = "test-utils")]

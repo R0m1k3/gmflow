@@ -19,6 +19,7 @@
   import QualiteLecture from '#lib/ui/QualiteLecture.svelte';
   import Repli from '#lib/ui/Repli.svelte';
   import Vide from '#lib/ui/Vide.svelte';
+  import { lienExportBilan } from '#lib/ui/BilanOutils.ts';
 
   let admin = $derived(session.moi?.role === 'admin');
 
@@ -169,6 +170,9 @@
   <div class="page-h">
     <h1>Bilan du mois <span class="imprime-seul">: {libelleMois(mois)}</span></h1>
     <span class="sp"></span>
+    <a class="btn sm pas-imprime" href={lienExportBilan(mois, admin ? societe.id : null)} download title="Synthèse, une ligne par pièce et BL en attente, au format Excel"
+      ><Icone nom="telecharger" />Exporter (Excel)</a
+    >
     <button type="button" class="btn sm pas-imprime" onclick={() => window.print()}>Imprimer</button>
     <nav class="choix-mois pas-imprime" aria-label="Mois">
       <a class="btn sm fantome" href={lienMois(precedent)} data-sveltekit-reset="false" aria-label="Mois précédent" title="Mois précédent (←)"
@@ -535,6 +539,46 @@
   }
   .voies {
     margin: var(--e2) 0 var(--e3);
+  }
+  /* Impression (audit U16) : les règles communes d'app.css retirent menus et boutons ; ici, le
+     bilan tient sur la largeur de la page, encadrés en filet fin, sans la partie « Qualité ». */
+  @media print {
+    .bilan {
+      max-width: none;
+    }
+    .page-h {
+      margin-bottom: 6mm;
+    }
+    .page-h h1 {
+      font-size: 18pt;
+    }
+    .bloc {
+      margin-top: 8mm;
+    }
+    .bloc h2 {
+      font-size: 14pt;
+    }
+    .boite {
+      box-shadow: none;
+      border: 1px solid #c9d0c6;
+    }
+    .defile :global(td) {
+      height: auto;
+      padding-top: 6px;
+      padding-bottom: 6px;
+      font-size: 11pt;
+    }
+    .lien-reste.alerte,
+    .lien-reste.erreur {
+      color: inherit;
+      font-weight: 600;
+    }
+    .qualite-b {
+      display: none;
+    }
+    .liste-bl > :global(.ligne) {
+      padding: 6px 4mm;
+    }
   }
   @media (max-width: 760px) {
     .page-h {

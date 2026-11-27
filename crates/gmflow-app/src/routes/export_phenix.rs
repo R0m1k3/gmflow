@@ -212,7 +212,7 @@ fn nom(modele: &str, d: &Donnees) -> String {
     format!("{}.xlsx", n.trim())
 }
 
-fn telecharger(nom: String, octets: Vec<u8>) -> Response {
+pub(crate) fn telecharger(nom: String, octets: Vec<u8>) -> Response {
     (
         [
             (

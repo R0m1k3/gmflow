@@ -381,6 +381,15 @@ Essai SMTP (envoi des réponses) d'une boîte enregistrée : connexion et authen
 - `bl_sans_lignes` : BL lus avant le rapprochement, sans leurs lignes (tout l'historique, même règle) : le front n'a plus à appeler `/api/rapprochement` pour ce nombre.
 - `qualite` (partie repliée) : `GET /api/documents/bilan` et `GET /api/tri/semaines` tels quels (périmètre appliqué, mais pas `?societe=` ni `mois`).
 
+### `GET /api/bilan/export?mois=AAAA-MM&societe=` (audit U16)
+
+Le même bilan en classeur Excel (`gmflow_core::export_bilan`, rust_xlsxwriter), nommé `bilan-<société ou toutes>-<AAAA-MM>.xlsx` (société : raison sociale sans accent ni signe, `toutes` pour un admin sans `?societe=`). Mêmes filtres et mêmes droits que `GET /api/bilan` ; un responsable qui demande une autre société reçoit `403`. Trois feuilles, titre et sous-titre puis en-têtes figés (ligne 4, répétée à l'impression, A4 paysage sur une page de large) :
+- « Synthèse » : une ligne par société de `societes` (« Pas encore rangée » pour la ligne nulle) : reçues, envoyées, à contrôler (`pretes + a_verifier`), échecs d'envoi, doublons, montant envoyé TTC ; puis le total (des nombres, pas des formules) ;
+- « Détail » : une ligne par facture ou avoir compté dans la synthèse (doublons compris) : date (du document, à défaut du mail), société, fournisseur, type, numéro, HT, TVA, TTC (avoirs en négatif), échéance, état (« À contrôler », « Validée », « Envoi en cours », « Envoyée à Dext », « Échec d'envoi », « Doublon »), date et heure (Paris) du dernier envoi réussi en compta ; filtre automatique ;
+- « BL en attente » : `bl_en_attente` (société, fournisseur, nombre de BL) et le total.
+
+Montants en cellules numériques au format monétaire, dates en vraies dates Excel.
+
 ## 8. Fiche mail et réponses (routes existantes, enrichies)
 
 `GET /api/mails/{id}` :

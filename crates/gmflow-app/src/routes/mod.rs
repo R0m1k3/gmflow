@@ -172,6 +172,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/a-traiter/compteurs", get(a_traiter::compteurs))
         .route("/depots/suivi", get(depots::suivi))
         .route("/bilan", get(bilan::bilan))
+        .route("/bilan/export", get(bilan::exporter))
         .route(
             "/rapprochement",
             get(rapprochement::vue).post(rapprochement::lier),
