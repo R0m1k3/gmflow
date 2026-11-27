@@ -32,7 +32,17 @@
 
   let q = $state('');
   let qActif = $state('');
-  let onglet = $state<Onglet>('tous');
+  // L'onglet est dans l'adresse (`?onglet=nouveaux`) : le menu « À confirmer » y mène directement.
+  let onglet = $derived.by<Onglet>(() => {
+    const o = page.url.searchParams.get('onglet');
+    return o === 'nouveaux' || (o === 'doublons' && admin) ? o : 'tous';
+  });
+  function choisirOnglet(o: Onglet) {
+    const u = new URL(page.url.href);
+    if (o === 'tous') u.searchParams.delete('onglet');
+    else u.searchParams.set('onglet', o);
+    void goto(`${u.pathname}${u.search}`, { replaceState: true, keepFocus: true, noScroll: true } as Parameters<typeof goto>[1]);
+  }
   let lignes = $state<LigneFournisseur[]>([]);
   let total = $state(0);
   /** Il reste des fiches après celles affichées (le serveur ne recompte pas les pages suivantes). */
@@ -181,14 +191,14 @@
       <input type="search" placeholder="Nom, code BO, SIRET, TVA, domaine" bind:value={q} autocomplete="off" />
     </label>
     <div class="puces" role="group" aria-label="Filtrer">
-      <button type="button" class="btn" aria-pressed={onglet === 'tous'} onclick={() => (onglet = 'tous')}>
+      <button type="button" class="btn" aria-pressed={onglet === 'tous'} onclick={() => choisirOnglet('tous')}>
         Tous {#if charge}<span class="num">{totaux.tous}</span>{/if}
       </button>
-      <button type="button" class="btn" aria-pressed={onglet === 'nouveaux'} onclick={() => (onglet = 'nouveaux')}>
+      <button type="button" class="btn" aria-pressed={onglet === 'nouveaux'} onclick={() => choisirOnglet('nouveaux')}>
         À confirmer {#if totaux.nouveaux}<span class="num">{totaux.nouveaux}</span>{/if}
       </button>
       {#if admin}
-        <button type="button" class="btn" aria-pressed={onglet === 'doublons'} onclick={() => (onglet = 'doublons')}>
+        <button type="button" class="btn" aria-pressed={onglet === 'doublons'} onclick={() => choisirOnglet('doublons')}>
           Doublons {#if totaux.doublons}<span class="num">{totaux.doublons}</span>{/if}
         </button>
       {/if}

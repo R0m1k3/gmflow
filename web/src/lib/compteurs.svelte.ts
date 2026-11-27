@@ -3,7 +3,7 @@
 // de valider ou d'envoyer quelque chose appelle `rafraichirCompteurs()`.
 // Source : GET /api/a-traiter/compteurs (docs/api-refonte.md, crates/gmflow-app/src/routes/a_traiter.rs).
 import { api } from './api.ts';
-import type { Boite, CompteursATraiter, LigneDocument, Page } from './types.ts';
+import type { Boite, CompteursATraiter, LigneDocument, LigneFournisseur, Page } from './types.ts';
 
 export interface Compteurs {
   /** Éléments à traiter : documents à contrôler, mails à répondre, blocages. */
@@ -17,6 +17,8 @@ export interface Compteurs {
   /** Envois à Dext / Yooz en échec, par type : pastille rouge de Factures et Avoirs. */
   echecsFactures: number;
   echecsAvoirs: number;
+  /** Fournisseurs créés d'après une pièce, à confirmer : badge de « À confirmer ». */
+  fournisseursAConfirmer: number;
   /** Admins : date de la dernière relève des boîtes actives (`null` : aucune), et leur nombre. */
   derniereReleve: string | null;
   boitesActives: number;
@@ -31,6 +33,16 @@ async function echecs(type: 'facture' | 'avoir', parametreSociete: string): Prom
     const r = await api.get<Page<LigneDocument>>(
       `/api/documents?type=${type}&statut_depot=erreur${parametreSociete ? `&${parametreSociete}` : ''}`
     );
+    return r.total ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Nombre de fournisseurs à confirmer (liste des fournisseurs : seul le total compte). */
+async function aConfirmer(parametreSociete: string): Promise<number> {
+  try {
+    const r = await api.get<Page<LigneFournisseur>>(`/api/fournisseurs?statut=a_confirmer${parametreSociete ? `&${parametreSociete}` : ''}`);
     return r.total ?? 0;
   } catch {
     return 0;
@@ -58,20 +70,21 @@ export async function releverMaintenant(): Promise<number> {
 
 async function lireCompteurs(parametreSociete: string, admin: boolean): Promise<Compteurs> {
   const q = parametreSociete ? `?${parametreSociete}` : '';
-  const [r, echecsFactures, echecsAvoirs, rel] = await Promise.all([
+  const [r, echecsFactures, echecsAvoirs, rel, fournisseursAConfirmer] = await Promise.all([
     api.get<CompteursATraiter>(`/api/a-traiter/compteurs${q}`),
     echecs('facture', parametreSociete),
     echecs('avoir', parametreSociete),
-    releve(admin)
+    releve(admin),
+    aConfirmer(parametreSociete)
   ]);
-  return { echecsFactures, echecsAvoirs, derniereReleve: rel?.derniereReleve ?? null, boitesActives: rel?.boitesActives ?? 0, aTraiter: r.total, factures: r.a_valider_types.facture,
+  return { echecsFactures, echecsAvoirs, fournisseursAConfirmer, derniereReleve: rel?.derniereReleve ?? null, boitesActives: rel?.boitesActives ?? 0, aTraiter: r.total, factures: r.a_valider_types.facture,
     avoirs: r.a_valider_types.avoir,
     bl: r.a_valider_types.bl,
     aRepondre: r.a_repondre, problemes: admin ? r.bloque : null };
 }
 
 /** Valeurs affichées dans la barre du haut. */
-export const compteurs = $state<Compteurs & { charge: boolean }>({ aTraiter: 0, factures: 0, avoirs: 0, bl: 0, aRepondre: 0, echecsFactures: 0, echecsAvoirs: 0, derniereReleve: null, boitesActives: 0, problemes: null, charge: false });
+export const compteurs = $state<Compteurs & { charge: boolean }>({ aTraiter: 0, factures: 0, avoirs: 0, bl: 0, aRepondre: 0, echecsFactures: 0, echecsAvoirs: 0, fournisseursAConfirmer: 0, derniereReleve: null, boitesActives: 0, problemes: null, charge: false });
 
 let parametreCourant = '';
 let adminCourant = false;
@@ -92,6 +105,7 @@ export async function rafraichirCompteurs(parametreSociete?: string, admin?: boo
     compteurs.aRepondre = c.aRepondre;
     compteurs.echecsFactures = c.echecsFactures;
     compteurs.echecsAvoirs = c.echecsAvoirs;
+    compteurs.fournisseursAConfirmer = c.fournisseursAConfirmer;
     compteurs.derniereReleve = c.derniereReleve;
     compteurs.boitesActives = c.boitesActives;
     compteurs.problemes = c.problemes;
