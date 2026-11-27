@@ -183,6 +183,7 @@ async fn effacer(pool: &PgPool, auteur_id: Option<i64>) -> Result<Bilan, Refus> 
          where status <> 'Running'
            and (job_type = any($1)
                 or (job_type = $2 and (convert_from(job, 'UTF8') like '%\"Deposer\"%'
+                                       or convert_from(job, 'UTF8') like '%\"DeposerPrevu\"%'
                                        or convert_from(job, 'UTF8') like '%\"EnvoyerReponse\"%'))
                 or (job_type = $3 and convert_from(job, 'UTF8') like '%\"Releve\"%'))",
     )

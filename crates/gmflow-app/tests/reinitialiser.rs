@@ -114,6 +114,59 @@ async fn preparer() -> (Appli, String, String, i64) {
         .execute(app.pool())
         .await
         .unwrap();
+    // Chantiers de l'audit : IBAN connu, correspondance de colonnes de tableur sur la fiche,
+    // partie d'un PDF découpé (pièce jointe `source_id` et son document), envoi prévu en attente
+    // (et sa tâche), appel de lecture rattaché au document.
+    sqlx::query(
+        "insert into fournisseur_iban (fournisseur_id, iban, origine, document_id)
+         values ($1, 'FR7630006000011234567890189', 'validation', $2)",
+    )
+    .bind(fourn)
+    .bind(doc)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "update fournisseur set colonnes_tableur = '{\"abc\": {\"reference\": 0}}' where id = $1",
+    )
+    .bind(fourn)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    let partie: i64 = sqlx::query_scalar(
+        "insert into piece_jointe (mail_id, rang, nom, type_mime, taille, sha256, source_id, page_debut, page_fin)
+         select mail_id, -101, 'partie.pdf', 'application/pdf', 10, sha256, id, 1, 1
+         from piece_jointe where id = $1 returning id",
+    )
+    .bind(piece)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    let doc_partie: i64 = sqlx::query_scalar(
+        "insert into document (piece_jointe_id, mail_id, sha256, etat, type, societe_id)
+         select id, mail_id, sha256, 'lu', 'facture', $2 from piece_jointe where id = $1 returning id",
+    )
+    .bind(partie)
+    .bind(soc)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    let prevu: i64 = sqlx::query_scalar(
+        "insert into envoi_prevu (document_id, lot, prevu_pour)
+         values ($1, gen_random_uuid(), now() + interval '10 seconds') returning id",
+    )
+    .bind(doc_partie)
+    .fetch_one(app.pool())
+    .await
+    .unwrap();
+    gmflow_core::envoi_prevu::pousser(app.pool(), prevu)
+        .await
+        .unwrap();
+    sqlx::query("insert into appel_claude (tache, modele, duree_ms, succes, document_id, cout_usd) values ('decoupage_pdf', 'haiku', 10, true, $1, 0.01)")
+        .bind(doc)
+        .execute(app.pool())
+        .await
+        .unwrap();
     gmflow_core::journal::ecrire(app.pool(), None, "creation", "societe", None, json!({}))
         .await
         .unwrap();
@@ -152,10 +205,10 @@ async fn efface_les_donnees_et_garde_la_configuration() {
         .await;
     assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
     assert_eq!(r.json["mails"], 1);
-    assert_eq!(r.json["documents"], 1);
+    assert_eq!(r.json["documents"], 2);
     assert_eq!(r.json["fournisseurs"], 2);
-    // Lecture, tri et relève en attente ; le test du jeton et les alertes restent.
-    assert_eq!(r.json["taches"], 3);
+    // Lecture, tri, relève et envoi prévu en attente ; le test du jeton et les alertes restent.
+    assert_eq!(r.json["taches"], 4);
     // Les deux boîtes actives (la pause automatique est levée).
     assert_eq!(r.json["boites_relancees"], 2);
 
@@ -176,7 +229,14 @@ async fn efface_les_donnees_et_garde_la_configuration() {
             >= 1,
         "historique d'avant gardé"
     );
-    assert_eq!(app.compter("select count(*) from appel_claude").await, 1);
+    assert_eq!(app.compter("select count(*) from appel_claude").await, 2);
+    assert_eq!(
+        app.compter(
+            "select count(*) from apalis.jobs where convert_from(job, 'UTF8') like '%DeposerPrevu%'"
+        )
+        .await,
+        0
+    );
     let (adresse, etat_envoi, societe, type_doc, fournisseur, fichier): (
         String,
         String,
@@ -259,7 +319,7 @@ async fn efface_les_donnees_et_garde_la_configuration() {
     assert_eq!(action, "reinitialisation");
     assert!(auteur.is_some());
     assert_eq!(details["mails"], 1);
-    assert_eq!(details["documents"], 1);
+    assert_eq!(details["documents"], 2);
     assert_eq!(details["fournisseurs"], 2);
     assert_eq!(details["envois_archives"], 1);
     app.fermer().await;
@@ -298,7 +358,7 @@ async fn refuse_sans_confirmation_ou_pour_un_responsable() {
         .await;
     assert_eq!(r.code, StatusCode::FORBIDDEN, "sans X-GMFlow");
     assert_eq!(app.compter("select count(*) from mail").await, 1);
-    assert_eq!(app.compter("select count(*) from document").await, 1);
+    assert_eq!(app.compter("select count(*) from document").await, 2);
     assert_eq!(app.compter("select count(*) from fournisseur").await, 2);
     app.fermer().await;
 }
@@ -358,7 +418,7 @@ async fn refuse_pendant_une_releve_ou_un_envoi() {
         "{:?}",
         r.json
     );
-    assert_eq!(app.compter("select count(*) from document").await, 1);
+    assert_eq!(app.compter("select count(*) from document").await, 2);
 
     // Un envoi resté « en cours » depuis longtemps (worker arrêté) ne bloque pas.
     sqlx::query("update envoi_depot set quand = now() - interval '1 hour'")
