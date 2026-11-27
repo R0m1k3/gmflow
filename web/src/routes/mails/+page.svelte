@@ -1,6 +1,7 @@
 <script lang="ts">
   // Onglet Mails : tous les mails reçus, les plus récents en haut, groupés par jour.
-  // Filtre par catégorie (puces), fiche du mail à droite (?mail=ID). J/K, Échap.
+  // Ordinateur, rien d'ouvert : tableau pleine largeur (en-têtes = tri, catégories en sélecteur segmenté).
+  // Mail ouvert (?mail=ID) : liste étroite en tuiles, fiche du mail à droite. Téléphone : tuiles et puces. J/K, Échap.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { untrack } from 'svelte';
@@ -9,6 +10,7 @@
   import { libelleStatutReponse, tonStatutReponse } from '#lib/libelles.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
   import { lireTri, parametresTri, type ColonneTri } from '#lib/tri.ts';
+  import EnTetesTableau, { type ColonneTableau } from '#lib/ui/EnTetesTableau.svelte';
   import EnTetesTri from '#lib/ui/EnTetesTri.svelte';
   import ErreurAction from '#lib/ui/ErreurAction.svelte';
   import { societe } from '#lib/societe.svelte.ts';
@@ -74,6 +76,28 @@
     return `/mails${requete({ filtre: f === 'hors_publicite' ? '' : f, mail: id, ...paramsTri })}`;
   }
 
+  // Tableau (ordinateur, rien d'ouvert)
+  let large = $state(true);
+  $effect(() => {
+    const mq = window.matchMedia('(min-width: 1024px)');
+    large = mq.matches;
+    const suivre = (e: MediaQueryListEvent) => (large = e.matches);
+    mq.addEventListener('change', suivre);
+    return () => mq.removeEventListener('change', suivre);
+  });
+  let enTableau = $derived(large && !mailId);
+  const COLONNES: ColonneTableau[] = [
+    { libelle: 'Expéditeur', tri: 'expediteur' },
+    { libelle: 'Objet', tri: 'objet' },
+    { libelle: 'Catégorie' },
+    { libelle: 'Reçu', tri: 'date' },
+    { libelle: 'Réponse' }
+  ];
+  const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+  /** Sous un intertitre de jour : l'heure seule. */
+  const heureDe = (iso: string | null) => (iso ? heure.format(new Date(iso)) : '');
+  const GABARIT = 'minmax(180px, 1.4fr) minmax(260px, 3fr) minmax(120px, 0.8fr) 120px minmax(120px, 0.8fr)';
+
   let listeEl = $state<HTMLElement>();
   let indice = $derived(lst.elements.findIndex((m) => m.id === mailId));
   function deplacerDe(sens: 1 | -1) {
@@ -106,19 +130,39 @@
 
 <svelte:head><title>Mails · GMFlow</title></svelte:head>
 
-<Volets ouvert={!!mailId} libelleListe="Mails reçus" largeur={360}>
+<Volets ouvert={!!mailId} tableau={large} libelleListe="Mails reçus" largeur={360}>
   {#snippet liste()}
-    <div class="liste-h">
+    <div class="liste-h" class:tete-tableau={enTableau}>
       <h1>Mails <span class="num">{lst.total}</span></h1>
-      <a class="btn-icone chercher" href="/recherche?type=mail" title="Chercher dans les mails" aria-label="Chercher dans les mails"><Icone nom="chercher" /></a>
+      {#if enTableau}
+        <div class="seg" role="group" aria-label="Catégorie">
+          {#each FILTRES as f (f.v)}
+            <a href={lien(null, f.v)} aria-current={filtre === f.v ? 'true' : undefined} data-sveltekit-replacestate>{f.l}</a>
+          {/each}
+        </div>
+      {/if}
+      <span class="sp"></span>
+      {#if enTableau || !large}
+        <a class="btn-icone" href="/recherche?type=mail" title="Chercher dans les mails" aria-label="Chercher dans les mails"><Icone nom="chercher" /></a>
+      {/if}
     </div>
-    <div class="puces" role="group" aria-label="Catégorie">
-      {#each FILTRES as f (f.v)}
-        <a class="btn sm" href={lien(null, f.v)} aria-current={filtre === f.v ? 'true' : undefined} data-sveltekit-replacestate>{f.l}</a>
-      {/each}
-    </div>
-    <EnTetesTri colonnes={TRI} {tri} retirer={['mail']} />
-    <div class="liste-s" bind:this={listeEl}>
+    {#if large && !enTableau}
+      <label class="filtre-court">
+        <span class="sr-seul">Catégorie</span>
+        <select value={filtre} onchange={(e) => void goto(lien(null, e.currentTarget.value), { replaceState: true })}>
+          {#each FILTRES as f (f.v)}<option value={f.v}>{f.l}</option>{/each}
+        </select>
+      </label>
+    {/if}
+    {#if !large}
+      <div class="puces" role="group" aria-label="Catégorie">
+        {#each FILTRES as f (f.v)}
+          <a class="btn sm" href={lien(null, f.v)} aria-current={filtre === f.v ? 'true' : undefined} data-sveltekit-replacestate>{f.l}</a>
+        {/each}
+      </div>
+      <EnTetesTri colonnes={TRI} {tri} retirer={['mail']} />
+    {/if}
+    <div class="liste-s" class:t-defile={enTableau} bind:this={listeEl}>
       {#if lst.erreur}
         <ErreurAction erreur={lst.erreurBrute} titre="Liste non chargée." onreessayer={() => lst.lire()} />
       {/if}
@@ -126,6 +170,29 @@
         <Chargement texte="Chargement des mails" />
       {:else if !lst.elements.length}
         <Vide compact icone="mail" titre="Aucun mail" texte="Rien dans cette catégorie pour l’instant." />
+      {:else if enTableau}
+        <div class="tableau" style:--gabarit={GABARIT}>
+          <EnTetesTableau colonnes={COLONNES} colonnesTri={TRI} {tri} retirer={['mail']} />
+          {#each groupes as g (g.titre)}
+            {#if g.titre}<div class="t-jour">{g.titre} <span class="num">{g.elements.length}</span></div>{/if}
+            {#each g.elements as m (m.id)}
+              <div class="t-ligne" class:pub={m.categorie === 'publicite'}>
+                <a class="t-lien" href={lien(m.id)} data-id={m.id}>
+                  <span class="t-f">{nomLisible(m.expediteur) || '(expéditeur inconnu)'}</span>
+                  <span class="t-objet">
+                    {#if m.nb_pieces}<span class="pj" title="{m.nb_pieces} pièce{m.nb_pieces > 1 ? 's' : ''} jointe{m.nb_pieces > 1 ? 's' : ''}"><Icone nom="trombone" /><span class="sr-seul">{m.nb_pieces} pièce{m.nb_pieces > 1 ? 's' : ''} jointe{m.nb_pieces > 1 ? 's' : ''}, </span></span>{/if}
+                    <span class="objet">{m.objet || '(sans objet)'}</span>
+                  </span>
+                  <span>{m.categorie ? (CATEGORIE_TUILE[m.categorie] ?? m.categorie) : 'Pas encore trié'}</span>
+                  <span class="num">{tri.cle === 'date' ? heureDe(m.date_mail) : dateMail(m.date_mail)}</span>
+                  <span class="t-etat">
+                    {#if m.statut_reponse === 'a_repondre'}<Etiquette ton={tonStatutReponse(m.statut_reponse)}>{libelleStatutReponse(m.statut_reponse)}</Etiquette>{/if}
+                  </span>
+                </a>
+              </div>
+            {/each}
+          {/each}
+        </div>
       {:else}
         {#each groupes as g (g.titre)}
           <div class="groupe">
@@ -163,10 +230,29 @@
         {/if}
       {/if}
     </div>
-    <div class="liste-f">
-      <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
-      <span><Kbd t="/" /> chercher</span>
-    </div>
+    {#if enTableau}
+      <div class="t-fin">
+        {#if lst.charge && lst.elements.length}
+          {#if lst.reste > 0}
+            <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
+              {lst.enCours ? 'Chargement…' : `Afficher les mails plus anciens (${lst.reste})`}
+            </button>
+          {:else}
+            <span>{lst.total} {lst.total > 1 ? 'mails' : 'mail'} · tout est affiché</span>
+          {/if}
+        {/if}
+      </div>
+      <div class="liste-f">
+        <span><Kbd t="J" /><Kbd t="K" /> se déplacer · <Kbd t="Enter" /> ouvrir</span>
+        <span class="sp"></span>
+        <span><Kbd t="?" /> raccourcis</span>
+      </div>
+    {:else}
+      <div class="liste-f">
+        <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
+        <span><Kbd t="/" /> chercher</span>
+      </div>
+    {/if}
   {/snippet}
 
   {#snippet detail()}
@@ -179,19 +265,28 @@
 </Volets>
 
 <style>
-  .chercher {
-    margin-left: auto;
-    align-self: center;
+  .filtre-court {
+    flex: none;
+    padding: var(--e2) var(--e4);
+    border-bottom: 1px solid var(--line);
+  }
+  .filtre-court select {
+    width: 100%;
+    height: 36px;
+    font-size: 15px;
+  }
+  .t-objet {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+  }
+  .t-ligne.pub .t-f {
+    font-weight: 450;
+    color: var(--muted);
   }
   .groupe {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    margin-bottom: var(--e4);
-  }
-  .groupe .jour-h {
-    margin: 0;
-    padding: 0 4px 4px;
   }
   .ligne.tuile {
     display: flex;
@@ -209,7 +304,7 @@
   }
   .de {
     font-size: 16px;
-    font-weight: 500;
+    font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

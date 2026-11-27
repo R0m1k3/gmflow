@@ -28,7 +28,8 @@
   import { libelleEtat, libelleStatutEnvoi, nomCourtSociete, tonEtat, tonStatutEnvoi, type Ton } from '#lib/libelles.ts';
   import { filtreGarde, garderFiltre } from '#lib/filtres.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
-  import { lienTri, lireTri, parametresTri, sensLisible } from '#lib/tri.ts';
+  import { lireTri, parametresTri } from '#lib/tri.ts';
+  import EnTetesTableau, { type ColonneTableau } from './EnTetesTableau.svelte';
   import EnTetesTri from './EnTetesTri.svelte';
   import ErreurAction from './ErreurAction.svelte';
   import { societe } from '#lib/societe.svelte.ts';
@@ -220,8 +221,7 @@
   });
   let enTableau = $derived(large && !docId);
   let avecEcheance = $derived(colonnesTri.some((c) => c.cle === 'echeance'));
-  type Colonne = { libelle: string; tri?: string; droite?: boolean };
-  let colonnes = $derived<Colonne[]>([
+  let colonnes = $derived<ColonneTableau[]>([
     { libelle: 'Fournisseur', tri: 'fournisseur' },
     { libelle: 'N°', tri: 'numero' },
     { libelle: 'Société' },
@@ -241,7 +241,6 @@
       .filter(Boolean)
       .join(' ')
   );
-  let triables = $derived(new Set(colonnesTri.map((c) => c.cle)));
   /** « Envoyée » sous le filtre « Envoyées » : même mot, sans le pluriel ni le féminin. */
   const racine = (t: string) => t.toLowerCase().replace(/s$/, '').replace(/e$/, '');
   /** L'étiquette d'état répète-t-elle le filtre actif (« À contrôler » sous « À contrôler ») ? Alors on la tait. */
@@ -344,28 +343,7 @@
       {:else if enTableau}
         <!-- Tableau : une rangée = un lien vers la pièce ; les en-têtes trient (le serveur trie, la pagination suit). -->
         <div class="tableau" style:--gabarit={gabarit}>
-          <div class="t-tete" role="group" aria-label="Trier la liste">
-            {#if lotActif}<span></span>{/if}
-            {#each colonnes as c (c.libelle)}
-              {#if c.tri && triables.has(c.tri)}
-                {@const actif = tri.cle === c.tri}
-                {@const col = colonnesTri.find((x) => x.cle === c.tri)}
-                {@const sens = col ? sensLisible(col.genre, actif ? tri.croissant : col.croissant) : ''}
-                <a
-                  class="t-th"
-                  class:droite={c.droite}
-                  class:actif
-                  href={lienTri(page.url, colonnesTri, c.tri, ['doc'])}
-                  data-sveltekit-replacestate
-                  data-sveltekit-noscroll
-                  aria-current={actif ? 'true' : undefined}
-                  title={actif ? `Trié ${sens} : cliquer pour inverser` : `Trier ${sens}`}
-                >{c.libelle}{#if actif}<span aria-hidden="true">&nbsp;{tri.croissant ? '▴' : '▾'}</span><span class="sr-seul">, trié {sens}</span>{/if}</a>
-              {:else}
-                <span class="t-th" class:droite={c.droite}>{c.libelle}</span>
-              {/if}
-            {/each}
-          </div>
+          <EnTetesTableau {colonnes} {colonnesTri} {tri} retirer={['doc']} caseLot={lotActif} />
           {#each groupes as g (g.titre)}
             {#if g.titre}<div class="t-jour">{g.titre} <span class="num">{g.elements.length}</span></div>{/if}
             {#each g.elements as d (d.id)}
@@ -522,146 +500,6 @@
 </Volets>
 
 <style>
-  /* ---------- Tableau pleine largeur (écran A) ---------- */
-  .tete-tableau {
-    flex-wrap: wrap;
-    padding: var(--e5) var(--e8) var(--e4);
-    border-bottom: 0;
-  }
-  .tete-tableau h1 {
-    font-size: 26px;
-  }
-  /* le tableau défile seul et ne prend que sa hauteur ; le bas (.t-fin) remplit le reste */
-  .liste-s.t-defile {
-    flex: 0 1 auto;
-    padding: 0 var(--e8);
-  }
-  .tableau {
-    display: grid;
-    grid-template-columns: var(--gabarit);
-  }
-  .t-tete,
-  .t-ligne,
-  .t-lien {
-    display: grid;
-    grid-template-columns: subgrid;
-    grid-column: 1 / -1;
-    align-items: center;
-  }
-  .t-tete {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    background: var(--white);
-    border-bottom: 1px solid var(--line);
-  }
-  .t-th {
-    padding: 10px 12px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text2);
-    white-space: nowrap;
-    text-decoration: none;
-  }
-  a.t-th:hover {
-    color: var(--text);
-    background: var(--pane);
-  }
-  .t-th.actif {
-    color: var(--accent-ink);
-  }
-  .t-th.droite,
-  .t-m {
-    text-align: right;
-  }
-  .t-th:focus-visible,
-  .t-lien:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-  }
-  .t-jour {
-    grid-column: 1 / -1;
-    padding: 6px 12px;
-    background: var(--bg);
-    border-bottom: 1px solid var(--line);
-    color: var(--text);
-    font-size: 14.5px;
-    font-weight: 600;
-  }
-  .t-jour .num {
-    margin-left: 4px;
-    color: var(--muted);
-    font-weight: 500;
-  }
-  .t-ligne {
-    border-bottom: 1px solid var(--line-faint);
-  }
-  .t-ligne:hover {
-    background: #f8faf7;
-  }
-  .t-lien {
-    grid-column: 1 / -1;
-    min-height: 50px;
-    color: var(--text2);
-    font-size: 15.5px;
-    text-decoration: none;
-  }
-  .t-lien:hover {
-    color: var(--text2);
-  }
-  .t-lien > span {
-    min-width: 0;
-    padding: 0 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .t-lien > .t-f {
-    color: var(--text);
-    font-size: 16px;
-    font-weight: 600;
-  }
-  .t-lien > .t-etat {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .t-lien > .t-m {
-    color: var(--text);
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .t-case + .t-lien {
-    grid-column: 2 / -1;
-  }
-  .t-case {
-    display: flex;
-    justify-content: center;
-  }
-  .t-case input {
-    width: 18px;
-    height: 18px;
-  }
-  .t-raison {
-    grid-column: 2 / -1;
-    margin-top: -8px;
-    padding: 0 12px 8px;
-  }
-  .t-fin {
-    flex: 1 0 auto;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding: 18px var(--e8);
-    background: var(--pane);
-    border-top: 1px solid var(--line);
-    color: var(--muted);
-    font-weight: 500;
-  }
-  .t-fin .plus {
-    width: auto;
-    text-align: center;
-  }
   /* pièce ouverte : le filtre en liste déroulante, sur la ligne du titre */
   .filtre-court {
     flex: none;

@@ -2162,6 +2162,149 @@ dialog.confirmation .dlg-pied {
   color: var(--muted);
   font-weight: 400;
 }
+/* ---------- Tableau pleine largeur (écran A : Factures, Avoirs, BL, Envois, Mails) ----------
+   Rien d'ouvert, ordinateur : <div class="liste-h tete-tableau">titre + .seg</div>
+   <div class="liste-s t-defile"><div class="tableau" style:--gabarit="…">.t-tete, .t-jour, .t-ligne > a.t-lien > span…</div></div>
+   <div class="t-fin">…</div><div class="liste-f">…</div>. Une rangée = un lien ; les en-têtes trient. */
+.tete-tableau {
+  flex-wrap: wrap;
+  padding: var(--e5) var(--e8) var(--e4);
+  border-bottom: 0;
+}
+.tete-tableau h1 {
+  font-size: 26px;
+}
+/* le tableau défile seul et ne prend que sa hauteur ; le bas (.t-fin) remplit le reste */
+.liste-s.t-defile {
+  flex: 0 1 auto;
+  padding: 0 var(--e8);
+}
+.tableau {
+  display: grid;
+  grid-template-columns: var(--gabarit);
+}
+.t-tete,
+.t-ligne,
+.t-lien {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+}
+.t-tete {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--white);
+  border-bottom: 1px solid var(--line);
+}
+.t-th {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  white-space: nowrap;
+  text-decoration: none;
+}
+a.t-th:hover {
+  color: var(--text);
+  background: var(--pane);
+}
+.t-th.actif {
+  color: var(--accent-ink);
+}
+.t-th.droite,
+.t-m {
+  text-align: right;
+}
+.t-th:focus-visible,
+.t-lien:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.t-jour {
+  grid-column: 1 / -1;
+  padding: 6px 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.t-jour .num {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.t-ligne {
+  border-bottom: 1px solid var(--line-faint);
+}
+.t-ligne:hover {
+  background: #f8faf7;
+}
+.t-lien {
+  grid-column: 1 / -1;
+  min-height: 50px;
+  color: var(--text2);
+  font-size: 15.5px;
+  text-decoration: none;
+}
+.t-lien:hover {
+  color: var(--text2);
+}
+.t-lien > span {
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.t-lien > .t-f {
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+}
+.t-lien > .t-etat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.t-lien > .t-m {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.t-case + .t-lien {
+  grid-column: 2 / -1;
+}
+.t-case {
+  display: flex;
+  justify-content: center;
+}
+.t-case input {
+  width: 18px;
+  height: 18px;
+}
+.t-raison {
+  grid-column: 2 / -1;
+  margin-top: -8px;
+  padding: 0 12px 8px;
+}
+.t-fin {
+  flex: 1 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 18px var(--e8);
+  background: var(--pane);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-weight: 500;
+}
+.t-fin .plus {
+  width: auto;
+  text-align: center;
+}
 /* sélecteur segmenté : une rangée de filtres à côté du titre (tableau des pièces) ; défile en largeur s'il le faut */
 .seg {
   display: inline-flex;
