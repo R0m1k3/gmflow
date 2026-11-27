@@ -431,3 +431,47 @@ async fn metriques_reservees_au_jeton_ou_a_l_admin() {
     assert!((80.0..300.0).contains(&age), "{vieille}");
     app.fermer().await;
 }
+
+#[tokio::test]
+async fn images_distantes_des_mails_bloquees_par_defaut() {
+    let app = Appli::new().await;
+    let soc = app.societe("Magasin").await;
+    let boite = app.boite(soc, "Boîte").await;
+    app.utilisateur("admin", MDP, "admin", None).await;
+    let c = app.connecter("admin", MDP).await;
+    let mail = app
+        .mail_vu(&commun::fixture("html-cid.eml"), &[boite])
+        .await;
+    let csp = |r: &commun::Reponse| {
+        r.entetes
+            .get("content-security-policy")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
+    let r = app
+        .requete("GET", &format!("/api/mails/{mail}/html"), None, Some(&c))
+        .await;
+    assert_eq!(r.code, StatusCode::OK);
+    let defaut = csp(&r);
+    assert!(defaut.contains("img-src data:;"), "{defaut}");
+    assert!(
+        !defaut.contains("https:") && !defaut.contains("http:"),
+        "{defaut}"
+    );
+    // Les images intégrées (cid:) restent affichées, en data:.
+    assert!(String::from_utf8_lossy(&r.octets).contains("data:image/png;base64,"));
+    let r = app
+        .requete(
+            "GET",
+            &format!("/api/mails/{mail}/html?images=1"),
+            None,
+            Some(&c),
+        )
+        .await;
+    let ouvert = csp(&r);
+    assert!(ouvert.contains("img-src data: https: http:"), "{ouvert}");
+    assert!(!ouvert.contains("script-src"), "{ouvert}");
+    app.fermer().await;
+}

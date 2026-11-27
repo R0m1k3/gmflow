@@ -371,15 +371,27 @@ pub async fn fiche(
     }))
 }
 
-/// CSP du corps HTML : aucun script, aucun formulaire, aucune requête sauf les images
-/// (distantes comme dans un lecteur de mails, ou intégrées en `data:`) et les polices.
-const CSP_HTML: &str = "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
+/// CSP du corps HTML : aucun script, aucun formulaire, aucune requête. Les images intégrées
+/// (`cid:`, devenues `data:`) s'affichent ; les images et polices distantes sont bloquées par
+/// défaut (pixel espion : l'expéditeur saurait que le mail est ouvert, C23).
+pub const CSP_HTML: &str = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
+/// CSP du corps HTML quand l'utilisateur affiche les images distantes (`?images=1`).
+pub const CSP_HTML_IMAGES: &str = "default-src 'none'; img-src data: https: http:; style-src 'unsafe-inline'; font-src data: https:; form-action 'none'; frame-ancestors 'self'; sandbox allow-same-origin allow-popups allow-popups-to-escape-sandbox";
 
-/// `GET /api/mails/{id}/html` : corps HTML d'origine du mail, pour l'`iframe` de la fiche.
+#[derive(Deserialize)]
+pub struct OptionsHtml {
+    /// `1` : images distantes autorisées (« Afficher » sous le bandeau de la fiche).
+    #[serde(default)]
+    images: Option<u8>,
+}
+
+/// `GET /api/mails/{id}/html[?images=1]` : corps HTML d'origine du mail, pour l'`iframe` de
+/// la fiche ; images distantes bloquées sauf `images=1`.
 pub async fn html(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
+    Query(o): Query<OptionsHtml>,
 ) -> Resultat<axum::response::Response> {
     use axum::http::header;
     use axum::response::IntoResponse;
@@ -401,7 +413,14 @@ pub async fn html(
         [
             (header::CONTENT_TYPE, "text/html; charset=utf-8"),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::CONTENT_SECURITY_POLICY, CSP_HTML),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                if o.images == Some(1) {
+                    CSP_HTML_IMAGES
+                } else {
+                    CSP_HTML
+                },
+            ),
             (header::REFERRER_POLICY, "no-referrer"),
             (header::CACHE_CONTROL, "private, no-store"),
         ],
