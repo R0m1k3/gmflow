@@ -6,6 +6,8 @@ use gmflow_core::claude::{self, Appel, DossierTemp, ErreurClaude};
 use gmflow_core::lecture::extraction::{self, Contenu, ContexteMail, ErreurExtraction, Extraction};
 use gmflow_core::lecture::societe::{self, SocieteRef};
 use gmflow_core::lecture::{self as lect, Aiguillage, Voie};
+
+use crate::garde::Borner;
 use gmflow_core::{eml, file, journal, parametre, reglages, stockage};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -769,7 +771,8 @@ async fn lire_pris(
             let a = lect::aiguiller(&nom, &mime, &contenu, liste);
             Ok((contenu, a))
         })
-        .await??
+        .bornee() // C9 : analyse trop longue = pièce trop volumineuse (`garde`).
+        .await?
     };
     let soc = societes(pool).await?;
     // OCR local des pages sans couche texte (scan, PDF mi-texte mi-scan) : son texte sert de
@@ -847,6 +850,13 @@ async fn lire_pris(
                 None => return Ok(()),
             }
         }
+        // Fichier hors des bornes (C9) : visible comme illisible, avec la raison.
+        Aiguillage::TropVolumineux(d) => Lu {
+            etat: "erreur",
+            message: Some(d.message()),
+            confiance: json!({ "trop_volumineux": d.code() }),
+            ..Default::default()
+        },
         Aiguillage::Ignore(raison) => Lu {
             etat: "ignore",
             message: Some(raison),

@@ -4,6 +4,7 @@
 pub mod decoupage;
 pub mod envoi;
 pub mod fournisseur;
+mod garde;
 pub mod lecture;
 pub mod logiflow;
 pub mod orchestre;

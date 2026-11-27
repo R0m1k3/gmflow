@@ -454,3 +454,14 @@ pub fn xml_ubl_facture_lignes(numero: &str) -> String {
 </Invoice>"#
     )
 }
+
+/// Classeur xlsx aux cellules placées où l'on veut (ligne, colonne, texte), base 0 : une cellule
+/// en `XFD1048576` fait une feuille de 17 milliards de cellules pour un fichier de quelques Ko.
+pub fn xlsx_cellules(cellules: &[(u32, u16, &str)]) -> Vec<u8> {
+    let mut wb = rust_xlsxwriter::Workbook::new();
+    let ws = wb.add_worksheet();
+    for (l, c, t) in cellules {
+        ws.write_string(*l, *c, *t).unwrap();
+    }
+    wb.save_to_buffer().unwrap()
+}

@@ -20,6 +20,9 @@ futures = "0.3"
 hex = "0.4.3"
 lettre = { version = "0.11.24", default-features = false, features = ["smtp-transport", "builder", "hostname", "tokio1-rustls", "ring", "webpki-roots"] }
 calamine = "0.38.0"
+# Garde-fous de lecture (bombes zip, flux PDF) : mêmes versions et fonctions que calamine et lopdf.
+flate2 = "1"
+zip = { version = "9.8.1", default-features = false, features = ["deflate"] }
 lopdf = "0.42"
 pdf-extract = "0.12.1"
 quick-xml = "0.42.0"
