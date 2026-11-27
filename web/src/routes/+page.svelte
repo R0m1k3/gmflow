@@ -421,7 +421,7 @@
   function manqueDe(e: EtapeMiseEnRoute): Manque {
     switch (e.cle) {
       case 'societes':
-        return { texte: 'Aucune société n’est enregistrée : rien n’est relevé ni envoyé.', action: 'Ajouter une société', href: '/reglages#societes' };
+        return { texte: 'Aucune société n’est enregistrée : rien n’est relevé ni envoyé.', action: 'Ajouter une société', href: '/reglages/societes' };
       case 'envoi': {
         const sans = e.manques.map((m) => m.match(/^(.+) : adresse Dext\/Yooz manquante$/)?.[1]).filter((x): x is string => !!x);
         if (sans.length) {
@@ -432,17 +432,17 @@
                 ? `${noms} n’a pas d’adresse de collecte Dext / Yooz, ses factures validées ne peuvent pas partir.`
                 : `${noms} n’ont pas d’adresse de collecte Dext / Yooz, leurs factures validées ne peuvent pas partir.`,
             action: 'Indiquer l’adresse',
-            href: '/reglages#envoi'
+            href: '/reglages/envoi'
           };
         }
         if (e.manques.some((m) => m.includes('essai')))
-          return { texte: 'Le dernier essai de l’adresse d’envoi vers Dext / Yooz a échoué : les factures validées risquent de ne pas partir.', action: 'Régler l’envoi', href: '/reglages#envoi' };
-        return { texte: 'L’adresse d’envoi vers Dext / Yooz n’est pas réglée : les factures validées ne peuvent pas partir.', action: 'Régler l’envoi', href: '/reglages#envoi' };
+          return { texte: 'Le dernier essai de l’adresse d’envoi vers Dext / Yooz a échoué : les factures validées risquent de ne pas partir.', action: 'Régler l’envoi', href: '/reglages/envoi' };
+        return { texte: 'L’adresse d’envoi vers Dext / Yooz n’est pas réglée : les factures validées ne peuvent pas partir.', action: 'Régler l’envoi', href: '/reglages/envoi' };
       }
       case 'claude':
-        return { texte: 'Claude n’est pas connecté : les pièces ne sont plus lues ni les mails triés.', action: 'Connecter Claude', href: '/reglages#claude' };
+        return { texte: 'Claude n’est pas connecté : les pièces ne sont plus lues ni les mails triés.', action: 'Connecter Claude', href: '/reglages/claude' };
       default:
-        return { texte: `${e.resume} : les mails de ces boîtes n’arrivent pas.`, action: 'Voir les boîtes', href: '/reglages#boites' };
+        return { texte: `${e.resume} : les mails de ces boîtes n’arrivent pas.`, action: 'Voir les boîtes', href: '/reglages/boites' };
     }
   }
 
@@ -494,9 +494,9 @@
             {:else if b.genre === 'boite' && b.boite_id !== null}
               <a class="btn-blanc" href="/reglages/boites/{b.boite_id}">Corriger</a>
             {:else if b.genre === 'claude' && b.motif === 'limite'}
-              <a class="btn-blanc" href="/reglages#claude">Voir Claude</a>
+              <a class="btn-blanc" href="/reglages/claude">Voir Claude</a>
             {:else if b.genre === 'claude'}
-              <a class="btn-blanc" href="/reglages#claude">Se reconnecter</a>
+              <a class="btn-blanc" href="/reglages/claude">Se reconnecter</a>
             {:else if b.genre === 'envoi_erreur' && !admin}
               <a class="btn-blanc" href="/documents/{b.document_id}">Voir</a>
             {:else}
@@ -694,7 +694,7 @@
             <p>{manque.texte}</p>
             <div class="r-actions">
               <a class="btn-blanc" href={manque.href}>{manque.action}</a>
-              {#if manques.length > 1}<a class="r-tout" href="/reglages#mise-en-route">Voir la mise en route</a>{/if}
+              {#if manques.length > 1}<a class="r-tout" href="/reglages">Voir la mise en route</a>{/if}
             </div>
           </section>
         {/if}

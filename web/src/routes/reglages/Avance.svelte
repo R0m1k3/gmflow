@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Avancé (replié) : modèles et effort par tâche, limites par jour, appels à Claude,
-  // expéditeurs publicitaires, historique (ex-journal), puis la zone dangereuse
-  // (réinitialisation : données tirées des mails effacées, configuration gardée).
+  // Maintenance, en trois vues (U10, `partie`) : Avancé (modèles et effort par tâche, limites
+  // par jour, appels à Claude, expéditeurs publicitaires), Journal (qui a changé quoi) et Zone
+  // dangereuse (réinitialisation : données tirées des mails effacées, configuration gardée).
   import { ErreurApi, api, message } from '#lib/api.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { quand } from '#lib/format.ts';
@@ -14,7 +14,7 @@
   import Repli from '#lib/ui/Repli.svelte';
   import { OBJETS_HISTORIQUE, duree, libelleAction, libelleObjet, n } from './outils.ts';
 
-  let { onchange }: { onchange?: () => void } = $props();
+  let { onchange, partie = 'avance' }: { onchange?: () => void; partie?: 'avance' | 'journal' | 'danger' } = $props();
 
   let erreur = $state('');
   let info = $state('');
@@ -75,6 +75,7 @@
   const nomMarque = (m: ExpediteurMarque) => (m.domaine ? `Tout le domaine ${m.domaine}` : (m.adresse ?? ''));
 
   $effect(() => {
+    if (partie !== 'avance') return;
     chargerReglages().catch((e) => (erreur = message(e)));
     chargerMarques().catch((e) => (erreur = message(e)));
   });
@@ -100,7 +101,8 @@
   }
 
   // ---------- Historique (chargé à l'ouverture) ----------
-  let ouvertHistorique = $state(false);
+  // Vue Journal : l'historique est toute la page, chargé d'emblée.
+  let ouvertHistorique = $derived(partie === 'journal');
   let objet = $state('');
   let pageHist = $state(1);
   let historique = $state<Page<LigneJournal> | null>(null);
@@ -199,9 +201,10 @@
   {/if}
 {/snippet}
 
+{#if partie === 'avance'}
 <section class="sujet" id="avance">
   <div class="sujet-h"><h2>{RUBRIQUES.avance}</h2></div>
-  <p class="lead">Rarement utile : le choix des modèles de Claude, les limites de dépense, et ce qui s’est passé.</p>
+  <p class="lead">Rarement utile : le choix des modèles de Claude, les limites de dépense, les appels faits.</p>
   {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
   {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
 
@@ -328,7 +331,13 @@
       {/if}
     </Repli>
 
-    <Repli icone="fichier" titre={RUBRIQUES.historique} resume="qui a changé quoi, et quand" bind:ouvert={ouvertHistorique}>
+  </div>
+</section>
+{:else if partie === 'journal'}
+<section class="sujet" id="journal">
+  <div class="sujet-h"><h2>{RUBRIQUES.journal}</h2></div>
+  <p class="lead">Qui a changé quoi, et quand : corrections, validations, envois, réglages.</p>
+  {#if erreur}<Bandeau ton="erreur">{erreur}</Bandeau>{/if}
       <div class="filtre">
         <label for="hist-objet" class="petit t2">Afficher</label>
         <select id="hist-objet" bind:value={objet} onchange={() => allerHist(1)}>
@@ -338,6 +347,7 @@
       {#if !historique}
         <Chargement compact />
       {:else}
+        <div class="journal-t">
         <table>
           <thead><tr><th>Quand</th><th>Qui</th><th>Quoi</th><th>Détails</th></tr></thead>
           <tbody>
@@ -356,13 +366,15 @@
             {/each}
           </tbody>
         </table>
+        </div>
         {@render pagination(pageHist, pagesHist, allerHist)}
       {/if}
-    </Repli>
-  </div>
-
-  <h3 class="sous-titre zd-titre" id="zone-dangereuse">Zone dangereuse</h3>
-  <section class="danger-zone" aria-labelledby="zone-dangereuse">
+</section>
+{:else}
+<section class="sujet" id="zone-dangereuse">
+  <div class="sujet-h"><h2>Zone dangereuse</h2></div>
+  <p class="lead">Ce qui ne se défait pas. À n’utiliser qu’en connaissance de cause.</p>
+  <section class="danger-zone" aria-label="Zone dangereuse">
     <div class="dz-ligne">
       <div class="dz-texte">
         <div class="dz-titre">Tout reprendre de zéro</div>
@@ -389,6 +401,7 @@
     {/if}
   </section>
 </section>
+{/if}
 
 <Confirmation
   bind:ouvert={dlgReinit}
@@ -467,9 +480,8 @@
     word-break: break-word;
     max-width: 320px;
   }
-  .zd-titre {
-    margin-top: var(--e4) !important;
-    color: var(--err-ink);
+  .journal-t {
+    overflow-x: auto;
   }
   .danger-zone {
     border-radius: var(--r3);

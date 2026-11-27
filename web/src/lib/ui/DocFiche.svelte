@@ -1029,7 +1029,7 @@
       {#if d.societe_adresse_depot}
         <p>Destination : <span class="num">{d.societe_adresse_depot}</span>{d.societe ? `, ${d.societe}` : ''}</p>
       {:else}
-        <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin}{' '}<a href="/reglages#societes">Réglages</a>{/if}</p>
+        <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin}{' '}<a href="/reglages/societes">Réglages</a>{/if}</p>
       {/if}
       {#if d.statut_depot}
         <p><Etiquette ton={tonStatutEnvoi(d.statut_depot)}>{libelleStatutEnvoi(d.statut_depot, outil)}</Etiquette>
@@ -1208,12 +1208,12 @@
           {:else if refus.code === 'expedition'}
             <Bandeau ton="erreur" titre="Envoi impossible.">
               L’adresse d’envoi vers {nomOutil(outil)} n’est pas encore configurée.
-              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages#envoi">Ouvrir les réglages</a>{/if}{/snippet}
+              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages/envoi">Ouvrir les réglages</a>{/if}{/snippet}
             </Bandeau>
           {:else if refus.code === 'sans_adresse'}
             <Bandeau ton="erreur" titre="Envoi impossible.">
               {d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{admin ? '' : ' Un administrateur doit la renseigner.'}
-              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages#societes">Ouvrir les réglages</a>{/if}{/snippet}
+              {#snippet action()}{#if admin}<a class="btn sm" href="/reglages/societes">Ouvrir les réglages</a>{/if}{/snippet}
             </Bandeau>
           {:else}
             <Bandeau ton="erreur">{phrase(refus.message)}</Bandeau>
@@ -1267,13 +1267,13 @@
         {:else if autresAlertes.length && !refus}
           {@const a0 = autresAlertes[0]}
           <Bandeau titre={detailAlerte(a0) ? `${titreAlerte(a0)} :` : `${titreAlerte(a0)}.`}>
-            {#if detailAlerte(a0)}{phrase(detailAlerte(a0))}{/if}{#if a0.code === 'depot' && admin}{' '}<a href="/reglages#societes">Indiquer l’adresse</a>{/if}{#if autresAlertes.length > 1}
+            {#if detailAlerte(a0)}{phrase(detailAlerte(a0))}{/if}{#if a0.code === 'depot' && admin}{' '}<a href="/reglages/societes">Indiquer l’adresse</a>{/if}{#if autresAlertes.length > 1}
               {' '}{autresAlertes.length - 1 === 1 ? 'Une autre alerte' : `${autresAlertes.length - 1} autres alertes`}, surlignée{autresAlertes.length > 2 ? 's' : ''} dans les champs.{/if}
           </Bandeau>
         {/if}
         {#if sansAdresse && !refus}
           <Bandeau titre="À vérifier :">
-            {d.societe ?? 'La société'} n’a pas d’adresse d’envoi vers {outil ? nomOutil(outil) : 'Dext ou Yooz'}.{#if admin}{' '}<a href="/reglages#societes">Indiquer l’adresse</a>{:else}{' '}Un administrateur doit l’indiquer.{/if}
+            {d.societe ?? 'La société'} n’a pas d’adresse d’envoi vers {outil ? nomOutil(outil) : 'Dext ou Yooz'}.{#if admin}{' '}<a href="/reglages/societes">Indiquer l’adresse</a>{:else}{' '}Un administrateur doit l’indiquer.{/if}
           </Bandeau>
         {/if}
         {#if alerteSociete && !refus && d.etat === 'lu' && !envoiDemande(d) && d.statut_depot !== 'depose' && d.statut_depot !== 'en_envoi'}
