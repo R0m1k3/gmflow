@@ -57,8 +57,10 @@ jobs:
             echo "::error::web/src/lib/api-types/ n'est pas à jour : lancer ./scripts/types-ts.sh et commiter le résultat."
             exit 1
           fi
-      # Après clippy : les dépendances (apalis-postgres) sont déjà compilées hors ligne,
-      # sinon prepare enregistrerait leurs requêtes dans .sqlx.
+      # Les dépendances (apalis-postgres) doivent être déjà compilées hors ligne, dans la même
+      # configuration que prepare (fonctions par défaut : la fonction `ts` change celles des
+      # dépendances partagées), sinon prepare enregistrerait leurs requêtes dans .sqlx.
+      - run: cargo check --workspace
       - name: .sqlx à jour
         run: SQLX_OFFLINE=false cargo sqlx prepare --workspace --check
       - name: Attente de GreenMail
