@@ -83,7 +83,7 @@
   let ouvertAppels = $state(false);
   let appels = $state<Appels | null>(null);
   let pageAppels = $state(1);
-  let pagesAppels = $derived(appels ? Math.max(1, Math.ceil(appels.total / 50)) : 1);
+  let pagesAppels = $derived(appels ? Math.max(1, Math.ceil((appels.total ?? 0) / 50)) : 1);
   async function chargerAppels() {
     try {
       appels = await api.get<Appels>(`/api/admin/claude/appels${pageAppels > 1 ? `?page=${pageAppels}` : ''}`);
@@ -104,7 +104,7 @@
   let objet = $state('');
   let pageHist = $state(1);
   let historique = $state<Page<LigneJournal> | null>(null);
-  let pagesHist = $derived(historique ? Math.max(1, Math.ceil(historique.total / 50)) : 1);
+  let pagesHist = $derived(historique ? Math.max(1, Math.ceil((historique.total ?? 0) / 50)) : 1);
   async function chargerHistorique() {
     const q = new URLSearchParams({ page: String(pageHist) });
     if (objet) q.set('objet_type', objet);

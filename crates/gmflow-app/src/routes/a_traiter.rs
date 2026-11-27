@@ -1,6 +1,6 @@
 //! File « À traiter » de l'accueil : *Bloqué* (envois en échec pas encore relancés, doublons, documents
 //! illisibles ; pour un administrateur, boîtes en panne et Claude déconnecté), *À valider*
-//! (factures, avoirs et BL lus pas encore validés, alertes d'abord puis les plus anciens) et
+//! (factures, avoirs et BL lus pas encore validés, par urgence : `rang` de `AValider`) et
 //! *À répondre* (vraies questions, par priorité). Un responsable ne voit que sa société : les
 //! documents d'une boîte de sa société, rangés dans sa société ou pas encore rangés.
 //!
@@ -93,7 +93,16 @@ pub struct AValider {
     statut_depot: Option<String>,
     /// Déjà vérifié (facture vérifiée mais pas encore envoyée).
     verifie: bool,
+    #[serde(with = "date_iso::option")]
+    date_echeance: Option<time::Date>,
+    /// Urgence (ordre de la file) : 1 facture à payer dans `JOURS_ECHEANCE` jours ou moins
+    /// (échéance dépassée comprise), 2 validable d'un clic (aucune alerte), 3 à corriger
+    /// (alerte). Dans le rang 1 l'échéance la plus proche d'abord, sinon la plus ancienne reçue.
+    rang: i32,
 }
+
+/// Échéance proche : une facture due dans `JOURS_ECHEANCE` jours ou moins passe en tête.
+pub const JOURS_ECHEANCE: i32 = 7;
 
 #[derive(Serialize)]
 pub struct ARepondre {
@@ -353,9 +362,17 @@ pub async fn file(
                   end as alerte_code,
                   (jsonb_array_length(d.controles)
                    + case when d.type = 'bl' and d.fournisseur_id is null then 1 else 0 end)::bigint as "nb_alertes!",
-                  d.statut_depot, d.verifie_le is not null as "verifie!"
+                  d.statut_depot, d.verifie_le is not null as "verifie!", d.date_echeance, u.rang as "rang!"
            from document d
            join mail m on m.id = d.mail_id
+           cross join lateral (
+               select case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $4::int then 1
+                           when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)) then 2
+                           else 3 end as rang,
+                      case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $4::int
+                           then d.date_echeance::timestamp at time zone 'Europe/Paris'
+                           else coalesce(m.date_mail, m.recu_le) end as cle
+           ) u
            left join fournisseur fo on fo.id = d.fournisseur_id
            left join societe s on s.id = d.societe_id
            where d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
@@ -370,13 +387,12 @@ pub async fn file(
                   or (d.societe_id is null
                       and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))
-           order by (jsonb_array_length(d.controles) > 0
-                     or (d.type = 'bl' and d.fournisseur_id is null)) desc,
-                    coalesce(m.date_mail, m.recu_le), d.id
+           order by u.rang, u.cle, d.id
            limit $3"#,
         s,
         societe,
-        LIMITE
+        LIMITE,
+        JOURS_ECHEANCE
     )
     .fetch_all(&etat.pool)
     .await?;
@@ -420,21 +436,25 @@ pub async fn file(
     }))
 }
 
-/// Place d'un document dans l'ordre de la file « À valider » : (avec alerte, reçu le). Lue
-/// avant une validation, pour donner ensuite le document qui le suivait.
-pub type Place = (bool, time::OffsetDateTime);
+/// Place d'un document dans l'ordre de la file « À valider » : (rang d'urgence, échéance ou
+/// réception). Lue avant une validation, pour donner ensuite le document qui le suivait.
+pub type Place = (i32, time::OffsetDateTime);
 
 pub async fn place_dans_file(etat: &Etat, id: i64) -> Resultat<Option<Place>> {
     let r = sqlx::query!(
-        r#"select coalesce(jsonb_array_length(d.controles) > 0
-                            or (d.type = 'bl' and d.fournisseur_id is null), false) as "alerte!",
-                  coalesce(m.date_mail, m.recu_le) as "quand!"
+        r#"select case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $2::int then 1
+                       when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)) then 2
+                       else 3 end as "rang!",
+                  case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $2::int
+                       then d.date_echeance::timestamp at time zone 'Europe/Paris'
+                       else coalesce(m.date_mail, m.recu_le) end as "cle!"
            from document d join mail m on m.id = d.mail_id where d.id = $1"#,
-        id
+        id,
+        JOURS_ECHEANCE
     )
     .fetch_optional(&etat.pool)
     .await?;
-    Ok(r.map(|r| (r.alerte, r.quand)))
+    Ok(r.map(|r| (r.rang, r.cle)))
 }
 
 /// Document suivant de la file « À valider » après `id` (ordre de la file), en revenant au
@@ -446,13 +466,21 @@ pub async fn suivant(
     id: i64,
     place: Option<Place>,
 ) -> Resultat<Option<i64>> {
-    let (alerte, quand) = match place {
-        Some((a, q)) => (Some(a), Some(q)),
+    let (rang, cle) = match place {
+        Some((r, c)) => (Some(r), Some(c)),
         None => (None, None),
     };
     Ok(sqlx::query_scalar!(
         r#"select d.id from document d
            join mail m on m.id = d.mail_id
+           cross join lateral (
+               select case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $6::int then 1
+                           when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)) then 2
+                           else 3 end as rang,
+                      case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $6::int
+                           then d.date_echeance::timestamp at time zone 'Europe/Paris'
+                           else coalesce(m.date_mail, m.recu_le) end as cle
+           ) u
            where d.id <> $3
              and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')
              and ((d.verifie_le is null
@@ -466,20 +494,15 @@ pub async fn suivant(
                   or (d.societe_id is null
                       and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                   where mb.mail_id = d.mail_id and b.societe_id = $2)))
-           order by ($4::bool is not null
-                     and (not (jsonb_array_length(d.controles) > 0
-                               or (d.type = 'bl' and d.fournisseur_id is null)),
-                          coalesce(m.date_mail, m.recu_le), d.id)
-                         > (not $4::bool, $5::timestamptz, $3)) desc,
-                    (jsonb_array_length(d.controles) > 0
-                     or (d.type = 'bl' and d.fournisseur_id is null)) desc,
-                    coalesce(m.date_mail, m.recu_le), d.id
+           order by ($4::int is not null and (u.rang, u.cle, d.id) > ($4::int, $5::timestamptz, $3)) desc,
+                    u.rang, u.cle, d.id
            limit 1"#,
         acces.societe_filtre(),
         societe,
         id,
-        alerte,
-        quand
+        rang,
+        cle,
+        JOURS_ECHEANCE
     )
     .fetch_optional(&etat.pool)
     .await?)

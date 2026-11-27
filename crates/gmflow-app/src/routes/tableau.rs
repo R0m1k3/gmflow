@@ -1,13 +1,58 @@
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use serde_json::{Value, json};
 
 use crate::acces::Acces;
 use crate::erreur::Resultat;
 use crate::etat::Etat;
 
-pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Value>> {
+/// BL sans facture depuis ce nombre de jours : signalé sur l'accueil.
+pub const JOURS_BL_SANS_FACTURE: i32 = 7;
+
+#[derive(serde::Deserialize)]
+pub struct Filtre {
+    societe: Option<i64>,
+}
+
+pub async fn tableau(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Query(f): Query<Filtre>,
+) -> Resultat<Json<Value>> {
     let filtre = acces.societe_filtre();
+    // Travail de l'accueil (U5), même périmètre que la file « À valider » (`a_traiter`) :
+    // montant TTC des factures à contrôler, factures à payer bientôt, BL restés sans facture.
+    let travail = sqlx::query!(
+        r#"select coalesce(sum(d.montant_ttc) filter (where d.type = 'facture' and a.a_valider), 0)::float8 as "factures_ttc!",
+                  count(*) filter (where d.type = 'facture' and a.a_valider
+                                     and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $3::int) as "echeances!",
+                  count(*) filter (where d.type = 'bl' and not d.rapprochement_ignore
+                                     and coalesce(m.date_mail, m.recu_le) <= now() - make_interval(days => $4::int)
+                                     and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)) as "bl_sans_facture!"
+           from document d
+           join mail m on m.id = d.mail_id
+           cross join lateral (
+               select d.type in ('facture', 'avoir', 'bl')
+                      and ((d.verifie_le is null
+                            and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
+                           or (d.verifie_le is not null and d.valide_le is null
+                               and d.statut_depot in ('a_verifier', 'pret'))) as a_valider
+           ) a
+           where d.etat = 'lu'
+             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
+                         where mb.mail_id = d.mail_id and ($1::bigint is null or b.societe_id = $1))
+             and ($1::bigint is null or d.societe_id is null or d.societe_id = $1)
+             and ($2::bigint is null or d.societe_id = $2
+                  or (d.societe_id is null
+                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
+                                  where mb.mail_id = d.mail_id and b.societe_id = $2)))"#,
+        filtre,
+        f.societe,
+        super::a_traiter::JOURS_ECHEANCE,
+        JOURS_BL_SANS_FACTURE
+    )
+    .fetch_one(&etat.pool)
+    .await?;
     let du_jour = sqlx::query!(
         r#"select s.id as societe_id, s.raison_sociale,
                (select count(distinct mb.mail_id) from mail_boite_vue mb
@@ -82,6 +127,13 @@ pub async fn tableau(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Va
         "depots": {
             "a_verifier": depots.a_verifier, "prets": depots.prets, "bloques": depots.bloques,
             "deposes_mois": depots.deposes_mois,
+        },
+        "travail": {
+            "factures_ttc": travail.factures_ttc,
+            "echeances": travail.echeances,
+            "jours_echeance": super::a_traiter::JOURS_ECHEANCE,
+            "bl_sans_facture": travail.bl_sans_facture,
+            "jours_bl_sans_facture": JOURS_BL_SANS_FACTURE,
         },
     });
     if acces.est_admin() {

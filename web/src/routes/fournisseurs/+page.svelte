@@ -3,14 +3,16 @@
   // fiche ouverte à droite par `?fiche=ID` (même adresse que l'ancienne page). Plein écran : /fournisseurs/[id].
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { api, fournisseurs, message } from '#lib/api.ts';
+  import { api, fournisseurs, requete } from '#lib/api.ts';
+  import { lireTri, parametresTri, type ColonneTri } from '#lib/tri.ts';
+  import EnTetesTri from '#lib/ui/EnTetesTri.svelte';
+  import ErreurAction from '#lib/ui/ErreurAction.svelte';
   import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
   import { jourListeDe } from '#lib/format.ts';
   import { nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
   import type { LigneFournisseur } from '#lib/types.ts';
-  import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import FournEtat, { aDesAlertes, texteEtat } from '#lib/ui/FournEtat.svelte';
   import FournDoublons from '#lib/ui/FournDoublons.svelte';
@@ -33,11 +35,13 @@
   let onglet = $state<Onglet>('tous');
   let lignes = $state<LigneFournisseur[]>([]);
   let total = $state(0);
+  /** Il reste des fiches après celles affichées (le serveur ne recompte pas les pages suivantes). */
+  let suivante = $state(false);
   let totaux = $state<Record<Onglet, number>>({ tous: 0, nouveaux: 0, doublons: 0 });
   let numeroPage = $state(1);
   let charge = $state(false);
   let enCours = $state(false);
-  let erreur = $state('');
+  let erreur = $state<unknown>(null);
   let conteneur = $state<HTMLElement>();
 
   let fiche = $derived(page.url.searchParams.get('fiche'));
@@ -52,6 +56,18 @@
     return () => clearTimeout(t);
   });
 
+  /** Colonnes triables (liste blanche du serveur : `TRI_FOURNISSEURS`). */
+  const TRI: ColonneTri[] = [
+    { cle: 'statut', libelle: 'À confirmer d’abord', croissant: true, genre: 'texte' },
+    { cle: 'nom', libelle: 'Nom', croissant: true, genre: 'texte' },
+    { cle: 'dernier', libelle: 'Dernière pièce', croissant: false, genre: 'date' },
+    { cle: 'a_valider', libelle: 'À contrôler', croissant: false, genre: 'nombre' },
+    { cle: 'documents', libelle: 'Pièces', croissant: false, genre: 'nombre' }
+  ];
+  let tri = $derived(lireTri(page.url.searchParams, TRI));
+  let paramsTri = $derived(parametresTri(tri));
+  let triCle = $derived(JSON.stringify(paramsTri));
+
   let jeton = 0;
   async function charger(suite = false) {
     const moi = ++jeton;
@@ -60,22 +76,23 @@
     const base = { societe: societeChoisie, q: qActif || undefined };
     try {
       const [courante, autre] = await Promise.all([
-        fournisseurs({ ...base, statut: onglet === 'nouveaux' ? 'a_confirmer' : undefined, page: p }),
+        fournisseurs({ ...base, ...paramsTri, statut: onglet === 'nouveaux' ? 'a_confirmer' : undefined, page: p }),
         suite ? null : fournisseurs({ ...base, statut: onglet === 'nouveaux' ? undefined : 'a_confirmer' })
       ]);
       if (moi !== jeton) return;
       lignes = suite ? [...lignes, ...courante.elements.filter((l) => !lignes.some((x) => x.id === l.id))] : courante.elements;
-      total = courante.total;
+      if (courante.total !== null) total = courante.total;
+      suivante = courante.suivante;
       numeroPage = p;
       if (autre) {
         totaux =
           onglet === 'nouveaux'
-            ? { ...totaux, tous: autre.total, nouveaux: courante.total }
-            : { ...totaux, tous: courante.total, nouveaux: autre.total };
+            ? { ...totaux, tous: autre.total ?? 0, nouveaux: courante.total ?? 0 }
+            : { ...totaux, tous: courante.total ?? 0, nouveaux: autre.total ?? 0 };
       }
-      erreur = '';
+      erreur = null;
     } catch (e) {
-      if (moi === jeton) erreur = message(e);
+      if (moi === jeton) erreur = e;
     } finally {
       if (moi === jeton) {
         enCours = false;
@@ -88,6 +105,7 @@
     void qActif;
     void onglet;
     void societeChoisie;
+    void triCle;
     if (!session.moi) return;
     void charger();
   });
@@ -102,7 +120,7 @@
   });
 
   function ouvrir(id: number | 'nouveau' | null, remplacer = true) {
-    const u = id === null ? '/fournisseurs' : `/fournisseurs?fiche=${id}`;
+    const u = `/fournisseurs${requete({ fiche: id, ...paramsTri })}`;
     return goto(u, { replace: remplacer, reset: false });
   }
 
@@ -175,6 +193,7 @@
         </button>
       {/if}
     </div>
+    {#if onglet !== 'doublons'}<EnTetesTri colonnes={TRI} {tri} retirer={['fiche']} />{/if}
     <div class="liste-s" bind:this={conteneur} aria-busy={enCours}>
       {#if onglet === 'doublons'}
         <FournDoublons
@@ -187,10 +206,7 @@
         />
       {:else}
         {#if erreur}
-          <Bandeau ton="erreur">
-            {erreur}
-            {#snippet action()}<button type="button" class="btn sm" onclick={() => charger()}>Réessayer</button>{/snippet}
-          </Bandeau>
+          <ErreurAction {erreur} titre="Liste non chargée." onreessayer={() => charger()} />
         {:else if !charge}
           <Chargement />
         {/if}
@@ -198,7 +214,7 @@
           {#each lignes as l (l.id)}
             <a
               class="ligne tuile"
-              href="/fournisseurs?fiche={l.id}"
+              href="/fournisseurs{requete({ fiche: l.id, ...paramsTri })}"
               data-id={l.id}
               data-sveltekit-reset="false"
               aria-current={l.id === idOuvert ? 'true' : undefined}
@@ -222,9 +238,10 @@
             {#if charge && !erreur}<Vide compact titre={titreVide} />{/if}
           {/each}
         </div>
-        {#if lignes.length < total}
+        {#if suivante}
+          {@const reste = Math.max(1, total - lignes.length)}
           <button type="button" class="plus" disabled={enCours} onclick={() => charger(true)}>
-            Voir <span class="num">{Math.min(PAR_PAGE, total - lignes.length)}</span> de plus (<span class="num">{total - lignes.length}</span> restants)
+            Voir <span class="num">{Math.min(PAR_PAGE, reste)}</span> de plus (<span class="num">{reste}</span> restants)
           </button>
         {/if}
       {/if}

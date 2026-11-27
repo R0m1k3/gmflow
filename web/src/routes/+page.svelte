@@ -65,9 +65,13 @@
     const lire = (page: number) => api.get<Page<LigneMail>>(`/api/mails${requete({ societe: s, categorie: 'hors_publicite', du, page })}`);
     const p1 = await lire(1);
     const elements = [...p1.elements];
-    const pages = Math.min(PAGES_MAILS, Math.ceil(p1.total / Math.max(1, p1.elements.length)));
-    for (let p = 2; p <= pages && elements.length < p1.total; p++) elements.push(...(await lire(p)).elements);
-    return { elements, total: p1.total };
+    let suite = p1.suivante;
+    for (let p = 2; p <= PAGES_MAILS && suite; p++) {
+      const r = await lire(p);
+      elements.push(...r.elements);
+      suite = r.suivante;
+    }
+    return { elements, total: p1.total ?? elements.length };
   }
 
   async function charger() {
@@ -87,8 +91,8 @@
       mailsDuJour: t.mails_du_jour.reduce((n, l) => n + l.n, 0),
       mails: mails.elements,
       mailsTotal: mails.total,
-      facturesAValider: facV.total,
-      blAValider: blV.total
+      facturesAValider: facV.total ?? 0,
+      blAValider: blV.total ?? 0
     };
     erreur = '';
   }

@@ -10,12 +10,44 @@ use crate::etat::Etat;
 
 pub const PAR_PAGE: i64 = 50;
 
+/// Une page d'une liste. `total` n'est compté qu'en première page (`null` ensuite : le client
+/// garde celui de la première) ; `suivante` dit s'il reste des éléments après cette page (lu
+/// avec une ligne de plus que la page, sans compter).
 #[derive(Serialize)]
 pub struct Page<T> {
-    pub total: i64,
+    pub total: Option<i64>,
     pub page: i64,
     pub elements: Vec<T>,
+    pub suivante: bool,
 }
+
+impl<T> Page<T> {
+    /// Page d'une liste comptée à chaque fois (journal, appels, à répondre).
+    pub fn comptee(total: i64, page: i64, elements: Vec<T>) -> Self {
+        Self {
+            suivante: page * PAR_PAGE < total,
+            total: Some(total),
+            page,
+            elements,
+        }
+    }
+
+    /// Page lue avec `PAR_PAGE + 1` lignes (`LIMITE_LUE`) : la ligne de trop dit qu'il y a
+    /// une suite, puis est retirée.
+    pub fn lue(total: Option<i64>, page: i64, mut elements: Vec<T>) -> Self {
+        let suivante = elements.len() as i64 > PAR_PAGE;
+        elements.truncate(PAR_PAGE as usize);
+        Self {
+            total,
+            page,
+            elements,
+            suivante,
+        }
+    }
+}
+
+/// Lignes lues pour une page : une de plus que la page, pour savoir s'il y a une suite.
+pub const LIMITE_LUE: i64 = PAR_PAGE + 1;
 
 pub fn decalage(page: Option<i64>) -> (i64, i64) {
     let p = page.unwrap_or(1).max(1);
@@ -70,7 +102,14 @@ pub struct Filtres {
     /// Une catégorie, `hors_publicite` (toutes sauf les publicités) ou `non_trie`.
     categorie: Option<String>,
     page: Option<i64>,
+    /// Colonne de tri (`TRI_MAILS`) et sens (`asc`, `desc`).
+    tri: Option<String>,
+    sens: Option<String>,
 }
+
+/// Colonnes triables de la liste des mails ; la première est le tri par défaut.
+pub const TRI_MAILS: &[super::tri::Colonne] =
+    &[("date", false), ("expediteur", true), ("objet", true)];
 
 #[derive(Serialize)]
 pub struct LigneMail {
@@ -129,8 +168,12 @@ pub async fn lister(
     let (page, decalage) = decalage(f.page);
     let acces_societe = acces.societe_filtre();
     let categorie = filtre_categorie(&f.categorie)?;
+    let tri = super::tri::lire(&f.tri, &f.sens, TRI_MAILS)?;
 
-    let total = sqlx::query_scalar!(
+    let total = if page > 1 {
+        None
+    } else {
+        Some(sqlx::query_scalar!(
         r#"select count(*) as "n!" from mail m
            where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id
@@ -153,7 +196,8 @@ pub async fn lister(
         categorie
     )
     .fetch_one(&etat.pool)
-    .await?;
+    .await?)
+    };
 
     let elements = sqlx::query_as!(
         LigneMail,
@@ -176,7 +220,12 @@ pub async fn lister(
                   or ($9 = 'hors_publicite' and m.categorie is distinct from 'publicite')
                   or ($9 = 'non_trie' and m.categorie is null)
                   or m.categorie = $9)
-           order by coalesce(m.date_mail, m.recu_le) desc, m.id desc
+           order by case when $10 = 'date' and $11 then coalesce(m.date_mail, m.recu_le) end asc,
+                    case when $10 = 'expediteur' and $11 then lower(m.expediteur) end asc,
+                    case when $10 = 'expediteur' and not $11 then lower(m.expediteur) end desc,
+                    case when $10 = 'objet' and $11 then lower(m.objet) end asc,
+                    case when $10 = 'objet' and not $11 then lower(m.objet) end desc,
+                    coalesce(m.date_mail, m.recu_le) desc, m.id desc
            limit $7 offset $8"#,
         acces_societe,
         f.societe,
@@ -184,17 +233,15 @@ pub async fn lister(
         du,
         au,
         q,
-        PAR_PAGE,
+        LIMITE_LUE,
         decalage,
-        categorie
+        categorie,
+        tri.cle,
+        tri.croissant
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::lue(total, page, elements)))
 }
 
 #[derive(Serialize)]
