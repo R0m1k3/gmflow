@@ -149,6 +149,21 @@ Pas demandé au §5 mais nécessaire au parcours A.5 : sans lui, un doublon rest
 
 Réponse : même forme que `valider` (`envoi: false`).
 
+Motif (audit U23) : corps facultatif `{"motif": "doublon" | "pas_pour_nous" | "publicite" | "autre", "texte": "…"}` (`400` sur un motif inconnu, texte coupé à 500 caractères). Il est gardé dans `document.ecartement` (avec qui et quand, montré par la fiche) et dans le détail du journal (`motif`, `texte`). L'interface le demande toujours dans le dialogue « Écarter » (fiche, accueil, lot) ; à l'accueil, « Écarter » d'un doublon bloqué envoie `doublon`, d'un illisible `autre` + « Document illisible » (un clic, sans dialogue).
+
+### `POST /api/documents/lot/ecarter` (audit U23)
+
+Corps `{"ids": [12, 13], "motif": "pas_pour_nous", "texte": null}` : motif obligatoire (`400 {"champ": "motif"}`), 100 pièces au plus. Chaque pièce passe par `ecarter` (mêmes droits, mêmes refus, même journal). Réponse `{"ecartees": 2, "laissees": 1, "pieces": [{"id", "ecartee", "raison"}]}` ; une pièce hors du périmètre est laissée avec `raison: "Introuvable"`. Bouton « Écarter N pièces » de la barre de validation par lot.
+
+### Notes internes (audit U23, `routes/notes.rs`, table `note_interne`)
+
+- `GET /api/documents/{id}/notes` : `[{"id", "auteur_id", "auteur_nom", "texte", "cree_le", "supprimable"}]`, la plus récente d'abord ; `supprimable` : l'utilisateur en est l'auteur, ou il est admin.
+- `POST /api/documents/{id}/notes` `{"texte": "…"}` → `201` et la note (1 à 2 000 caractères après nettoyage, sinon `400 {"champ": "texte"}`). Journal `note_ajoutee` (`note_id`, `texte`).
+- `DELETE /api/notes/{id}` → `204` ; auteur ou admin (`403` sinon). Journal `note_supprimee` (`note_id`, `auteur_id`, `texte`).
+- Droits : tout utilisateur qui voit la pièce (même règle que la fiche, `404` sinon).
+- Jamais envoyées à l'extérieur : aucun code de dépôt Dext/Yooz ni de réponse aux fournisseurs ne lit `note_interne` (test `gmflow-worker/tests/notes_internes.rs`). Effacées par la réinitialisation, avec les documents.
+- `GET /api/documents` : chaque ligne a `notes` (nombre) et `derniere_note` (140 premiers caractères de la plus récente) : pastille « Note » des listes, début de la note au survol.
+
 ## 3 bis. Fiche document (`GET /api/documents/{id}`, route existante, enrichie)
 
 Ajouts :

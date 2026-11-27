@@ -26,7 +26,9 @@
     Page
   } from '#lib/types.ts';
   import Chargement from '#lib/ui/Chargement.svelte';
+  import ChoixMotifEcart from '#lib/ui/ChoixMotifEcart.svelte';
   import Confirmation from '#lib/ui/Confirmation.svelte';
+  import type { MotifEcartement } from '#lib/types.ts';
   import { age, drapeau, nomCourtDocument, nomExpediteur, quandCourt } from '#lib/ui/DocOutils.ts';
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
@@ -192,7 +194,8 @@
         await validerDocument(b.document_id, {}, societe.id);
         annonce = `Envoi relancé : ${nomCourtDocument(b)}`;
       } else {
-        await ecarterDocument(b.document_id, societe.id);
+        // Un clic, sans dialogue : le motif va de soi (doublon, ou document illisible).
+        await ecarterDocument(b.document_id, societe.id, b.genre === 'doublon' ? { motif: 'doublon' } : { motif: 'autre', texte: 'Document illisible' });
         annonce = `Écarté : ${b.genre === 'illisible' ? (b.libelle ?? 'document illisible') : nomCourtDocument(b)}`;
       }
       void rafraichirCompteurs();
@@ -334,21 +337,26 @@
   let annonce = $state('');
   let erreurAction = $state('');
 
+  /** Motif demandé dans le dialogue (audit U23) ; un doublon s'écarte sans dialogue. */
+  let motifEcart = $state<MotifEcartement | null>(null);
+  let texteEcart = $state('');
   function demanderEcart() {
     if (!choix || occupe) return;
     ecarte = choix;
-    if (choix.alerte_code === 'doublon') void ecarter();
+    motifEcart = null;
+    texteEcart = '';
+    if (choix.alerte_code === 'doublon') void ecarter('doublon');
     else dlgEcarter = true;
   }
 
-  async function ecarter() {
+  async function ecarter(motif: MotifEcartement | null = motifEcart) {
     const l = ecarte;
     if (!l || occupe) return;
     occupe = true;
     erreurAction = '';
     const avant = pieces.findIndex((p) => p.id === l.id);
     try {
-      const r = await ecarterDocument(l.id, societe.id);
+      const r = await ecarterDocument(l.id, societe.id, { motif, texte: texteEcart.trim() || null });
       annonce = `Écarté : ${nomCourtDocument(l)}`;
       void rafraichirCompteurs();
       await charger().catch((e) => (erreur = message(e)));
@@ -680,11 +688,12 @@
 
 {#if ecarte}
   {@const outil = fiches[ecarte.id]?.societe_outil_depot ?? null}
-  <Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarter}>
+  <Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger desactive={!motifEcart} onconfirmer={() => ecarter()}>
     <p>
       {nomCourtDocument(ecarte)} sera marqué « {libelleEtat('ignore')} » : {ecarte.type !== 'bl' ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste
       visible dans la recherche.
     </p>
+    <ChoixMotifEcart bind:motif={motifEcart} bind:texte={texteEcart} />
   </Confirmation>
 {/if}
 

@@ -835,7 +835,7 @@ export interface ResultatAnnulation {
   pieces: { id: number; issue: 'annulee' | 'deja_partie' | 'rien_a_annuler' }[];
 }
 
-export type MotifEcartement = 'doublon' | 'pas_pour_nous' | 'autre';
+export type MotifEcartement = 'doublon' | 'pas_pour_nous' | 'publicite' | 'autre';
 
 /** Écartement d'une pièce par un humain (fiche). */
 export interface Ecartement {
@@ -1089,6 +1089,9 @@ export interface LigneDocument {
   fournisseur: string | null;
   statut_depot: StatutDepot | null;
   controles: unknown;
+  /** Notes internes de la pièce, et début de la plus récente (pastille « Note »). */
+  notes?: number;
+  derniere_note?: string | null;
 }
 
 /** Ligne de `GET /api/a-repondre?page=` : priorité haute d'abord, puis les plus anciens. */

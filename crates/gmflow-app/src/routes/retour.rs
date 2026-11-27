@@ -92,16 +92,16 @@ pub async fn annuler_envoi(
 }
 
 /// Motifs rapides d'écartement (U23).
-pub const MOTIFS: &[&str] = &["doublon", "pas_pour_nous", "autre"];
+pub const MOTIFS: &[&str] = &["doublon", "pas_pour_nous", "publicite", "autre"];
 const TEXTE_MAX: usize = 500;
 
 /// Corps facultatif de `POST /api/documents/{id}/ecarter`.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Clone)]
 pub struct Motif {
     #[serde(default)]
-    motif: Option<String>,
+    pub(crate) motif: Option<String>,
     #[serde(default)]
-    texte: Option<String>,
+    pub(crate) texte: Option<String>,
 }
 
 impl Motif {

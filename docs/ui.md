@@ -70,6 +70,8 @@ Ligne de liste : `.a` titre, `.b` sous-ligne, `.r` à droite (montant), `.r2` â
 | `Confirmation` | `<dialog>` natif : `bind:ouvert`, `titre`, `libelle`, `danger?`, `desactive?` (bouton grisé), `onconfirmer` (async : bouton occupé pendant l'appel), contenu en enfant. |
 | `Vide` | `titre`, `texte?`, `icone?`, `compact?`, enfants = actions. Ex. « Tout est à jour ». |
 | `Chargement` | `texte?`, `compact?` ; n'apparaît qu'après 300 ms. Erreur de chargement : `<Bandeau ton="erreur">` + bouton « Réessayer ». |
+| `NotesInternes` | `documentId`, `onchange?(n)`. Carte « Notes internes » de la fiche (U23) : notes signées et datées, ajout (Ctrl+Entrée), « Supprimer » si `supprimable`. API dans `#lib/notes.ts`, outils testés dans `NotesOutils.ts` (`bulleNotes`, `resumeEcartLot`). |
+| `ChoixMotifEcart` | `bind:motif`, `bind:texte`. Motif d'« Écarter » dans une `<Confirmation desactive={!motif}>` (accueil, lot ; la fiche a le même choix dans `DocFiche`) : `MOTIFS_ECARTEMENT` + précision facultative. |
 | `Kbd` | `t="J"`, `t="Enter"` (↵), `t={['Ctrl', 'Enter']}`. |
 | `Icone` | `nom` : chercher, reglages, bas, droite, gauche, haut, alerte, erreur, info, coche, trombone, fichier, agrandir, zoom, telecharger, mail, boite, camion, graphique, batiment, prise, envoyer, utilisateurs, curseurs, drapeau, lien, menu, fermer, sortir, ouvrir, plus, rafraichir. 16 px, trait 1,5, couleur du texte. |
 
