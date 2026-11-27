@@ -30,6 +30,14 @@ L'app et le worker ne se parlent que par la base. Toute connexion IMAP et tout a
   `($n::bigint is null or b.societe_id = $n)` via `mail_boite`).
 - Mutations : l'en-tête `X-GMFlow: 1` est exigé (`web/src/lib/api.ts` le pose).
 - Claude CLI : jamais `--bare` (il ignore le jeton OAuth) ; passer par `gmflow_core::claude::appeler`.
+- **Montants en décimal exact** (`gmflow_core::montant`, `rust_decimal`) : HT, TVA, TTC, remises,
+  annexes, prix, quantités et taux sont des `Decimal`, lus tels quels dans les colonnes `numeric`
+  (jamais `::float8`). Une entrée (Claude, tableur, XML, Apiflow, Logiflow, saisie) est convertie une
+  fois et arrondie à la précision de sa colonne (`montant::montant`, `quantite`, `prix`, `taux`).
+  L'arrondi est `montant::centimes` (au centime, demi vers le haut en valeur absolue), et les
+  tolérances sont des constantes `Decimal`. Un prorata passe par `montant::repartir`, qui retombe
+  pile sur le total. Le xlsx et le JSON reçoivent un nombre au tout dernier moment. Restent en
+  `f64` : confiances, scores, durées, coût Claude en USD, métriques, tailles.
 - Noms en français dans le code et la base.
 - Pièces jointes : toute analyse (lopdf, pdf-extract, calamine, zip) passe d'abord par
   `gmflow_core::lecture::limites::controler` (ou `aiguiller`, qui le fait) ; voir `docs/exploitation.md`.
