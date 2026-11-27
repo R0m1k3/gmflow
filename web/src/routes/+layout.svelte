@@ -136,14 +136,16 @@
   }
 
   // ---------- Menu ----------
-  // Rangé par groupes : le courrier, les pièces, le suivi. `tel` : présent dans les onglets du bas sur téléphone.
+  // Rangé dans l'ordre du trajet d'une pièce : 1 Courrier, 2 Pièces, 3 Fournisseurs, 4 Compta (étape F).
+  // `tel` : présent dans les onglets du bas sur téléphone.
   // `compteur` : badge (choses à faire) ; `aFaire` : où mène le lien quand il y en a (le filtre « À contrôler »).
   type Lien = { href: string; texte: string; court: string; icone: NomIcone; tel: boolean; compteur?: () => number; aFaire?: string; echecs?: () => number; echec?: string };
-  type Groupe = { titre: string; liens: Lien[] };
+  type Groupe = { titre: string; numero?: number; liens: Lien[] };
   const groupes: Groupe[] = [
     { titre: '', liens: [{ href: '/', texte: 'Accueil', court: 'Accueil', icone: 'maison', tel: true }] },
     {
       titre: 'Courrier',
+      numero: 1,
       liens: [
         { href: '/mails', texte: 'Mails', court: 'Mails', icone: 'mail', tel: true },
         { href: '/a-repondre', texte: 'À répondre', court: 'Répondre', icone: 'envoyer', tel: true, compteur: () => compteurs.aRepondre }
@@ -151,25 +153,47 @@
     },
     {
       titre: 'Pièces',
+      numero: 2,
       liens: [
-        { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true, compteur: () => compteurs.factures, aFaire: '/factures?filtre=a-valider', echecs: () => compteurs.echecsFactures, echec: '/factures?filtre=echec' },
-        { href: '/avoirs', texte: 'Avoirs', court: 'Avoirs', icone: 'avoir', tel: false, compteur: () => compteurs.avoirs, aFaire: '/avoirs?filtre=a-valider', echecs: () => compteurs.echecsAvoirs, echec: '/avoirs?filtre=echec' },
+        { href: '/factures', texte: 'Factures', court: 'Factures', icone: 'fichier', tel: true, compteur: () => compteurs.factures, aFaire: '/factures?filtre=a-valider' },
+        { href: '/avoirs', texte: 'Avoirs', court: 'Avoirs', icone: 'avoir', tel: false, compteur: () => compteurs.avoirs, aFaire: '/avoirs?filtre=a-valider' },
         { href: '/bl', texte: 'Bons de livraison', court: 'BL', icone: 'camion', tel: true, compteur: () => compteurs.bl, aFaire: '/bl?filtre=a-valider' }
       ]
     },
     {
-      titre: 'Suivi',
+      titre: 'Fournisseurs',
+      numero: 3,
       liens: [
         { href: '/fournisseurs', texte: 'Fournisseurs', court: 'Fournisseurs', icone: 'batiment', tel: false },
+        { href: '/fournisseurs?onglet=nouveaux', texte: 'À confirmer', court: 'À confirmer', icone: 'coche', tel: false, compteur: () => compteurs.fournisseursAConfirmer }
+      ]
+    },
+    {
+      titre: 'Compta',
+      numero: 4,
+      liens: [
+        { href: '/envois', texte: 'Envois Dext / Yooz', court: 'Envois', icone: 'envoyer', tel: false, echecs: () => compteurs.echecsFactures + compteurs.echecsAvoirs, echec: '/envois?filtre=echec' },
+        { href: '/bl?filtre=valides', texte: 'Export Phénix', court: 'Phénix', icone: 'telecharger', tel: false },
         { href: '/bilan', texte: 'Bilan du mois', court: 'Bilan', icone: 'graphique', tel: false }
       ]
     }
   ];
-  const onglets = groupes.flatMap((g) => g.liens).filter((l) => l.tel);
-  function actif(href: string) {
+  const tousLiens = groupes.flatMap((g) => g.liens);
+  const onglets = tousLiens.filter((l) => l.tel);
+  /** Le lien correspond-il à l'adresse ? Un lien avec paramètres (« À confirmer ») exige ces paramètres. */
+  function correspond(href: string): boolean {
+    const [chemin, requete] = href.split('?');
     const p = page.url.pathname;
-    if (href === '/') return p === '/';
-    return p === href || p.startsWith(`${href}/`);
+    if (chemin === '/') return p === '/';
+    if (p !== chemin && !p.startsWith(`${chemin}/`)) return false;
+    if (!requete) return true;
+    return [...new URLSearchParams(requete)].every(([k, v]) => page.url.searchParams.get(k) === v);
+  }
+  /** Un seul lien allumé : entre deux liens de la même page, celui qui a des paramètres l'emporte. */
+  function actif(href: string) {
+    if (!correspond(href)) return false;
+    if (href.includes('?')) return true;
+    return !tousLiens.some((l) => l.href !== href && l.href.includes('?') && l.href.split('?')[0] === href && correspond(l.href));
   }
   let reglagesActif = $derived(page.url.pathname.startsWith('/reglages') || page.url.pathname.startsWith('/admin'));
   let etat = $derived.by(() => {
@@ -278,7 +302,7 @@
       <nav class="groupes">
         {#each groupes as g (g.titre)}
           <div class="groupe">
-            {#if g.titre}<div class="g-titre">{g.titre}</div>{/if}
+            {#if g.titre}<div class="g-titre">{#if g.numero}<span class="g-num" aria-hidden="true">{g.numero}</span>{/if}{g.titre}</div>{/if}
             {#each g.liens as l (l.href)}
               {@const n = l.compteur?.() ?? 0}
               {@const e = l.echecs?.() ?? 0}
@@ -479,7 +503,37 @@
     flex-direction: column;
     gap: var(--e1);
   }
+  /* Écran peu haut (portable 768 px) : les quatre étapes tiennent sans faire défiler la barre. */
+  @media (max-height: 860px) {
+    .groupes {
+      gap: var(--e4);
+    }
+    .groupe {
+      gap: 0;
+    }
+    .groupes .lien {
+      height: 36px;
+    }
+    .g-titre {
+      padding-bottom: var(--e1);
+    }
+  }
+  .g-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--sunk);
+    color: var(--text2);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
   .g-titre {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
     padding: 0 var(--e3) var(--e2);
     font-size: 14px;
     font-weight: 500;
