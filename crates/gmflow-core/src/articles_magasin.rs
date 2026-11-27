@@ -16,6 +16,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::file;
+use crate::montant::{self, Decimal};
 use crate::serveur_api::{entier, obtenir, racine, texte};
 
 /// Composant d'un lot, tel que le magasin le connaît.
@@ -28,16 +29,16 @@ pub struct Composant {
     pub gencod: Option<String>,
     pub reference: Option<String>,
     /// Quantité du composant dans un lot.
-    pub quantite: f64,
+    pub quantite: Decimal,
     /// Prix d'achat HT du magasin.
-    pub pa: Option<f64>,
+    pub pa: Option<Decimal>,
     /// Prix de vente TTC du magasin.
-    pub pv: Option<f64>,
-    pub pv_conseille: Option<f64>,
-    pub eco_ht: Option<f64>,
+    pub pv: Option<Decimal>,
+    pub pv_conseille: Option<Decimal>,
+    pub eco_ht: Option<Decimal>,
     /// Code de famille de 3e niveau.
     pub famille: Option<String>,
-    pub pourc_marge: Option<f64>,
+    pub pourc_marge: Option<Decimal>,
 }
 
 /// Article d'une ligne de BL retrouvé au magasin.
@@ -101,10 +102,13 @@ impl Source for Http {
     }
 }
 
-fn nombre(v: &Value, cle: &str) -> Option<f64> {
+/// Nombre d'Apiflow (nombre JSON ou texte « 12,5 ») en décimal, arrondi à la précision d'un
+/// prix (4 décimales).
+fn nombre(v: &Value, cle: &str) -> Option<Decimal> {
     let x = v.get(cle)?;
-    x.as_f64()
-        .or_else(|| x.as_str()?.trim().replace(',', ".").parse().ok())
+    montant::depuis_json(x)
+        .or_else(|| montant::depuis_texte(&x.as_str()?.trim().replace(',', ".")))
+        .and_then(montant::prix)
 }
 
 /// Identifiant : bigint en texte ou en nombre.
@@ -314,14 +318,17 @@ async fn composants<S: Source>(
             lib_ticket: texte(&a, "lib_ticket"),
             gencod,
             reference: fou.and_then(|x| texte(x, "ref_fou").or_else(|| texte(x, "reference"))),
-            quantite: nombre(l, "quantite").filter(|q| *q > 0.0).unwrap_or(1.0),
+            quantite: nombre(l, "quantite")
+                .and_then(montant::quantite)
+                .filter(|q| *q > Decimal::ZERO)
+                .unwrap_or(Decimal::ONE),
             pa: f
                 .get("prix")
                 .and_then(|p| nombre(p, "achat"))
                 .or_else(|| fou.and_then(|x| nombre(x, "prixachat"))),
             pv,
             pv_conseille: nombre(&a, "pv_conseille"),
-            eco_ht: nombre(&a, "eco_ht").filter(|e| *e > 0.0),
+            eco_ht: nombre(&a, "eco_ht").filter(|e| *e > Decimal::ZERO),
             famille: texte(&a, "nom_code"),
             pourc_marge: nombre(l, "pourc_marge"),
         });

@@ -14,6 +14,7 @@ use rust_xlsxwriter::{Workbook, XlsxError};
 use serde::Serialize;
 
 use crate::articles_magasin::{ArticleMagasin, Composant};
+use crate::montant::{self, Decimal, dec};
 
 /// En-têtes de la matrice, à l'identique du modèle (« REMISE » suivi d'une espace).
 pub const COLONNES_MATRICE: [&str; 6] =
@@ -165,24 +166,24 @@ pub struct LigneBl {
     pub rang: i32,
     pub reference: Option<String>,
     pub designation: Option<String>,
-    pub quantite: Option<f64>,
-    pub prix_unitaire_ht: Option<f64>,
-    pub montant_ht: Option<f64>,
+    pub quantite: Option<Decimal>,
+    pub prix_unitaire_ht: Option<Decimal>,
+    pub montant_ht: Option<Decimal>,
     pub gencod: Option<String>,
-    pub colis: Option<f64>,
-    pub pcb: Option<f64>,
-    pub remise_taux: Option<f64>,
-    pub taux_tva: Option<f64>,
-    pub deee_ht: Option<f64>,
-    pub ecomob_ht: Option<f64>,
-    pub pv_conseille: Option<f64>,
+    pub colis: Option<Decimal>,
+    pub pcb: Option<Decimal>,
+    pub remise_taux: Option<Decimal>,
+    pub taux_tva: Option<Decimal>,
+    pub deee_ht: Option<Decimal>,
+    pub ecomob_ht: Option<Decimal>,
+    pub pv_conseille: Option<Decimal>,
     pub magasin: Option<ArticleMagasin>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Cellule {
     Texte(String),
-    Nombre(f64),
+    Nombre(Decimal),
 }
 
 /// Ligne d'un fichier : (colonne, valeur), les colonnes absentes restent vides.
@@ -203,10 +204,15 @@ pub struct Export {
     pub alertes: Vec<Alerte>,
 }
 
-fn arrondi(x: f64, decimales: i32) -> f64 {
-    let f = 10f64.powi(decimales);
-    (x * f).round() / f
+fn arrondi(x: Decimal, decimales: u32) -> Decimal {
+    montant::arrondi(x, decimales)
 }
+
+const ZERO: Decimal = Decimal::ZERO;
+/// Écart (en unités) au-delà duquel la quantité imprimée et colis × PCB diffèrent.
+const ECART_QUANTITE: Decimal = dec!(0.001);
+/// Écart sous lequel le total des prix du magasin vaut déjà le prix du lot.
+const DEMI_CENTIME: Decimal = dec!(0.005);
 
 fn texte(v: Option<&str>) -> Option<Cellule> {
     v.map(str::trim)
@@ -214,8 +220,8 @@ fn texte(v: Option<&str>) -> Option<Cellule> {
         .map(|s| Cellule::Texte(s.to_string()))
 }
 
-fn nombre(v: Option<f64>) -> Option<Cellule> {
-    v.filter(|x| x.is_finite()).map(Cellule::Nombre)
+fn nombre(v: Option<Decimal>) -> Option<Cellule> {
+    v.map(Cellule::Nombre)
 }
 
 fn pousser(r: &mut Rangee, col: &'static str, c: Option<Cellule>) {
@@ -225,36 +231,38 @@ fn pousser(r: &mut Rangee, col: &'static str, c: Option<Cellule>) {
 }
 
 /// Quantité livrée en unités : colis × PCB quand le BL donne les deux, sinon la quantité.
-pub fn unites(l: &LigneBl) -> Option<f64> {
+pub fn unites(l: &LigneBl) -> Option<Decimal> {
     match (l.colis, l.pcb) {
-        (Some(c), Some(p)) if c > 0.0 && p > 0.0 => Some(arrondi(c * p, 3)),
-        _ => l.quantite.filter(|q| *q > 0.0),
+        (Some(c), Some(p)) if c > ZERO && p > ZERO => Some(arrondi(c * p, montant::DEC_QUANTITE)),
+        _ => l.quantite.filter(|q| *q > ZERO),
     }
 }
 
 /// Prix d'achat brut HT par unité et remise de la ligne (%). Un prix imprimé par colis est
 /// ramené à l'unité (le montant de la ligne dit lequel des deux colle). Sans prix unitaire,
 /// le montant divisé par la quantité (déjà net : pas de remise en plus).
-pub fn prix_achat(l: &LigneBl) -> (Option<f64>, Option<f64>) {
-    let remise = l.remise_taux.filter(|r| *r > 0.0 && *r < 100.0);
+pub fn prix_achat(l: &LigneBl) -> (Option<Decimal>, Option<Decimal>) {
+    let remise = l
+        .remise_taux
+        .filter(|r| *r > ZERO && *r < Decimal::ONE_HUNDRED);
     let u = unites(l);
-    match l.prix_unitaire_ht.filter(|p| *p > 0.0) {
+    match l.prix_unitaire_ht.filter(|p| *p > ZERO) {
         Some(pu) => {
             if let (Some(c), Some(p), Some(m), Some(u)) = (l.colis, l.pcb, l.montant_ht, u)
-                && p > 1.0
-                && c > 0.0
+                && p > Decimal::ONE
+                && c > ZERO
             {
-                let net = 1.0 - remise.unwrap_or(0.0) / 100.0;
+                let net = Decimal::ONE - remise.unwrap_or_default() / Decimal::ONE_HUNDRED;
                 let ecart_unite = (pu * u * net - m).abs();
                 let ecart_colis = (pu * c * net - m).abs();
                 if ecart_colis < ecart_unite {
-                    return (Some(arrondi(pu / p, 4)), remise);
+                    return (Some(arrondi(pu / p, montant::DEC_PRIX)), remise);
                 }
             }
             (Some(pu), remise)
         }
         None => match (l.montant_ht, u) {
-            (Some(m), Some(u)) if m > 0.0 => (Some(arrondi(m / u, 4)), None),
+            (Some(m), Some(u)) if m > ZERO => (Some(arrondi(m / u, montant::DEC_PRIX)), None),
             _ => (None, None),
         },
     }
@@ -263,37 +271,64 @@ pub fn prix_achat(l: &LigneBl) -> (Option<f64>, Option<f64>) {
 /// Prix d'achat de chaque composant pour que Σ prix × quantité = `prix_lot`. On garde la
 /// répartition du magasin (prix d'achat, sinon prix de vente, sinon à parts égales) ; si le
 /// total colle déjà, les prix du magasin restent tels quels. Sans prix du lot : ceux du magasin.
-pub fn prix_composants(prix_lot: Option<f64>, composants: &[Composant]) -> Vec<Option<f64>> {
-    let Some(p) = prix_lot.filter(|p| *p > 0.0) else {
+/// Les prix ont 4 décimales ; le reste d'arrondi va sur le composant qui pèse le plus parmi
+/// ceux en quantité 1 (Σ prix × quantité retombe alors exactement sur le prix du lot), à
+/// défaut sur celui qui pèse le plus (au plus près).
+pub fn prix_composants(
+    prix_lot: Option<Decimal>,
+    composants: &[Composant],
+) -> Vec<Option<Decimal>> {
+    let Some(p) = prix_lot.filter(|p| *p > ZERO) else {
         return composants.iter().map(|c| c.pa).collect();
     };
-    let poids = |f: fn(&Composant) -> Option<f64>| -> Option<Vec<f64>> {
+    let poids = |f: fn(&Composant) -> Option<Decimal>| -> Option<Vec<Decimal>> {
         composants
             .iter()
-            .map(|c| f(c).filter(|x| *x > 0.0))
+            .map(|c| f(c).filter(|x| *x > ZERO))
             .collect()
     };
     let (base, du_magasin) = match poids(|c| c.pa) {
         Some(v) => (v, true),
         None => match poids(|c| c.pv) {
             Some(v) => (v, false),
-            None => (vec![1.0; composants.len()], false),
+            None => (vec![Decimal::ONE; composants.len()], false),
         },
     };
-    let total: f64 = base
+    let total: Decimal = base
         .iter()
         .zip(composants)
         .map(|(b, c)| b * c.quantite)
         .sum();
-    if total <= 0.0 {
+    if total <= ZERO {
         return vec![None; composants.len()];
     }
-    if du_magasin && (total - p).abs() < 0.005 {
+    if du_magasin && (total - p).abs() < DEMI_CENTIME {
         return base.into_iter().map(Some).collect();
     }
-    base.iter()
-        .map(|b| Some(arrondi(b * p / total, 4)))
-        .collect()
+    let mut prix: Vec<Decimal> = base
+        .iter()
+        .map(|b| arrondi(b * p / total, montant::DEC_PRIX))
+        .collect();
+    let reste = p - prix
+        .iter()
+        .zip(composants)
+        .map(|(x, c)| x * c.quantite)
+        .sum::<Decimal>();
+    let part = |i: usize| base[i] * composants[i].quantite;
+    let plus_lourd = |unite: bool| {
+        (0..composants.len())
+            .filter(|i| !unite || composants[*i].quantite == Decimal::ONE)
+            .max_by_key(|i| part(*i))
+    };
+    if !reste.is_zero()
+        && let Some(k) = plus_lourd(true).or_else(|| plus_lourd(false))
+    {
+        let corrige = arrondi(prix[k] + reste / composants[k].quantite, montant::DEC_PRIX);
+        if corrige > ZERO {
+            prix[k] = corrige;
+        }
+    }
+    prix.into_iter().map(Some).collect()
 }
 
 fn lot(l: &LigneBl) -> Option<&ArticleMagasin> {
@@ -324,7 +359,10 @@ fn controler(l: &LigneBl, colonnes: Colonnes, a: &mut Vec<Alerte>) {
     match (unites(l), l.quantite, l.colis, l.pcb) {
         (None, ..) => alerte(a, l, "quantité absente"),
         // Colis ou PCB mal lu : le stock serait multiplié (12 unités, 12 colis lus → 72).
-        (Some(u), Some(q), Some(c), Some(p)) if c > 0.0 && p > 0.0 && (u - q).abs() > 0.001 => {
+        (Some(u), Some(q), Some(c), Some(p))
+            if c > ZERO && p > ZERO && (u - q).abs() > ECART_QUANTITE =>
+        {
+            let (q, c, p, u) = (q.normalize(), c.normalize(), p.normalize(), u.normalize());
             alerte(
                 a,
                 l,
@@ -377,7 +415,7 @@ pub fn matrice(lignes: &[LigneBl], colonnes: Colonnes) -> Export {
                 pousser(
                     &mut r,
                     "QTECDE",
-                    nombre(u.map(|u| arrondi(u * c.quantite, 3))),
+                    nombre(u.map(|u| arrondi(u * c.quantite, montant::DEC_QUANTITE))),
                 );
                 pousser(&mut r, "PA", nombre(p));
                 pousser(&mut r, "REMISE ", nombre(remise));
@@ -414,8 +452,8 @@ pub fn matrice(lignes: &[LigneBl], colonnes: Colonnes) -> Export {
 /// Colonne d'éco-participation d'un composant : celle que le BL donne pour le lot.
 fn colonne_eco(l: &LigneBl) -> Option<&'static str> {
     match (
-        l.deee_ht.is_some_and(|x| x > 0.0),
-        l.ecomob_ht.is_some_and(|x| x > 0.0),
+        l.deee_ht.is_some_and(|x| x > ZERO),
+        l.ecomob_ht.is_some_and(|x| x > ZERO),
     ) {
         (true, false) => Some("DEEE HT"),
         (false, true) => Some("Ecomob HT"),
@@ -424,8 +462,8 @@ fn colonne_eco(l: &LigneBl) -> Option<&'static str> {
 }
 
 /// Éco-participation de la trame : 0 quand le BL n'en donne pas (colonne jamais vide).
-fn eco(v: Option<f64>) -> Option<Cellule> {
-    nombre(Some(v.filter(|x| *x > 0.0).unwrap_or(0.0)))
+fn eco(v: Option<Decimal>) -> Option<Cellule> {
+    nombre(Some(v.filter(|x| *x > ZERO).unwrap_or_default()))
 }
 
 /// Trame d'import BO Phénix (fiches produits). `fournisseur` : code BO Phénix.
@@ -479,7 +517,7 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>, colonnes: Colonnes) 
                     .or_else(|| mere.and_then(|a| a.libelle.as_deref())),
             ),
         );
-        pousser(&mut r, "Colisage", nombre(l.pcb.filter(|p| *p > 0.0)));
+        pousser(&mut r, "Colisage", nombre(l.pcb.filter(|p| *p > ZERO)));
         pousser(&mut r, "PV_Conseille", nombre(l.pv_conseille));
         let Some(a) = mere else {
             if l.magasin.is_none() && crate::articles_magasin::semble_lot(l.designation.as_deref())
@@ -510,14 +548,18 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>, colonnes: Colonnes) 
         for (c, p) in a.composants.iter().zip(prix_composants(pa, &a.composants)) {
             numero += 1;
             let mut r = Rangee::new();
-            pousser(&mut r, "NUM LOT VENTE", nombre(Some(num_mere as f64)));
+            pousser(
+                &mut r,
+                "NUM LOT VENTE",
+                nombre(Some(Decimal::from(num_mere))),
+            );
             pousser(&mut r, "Codein", texte(c.codein.as_deref()));
             pousser(&mut r, "Fournisseur", fou());
             pousser(&mut r, "Ref Fournisseur", texte(c.reference.as_deref()));
             pousser(&mut r, "Gencod", texte(c.gencod.as_deref()));
             pousser(&mut r, "LIBELLE", texte(c.libelle.as_deref()));
             pousser(&mut r, "LibTicket", texte(c.lib_ticket.as_deref()));
-            pousser(&mut r, "Colisage", nombre(Some(1.0)));
+            pousser(&mut r, "Colisage", nombre(Some(Decimal::ONE)));
             pousser(&mut r, "PrixAchat", nombre(p));
             pousser(&mut r, "Prix de Vente", nombre(c.pv));
             pousser(&mut r, "CodeFamille", texte(c.famille.as_deref()));
@@ -535,7 +577,7 @@ pub fn trame(lignes: &[LigneBl], fournisseur: Option<&str>, colonnes: Colonnes) 
             pousser(
                 &mut r,
                 "% LOT VENTE",
-                nombre(c.pourc_marge.filter(|x| *x > 0.0)),
+                nombre(c.pourc_marge.filter(|x| *x > ZERO)),
             );
             e.rangees.push(r);
         }
@@ -558,7 +600,8 @@ fn classeur(onglet: &str, colonnes: &[&str], rangees: &[Rangee]) -> Result<Vec<u
             };
             match v {
                 Cellule::Texte(t) => ws.write_string(ligne, i as u16, t)?,
-                Cellule::Nombre(x) => ws.write_number(ligne, i as u16, *x)?,
+                // Flottant au dernier moment : la cellule Excel est un nombre.
+                Cellule::Nombre(x) => ws.write_number(ligne, i as u16, montant::vers_f64(*x))?,
             };
         }
     }
@@ -578,11 +621,10 @@ pub fn xlsx_trame(e: &Export) -> Result<Vec<u8>, XlsxError> {
 /// Lignes d'un document pour l'export.
 pub async fn lignes(pool: &sqlx::PgPool, document_id: i64) -> sqlx::Result<Vec<LigneBl>> {
     let r = sqlx::query!(
-        r#"select rang, reference, designation, quantite::float8 as quantite,
-                  prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant, gencod,
-                  colis::float8 as colis, pcb::float8 as pcb, remise_taux::float8 as remise,
-                  taux_tva::float8 as tva, deee_ht::float8 as deee, ecomob_ht::float8 as ecomob,
-                  pv_conseille::float8 as pvc, magasin
+        r#"select rang, reference, designation, quantite, prix_unitaire_ht as prix,
+                  montant_ht as montant, gencod, colis, pcb, remise_taux as remise,
+                  taux_tva as tva, deee_ht as deee, ecomob_ht as ecomob, pv_conseille as pvc,
+                  magasin
            from ligne_document where document_id = $1 order by rang"#,
         document_id
     )

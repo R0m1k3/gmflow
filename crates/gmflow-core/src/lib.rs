@@ -25,6 +25,7 @@ pub mod imap;
 pub mod journal;
 pub mod lecture;
 pub mod logiflow;
+pub mod montant;
 pub mod parametre;
 pub mod qualite;
 pub mod rapprochement;

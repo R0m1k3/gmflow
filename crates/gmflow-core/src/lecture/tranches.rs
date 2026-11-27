@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::extraction::{self, Ligne};
+use crate::montant::{self, Decimal, dec};
 
 /// Caractères au plus du texte d'une tranche de lignes (hors contexte des pages voisines).
 pub const TRANCHE_TEXTE_MAX: usize = 9_000;
@@ -37,7 +38,9 @@ const PAGE_TEXTE_MIN: usize = 40;
 /// Lignes de la page voisine données en contexte.
 const CONTEXTE_LIGNES: usize = 6;
 /// Écart toléré entre la somme des lignes et le total HT lu.
-pub const ECART_SOMME: f64 = 0.05;
+pub const ECART_SOMME: Decimal = dec!(0.05);
+/// Écart en dessous duquel deux nombres lus (quantité, prix, montant) sont égaux.
+const DEMI_CENTIME: Decimal = dec!(0.005);
 
 /// Clé de `document.confiance` : bilan de la lecture par tranches.
 pub const CLE_CONFIANCE: &str = "tranches";
@@ -217,7 +220,7 @@ pub struct Annonces {
     #[serde(default)]
     pub nombre_lignes_annonce: Option<i64>,
     #[serde(default)]
-    pub quantite_totale_annoncee: Option<f64>,
+    pub quantite_totale_annoncee: Option<Decimal>,
 }
 
 /// Annonces lues dans la réponse de l'appel d'en-tête (vides si absentes ou mal formées).
@@ -226,7 +229,10 @@ pub fn annonces(reponse: &Value) -> Annonces {
         .and_then(|v| serde_json::from_value(v).ok())
         .map(|a: Annonces| Annonces {
             nombre_lignes_annonce: a.nombre_lignes_annonce.filter(|n| *n > 0),
-            quantite_totale_annoncee: a.quantite_totale_annoncee.filter(|q| *q > 0.0),
+            quantite_totale_annoncee: a
+                .quantite_totale_annoncee
+                .and_then(montant::quantite)
+                .filter(|q| *q > Decimal::ZERO),
         })
         .unwrap_or_default()
 }
@@ -370,7 +376,9 @@ pub fn lignes_de_reponse(reponse: &Value) -> Option<Vec<Ligne>> {
         lignes: Vec<Ligne>,
     }
     let v = crate::claude::sortie_structuree(reponse)?;
-    serde_json::from_value::<R>(v).ok().map(|r| r.lignes)
+    let mut lignes = serde_json::from_value::<R>(v).ok()?.lignes;
+    lignes.iter_mut().for_each(Ligne::normaliser);
+    Some(lignes)
 }
 
 /// Libellés d'en-tête de tableau, de report et de total, qui ne sont pas des lignes articles.
@@ -431,9 +439,9 @@ fn cle(s: &Option<String>) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn egaux(a: Option<f64>, b: Option<f64>) -> bool {
+fn egaux(a: Option<Decimal>, b: Option<Decimal>) -> bool {
     match (a, b) {
-        (Some(x), Some(y)) => (x - y).abs() < 0.005,
+        (Some(x), Some(y)) => (x - y).abs() < DEMI_CENTIME,
         (None, None) => true,
         _ => false,
     }
@@ -520,9 +528,9 @@ pub fn plages(pages: &[usize]) -> String {
 /// Montants lus en pied, pour le contrôle de complétude.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Totaux {
-    pub ht: Option<f64>,
-    pub annexes_ht: Option<f64>,
-    pub remise_ht: Option<f64>,
+    pub ht: Option<Decimal>,
+    pub annexes_ht: Option<Decimal>,
+    pub remise_ht: Option<Decimal>,
 }
 
 /// Bilan du contrôle de complétude.
@@ -537,23 +545,28 @@ pub struct Controle {
 }
 
 /// Montant d'une ligne : celui imprimé, sinon quantité (ou colis × PCB) × prix, moins la remise.
-fn montant(l: &Ligne) -> Option<f64> {
+fn montant_ligne(l: &Ligne) -> Option<Decimal> {
     l.montant_ht.or_else(|| {
         let q = l.quantite.or(l.colis.zip(l.pcb).map(|(c, p)| c * p))?;
         let r = l
             .remise_taux
-            .filter(|r| *r > 0.0 && *r < 100.0)
-            .unwrap_or(0.0);
-        Some(q * l.prix_unitaire_ht? * (1.0 - r / 100.0))
+            .filter(|r| *r > Decimal::ZERO && *r < Decimal::ONE_HUNDRED)
+            .unwrap_or_default();
+        Some(q * l.prix_unitaire_ht? * (Decimal::ONE - r / Decimal::ONE_HUNDRED))
     })
 }
 
-fn somme(v: impl Iterator<Item = f64>) -> f64 {
-    (v.sum::<f64>() * 100.0).round() / 100.0
+fn somme(v: impl Iterator<Item = Decimal>) -> Decimal {
+    montant::centimes(v.sum())
 }
 
-fn euros(m: f64) -> String {
-    format!("{m:.2}").replace('.', ",")
+fn euros(m: Decimal) -> String {
+    montant::euros(m).replace('.', ",")
+}
+
+/// Quantité pour une phrase : « 12 », « 12,5 ».
+fn quantite_texte(q: Decimal) -> String {
+    q.normalize().to_string().replace('.', ",")
 }
 
 /// Contrôle par le code, après fusion : pages non lues, somme des lignes comparée au total HT
@@ -579,16 +592,16 @@ pub fn controler(
     if lignes.is_empty() {
         c.raisons.push("aucune ligne article lue".into());
     }
-    let montants: Option<Vec<f64>> = lignes.iter().map(montant).collect();
+    let montants: Option<Vec<Decimal>> = lignes.iter().map(montant_ligne).collect();
     if let (Some(ht), Some(m)) = (totaux.ht, montants.filter(|m| !m.is_empty())) {
         let s = somme(m.into_iter());
         let eco = extraction::eco_lignes(lignes);
-        let annexes = totaux.annexes_ht.unwrap_or(0.0).abs();
-        let remise = totaux.remise_ht.unwrap_or(0.0).abs();
-        let tombe_juste = [0.0, eco, annexes]
+        let annexes = totaux.annexes_ht.unwrap_or_default().abs();
+        let remise = totaux.remise_ht.unwrap_or_default().abs();
+        let tombe_juste = [Decimal::ZERO, eco, annexes]
             .into_iter()
             .flat_map(|plus| [s + plus, s + plus - remise])
-            .any(|calcule| (calcule - ht.abs()).abs() <= ECART_SOMME + 1e-9);
+            .any(|calcule| (calcule - ht.abs()).abs() <= ECART_SOMME);
         if tombe_juste {
             c.verifie.push("somme_ht");
         } else {
@@ -616,11 +629,16 @@ pub fn controler(
                 .filter_map(|l| l.quantite.or(l.colis.zip(l.pcb).map(|(c, p)| c * p))),
         );
         let colis = somme(lignes.iter().filter_map(|l| l.colis));
-        if [quantites, colis].iter().any(|x| (x - q).abs() < 0.005) {
+        if [quantites, colis]
+            .iter()
+            .any(|x| (x - q).abs() < DEMI_CENTIME)
+        {
             c.verifie.push("quantite_totale");
         } else {
             c.raisons.push(format!(
-                "le document annonce une quantité totale de {q}, les lignes donnent {quantites}"
+                "le document annonce une quantité totale de {}, les lignes donnent {}",
+                quantite_texte(q),
+                quantite_texte(quantites)
             ));
         }
     }
@@ -658,7 +676,7 @@ mod tests {
             .join("\n")
     }
 
-    fn ligne(r: &str, q: f64, m: f64) -> Ligne {
+    fn ligne(r: &str, q: Decimal, m: Decimal) -> Ligne {
         Ligne {
             reference: Some(r.into()),
             designation: Some(format!("Article {r}")),
@@ -789,7 +807,7 @@ mod tests {
         assert_eq!(annonces(&r).nombre_lignes_annonce, Some(412));
         assert_eq!(annonces(&json!({})), Annonces::default());
         let r = json!({ "structured_output": { "lignes": [{ "reference": "A", "quantite": 2 }] } });
-        assert_eq!(lignes_de_reponse(&r).unwrap()[0].quantite, Some(2.0));
+        assert_eq!(lignes_de_reponse(&r).unwrap()[0].quantite, Some(dec!(2.0)));
         assert!(lignes_de_reponse(&json!({ "result": "illisible" })).is_none());
     }
 
@@ -802,21 +820,25 @@ mod tests {
         };
         let report = Ligne {
             designation: Some("A reporter".into()),
-            montant_ht: Some(120.0),
+            montant_ht: Some(dec!(120.0)),
             ..Default::default()
         };
         let a = vec![
             entete.clone(),
-            ligne("A1", 1.0, 10.0),
-            ligne("A2", 2.0, 20.0),
+            ligne("A1", dec!(1.0), dec!(10.0)),
+            ligne("A2", dec!(2.0), dec!(20.0)),
             report,
         ];
         // La ligne A2, à cheval, est recopiée par les deux tranches ; la seconde n'en a que la fin.
-        let mut morceau = ligne("A2", 2.0, 20.0);
+        let mut morceau = ligne("A2", dec!(2.0), dec!(20.0));
         morceau.reference = None;
         morceau.designation = Some("(suite)".into());
-        let b = vec![entete.clone(), morceau, ligne("B1", 1.0, 5.0)];
-        let c = vec![entete, ligne("B1", 3.0, 15.0), ligne("C1", 1.0, 1.0)];
+        let b = vec![entete.clone(), morceau, ligne("B1", dec!(1.0), dec!(5.0))];
+        let c = vec![
+            entete,
+            ligne("B1", dec!(3.0), dec!(15.0)),
+            ligne("C1", dec!(1.0), dec!(1.0)),
+        ];
         let (v, doublons) = fusionner(&[a, b, c]);
         let refs: Vec<_> = v
             .iter()
@@ -830,8 +852,11 @@ mod tests {
         assert_eq!(doublons, 1);
         // Deux tranches qui recopient la même ligne entière.
         let (v, d) = fusionner(&[
-            vec![ligne("X", 1.0, 2.0)],
-            vec![ligne("X", 1.0, 2.0), ligne("Y", 1.0, 2.0)],
+            vec![ligne("X", dec!(1.0), dec!(2.0))],
+            vec![
+                ligne("X", dec!(1.0), dec!(2.0)),
+                ligne("Y", dec!(1.0), dec!(2.0)),
+            ],
         ]);
         assert_eq!((v.len(), d), (2, 1));
         // Un article à 0 sans nombre n'est pas un en-tête s'il a une vraie désignation.
@@ -842,35 +867,38 @@ mod tests {
         assert!(!parasite(&commentaire));
         assert!(parasite(&Ligne {
             designation: Some("Sous-total page 3".into()),
-            montant_ht: Some(9.0),
+            montant_ht: Some(dec!(9.0)),
             ..Default::default()
         }));
     }
 
     #[test]
     fn controle_de_completude() {
-        let l = vec![ligne("A", 2.0, 10.0), ligne("B", 3.0, 20.5)];
+        let l = vec![
+            ligne("A", dec!(2.0), dec!(10.0)),
+            ligne("B", dec!(3.0), dec!(20.5)),
+        ];
         let tot = |ht| Totaux {
             ht: Some(ht),
             ..Default::default()
         };
-        let c = controler(&l, tot(30.5), Annonces::default(), &[]);
+        let c = controler(&l, tot(dec!(30.5)), Annonces::default(), &[]);
         assert!(c.complet && c.verifie == ["somme_ht"], "{c:?}");
         assert_eq!(phrase(3, &c), None);
         // Remise de pied et annexes.
         let c = controler(
             &l,
             Totaux {
-                ht: Some(28.0),
-                annexes_ht: Some(1.5),
-                remise_ht: Some(4.0),
+                ht: Some(dec!(28.0)),
+                annexes_ht: Some(dec!(1.5)),
+                remise_ht: Some(dec!(4.0)),
             },
             Annonces::default(),
             &[],
         );
         assert!(c.complet, "{c:?}");
         // Une ligne de moins : la somme ne tombe pas juste.
-        let c = controler(&l[..1], tot(30.5), Annonces::default(), &[]);
+        let c = controler(&l[..1], tot(dec!(30.5)), Annonces::default(), &[]);
         assert!(!c.complet);
         assert!(
             phrase(3, &c)
@@ -880,13 +908,13 @@ mod tests {
         // Nombre de lignes et quantité annoncés.
         let an = Annonces {
             nombre_lignes_annonce: Some(3),
-            quantite_totale_annoncee: Some(5.0),
+            quantite_totale_annoncee: Some(dec!(5.0)),
         };
-        let c = controler(&l, tot(30.5), an, &[]);
+        let c = controler(&l, tot(dec!(30.5)), an, &[]);
         assert_eq!(c.verifie, ["somme_ht", "quantite_totale"]);
         assert_eq!(c.raisons, ["le document annonce 3 lignes, 2 lues"]);
         // Pages non lues : jamais complet.
-        let c = controler(&l, tot(30.5), Annonces::default(), &[9, 10, 11, 12]);
+        let c = controler(&l, tot(dec!(30.5)), Annonces::default(), &[9, 10, 11, 12]);
         assert!(!c.complet);
         assert_eq!(
             phrase(7, &c).unwrap(),
@@ -901,7 +929,7 @@ mod tests {
             plages(&[9, 10, 11, 12, 15, 17, 18]),
             "pages 9 à 12, 15 et 17 à 18"
         );
-        let c = controler(&l, tot(30.5), Annonces::default(), &[4]);
+        let c = controler(&l, tot(dec!(30.5)), Annonces::default(), &[4]);
         assert_eq!(c.raisons, ["page 4 non lue"]);
     }
 }

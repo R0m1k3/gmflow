@@ -4,6 +4,7 @@
 use gmflow_core::fixtures::{self, PageTest};
 use gmflow_core::lecture::extraction;
 use gmflow_core::lecture::ocr::{self, Outils};
+use gmflow_core::montant::dec;
 
 async fn outils() -> Option<Outils> {
     let o = Outils::default();
@@ -35,9 +36,9 @@ async fn scan_lu_par_l_ocr_avec_ses_montants() {
     assert!(t.texte.contains("FACTURE"), "{}", t.texte);
     // Les montants sont retrouvés dans le texte OCR : le contrôle « dans le texte » peut se faire.
     let n = extraction::nombres(&t.texte);
-    for m in [1535.40, 307.08, 1842.48] {
+    for m in [dec!(1535.40), dec!(307.08), dec!(1842.48)] {
         assert!(
-            n.iter().any(|x| (x - m).abs() < 0.005),
+            n.iter().any(|x| (x - m).abs() < dec!(0.005)),
             "{m} absent de {}",
             t.texte
         );

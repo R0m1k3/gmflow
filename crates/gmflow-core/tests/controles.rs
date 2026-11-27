@@ -3,6 +3,7 @@
 use gmflow_core::controles::{
     Facture, cle_tva_fr, controler, siren_valide, siret_valide, tva_valide,
 };
+use gmflow_core::montant::dec;
 
 fn codes(f: &Facture<'_>, jour: time::Date) -> Vec<String> {
     controler(f, jour).into_iter().map(|e| e.code).collect()
@@ -21,9 +22,9 @@ fn bonne() -> Facture<'static> {
         fournisseur_tva: Some("FR96552100554"),
         numero: Some("F-1"),
         date: Some(time::macros::date!(2026 - 11 - 12)),
-        ht: Some(100.0),
-        tva: Some(20.0),
-        ttc: Some(120.0),
+        ht: Some(dec!(100.0)),
+        tva: Some(dec!(20.0)),
+        ttc: Some(dec!(120.0)),
         adresse_depot: true,
         ..Default::default()
     }
@@ -56,9 +57,9 @@ fn facture_conforme() {
 #[test]
 fn chaque_controle() {
     let mut f = bonne();
-    f.ttc = Some(120.06);
+    f.ttc = Some(dec!(120.06));
     assert_eq!(codes(&f, jour()), ["montants"]);
-    f.ttc = Some(120.05);
+    f.ttc = Some(dec!(120.05));
     assert!(
         codes(&f, jour()).is_empty(),
         "0,05 € toléré (seuil partagé)"
@@ -104,15 +105,18 @@ fn chaque_controle() {
 #[test]
 fn messages_dans_le_vocabulaire_de_l_ecran() {
     use gmflow_core::controles::montant_fr;
-    assert_eq!(montant_fr(1250.4), "1\u{a0}250,40\u{a0}€");
-    assert_eq!(montant_fr(60.0), "60,00\u{a0}€");
-    assert_eq!(montant_fr(1234567.891), "1\u{a0}234\u{a0}567,89\u{a0}€");
-    assert_eq!(montant_fr(-12.5), "-12,50\u{a0}€");
+    assert_eq!(montant_fr(dec!(1250.4)), "1\u{a0}250,40\u{a0}€");
+    assert_eq!(montant_fr(dec!(60.0)), "60,00\u{a0}€");
+    assert_eq!(
+        montant_fr(dec!(1234567.891)),
+        "1\u{a0}234\u{a0}567,89\u{a0}€"
+    );
+    assert_eq!(montant_fr(-dec!(12.5)), "-12,50\u{a0}€");
 
     let mut f = bonne();
-    f.ht = Some(1000.0);
-    f.tva = Some(200.0);
-    f.ttc = Some(1250.4);
+    f.ht = Some(dec!(1000.0));
+    f.tva = Some(dec!(200.0));
+    f.ttc = Some(dec!(1250.4));
     let e = controler(&f, jour());
     assert_eq!(
         e[0].message,
@@ -122,20 +126,20 @@ fn messages_dans_le_vocabulaire_de_l_ecran() {
     assert_eq!(e[0].champs, ["montant_ttc"]);
     // TTC plus grand (éco-participation oubliée) : pas de baisse du TTC proposée.
     assert!(e[0].proposition.is_none());
-    f.ttc = Some(1150.4);
+    f.ttc = Some(dec!(1150.4));
     let e = controler(&f, jour());
     assert_eq!(
         e[0].message,
         "HT + TVA donnent 1\u{a0}200,00\u{a0}€, le TTC lu est 1\u{a0}150,40\u{a0}€"
     );
     let p = e[0].proposition.as_ref().unwrap();
-    assert_eq!((p.champ.as_str(), p.valeur), ("montant_ttc", 1200.0));
+    assert_eq!((p.champ.as_str(), p.valeur), ("montant_ttc", dec!(1200.0)));
 
     f.ht = None;
-    f.ttc = Some(1250.4);
+    f.ttc = Some(dec!(1250.4));
     let e = controler(&f, jour());
     let p = e[0].proposition.as_ref().unwrap();
-    assert_eq!((p.champ.as_str(), p.valeur), ("montant_ht", 1050.4));
+    assert_eq!((p.champ.as_str(), p.valeur), ("montant_ht", dec!(1050.4)));
 
     let mut f = bonne();
     f.societe_id = None;
@@ -201,41 +205,41 @@ fn controles_de_coherence() {
 
     // TVA au-dessus de 20 % du HT.
     let mut f = bonne();
-    f.tva = Some(25.0);
-    f.ttc = Some(125.0);
+    f.tva = Some(dec!(25.0));
+    f.ttc = Some(dec!(125.0));
     assert_eq!(codes(&f, jour()), ["tva"]);
 }
 
 #[test]
 fn somme_des_lignes_et_ht() {
     let mut f = bonne();
-    f.somme_lignes = Some(100.0);
+    f.somme_lignes = Some(dec!(100.0));
     assert!(codes(&f, jour()).is_empty());
-    f.somme_lignes = Some(90.0);
+    f.somme_lignes = Some(dec!(90.0));
     assert_eq!(codes(&f, jour()), ["lignes"]);
     // Remise de pied de 10 % déduite après les lignes : expliqué.
     let mut f = bonne();
-    f.somme_lignes = Some(111.11);
-    f.remise_ht = Some(11.11);
+    f.somme_lignes = Some(dec!(111.11));
+    f.remise_ht = Some(dec!(11.11));
     assert!(codes(&f, jour()).is_empty());
     f.remise_ht = None;
-    f.remise_taux = Some(10.0);
-    f.somme_lignes = Some(111.1);
+    f.remise_taux = Some(dec!(10.0));
+    f.somme_lignes = Some(dec!(111.1));
     assert!(codes(&f, jour()).is_empty(), "remise en taux");
     // Éco-participation ajoutée au HT (annexes lues à part, ou par unité sur les lignes).
     let mut f = bonne();
-    f.somme_lignes = Some(97.5);
-    f.annexes_ht = Some(2.5);
+    f.somme_lignes = Some(dec!(97.5));
+    f.annexes_ht = Some(dec!(2.5));
     assert!(codes(&f, jour()).is_empty());
     f.annexes_ht = None;
-    f.eco_lignes = 2.5;
+    f.eco_lignes = dec!(2.5);
     assert!(codes(&f, jour()).is_empty());
     // Remise et port ensemble.
     let mut f = bonne();
-    f.somme_lignes = Some(105.0);
-    f.remise_ht = Some(10.0);
-    f.annexes_ht = Some(5.0);
+    f.somme_lignes = Some(dec!(105.0));
+    f.remise_ht = Some(dec!(10.0));
+    f.annexes_ht = Some(dec!(5.0));
     assert!(codes(&f, jour()).is_empty());
-    f.somme_lignes = Some(150.0);
+    f.somme_lignes = Some(dec!(150.0));
     assert_eq!(codes(&f, jour()), ["lignes"]);
 }

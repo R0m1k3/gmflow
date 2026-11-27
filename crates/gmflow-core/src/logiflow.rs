@@ -12,6 +12,7 @@ use sqlx::PgPool;
 
 use crate::crypto::Chiffreur;
 use crate::fournisseurs::{meme_nom, normaliser};
+use crate::montant::{self, Decimal};
 use crate::parametre;
 pub use crate::serveur_api::{ServeurApi, controler_adresse, fin};
 
@@ -266,9 +267,9 @@ pub struct Livraison {
     pub automatique: bool,
     /// Jour de livraison (sinon jour prévu), AAAA-MM-JJ.
     pub livree_le: Option<String>,
-    pub montant_bl: Option<f64>,
-    pub facture_ht: Option<f64>,
-    pub facture_ttc: Option<f64>,
+    pub montant_bl: Option<Decimal>,
+    pub facture_ht: Option<Decimal>,
+    pub facture_ttc: Option<Decimal>,
     pub echeance: Option<String>,
 }
 
@@ -303,19 +304,19 @@ impl Livraison {
     }
 }
 
-/// Montant en nombre, ou en texte (« 1234.5 », « 1 234,50 »).
-fn montant(v: Option<&Value>) -> Option<f64> {
+/// Montant en nombre, ou en texte (« 1234.5 », « 1 234,50 »), en décimal arrondi au centime.
+fn montant(v: Option<&Value>) -> Option<Decimal> {
     match v? {
-        Value::Number(n) => n.as_f64(),
-        Value::String(s) => s
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect::<String>()
-            .replace(',', ".")
-            .parse()
-            .ok(),
+        n @ Value::Number(_) => montant::depuis_json(n),
+        Value::String(s) => montant::depuis_texte(
+            &s.chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+                .replace(',', "."),
+        ),
         _ => None,
     }
+    .and_then(montant::montant)
 }
 
 fn livraisons(v: &Value) -> Vec<Livraison> {
@@ -421,7 +422,11 @@ pub fn choisir(candidates: Vec<Livraison>, r: &Reperes) -> Choix {
 /// revient à ce BL (voir [`repartir`]) quand ils sont connus, échéance si elle est lue (sinon
 /// Logiflow la reprend de NocoDB). `reconciled` n'est jamais envoyé : la validation reste
 /// faite dans Logiflow.
-pub fn corps_facture(numero: &str, montants: Option<(f64, f64)>, echeance: Option<&str>) -> Value {
+pub fn corps_facture(
+    numero: &str,
+    montants: Option<(Decimal, Decimal)>,
+    echeance: Option<&str>,
+) -> Value {
     let mut c = json!({ "invoiceReference": numero });
     if let Some((h, t)) = montants {
         c["invoiceAmount"] = json!(h);
@@ -433,46 +438,23 @@ pub fn corps_facture(numero: &str, montants: Option<(f64, f64)>, echeance: Optio
     c
 }
 
-fn centimes(x: f64) -> i64 {
-    (x * 100.0).round() as i64
-}
-
 /// Part de la facture (HT, TTC) de chaque BL. Un seul BL : toute la facture. Plusieurs : au
 /// prorata du montant de chaque BL, arrondie au centime, le dernier BL prenant le reste (la
 /// somme des parts vaut la facture, remise comprise). `None` si un montant manque, ou si les
 /// BL n'ont pas de montant pour répartir.
 pub fn repartir(
-    ht: Option<f64>,
-    ttc: Option<f64>,
-    montants_bl: &[Option<f64>],
-) -> Option<Vec<(f64, f64)>> {
+    ht: Option<Decimal>,
+    ttc: Option<Decimal>,
+    montants_bl: &[Option<Decimal>],
+) -> Option<Vec<(Decimal, Decimal)>> {
     let (ht, ttc) = (ht?, ttc?);
     if montants_bl.len() == 1 {
         return Some(vec![(ht, ttc)]);
     }
-    let bl: Vec<f64> = montants_bl.iter().copied().collect::<Option<_>>()?;
-    let somme: f64 = bl.iter().sum();
-    if bl.is_empty() || somme <= 0.0 || bl.iter().any(|m| *m < 0.0) {
-        return None;
-    }
-    let (th, tt) = (centimes(ht), centimes(ttc));
-    let (mut rh, mut rt) = (th, tt);
-    let mut parts = Vec::with_capacity(bl.len());
-    for (i, m) in bl.iter().enumerate() {
-        let (h, t) = if i + 1 == bl.len() {
-            (rh, rt)
-        } else {
-            let p = m / somme;
-            (
-                (th as f64 * p).round() as i64,
-                (tt as f64 * p).round() as i64,
-            )
-        };
-        rh -= h;
-        rt -= t;
-        parts.push((h as f64 / 100.0, t as f64 / 100.0));
-    }
-    Some(parts)
+    let bl: Vec<Decimal> = montants_bl.iter().copied().collect::<Option<_>>()?;
+    let h = montant::repartir(ht, &bl, montant::DEC_MONTANT)?;
+    let t = montant::repartir(ttc, &bl, montant::DEC_MONTANT)?;
+    Some(h.into_iter().zip(t).collect())
 }
 
 /// Ligne du résultat, par n° de BL.
@@ -489,6 +471,7 @@ pub struct LigneResultat {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::montant::dec;
 
     fn liv(id: i64, code: Option<&str>, nom: &str, magasin: &str) -> Livraison {
         Livraison {
@@ -590,7 +573,7 @@ mod tests {
     #[test]
     fn corps() {
         assert_eq!(
-            corps_facture("F1", Some((10.0, 12.0)), Some("2026-12-31")),
+            corps_facture("F1", Some((dec!(10.0), dec!(12.0))), Some("2026-12-31")),
             json!({"invoiceReference": "F1", "invoiceAmount": 10.0, "invoiceAmountTTC": 12.0,
                    "dueDate": "2026-12-31"})
         );
@@ -603,34 +586,60 @@ mod tests {
     #[test]
     fn repartition() {
         assert_eq!(
-            repartir(Some(100.0), Some(120.0), &[None]),
-            Some(vec![(100.0, 120.0)])
+            repartir(Some(dec!(100.0)), Some(dec!(120.0)), &[None]),
+            Some(vec![(dec!(100.0), dec!(120.0))])
         );
         // Remise de 10 % sur deux BL de 60 et 40 : chaque BL reçoit sa part de la facture.
         assert_eq!(
-            repartir(Some(90.0), Some(108.0), &[Some(60.0), Some(40.0)]),
-            Some(vec![(54.0, 64.8), (36.0, 43.2)])
+            repartir(
+                Some(dec!(90.0)),
+                Some(dec!(108.0)),
+                &[Some(dec!(60.0)), Some(dec!(40.0))]
+            ),
+            Some(vec![(dec!(54.0), dec!(64.8)), (dec!(36.0), dec!(43.2))])
         );
-        // Les centimes tombent juste : la somme vaut la facture.
-        let p = repartir(Some(100.0), Some(120.0), &[Some(1.0), Some(1.0), Some(1.0)]).unwrap();
-        let h: f64 = p.iter().map(|x| x.0).sum();
-        let t: f64 = p.iter().map(|x| x.1).sum();
+        // Les centimes tombent juste : la somme vaut la facture, le reste sur le dernier BL.
+        let un = Some(Decimal::ONE);
+        let p = repartir(Some(dec!(100.0)), Some(dec!(120.0)), &[un, un, un]).unwrap();
         assert_eq!(
-            ((h * 100.0).round(), (t * 100.0).round()),
-            (10000.0, 12000.0)
+            p,
+            vec![
+                (dec!(33.33), dec!(40)),
+                (dec!(33.33), dec!(40)),
+                (dec!(33.34), dec!(40))
+            ]
         );
-        assert_eq!(repartir(Some(100.0), Some(120.0), &[Some(1.0), None]), None);
-        assert_eq!(repartir(None, Some(120.0), &[Some(1.0)]), None);
+        let h: Decimal = p.iter().map(|x| x.0).sum();
+        let t: Decimal = p.iter().map(|x| x.1).sum();
+        assert_eq!((h, t), (dec!(100), dec!(120)));
+        // Trois BL inégaux, facture en ,x5 : chaque part au centime, total exact.
+        let p = repartir(
+            Some(dec!(1001.15)),
+            Some(dec!(1201.38)),
+            &[Some(dec!(333.35)), Some(dec!(333.35)), Some(dec!(334.45))],
+        )
+        .unwrap();
+        assert_eq!(p.iter().map(|x| x.0).sum::<Decimal>(), dec!(1001.15));
+        assert_eq!(p.iter().map(|x| x.1).sum::<Decimal>(), dec!(1201.38));
+        assert!(p.iter().all(|x| x.0.scale() <= 2 && x.1.scale() <= 2));
         assert_eq!(
-            repartir(Some(1.0), Some(1.2), &[Some(0.0), Some(0.0)]),
+            repartir(Some(dec!(100.0)), Some(dec!(120.0)), &[un, None]),
+            None
+        );
+        assert_eq!(repartir(None, Some(dec!(120.0)), &[un]), None);
+        let zero = Some(Decimal::ZERO);
+        assert_eq!(
+            repartir(Some(dec!(1.0)), Some(dec!(1.2)), &[zero, zero]),
             None
         );
     }
 
     #[test]
     fn montants_en_texte() {
-        assert_eq!(montant(Some(&json!("1 234,50"))), Some(1234.5));
-        assert_eq!(montant(Some(&json!(12.3))), Some(12.3));
+        assert_eq!(montant(Some(&json!("1 234,50"))), Some(dec!(1234.5)));
+        assert_eq!(montant(Some(&json!(12.3))), Some(dec!(12.3)));
+        // Arrondi au centime à l'entrée.
+        assert_eq!(montant(Some(&json!(0.125))), Some(dec!(0.13)));
         assert_eq!(montant(Some(&Value::Null)), None);
     }
 }

@@ -43,3 +43,5 @@ zip.workspace = true
 weezl.workspace = true
 webpki-roots.workspace = true
 rust_xlsxwriter.workspace = true
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true

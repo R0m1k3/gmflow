@@ -344,7 +344,8 @@ pub fn eml(message_id: &str, objet: &str, pieces: &[(&str, &str, &[u8])], liste:
     m.into_bytes()
 }
 
-/// Ligne de facture de test : référence, désignation, quantité, prix unitaire HT.
+/// Ligne de facture de test : référence, désignation, quantité, prix unitaire HT (nombres
+/// écrits comme dans un fichier reçu, convertis en décimal à l'écriture du XML).
 pub type LigneTest<'a> = (&'a str, &'a str, f64, f64);
 
 /// Facture CII avec lignes articles, n° de commande et n° de BL cité (en-tête), datée de
@@ -358,17 +359,23 @@ pub fn xml_cii_lignes(
     lignes: &[LigneTest<'_>],
 ) -> String {
     let mut items = String::new();
-    let mut ht = 0.0;
+    use crate::montant::{self, Decimal, dec};
+    let mut ht = Decimal::ZERO;
     for (i, (reference, nom, qte, prix)) in lignes.iter().enumerate() {
-        let total = qte * prix;
+        let (q, p) = (
+            montant::depuis_f64(*qte).expect("quantité"),
+            montant::depuis_f64(*prix).expect("prix"),
+        );
+        let total = montant::centimes(q * p);
         ht += total;
+        let (prix, total) = (montant::euros(p), montant::euros(total));
         items.push_str(&format!(
             r#"    <ram:IncludedSupplyChainTradeLineItem>
       <ram:AssociatedDocumentLineDocument><ram:LineID>{n}</ram:LineID></ram:AssociatedDocumentLineDocument>
       <ram:SpecifiedTradeProduct><ram:SellerAssignedID>{reference}</ram:SellerAssignedID><ram:Name>{nom}</ram:Name></ram:SpecifiedTradeProduct>
-      <ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice><ram:ChargeAmount>{prix:.2}</ram:ChargeAmount></ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>
+      <ram:SpecifiedLineTradeAgreement><ram:NetPriceProductTradePrice><ram:ChargeAmount>{prix}</ram:ChargeAmount></ram:NetPriceProductTradePrice></ram:SpecifiedLineTradeAgreement>
       <ram:SpecifiedLineTradeDelivery><ram:BilledQuantity unitCode="C62">{qte}</ram:BilledQuantity></ram:SpecifiedLineTradeDelivery>
-      <ram:SpecifiedLineTradeSettlement><ram:SpecifiedTradeSettlementLineMonetarySummation><ram:LineTotalAmount>{total:.2}</ram:LineTotalAmount></ram:SpecifiedTradeSettlementLineMonetarySummation></ram:SpecifiedLineTradeSettlement>
+      <ram:SpecifiedLineTradeSettlement><ram:SpecifiedTradeSettlementLineMonetarySummation><ram:LineTotalAmount>{total}</ram:LineTotalAmount></ram:SpecifiedTradeSettlementLineMonetarySummation></ram:SpecifiedLineTradeSettlement>
     </ram:IncludedSupplyChainTradeLineItem>
 "#,
             n = i + 1
@@ -381,7 +388,7 @@ pub fn xml_cii_lignes(
             )
         })
         .unwrap_or_default();
-    let tva = (ht * 0.2 * 100.0).round() / 100.0;
+    let tva = montant::centimes(ht * dec!(0.2));
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100" xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
@@ -406,10 +413,10 @@ pub fn xml_cii_lignes(
     {livraison}
     <ram:ApplicableHeaderTradeSettlement>
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
-        <ram:LineTotalAmount>{ht:.2}</ram:LineTotalAmount>
-        <ram:TaxBasisTotalAmount>{ht:.2}</ram:TaxBasisTotalAmount>
-        <ram:TaxTotalAmount currencyID="EUR">{tva:.2}</ram:TaxTotalAmount>
-        <ram:GrandTotalAmount>{ttc:.2}</ram:GrandTotalAmount>
+        <ram:LineTotalAmount>{ht}</ram:LineTotalAmount>
+        <ram:TaxBasisTotalAmount>{ht}</ram:TaxBasisTotalAmount>
+        <ram:TaxTotalAmount currencyID="EUR">{tva}</ram:TaxTotalAmount>
+        <ram:GrandTotalAmount>{ttc}</ram:GrandTotalAmount>
       </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
     </ram:ApplicableHeaderTradeSettlement>
   </rsm:SupplyChainTradeTransaction>

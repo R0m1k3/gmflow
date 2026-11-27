@@ -18,6 +18,7 @@ use sha2::{Digest, Sha256};
 
 use super::extraction::Ligne;
 use super::tableur;
+use crate::montant::{self, Decimal};
 
 /// Clé de `document.confiance` : d'où viennent les lignes (« cellules » : lues par le code).
 pub const LIGNES_SOURCE: &str = "lignes_source";
@@ -40,7 +41,7 @@ const EXTRAIT_MAX: usize = 12_000;
 pub enum Valeur {
     Vide,
     Texte(String),
-    Nombre(f64),
+    Nombre(Decimal),
     /// Cellule en erreur (`#REF!`, `#N/A`…) : valeur absente, signalée.
     Erreur(String),
 }
@@ -50,8 +51,12 @@ impl Valeur {
         match d {
             Data::Empty => Valeur::Vide,
             Data::String(s) => texte_ou_erreur(s),
-            Data::Float(f) => Valeur::Nombre(*f),
-            Data::Int(i) => Valeur::Nombre(*i as f64),
+            // Conversion en décimal à l'entrée, bruit des formules effacé (14,900000000000002).
+            Data::Float(f) => match montant::depuis_f64(*f) {
+                Some(d) => Valeur::Nombre(arrondi(d)),
+                None => Valeur::Texte(f.to_string()),
+            },
+            Data::Int(i) => Valeur::Nombre(Decimal::from(*i)),
             Data::Bool(b) => Valeur::Texte(b.to_string()),
             Data::DateTime(dt) => Valeur::Texte(tableur::date_excel(dt.as_f64())),
             Data::DateTimeIso(s) | Data::DurationIso(s) => texte_ou_erreur(s),
@@ -74,7 +79,7 @@ impl Valeur {
     }
 
     /// Nombre de la cellule : nombre du tableur, ou texte « 1 234,56 », « 12,5 € », « 20 % ».
-    fn nombre(&self) -> Option<f64> {
+    fn nombre(&self) -> Option<Decimal> {
         match self {
             Valeur::Nombre(f) => Some(*f),
             Valeur::Texte(s) => nombre_texte(s).map(|(v, _)| v),
@@ -98,22 +103,22 @@ fn texte_ou_erreur(s: &str) -> Valeur {
     }
 }
 
-fn nombre_affiche(f: f64) -> String {
-    if f.fract() == 0.0 && f.abs() < 1e15 {
-        format!("{}", f as i64)
-    } else {
-        format!("{}", arrondi(f))
+fn nombre_affiche(f: Decimal) -> String {
+    let mut n = arrondi(f).normalize();
+    if n.is_zero() {
+        n.set_sign_positive(true);
     }
+    n.to_string()
 }
 
 /// Arrondi à 6 décimales : efface le bruit des formules (14,900000000000002).
-fn arrondi(f: f64) -> f64 {
-    (f * 1e6).round() / 1e6
+fn arrondi(f: Decimal) -> Decimal {
+    montant::arrondi(f, 6)
 }
 
 /// Nombre écrit en texte : « 1 234,56 », « 1.234,56 », « 1,234.56 », « 12,5 € », « -3 »,
 /// « (12,00) », « 12,00- », « 20 % ». Vrai en second : suivi de « % ».
-pub fn nombre_texte(s: &str) -> Option<(f64, bool)> {
+pub fn nombre_texte(s: &str) -> Option<(Decimal, bool)> {
     let mut t: String = s
         .trim()
         .chars()
@@ -144,8 +149,8 @@ pub fn nombre_texte(s: &str) -> Option<(f64, bool)> {
         return None;
     }
     // Le dernier séparateur est la virgule décimale, les autres séparent les milliers.
-    let v: f64 = match t.rfind(['.', ',']) {
-        None => t.parse().ok()?,
+    let v: Decimal = match t.rfind(['.', ',']) {
+        None => montant::depuis_texte(t)?,
         Some(pos) => {
             let entier: String = t[..pos].chars().filter(char::is_ascii_digit).collect();
             let dec = &t[pos + 1..];
@@ -153,7 +158,7 @@ pub fn nombre_texte(s: &str) -> Option<(f64, bool)> {
                 return None;
             }
             let e = if entier.is_empty() { "0" } else { &entier };
-            format!("{e}.{dec}").parse().ok()?
+            montant::depuis_texte(&format!("{e}.{dec}"))?
         }
     };
     Some((if negatif { -v } else { v }, pourcent))
@@ -761,14 +766,14 @@ fn hors_article(t: &str) -> bool {
 }
 
 /// Taux (remise, TVA) : 0,2 pour 20 % (cellule au format pourcentage) devient 20.
-fn taux(v: &Valeur) -> Option<f64> {
+fn taux(v: &Valeur) -> Option<Decimal> {
     let (x, pourcent) = match v {
         Valeur::Nombre(f) => (*f, false),
         Valeur::Texte(s) => nombre_texte(s)?,
         _ => return None,
     };
-    if !pourcent && x > 0.0 && x < 1.0 {
-        Some(arrondi(x * 100.0))
+    if !pourcent && x > Decimal::ZERO && x < Decimal::ONE {
+        Some(arrondi(x * Decimal::ONE_HUNDRED))
     } else {
         Some(arrondi(x))
     }
@@ -845,7 +850,7 @@ fn extraire(grille: &Grille, c: &Correspondance) -> (Vec<Ligne>, Vec<String>, Ve
             }
         }
         let n = |champ: &str| cell(champ).nombre().map(arrondi);
-        lignes.push(Ligne {
+        let mut ligne = Ligne {
             reference,
             designation,
             quantite: quantite.map(arrondi),
@@ -860,7 +865,9 @@ fn extraire(grille: &Grille, c: &Correspondance) -> (Vec<Ligne>, Vec<String>, Ve
             deee_ht: n("deee_ht"),
             ecomob_ht: n("ecomob_ht"),
             pv_conseille: n("pv_conseille"),
-        });
+        };
+        ligne.normaliser();
+        lignes.push(ligne);
         rangs.push(l);
     }
     (lignes, anomalies, rangs)
@@ -1248,6 +1255,7 @@ pub fn texte_complet(grilles: &[Grille]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::montant::dec;
 
     fn t(s: &str) -> Valeur {
         texte_ou_erreur(s)
@@ -1262,12 +1270,12 @@ mod tests {
 
     #[test]
     fn nombres_en_texte() {
-        assert_eq!(nombre_texte("1 234,56"), Some((1234.56, false)));
-        assert_eq!(nombre_texte("1.234,56 €"), Some((1234.56, false)));
-        assert_eq!(nombre_texte("1,234.56"), Some((1234.56, false)));
-        assert_eq!(nombre_texte("20 %"), Some((20.0, true)));
-        assert_eq!(nombre_texte("(12,00)"), Some((-12.0, false)));
-        assert_eq!(nombre_texte("12,00-"), Some((-12.0, false)));
+        assert_eq!(nombre_texte("1 234,56"), Some((dec!(1234.56), false)));
+        assert_eq!(nombre_texte("1.234,56 €"), Some((dec!(1234.56), false)));
+        assert_eq!(nombre_texte("1,234.56"), Some((dec!(1234.56), false)));
+        assert_eq!(nombre_texte("20 %"), Some((dec!(20.0), true)));
+        assert_eq!(nombre_texte("(12,00)"), Some((dec!(-12.0), false)));
+        assert_eq!(nombre_texte("12,00-"), Some((dec!(-12.0), false)));
         assert_eq!(nombre_texte("A12"), None);
         assert_eq!(nombre_texte("2026-11-12"), None);
         assert_eq!(nombre_texte("-"), None);
@@ -1313,35 +1321,39 @@ mod tests {
             vec![
                 t("A1"),
                 t("Vase"),
-                Valeur::Nombre(2.0),
-                Valeur::Nombre(10.5),
-                Valeur::Nombre(0.1),
-                Valeur::Nombre(0.2),
+                Valeur::Nombre(dec!(2.0)),
+                Valeur::Nombre(dec!(10.5)),
+                Valeur::Nombre(dec!(0.1)),
+                Valeur::Nombre(dec!(0.2)),
             ],
             vec![Valeur::Vide, t("ARTS DE LA TABLE")],
             vec![
                 t("A2"),
                 t("Bol"),
-                Valeur::Nombre(3.0),
+                Valeur::Nombre(dec!(3.0)),
                 Valeur::Erreur("#REF!".into()),
                 t("5 %"),
                 t("20"),
             ],
-            vec![Valeur::Vide, t("Sous-total rayon"), Valeur::Nombre(5.0)],
+            vec![
+                Valeur::Vide,
+                t("Sous-total rayon"),
+                Valeur::Nombre(dec!(5.0)),
+            ],
             vec![
                 t("Total HT"),
                 Valeur::Vide,
                 Valeur::Vide,
-                Valeur::Nombre(36.0),
+                Valeur::Nombre(dec!(36.0)),
             ],
         ]);
         let lu = lire(std::slice::from_ref(&g), &Apprises::new()).unwrap();
         assert_eq!(lu.origine, Origine::Entete);
         assert_eq!(lu.lignes.len(), 2);
-        assert_eq!(lu.lignes[0].remise_taux, Some(10.0));
-        assert_eq!(lu.lignes[0].taux_tva, Some(20.0));
+        assert_eq!(lu.lignes[0].remise_taux, Some(dec!(10.0)));
+        assert_eq!(lu.lignes[0].taux_tva, Some(dec!(20.0)));
         assert_eq!(lu.lignes[1].prix_unitaire_ht, None);
-        assert_eq!(lu.lignes[1].remise_taux, Some(5.0));
+        assert_eq!(lu.lignes[1].remise_taux, Some(dec!(5.0)));
         assert_eq!(lu.anomalies.len(), 1);
         assert!(lu.anomalies[0].contains("D5"), "{:?}", lu.anomalies);
         assert!(lu.extrait.contains("Total HT"), "{}", lu.extrait);
@@ -1351,7 +1363,7 @@ mod tests {
     fn sans_entete_reconnue_rien() {
         let g = grille(vec![
             vec![t("X1"), t("Colonne bizarre"), t("Truc")],
-            vec![t("A1"), t("Vase"), Valeur::Nombre(2.0)],
+            vec![t("A1"), t("Vase"), Valeur::Nombre(dec!(2.0))],
         ]);
         assert!(lire(std::slice::from_ref(&g), &Apprises::new()).is_none());
         assert_eq!(feuille_a_faire_designer(std::slice::from_ref(&g)), Some(0));
@@ -1387,7 +1399,7 @@ mod tests {
     fn schema_et_reponse() {
         let g = grille(vec![
             vec![t("a"), t("b")],
-            vec![t("A1"), Valeur::Nombre(2.0)],
+            vec![t("A1"), Valeur::Nombre(dec!(2.0))],
         ]);
         let s = schema_correspondance();
         assert_eq!(

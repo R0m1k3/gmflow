@@ -13,6 +13,8 @@ use rust_xlsxwriter::{
     ExcelDateTime, Format, FormatAlign, FormatBorder, Workbook, Worksheet, XlsxError,
 };
 
+use crate::montant::{self, Decimal};
+
 /// Une ligne de la synthèse (une société, ou les pièces pas encore rangées).
 #[derive(Debug, Clone, PartialEq)]
 pub struct LigneSynthese {
@@ -24,7 +26,7 @@ pub struct LigneSynthese {
     pub en_erreur: i64,
     pub doublons: i64,
     /// TTC envoyé, avoirs en négatif.
-    pub montant_envoye: f64,
+    pub montant_envoye: Decimal,
 }
 
 /// Une pièce du détail.
@@ -37,9 +39,9 @@ pub struct PieceBilan {
     pub type_piece: String,
     pub numero: Option<String>,
     /// Montants signés (avoir en négatif).
-    pub ht: Option<f64>,
-    pub tva: Option<f64>,
-    pub ttc: Option<f64>,
+    pub ht: Option<Decimal>,
+    pub tva: Option<Decimal>,
+    pub ttc: Option<Decimal>,
     pub echeance: Option<time::Date>,
     /// « À contrôler », « Validée », « Envoyée à Dext »…
     pub etat: String,
@@ -276,11 +278,11 @@ fn nombre_ou_vide(
     ws: &mut Worksheet,
     l: u32,
     c: u16,
-    v: Option<f64>,
+    v: Option<Decimal>,
     fmt: &Format,
 ) -> Result<(), XlsxError> {
     if let Some(x) = v {
-        ws.write_number_with_format(l, c, x, fmt)?;
+        ws.write_number_with_format(l, c, montant::vers_f64(x), fmt)?;
     }
     Ok(())
 }
@@ -309,7 +311,7 @@ fn synthese(wb: &mut Workbook, c: &Classeur, f: &Formats) -> Result<(), XlsxErro
         {
             ws.write_number(l, i as u16 + 1, n as f64)?;
         }
-        ws.write_number_with_format(l, 6, s.montant_envoye, &f.monnaie)?;
+        ws.write_number_with_format(l, 6, montant::vers_f64(s.montant_envoye), &f.monnaie)?;
         l += 1;
     }
     // Total : des nombres (pas des formules), justes même sans recalcul à l'ouverture.
@@ -325,8 +327,13 @@ fn synthese(wb: &mut Workbook, c: &Classeur, f: &Formats) -> Result<(), XlsxErro
     for (i, n) in totaux.into_iter().enumerate() {
         ws.write_number_with_format(l, i as u16 + 1, n, &f.total_n)?;
     }
-    let montant: f64 = c.synthese.iter().map(|s| s.montant_envoye).sum();
-    ws.write_number_with_format(l, 6, (montant * 100.0).round() / 100.0, &f.total_monnaie)?;
+    let total: Decimal = c.synthese.iter().map(|s| s.montant_envoye).sum();
+    ws.write_number_with_format(
+        l,
+        6,
+        montant::vers_f64(montant::centimes(total)),
+        &f.total_monnaie,
+    )?;
     l += 2;
     for n in [
         "« Reçues » ne compte pas les doublons. « À contrôler » compte aussi les factures validées qui attendent leur envoi.",
@@ -432,6 +439,7 @@ pub fn xlsx(c: &Classeur) -> Result<Vec<u8>, XlsxError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::montant::dec;
     use calamine::{Data, Reader, Xlsx};
     use std::io::Cursor;
     use time::macros::{date, datetime};
@@ -448,7 +456,7 @@ mod tests {
                     a_controler: 1,
                     en_erreur: 0,
                     doublons: 0,
-                    montant_envoye: 120.5,
+                    montant_envoye: dec!(120.5),
                 },
                 LigneSynthese {
                     societe: "Houdemont".into(),
@@ -457,7 +465,7 @@ mod tests {
                     a_controler: 0,
                     en_erreur: 0,
                     doublons: 1,
-                    montant_envoye: -20.25,
+                    montant_envoye: dec!(-20.25),
                 },
             ],
             pieces: vec![PieceBilan {
@@ -466,9 +474,9 @@ mod tests {
                 fournisseur: Some("Durand".into()),
                 type_piece: "Facture".into(),
                 numero: Some("F-1".into()),
-                ht: Some(100.42),
-                tva: Some(20.08),
-                ttc: Some(120.5),
+                ht: Some(dec!(100.42)),
+                tva: Some(dec!(20.08)),
+                ttc: Some(dec!(120.5)),
                 echeance: Some(date!(2026 - 12 - 31)),
                 etat: "Envoyée à Dext".into(),
                 envoyee_le: Some(datetime!(2026-11-04 9:30)),
