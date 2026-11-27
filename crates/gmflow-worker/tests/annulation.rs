@@ -247,3 +247,68 @@ async fn course_annulation_contre_worker_un_seul_gagnant() {
     assert_eq!(smtp.recus().len(), parties);
     b.fermer().await;
 }
+
+/// Partie d'un PDF découpé (audit L19) validée avec délai : l'envoi pris par le worker joint
+/// seulement ses pages, extraites du fichier d'origine ; une seconde tâche n'envoie rien de plus.
+#[tokio::test]
+async fn partie_d_un_pdf_decoupe_envoie_ses_seules_pages() {
+    let (b, smtp, societe) = monde().await;
+    let pdf = fixtures::pdf_pages(vec![
+        fixtures::PageTest::texte(&["Facture FP-1", "page 1"]),
+        fixtures::PageTest::texte(&["Facture FP-2", "page 2"]),
+        fixtures::PageTest::texte(&["Facture FP-2", "page 3"]),
+    ]);
+    let m = mail(
+        &b,
+        societe,
+        &fixtures::eml(
+            "decoupe@test",
+            "Factures",
+            &[("lot.pdf", "application/pdf", &pdf)],
+            false,
+        ),
+    )
+    .await;
+    // Origine ignorée, partie p. 2-3 lue et prête (comme après `decoupage::decouper`).
+    let d: i64 = sqlx::query_scalar(
+        "with o as (select id, mail_id, rang, sha256 from piece_jointe where mail_id = $1),
+              p as (insert into piece_jointe (mail_id, rang, nom, type_mime, taille, sha256,
+                                              source_id, page_debut, page_fin)
+                    select mail_id, -(rang * 100 + 2), 'lot (p. 2-3).pdf', 'application/pdf', 1,
+                           decode(md5('partie'), 'hex'), id, 2, 3 from o
+                    returning id, mail_id, sha256)
+         insert into document (piece_jointe_id, mail_id, sha256, etat, voie, type, societe_id,
+             fournisseur_nom, numero, date_document, montant_ht, montant_tva, montant_ttc,
+             confiance, texte, lu_le, statut_depot)
+         select p.id, p.mail_id, p.sha256, 'lu', 'pdf_texte', 'facture', $2, 'Durand', 'FP-2',
+                current_date, 50, 10, 60, '{\"type\": 0.95, \"societe\": 0.95}', 'FACTURE', now(), 'pret'
+         from p returning id",
+    )
+    .bind(m)
+    .bind(societe)
+    .fetch_one(b.pool())
+    .await
+    .unwrap();
+    let p = valider(&b, d, 0).await;
+    envoi::deposer_prevu(&b.ctx, p, d, false, None)
+        .await
+        .unwrap();
+    assert_eq!(etat_doc(&b, d).await.0.as_deref(), Some("depose"));
+    let recus = smtp.recus();
+    assert_eq!(recus.len(), 1);
+    let joint = (0..4)
+        .find_map(|r| gmflow_core::eml::extraire_piece(recus[0].as_bytes(), r).ok())
+        .expect("pièce jointe envoyée");
+    assert_eq!(
+        gmflow_core::lecture::pdf::pages(&joint),
+        2,
+        "pages 2 et 3 seulement"
+    );
+    assert!(recus[0].contains("lot (p. 2-3).pdf"));
+    // Rejouée : rien de plus.
+    envoi::deposer_prevu(&b.ctx, p, d, false, None)
+        .await
+        .unwrap();
+    assert_eq!(smtp.recus().len(), 1);
+    b.fermer().await;
+}

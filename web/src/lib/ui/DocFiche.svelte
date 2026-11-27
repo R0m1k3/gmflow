@@ -689,8 +689,18 @@
     !!d && d.etat === 'lu' && (d.type === 'facture' || d.type === 'avoir') && d.montant_ttc === null && d.statut_depot !== 'depose'
   );
 
-  /** Écartée par un humain (ou doublon écarté) : « Remettre à contrôler » possible. */
-  let ecartee = $derived(!!d && (d.etat === 'ignore' || (d.statut_depot === 'doublon' && !!d.verifie_le && !!d.ecartement)));
+  /** Origine d'un PDF découpé en plusieurs pièces : ignorée, chaque partie a sa fiche. */
+  let decoupe = $derived(!!d && d.etat === 'ignore' && (d.parties?.length ?? 0) > 0);
+  /** Écartée par un humain (ou doublon écarté, ou pièce lue écartée avant le motif) : « Remettre
+   * à contrôler » possible (mêmes cas que le serveur). Jamais l'origine d'un PDF découpé. */
+  let ecartee = $derived(
+    !!d &&
+      !decoupe &&
+      ((d.etat === 'ignore' && (!!d.ecartement || (!!d.lu_le && (d.type === 'facture' || d.type === 'avoir' || d.type === 'bl')))) ||
+        (d.statut_depot === 'doublon' && !!d.verifie_le && !!d.ecartement))
+  );
+  const pagesPartie = (p: { page_debut: number | null; page_fin: number | null }) =>
+    p.page_debut === null ? 'pièce' : p.page_debut === p.page_fin ? `p. ${p.page_debut}` : `p. ${p.page_debut}-${p.page_fin}`;
   let phraseEcartement = $derived.by(() => {
     const e = d?.ecartement;
     if (!e) return '';
@@ -708,6 +718,11 @@
     if (d.etat === 'erreur') {
       const e = { libelle: 'Écarter', touche: 'Enter', onclick: () => ecarter(), enCours: occupe === 'ecarter', desactive: occ };
       return { principal: e, secondaires: [], ecarter: () => ecarter() };
+    }
+    if (d.etat === 'ignore' && !ecartee) {
+      return admin && !decoupe
+        ? { principal: { libelle: 'Relire avec Claude', onclick: () => (dlgRelire = true), desactive: occ }, secondaires: [] }
+        : { principal: { libelle: `Retour à ${retourLibelle}`, href: retour }, secondaires: [] };
     }
     if (ecartee) {
       const r: Action = { libelle: 'Remettre à contrôler', touche: 'Enter', onclick: remettre, enCours: occupe === 'remettre', desactive: occ };
@@ -1132,6 +1147,11 @@
           </Bandeau>
         {:else if d.etat === 'erreur'}
           <Bandeau ton="erreur" titre="Illisible.">{d.message ? phrase(d.message) : 'La lecture a échoué.'}{admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}</Bandeau>
+        {:else if decoupe}
+          <Bandeau ton="neutre" titre="Fichier découpé en {d.parties.length} pièces.">
+            Chacune se contrôle à part :
+            {#each d.parties as p, i (p.id)}{i > 0 ? ', ' : ' '}<a href="/documents/{p.id}">{pagesPartie(p)}</a>{/each}.
+          </Bandeau>
         {:else if d.etat === 'ignore'}
           <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">{#if d.ecartement}{phraseEcartement}{:else}Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}{/if}</Bandeau>
         {:else if ecartee}

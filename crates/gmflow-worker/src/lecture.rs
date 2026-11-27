@@ -212,6 +212,7 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
             fournisseur_entite = $22, remise_ht = $23::float8::numeric(14, 2),
             remise_taux = $24::float8::numeric(6, 3),
             annexes_ht = $25::float8::numeric(14, 2), copie_de = null, pris_le = null,
+            ecartement = null,
             lu_le = case when $2 in ('lu', 'ignore', 'erreur') then now() else lu_le end
          where id = $1",
         id,
@@ -419,7 +420,7 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
             s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur,
             s.date_echeance
             from document s where s.id = $2),
-          copie_de = $2, pris_le = null, lu_le = now(), essais_lecture = 0
+          copie_de = $2, pris_le = null, lu_le = now(), essais_lecture = 0, ecartement = null
          where d.id = $1",
         id,
         source

@@ -187,6 +187,22 @@ pub async fn remettre(
     if a.etat != "ignore" && !doublon_ecarte {
         return Err(refus("etat", "cette pièce n'est pas écartée"));
     }
+    // Origine d'un PDF découpé (`lecture::decoupage`) : ignorée par la lecture, jamais écartée
+    // par un humain ; ses pièces se contrôlent chacune à part. La remettre en circuit doublerait
+    // chaque pièce.
+    let decoupe = sqlx::query_scalar!(
+        r#"select exists (select 1 from piece_jointe p join document d on d.piece_jointe_id = p.source_id
+                          where d.id = $1) as "e!""#,
+        id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if decoupe {
+        return Err(refus(
+            "decoupe",
+            "ce fichier a été découpé en plusieurs pièces : contrôlez chacune d'elles",
+        ));
+    }
     let avant: Value = match a.ecartement.as_ref().map(|e| e["avant"].clone()) {
         Some(v) if v.is_object() => v,
         // Écartée avant cette version : une pièce lue (facture, avoir, BL) redevient à contrôler.

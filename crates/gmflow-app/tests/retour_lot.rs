@@ -413,3 +413,125 @@ async fn ecarter_avec_motif_puis_remettre_a_controler() {
     assert_eq!(r.code, StatusCode::OK, "{}", r.json);
     m.app.fermer().await;
 }
+
+/// PDF de plusieurs pièces découpé (audit L19) : l'origine, ignorée par la lecture, ne se
+/// « remet » pas à contrôler ; une partie se valide, s'annule, s'écarte et se remet comme une
+/// pièce ordinaire (aucune ne suppose un fichier stocké à part).
+#[tokio::test]
+async fn origine_et_partie_d_un_pdf_decoupe() {
+    let m = monde().await;
+    let app = &m.app;
+    let resp = Some(m.c_resp_a.as_str());
+    // Origine : le document de la pièce du mail, ignoré par le découpage.
+    let origine = facture(&m, m.boite_a, m.sa, "O-1", true).await;
+    sqlx::query(
+        "update document set etat = 'ignore', type = null, statut_depot = null, controles = '[]',
+             message = 'Ce fichier regroupe 2 pièces, lues chacune à part (p. 1, p. 2).',
+             confiance = '{\"decoupage\": [{\"debut\": 1, \"fin\": 1}, {\"debut\": 2, \"fin\": 2}]}'
+         where id = $1",
+    )
+    .bind(origine)
+    .execute(app.pool())
+    .await
+    .unwrap();
+    let mut parties = Vec::new();
+    for page in [1, 2] {
+        let id: i64 = sqlx::query_scalar(
+            "with p as (
+                 insert into piece_jointe (mail_id, rang, nom, type_mime, taille, sha256, source_id,
+                                           page_debut, page_fin)
+                 select o.mail_id, -100 - $2, 'f (p. ' || $2 || ').pdf', 'application/pdf', 10,
+                        decode(md5(random()::text), 'hex'), o.id, $2, $2
+                 from piece_jointe o join document d on d.piece_jointe_id = o.id where d.id = $1
+                 returning id, mail_id, sha256)
+             insert into document (piece_jointe_id, mail_id, sha256, etat, voie, type, societe_id,
+                 fournisseur_nom, fournisseur_id, fournisseur_siret, numero, date_document,
+                 montant_ht, montant_tva, montant_ttc, confiance, texte, lu_le)
+             select p.id, p.mail_id, p.sha256, 'lu', 'pdf_texte', 'facture', $3, 'Durand', $4,
+                    '55210055400013', 'P-' || $2, current_date, 50.00, 10.00, 60.00,
+                    '{\"type\": 0.95, \"societe\": 0.95}', 'FACTURE', now()
+             from p returning id",
+        )
+        .bind(origine)
+        .bind(page)
+        .bind(m.sa)
+        .bind(m.fournisseur)
+        .fetch_one(app.pool())
+        .await
+        .unwrap();
+        gmflow_core::depot::evaluer(app.pool(), id).await.unwrap();
+        parties.push(id);
+    }
+    let fiche = app
+        .requete("GET", &format!("/api/documents/{origine}"), None, resp)
+        .await;
+    assert_eq!(fiche.code, StatusCode::OK, "{}", fiche.json);
+    assert_eq!(
+        fiche.json["parties"],
+        json!([
+            { "id": parties[0], "page_debut": 1, "page_fin": 1 },
+            { "id": parties[1], "page_debut": 2, "page_fin": 2 }
+        ])
+    );
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/documents/{origine}/remettre"),
+            None,
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::CONFLICT);
+    assert_eq!(r.json["code"], "decoupe");
+    assert_eq!(doc(app, origine).await["etat"], "ignore");
+    let fiche = app
+        .requete("GET", &format!("/api/documents/{}", parties[0]), None, resp)
+        .await;
+    assert_eq!(fiche.json["parties"], json!([]));
+
+    // Partie : validée par lot avec l'autre, annulée, puis écartée et remise à contrôler.
+    let p = parties[0];
+    assert_eq!(doc(app, p).await["statut_depot"], "pret");
+    let avant = doc(app, p).await;
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/lot/valider",
+            Some(json!({ "ids": parties })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.json["validees"], 2, "{}", r.json);
+    let lot = r.json["annulation"]["lot"].as_str().unwrap().to_string();
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/annuler-envoi",
+            Some(json!({ "lot": lot })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.json["annulees"], 2, "{}", r.json);
+    assert_eq!(doc(app, p).await, avant);
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/documents/{p}/ecarter"),
+            Some(json!({ "motif": "autre", "texte": "page blanche" })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let r = app
+        .requete("POST", &format!("/api/documents/{p}/remettre"), None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(doc(app, p).await, avant);
+    // Ses lignes se corrigent comme celles de toute pièce lue.
+    let r = app
+        .requete("GET", &format!("/api/documents/{p}/lignes"), None, resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    assert_eq!(r.json["modifiable"], true, "{}", r.json);
+    m.app.fermer().await;
+}

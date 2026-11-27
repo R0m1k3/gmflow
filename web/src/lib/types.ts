@@ -331,6 +331,9 @@ export interface FicheDocument {
   logiflow_attendu: boolean;
   /** BL : sa livraison retrouvée dans Logiflow par la vérification de chaque heure. */
   logiflow_livraison: LivraisonLogiflow | null;
+  /** PDF de plusieurs pièces découpé : documents des parties (pages à partir de 1). Ce document-ci
+   * n'est alors que l'origine, ignorée ; vide sinon. */
+  parties: { id: number; page_debut: number | null; page_fin: number | null }[];
 }
 
 export interface LivraisonLogiflow {

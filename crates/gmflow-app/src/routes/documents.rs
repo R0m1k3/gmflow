@@ -286,6 +286,16 @@ pub struct FicheComplete {
     logiflow_attendu: bool,
     /// BL : livraison Logiflow retrouvée (`logiflow_livraison`), ou rien.
     logiflow_livraison: Option<Value>,
+    /// PDF de plusieurs pièces découpé (`lecture::decoupage`) : documents des parties, dans
+    /// l'ordre des pages. Vide sinon. Ce document-ci n'est alors que l'origine, ignorée.
+    parties: Vec<PartieVue>,
+}
+
+#[derive(Serialize)]
+pub struct PartieVue {
+    id: i64,
+    page_debut: Option<i32>,
+    page_fin: Option<i32>,
 }
 
 async fn mail_du_document(etat: &Etat, id: i64) -> Resultat<i64> {
@@ -410,6 +420,15 @@ pub async fn fiche(
         )
         .fetch_one(&etat.pool)
         .await?;
+    let parties = sqlx::query_as!(
+        PartieVue,
+        "select d.id, p.page_debut, p.page_fin
+         from piece_jointe p join document d on d.piece_jointe_id = p.id
+         where p.source_id = $1 order by p.page_debut, p.id",
+        d.piece_id
+    )
+    .fetch_all(&etat.pool)
+    .await?;
     Ok(Json(FicheComplete {
         document: d,
         envois,
@@ -419,6 +438,7 @@ pub async fn fiche(
         logiflow_configure,
         logiflow_attendu,
         logiflow_livraison,
+        parties,
     }))
 }
 
