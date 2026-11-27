@@ -96,8 +96,9 @@ pub struct AValider {
     #[serde(with = "date_iso::option")]
     date_echeance: Option<time::Date>,
     /// Urgence (ordre de la file) : 1 facture à payer dans `JOURS_ECHEANCE` jours ou moins
-    /// (échéance dépassée comprise), 2 validable d'un clic (aucune alerte), 3 à corriger
-    /// (alerte). Dans le rang 1 l'échéance la plus proche d'abord, sinon la plus ancienne reçue.
+    /// (échéance dépassée comprise), 2 validable d'un clic (ni alerte ni écart d'articles avec
+    /// un BL), 3 à corriger (alerte ou écart BL). Dans le rang 1 l'échéance la plus proche
+    /// d'abord, sinon la plus ancienne reçue.
     rang: i32,
 }
 
@@ -367,7 +368,10 @@ pub async fn file(
            join mail m on m.id = d.mail_id
            cross join lateral (
                select case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $4::int then 1
-                           when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)) then 2
+                           when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)
+                                     or exists (select 1 from rapprochement r
+                                                where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)
+                                                  and jsonb_array_length(r.ecarts) > 0)) then 2
                            else 3 end as rang,
                       case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $4::int
                            then d.date_echeance::timestamp at time zone 'Europe/Paris'
@@ -443,7 +447,10 @@ pub type Place = (i32, time::OffsetDateTime);
 pub async fn place_dans_file(etat: &Etat, id: i64) -> Resultat<Option<Place>> {
     let r = sqlx::query!(
         r#"select case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $2::int then 1
-                       when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)) then 2
+                       when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)
+                                     or exists (select 1 from rapprochement r
+                                                where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)
+                                                  and jsonb_array_length(r.ecarts) > 0)) then 2
                        else 3 end as "rang!",
                   case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $2::int
                        then d.date_echeance::timestamp at time zone 'Europe/Paris'
@@ -475,7 +482,10 @@ pub async fn suivant(
            join mail m on m.id = d.mail_id
            cross join lateral (
                select case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $6::int then 1
-                           when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)) then 2
+                           when not (jsonb_array_length(d.controles) > 0 or (d.type = 'bl' and d.fournisseur_id is null)
+                                     or exists (select 1 from rapprochement r
+                                                where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)
+                                                  and jsonb_array_length(r.ecarts) > 0)) then 2
                            else 3 end as rang,
                       case when d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $6::int
                            then d.date_echeance::timestamp at time zone 'Europe/Paris'

@@ -239,6 +239,18 @@ async fn accueil_par_urgence() {
         .unwrap();
     let vieux_bl = doc(&m, "bl", "Vieux BL", 50.0, 10).await;
     let bl_recent = doc(&m, "bl", "BL récent", 50.0, 2).await;
+    // Une facture sans alerte mais en écart d'articles avec son BL : pas « validable d'un clic ».
+    let ecart = doc(&m, "facture", "Écart", 130.0, 4).await;
+    let bl_ecart = doc(&m, "bl", "BL écart", 50.0, 3).await;
+    sqlx::query(
+        "insert into rapprochement (facture_id, bl_id, methode, ecarts)
+         values ($1, $2, 'manuel', '[{\"reference\": \"A1\", \"qte_bl\": 1, \"qte_facture\": 2}]')",
+    )
+    .bind(ecart)
+    .bind(bl_ecart)
+    .execute(app.pool())
+    .await
+    .unwrap();
     sqlx::query("update document set fournisseur_id = null where type = 'bl'")
         .execute(app.pool())
         .await
@@ -254,7 +266,7 @@ async fn accueil_par_urgence() {
         .map(|e| (e["id"].as_i64().unwrap(), e["rang"].as_i64().unwrap()))
         .collect();
     // Échéance proche, puis validable d'un clic, puis à corriger (les BL sans fournisseur
-    // identifié ont une alerte), les plus anciens d'abord dans chaque rang.
+    // identifié ont une alerte, la facture en écart BL), les plus anciens d'abord dans chaque rang.
     assert_eq!(
         file,
         vec![
@@ -262,6 +274,8 @@ async fn accueil_par_urgence() {
             (simple, 2),
             (vieux_bl, 3),
             (alerte, 3),
+            (ecart, 3),
+            (bl_ecart, 3),
             (bl_recent, 3)
         ]
     );
@@ -287,7 +301,7 @@ async fn accueil_par_urgence() {
         .requete("GET", "/api/tableau-de-bord", None, Some(&m.admin))
         .await;
     let t = &r.json["travail"];
-    assert_eq!(t["factures_ttc"], 120.0 + 999.0 + 240.0, "{t}");
+    assert_eq!(t["factures_ttc"], 120.0 + 999.0 + 240.0 + 130.0, "{t}");
     assert_eq!(t["echeances"], 1);
     assert_eq!(t["bl_sans_facture"], 1, "{t}");
 
