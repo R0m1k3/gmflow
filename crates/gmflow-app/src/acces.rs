@@ -15,6 +15,10 @@ pub const CLE_SESSION: &str = "utilisateur";
 pub struct SessionUtilisateur {
     pub id: i64,
     pub connecte_le: i64,
+    /// `utilisateur.generation_session` à la connexion : un changement de mot de passe
+    /// l'augmente et coupe les sessions plus anciennes (absente des sessions d'avant : 0).
+    #[serde(default)]
+    pub generation: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,12 +76,12 @@ impl FromRequestParts<Etat> for Acces {
             return Err(ErreurApi::NonConnecte);
         }
         let ligne = sqlx::query!(
-            "select identifiant, role, societe_id from utilisateur where id = $1 and actif",
+            "select identifiant, role, societe_id, generation_session from utilisateur where id = $1 and actif",
             su.id
         )
         .fetch_optional(&etat.pool)
         .await?;
-        let Some(u) = ligne else {
+        let Some(u) = ligne.filter(|u| u.generation_session == su.generation) else {
             session.flush().await?;
             return Err(ErreurApi::NonConnecte);
         };

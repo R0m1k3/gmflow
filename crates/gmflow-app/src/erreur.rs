@@ -25,7 +25,7 @@ pub enum ErreurApi {
     /// Conflit avec un code stable pour l'interface (`{"erreur": "...", "code": "doublon"}`).
     #[error("{message}")]
     ConflitCode { code: &'static str, message: String },
-    #[error("trop d'essais, réessayez dans 15 minutes")]
+    #[error("trop d'essais : patientez quelques minutes avant de réessayer")]
     TropDEssais,
     #[error("erreur interne")]
     Interne(#[from] anyhow::Error),

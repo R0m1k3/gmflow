@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tower_sessions::Session;
 
 use crate::acces::AccesAdmin;
 use crate::erreur::{ErreurApi, Resultat};
@@ -132,9 +133,12 @@ async fn identifiant_libre(etat: &Etat, identifiant: &str, sauf: Option<i64>) ->
     Ok(())
 }
 
+/// `PUT /api/admin/utilisateurs/{id}`. Un nouveau mot de passe coupe toutes les sessions de
+/// ce compte (sauf celle de l'administrateur s'il change le sien).
 pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
+    session: Session,
     Path(id): Path<i64>,
     Json(e): Json<Entree>,
 ) -> Resultat<Json<Utilisateur>> {
@@ -150,12 +154,12 @@ pub async fn modifier(
         None => None,
     };
     let mut tx = etat.pool.begin().await?;
-    let u = sqlx::query_as!(
-        Utilisateur,
+    let ligne = sqlx::query!(
         "update utilisateur set identifiant = $2, role = $3, societe_id = $4, actif = $5,
-             hash_mdp = coalesce($6, hash_mdp)
+             hash_mdp = coalesce($6, hash_mdp),
+             generation_session = generation_session + case when $6::text is null then 0 else 1 end
          where id = $1
-         returning id, identifiant, role, societe_id, actif, cree_le",
+         returning id, identifiant, role, societe_id, actif, cree_le, generation_session",
         id,
         e.identifiant,
         e.role,
@@ -166,6 +170,14 @@ pub async fn modifier(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(ErreurApi::Absent)?;
+    let u = Utilisateur {
+        id: ligne.id,
+        identifiant: ligne.identifiant,
+        role: ligne.role,
+        societe_id: ligne.societe_id,
+        actif: ligne.actif,
+        cree_le: ligne.cree_le,
+    };
     gmflow_core::journal::ecrire(
         &mut *tx,
         Some(a.utilisateur_id),
@@ -176,5 +188,8 @@ pub async fn modifier(
     )
     .await?;
     tx.commit().await?;
+    if hash.is_some() && id == a.utilisateur_id {
+        crate::routes::auth::garder_session(&session, ligne.generation_session).await?;
+    }
     Ok(Json(u))
 }

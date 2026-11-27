@@ -104,6 +104,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/connexion", post(auth::connexion))
         .route("/deconnexion", post(auth::deconnexion))
         .route("/moi", get(auth::moi))
+        .route("/moi/mot-de-passe", post(auth::changer_mot_de_passe))
         .route("/premier-compte/{jeton}", get(premier_compte::verifier))
         .route("/premier-compte", post(premier_compte::creer))
         .route("/societes", get(mails::societes))

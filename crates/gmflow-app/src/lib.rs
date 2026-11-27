@@ -3,6 +3,7 @@
 pub mod acces;
 pub mod erreur;
 pub mod etat;
+pub mod freinage;
 pub mod mdp;
 pub mod premier_compte;
 pub mod routes;
@@ -45,7 +46,12 @@ pub async fn lancer(config: Config) -> Result<()> {
     let adresse = SocketAddr::from(([0, 0, 0, 0], port_ecoute()?));
     tracing::info!(%adresse, "GMFlow app démarrée");
     let ecoute = tokio::net::TcpListener::bind(adresse).await?;
-    axum::serve(ecoute, app).await?;
+    // Adresse de la connexion : sert au freinage des essais de connexion (`freinage`).
+    axum::serve(
+        ecoute,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
