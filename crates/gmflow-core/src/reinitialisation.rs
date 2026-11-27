@@ -25,6 +25,7 @@ use crate::{file, journal};
 pub const TABLES_EFFACEES: &[&str] = &[
     "logiflow_rapprochement",
     "logiflow_livraison",
+    "lecture_tranche",
     "ligne_document",
     "rapprochement",
     "envoi_prevu",

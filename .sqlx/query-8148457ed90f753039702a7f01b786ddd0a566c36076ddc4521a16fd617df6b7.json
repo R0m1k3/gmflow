@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select rang, page_debut as debut, page_fin as fin, etat, reponse, modele\n             from lecture_tranche where document_id = $1 order by rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rang",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "lecture_tranche",
+            "name": "rang"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "debut",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "lecture_tranche",
+            "name": "page_debut"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fin",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "lecture_tranche",
+            "name": "page_fin"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lecture_tranche",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "reponse",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "lecture_tranche",
+            "name": "reponse"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "modele",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "lecture_tranche",
+            "name": "modele"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "8148457ed90f753039702a7f01b786ddd0a566c36076ddc4521a16fd617df6b7"
+}

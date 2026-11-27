@@ -292,7 +292,7 @@ pub const AVOIRS_POSITIFS: &str = "Pour un avoir, tous les montants (montant_ht,
      à rendre.\n";
 
 /// Détail des lignes, surtout pour les BL (fiches produits et commande dans le logiciel du magasin).
-const DETAIL_LIGNES: &str = "Pour chaque ligne, recopie aussi ce que le document imprime, \
+pub const DETAIL_LIGNES: &str = "Pour chaque ligne, recopie aussi ce que le document imprime, \
      null sinon : gencod = le code-barres EAN/GTIN de l'article (8, 12, 13 ou 14 chiffres, \
      colonne EAN, Gencod, Code barre ; jamais la référence fournisseur) ; colis = le nombre de \
      colis ou cartons livrés ; pcb = le nombre d'unités par colis (PCB, colisage, « par », \
