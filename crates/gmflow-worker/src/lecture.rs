@@ -12,6 +12,8 @@ use sqlx::PgPool;
 
 use crate::Contexte;
 
+mod tranches;
+
 /// Documents mis en file par tour de pompe.
 const PAR_TOUR: i64 = 200;
 /// Texte conservé en base.
@@ -824,8 +826,31 @@ async fn lire_pris(
             });
         }
     }
+    // Très gros PDF (texte ou OCR) : lu en plusieurs parties (`tranches`).
+    let mut par_tranches = match decoupe {
+        None => {
+            tranches::essayer(
+                ctx,
+                id,
+                &e,
+                &contenu,
+                &aiguillage,
+                ocr.as_ref(),
+                &soc,
+                forcer,
+                approfondie,
+                hors_quota,
+            )
+            .await?
+        }
+        Some(_) => None,
+    };
     let lu = match aiguillage {
         _ if decoupe.is_some() => decoupe.take().unwrap_or_default(),
+        _ if par_tranches.is_some() => match par_tranches.take().flatten() {
+            Some(lu) => lu,
+            None => return Ok(()),
+        },
         _ if ocr.is_some() => {
             let Some((voie, t)) = ocr.take() else {
                 unreachable!("OCR vérifié")

@@ -304,12 +304,32 @@ pub async fn expliquer(pool: &PgPool, document_id: i64) -> anyhow::Result<Option
             a.genre = "bloque";
             a.raison = "La lecture ne répond plus : elle sera relancée automatiquement".into();
         } else {
-            a.raison = match d.pris_le {
-                Some(t) => format!(
-                    "Lecture en cours (commencée {})",
-                    quand_paris(pool, t).await?.replace("vers ", "à ")
+            // Très gros document lu en plusieurs parties (`lecture::tranches`) : l'avancement.
+            let parties = sqlx::query!(
+                r#"select count(*) filter (where etat <> 'a_lire') as "faites!",
+                          count(*) as "total!"
+                   from lecture_tranche where document_id = $1"#,
+                document_id
+            )
+            .fetch_one(pool)
+            .await?;
+            let quand = match d.pris_le {
+                Some(t) => Some(quand_paris(pool, t).await?.replace("vers ", "à ")),
+                None => None,
+            };
+            a.raison = match (parties.total, quand) {
+                (n, q) if n > 1 => format!(
+                    "Lecture en cours, partie {} sur {n}{}",
+                    (parties.faites + 1).min(n),
+                    q.map(|q| if parties.faites > 0 {
+                        format!(" (dernière partie lue {q})")
+                    } else {
+                        format!(" (commencée {q})")
+                    })
+                    .unwrap_or_default()
                 ),
-                None => "Lecture en cours".into(),
+                (_, Some(q)) => format!("Lecture en cours (commencée {q})"),
+                _ => "Lecture en cours".into(),
             };
         }
         return Ok(Some(a));

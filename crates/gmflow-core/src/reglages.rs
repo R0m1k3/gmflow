@@ -22,6 +22,9 @@ pub const IDENTIFICATION_FOURNISSEUR: &str = "identification_fournisseur";
 pub const COLONNES_TABLEUR: &str = "colonnes_tableur";
 /// Découpage d'un PDF qui semble regrouper plusieurs pièces (réglage de `extraction_texte`).
 pub const DECOUPAGE_PDF: &str = "decoupage_pdf";
+/// Lignes d'une tranche de pages d'un très gros PDF (`lecture::tranches`) : réglage de
+/// `extraction_texte` (PDF texte) ou de `ocr_scan` (scan lu par l'OCR), le moins cher.
+pub const LIGNES_TRANCHE: &str = "lignes_tranche";
 pub const TACHES_LECTURE: &[&str] = &[
     EXTRACTION_TEXTE,
     OCR_SCAN,
@@ -29,6 +32,7 @@ pub const TACHES_LECTURE: &[&str] = &[
     IDENTIFICATION_FOURNISSEUR,
     COLONNES_TABLEUR,
     DECOUPAGE_PDF,
+    LIGNES_TRANCHE,
 ];
 
 /// Tri des mails (quota du jour à part, pour ne pas prendre celui de la lecture).
