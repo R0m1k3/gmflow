@@ -5,7 +5,8 @@ Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md
 ## Règles communes
 
 - Session obligatoire (cookie `gmflow`), sinon `401 {"erreur": "non connecté"}`. Toute mutation exige l'en-tête `X-GMFlow: 1` (`api.ts` le pose), sinon `403`.
-- Erreurs : `{"erreur": "phrase"}` avec `400` (entrée invalide), `403` (droit manquant), `404` (absent ou hors périmètre), `409` (refus métier). Certains `409` ajoutent un `code` stable : `{"erreur": "...", "code": "doublon"}`. Dans le front, `ErreurApi.raison` porte ce code. Certains `400` disent le champ en faute : `{"erreur": "...", "champ": "siret"}` (`ErreurApi.champ`), le formulaire affiche le message sous ce champ.
+- Erreurs : `{"erreur": "phrase", "code": "…"}` avec `400` (entrée invalide), `401`, `403` (droit manquant), `404` (absent ou hors périmètre), `409` (refus métier), `429`, `500`. **Chaque** erreur a un `code` stable (`crates/gmflow-app/src/erreur.rs`) : `donnees`, `champ`, `non_connecte`, `interdit`, `absent`, `conflit`, `trop_d_essais`, `interne`, ou le code d'un refus métier (`doublon`, `expedition`, `sans_adresse`, `smtp_absent`, `serveur_magasin_absent`, `logiflow_absent`, `essai`, `deja_envoye`, `erreur_envoi`, `etat`, `alertes`). Dans le front, `ErreurApi.raison` porte ce code, traduit par `web/src/lib/erreurs.ts` en message simple + « que faire » + bouton (jamais la phrase du serveur pour un code connu). Certains `400` disent le champ en faute : `{"erreur": "...", "code": "champ", "champ": "siret"}` (`ErreurApi.champ`), le formulaire affiche le message sous ce champ.
+- Listes paginées (`GET /api/documents`, `/api/mails`, `/api/fournisseurs`) : `{"total", "page", "elements", "suivante"}`, 50 par page. `total` n'est compté qu'en page 1 (`null` ensuite, le client garde le premier) ; `suivante` dit s'il reste une page (lue avec une ligne de plus, sans `count(*)`). Tri `?tri=&sens=asc|desc` par liste blanche (`400`, `champ` `tri` ou `sens`, sinon) : documents `recu` (défaut), `date`, `echeance`, `fournisseur`, `numero`, `montant` ; mails `date` (défaut), `expediteur`, `objet` ; fournisseurs : `TRI_FOURNISSEURS` de `routes/fournisseurs.rs`. La recherche `q` passe par les index trigrammes (migration 0029). Documents, filtres en plus : `sans_facture=N` (BL lus sans facture rapprochée ni écartés, reçus depuis N jours ou plus), `echeance=N` (factures dues dans N jours ou moins, dépassées comprises).
 - Dates : `AAAA-MM-JJ` ; instants : RFC 3339 (UTC). Montants : nombres en euros (2 décimales).
 - **Périmètre d'un responsable** (rôle non admin) : il voit les documents et mails reçus par une boîte de sa société. Pour les documents, s'y ajoute : rangés dans sa société ou pas encore rangés (`societe_id` nul). Un document de sa boîte rangé dans une autre société ne lui apparaît pas dans À traiter, la recherche, le fil fournisseur ni le bilan, et `valider` ou `ecarter` lui répondent `403`. Les fiches existantes (`GET /api/documents/{id}`, pièces) suivent toujours la règle du mail : visibles si le mail est visible. Fournisseurs : voir §4.
 - **`?societe=ID`** (filtre « société choisie ») : un document compte pour la société où il est rangé ; s'il n'est pas encore rangé, il compte pour la société d'une boîte qui l'a reçu. Un mail compte pour la société de ses boîtes. Pour un responsable, ce filtre s'ajoute à son périmètre : une autre société ne rend rien (pas d'erreur), comme les endpoints existants.
@@ -52,7 +53,7 @@ Champs de `Bloque` : `genre`, `document_id`, `boite_id`, `libelle` (boîte, ou n
 - pas encore vérifiés ;
 - ou, pour une facture ou un avoir, vérifiés mais jamais validés pour l'envoi (`valide_le` nul, `statut_depot` `a_verifier` ou `pret`) : c'est le cas d'une vérification faite avec l'ancienne interface.
 
-Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisseur identifié), puis du plus ancien au plus récent (date du mail), puis par id.
+Tri par urgence, champ `rang` : 1 facture due dans 7 jours ou moins (`JOURS_ECHEANCE`, échéance dépassée comprise ; l'échéance la plus proche d'abord), 2 validable d'un clic (ni alerte ni écart d'articles avec un BL), 3 à corriger (contrôle en échec, BL sans fournisseur identifié, ou écart d'articles avec un BL). Dans les rangs 2 et 3, du plus ancien au plus récent (date du mail), puis par id. `date_echeance` est donnée sur chaque ligne.
 
 ```json
 {
@@ -61,7 +62,7 @@ Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisse
   "numero": "F-2026-118", "societe_id": 1, "societe": "Frouard",
   "date_document": "2026-11-18", "recu_le": "2026-11-18T09:12:00Z", "montant_ttc": 1250.4,
   "alerte": "HT + TVA donnent 1 250,00 €, le TTC lu est 1 250,40 €", "alerte_code": "montants", "nb_alertes": 1,
-  "statut_depot": "a_verifier", "verifie": false
+  "statut_depot": "a_verifier", "verifie": false, "date_echeance": "2026-12-01", "rang": 3
 }
 ```
 
@@ -82,6 +83,8 @@ Tri : ceux qui ont une alerte d'abord (contrôle en échec, ou BL sans fournisse
 ### `GET /api/a-traiter/compteurs?societe=`
 
 `{"bloque": 5, "a_valider": 6, "a_repondre": 2, "total": 13}` : mêmes règles que la file (les tests vérifient l'égalité), en quelques requêtes `count`. Sert au badge du menu ; `bloque` sert à la pastille d'état des admins (« Tout fonctionne » si 0). Remplace le double appel à `/api/tableau-de-bord`.
+
+`GET /api/tableau-de-bord?societe=` ajoute `travail` pour l'accueil : `{"factures_ttc", "echeances", "jours_echeance": 7, "bl_sans_facture", "jours_bl_sans_facture": 7}` (montant TTC des factures à contrôler, factures à contrôler dues sous 7 jours, BL sans facture depuis 7 jours ; même périmètre que la file).
 
 ## 3. Valider en un appel
 
@@ -152,6 +155,8 @@ Réponse : même forme que `valider` (`envoi: false`).
 ## 3 bis. Fiche document (`GET /api/documents/{id}`, route existante, enrichie)
 
 Ajouts :
+
+- `historique` : corrections à la main des champs, de la plus ancienne à la plus récente, lues dans le journal (`correction`) : `[{"champ": "montant_ttc", "avant": 120.5, "apres": 125.5, "par": "marie", "quand": "2026-11-25T10:18:00Z"}]` (`par` nul : compte supprimé). La fiche en tire l'origine de chaque valeur (`web/src/lib/origine.ts` : lue sûre, lue avec doute, corrigée par X le …, calculée).
 
 ```json
 { "recu_le": "2026-11-18T09:12:00Z", "envoi_relance": false,
