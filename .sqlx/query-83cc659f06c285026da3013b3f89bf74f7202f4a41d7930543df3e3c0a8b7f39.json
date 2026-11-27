@@ -1,0 +1,140 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) as \"date!\",\n                  s.raison_sociale as \"societe?\", coalesce(fo.nom, d.fournisseur_nom) as fournisseur,\n                  d.type, d.numero,\n                  (case when d.type = 'avoir' then -abs(d.montant_ht) else d.montant_ht end)::float8 as ht,\n                  (case when d.type = 'avoir' then -abs(d.montant_tva) else d.montant_tva end)::float8 as tva,\n                  (case when d.type = 'avoir' then -abs(d.montant_ttc) else d.montant_ttc end)::float8 as ttc,\n                  d.date_echeance, d.statut_depot as \"statut_depot!\", d.valide_le is not null as \"validee!\",\n                  s.outil_depot as \"outil?\",\n                  (select max(e.quand) at time zone 'Europe/Paris' from envoi_depot e\n                   where e.document_id = d.id and e.etat = 'envoye') as envoyee_le\n           from document d\n           join mail m on m.id = d.mail_id\n           left join societe s on s.id = coalesce(d.societe_id, $3)\n           left join fournisseur fo on fo.id = d.fournisseur_id\n           where d.statut_depot is not null\n             and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $1::date\n             and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) < $1::date + interval '1 month'\n             and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                         where mb.mail_id = d.mail_id and ($2::bigint is null or b.societe_id = $2))\n             and ($2::bigint is null or d.societe_id is null or d.societe_id = $2)\n             and ($4::bigint is null or d.societe_id = $4\n                  or (d.societe_id is null\n                      and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id\n                                  where mb.mail_id = d.mail_id and b.societe_id = $4)))\n           order by s.raison_sociale nulls last, 1, 3 nulls last, d.numero nulls last, d.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "date!",
+        "type_info": "Date",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "societe?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "raison_sociale"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fournisseur",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "numero",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "numero"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "tva",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "ttc",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "date_echeance",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_echeance"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "statut_depot!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "validee!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "outil?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "outil_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "envoyee_le",
+        "type_info": "Timestamp",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      null,
+      true,
+      true,
+      null,
+      null,
+      null,
+      true,
+      true,
+      null,
+      true,
+      null
+    ]
+  },
+  "hash": "83cc659f06c285026da3013b3f89bf74f7202f4a41d7930543df3e3c0a8b7f39"
+}

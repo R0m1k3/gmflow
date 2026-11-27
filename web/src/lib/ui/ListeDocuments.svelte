@@ -30,6 +30,7 @@
   import Vide from './Vide.svelte';
   import Volets from './Volets.svelte';
   import SelectionLot from './SelectionLot.svelte';
+  import { bulleNotes } from './NotesOutils.ts';
   import { Selection } from '#lib/selection.svelte.ts';
 
   let {
@@ -158,6 +159,7 @@
       d.montant_ttc !== null ? formatMontant(d.montant_ttc) : '',
       ...e.map((x) => x.texte)
     ];
+    if (d.notes) p.push(bulleNotes(d.notes, d.derniere_note));
     return p.filter(Boolean).join(', ');
   }
 
@@ -292,13 +294,14 @@
               {#if !blSansMontant}
                 <div class="r2">{d.type === 'bl' ? heureDe(d.date_mail) : dateFr(d.date_document, true)}</div>
               {/if}
-              {#if etiquettes.length}
+              {#if etiquettes.length || d.notes}
                 <div class="c">
                   {#each etiquettes.slice(0, MAX_ETIQUETTES) as e (e.texte)}<Etiquette ton={e.ton} title={e.title}>{e.texte}</Etiquette>{/each}
                   {#if etiquettes.length > MAX_ETIQUETTES}
                     {@const reste = etiquettes.slice(MAX_ETIQUETTES)}
                     <Etiquette ton="pale" title={reste.map((e) => e.texte).join(', ')}>+{reste.length}</Etiquette>
                   {/if}
+                  {#if d.notes}<span class="pastille-note" title={bulleNotes(d.notes, d.derniere_note)}><Icone nom="crayon" />{d.notes > 1 ? `${d.notes} notes` : 'Note'}</span>{/if}
                 </div>
               {/if}
             </a>
@@ -405,6 +408,24 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* Pièce avec au moins une note interne (survol : début de la dernière). */
+  .pastille-note {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0 6px;
+    border-radius: var(--r-etiq);
+    background: var(--sunk);
+    color: var(--text2);
+    font-size: 14px;
+    line-height: 24px;
+    white-space: nowrap;
+  }
+  .pastille-note :global(.i) {
+    width: 14px;
+    height: 14px;
   }
   .doc-heure {
     font-size: 14px;

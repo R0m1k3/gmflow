@@ -59,6 +59,9 @@ pub struct LigneDocument {
     fournisseur: Option<String>,
     statut_depot: Option<String>,
     controles: Value,
+    /// Notes internes (`routes/notes.rs`) et début de la plus récente (survol de la pastille).
+    notes: i64,
+    derniere_note: Option<String>,
 }
 
 fn vide(v: &Option<String>) -> Option<String> {
@@ -131,7 +134,10 @@ pub async fn lister(
                   (select count(*) from rapprochement r cross join jsonb_array_elements(r.ecarts) e
                    where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)) as "articles_ecart!", d.message,
                   d.verifie_le is not null as "verifie!", m.date_mail,
-                  d.fournisseur_id, fo.nom as "fournisseur?", d.statut_depot, d.controles
+                  d.fournisseur_id, fo.nom as "fournisseur?", d.statut_depot, d.controles,
+                  (select count(*) from note_interne n where n.document_id = d.id) as "notes!",
+                  (select left(n.texte, 140) from note_interne n where n.document_id = d.id
+                   order by n.cree_le desc, n.id desc limit 1) as derniere_note
            from document d
            join mail m on m.id = d.mail_id
            join piece_jointe p on p.id = d.piece_jointe_id
@@ -1340,7 +1346,8 @@ pub async fn ecarter(
         action,
         "document",
         Some(id.to_string()),
-        json!({ "etat": a.etat, "statut_depot": a.statut_depot }),
+        json!({ "etat": a.etat, "statut_depot": a.statut_depot,
+                "motif": motif.motif, "texte": motif.texte }),
     )
     .await?;
     tx.commit().await?;

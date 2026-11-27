@@ -149,6 +149,21 @@ Pas demandé au §5 mais nécessaire au parcours A.5 : sans lui, un doublon rest
 
 Réponse : même forme que `valider` (`envoi: false`).
 
+Motif (audit U23) : corps facultatif `{"motif": "doublon" | "pas_pour_nous" | "publicite" | "autre", "texte": "…"}` (`400` sur un motif inconnu, texte coupé à 500 caractères). Il est gardé dans `document.ecartement` (avec qui et quand, montré par la fiche) et dans le détail du journal (`motif`, `texte`). L'interface le demande toujours dans le dialogue « Écarter » (fiche, accueil, lot) ; à l'accueil, « Écarter » d'un doublon bloqué envoie `doublon`, d'un illisible `autre` + « Document illisible » (un clic, sans dialogue).
+
+### `POST /api/documents/lot/ecarter` (audit U23)
+
+Corps `{"ids": [12, 13], "motif": "pas_pour_nous", "texte": null}` : motif obligatoire (`400 {"champ": "motif"}`), 100 pièces au plus. Chaque pièce passe par `ecarter` (mêmes droits, mêmes refus, même journal). Réponse `{"ecartees": 2, "laissees": 1, "pieces": [{"id", "ecartee", "raison"}]}` ; une pièce hors du périmètre est laissée avec `raison: "Introuvable"`. Bouton « Écarter N pièces » de la barre de validation par lot.
+
+### Notes internes (audit U23, `routes/notes.rs`, table `note_interne`)
+
+- `GET /api/documents/{id}/notes` : `[{"id", "auteur_id", "auteur_nom", "texte", "cree_le", "supprimable"}]`, la plus récente d'abord ; `supprimable` : l'utilisateur en est l'auteur, ou il est admin.
+- `POST /api/documents/{id}/notes` `{"texte": "…"}` → `201` et la note (1 à 2 000 caractères après nettoyage, sinon `400 {"champ": "texte"}`). Journal `note_ajoutee` (`note_id`, `texte`).
+- `DELETE /api/notes/{id}` → `204` ; auteur ou admin (`403` sinon). Journal `note_supprimee` (`note_id`, `auteur_id`, `texte`).
+- Droits : tout utilisateur qui voit la pièce (même règle que la fiche, `404` sinon).
+- Jamais envoyées à l'extérieur : aucun code de dépôt Dext/Yooz ni de réponse aux fournisseurs ne lit `note_interne` (test `gmflow-worker/tests/notes_internes.rs`). Effacées par la réinitialisation, avec les documents.
+- `GET /api/documents` : chaque ligne a `notes` (nombre) et `derniere_note` (140 premiers caractères de la plus récente) : pastille « Note » des listes, début de la note au survol.
+
 ## 3 bis. Fiche document (`GET /api/documents/{id}`, route existante, enrichie)
 
 Ajouts :
@@ -380,6 +395,15 @@ Essai SMTP (envoi des réponses) d'une boîte enregistrée : connexion et authen
 - `bl_en_attente` : par société et fournisseur, BL datés du mois sans facture rapprochée (ni écartés), même règle.
 - `bl_sans_lignes` : BL lus avant le rapprochement, sans leurs lignes (tout l'historique, même règle) : le front n'a plus à appeler `/api/rapprochement` pour ce nombre.
 - `qualite` (partie repliée) : `GET /api/documents/bilan` et `GET /api/tri/semaines` tels quels (périmètre appliqué, mais pas `?societe=` ni `mois`).
+
+### `GET /api/bilan/export?mois=AAAA-MM&societe=` (audit U16)
+
+Le même bilan en classeur Excel (`gmflow_core::export_bilan`, rust_xlsxwriter), nommé `bilan-<société ou toutes>-<AAAA-MM>.xlsx` (société : raison sociale sans accent ni signe, `toutes` pour un admin sans `?societe=`). Mêmes filtres et mêmes droits que `GET /api/bilan` ; un responsable qui demande une autre société reçoit `403`. Trois feuilles, titre et sous-titre puis en-têtes figés (ligne 4, répétée à l'impression, A4 paysage sur une page de large) :
+- « Synthèse » : une ligne par société de `societes` (« Pas encore rangée » pour la ligne nulle) : reçues, envoyées, à contrôler (`pretes + a_verifier`), échecs d'envoi, doublons, montant envoyé TTC ; puis le total (des nombres, pas des formules) ;
+- « Détail » : une ligne par facture ou avoir compté dans la synthèse (doublons compris) : date (du document, à défaut du mail), société, fournisseur, type, numéro, HT, TVA, TTC (avoirs en négatif), échéance, état (« À contrôler », « Validée », « Envoi en cours », « Envoyée à Dext », « Échec d'envoi », « Doublon »), date et heure (Paris) du dernier envoi réussi en compta ; filtre automatique ;
+- « BL en attente » : `bl_en_attente` (société, fournisseur, nombre de BL) et le total.
+
+Montants en cellules numériques au format monétaire, dates en vraies dates Excel.
 
 ## 8. Fiche mail et réponses (routes existantes, enrichies)
 

@@ -11,6 +11,7 @@ Référence visuelle : `docs/maquette-sauge/` (piste « Sauge » : P3 accueil, S
 - **Couleurs à sens unique** : vert sauge = action principale et liens ; sélection sur fond `--sunk` (#ECEFEA) ; ambre = à contrôler ; rouge = bloqué ou urgent ; vert = fait. Le reste en neutres (`--text`, `--text2`, `--muted`).
 - **Contraste et lisibilité** : police Source Sans 3, texte de base 16 px (15-14 px pour le secondaire), titres 22 px en 500. `--text` #1C2520 (15.6:1), `--text2` #46514A (8.4:1), `--muted` #5E6962 (5.8:1) sur blanc ; pas d'autre gris pour du texte. Fond de l'application, barre latérale et aperçu sur `--bg`/`--pane` (#F4F5F3), colonne de travail blanche bordée de `--line` (#DDE2DA), filets entre lignes `--line-faint` (#ECEFE9). Listes en tuiles arrondies (10 px), tuile choisie sur `--sunk` ; lien actif du menu = tuile blanche bordée. Étiquettes 14 px rayon 6 (`--warn-p`/`--ok-p` + `*-ink`). Cartes blanches rayon 16 (`.carte`), encadrés rayon 12 (`.encadre`). Désactivé : `--desact` sur `--desact-bg`, jamais `opacity` sur du texte.
 - **Vocabulaire** : tout libellé métier passe par `#lib/libelles.ts` (voir plus bas). Pas de point final sur titres, boutons, étiquettes ; pas de point d'exclamation.
+- **Impression** : `@media print` d'`app.css` retire barre latérale, barre du haut, onglets, pieds de liste et tout `.pas-imprime` (boutons) ; `.imprime-seul` n'apparaît qu'à l'impression. Le bilan du mois ajoute ses règles (pleine largeur, filets, sans la partie Qualité) et s'exporte aussi en Excel (`GET /api/bilan/export`).
 - **Racine de la page** : `<Volets>` (file + détail), `<div class="pleine">` (fiche plein écran) ou `<div class="page">` (réglages, bilan, fournisseur ; `.page.etroite` pour un formulaire).
 - Grille de 4 px : utiliser les jetons `--e1`… `--e10` (4 à 40 px), rayons `--r1/--r2/--r3` (4, 6, 8).
 
@@ -71,6 +72,8 @@ Ligne de liste : `.a` titre, `.b` sous-ligne, `.r` à droite (montant), `.r2` â
 | `Chargement` | `texte?`, `compact?` ; n'apparaît qu'après 300 ms. Erreur de chargement : `<Bandeau ton="erreur">` + bouton « Réessayer ». |
 | `CorpsHtml` | `id` (mail), `expediteur?`. Corps HTML d'origine en iframe sandbox ; images distantes masquées (bandeau « Images distantes masquées · Afficher · Toujours pour cet expéditeur », `imagesDistantes.ts`, localStorage `gmflow.images.expediteurs`). |
 | `MonMotDePasse` | Formulaire autonome « changer mon mot de passe » (`POST /api/moi/mot-de-passe`), messages sous chaque champ ; page `/compte`. |
+| `NotesInternes` | `documentId`, `onchange?(n)`. Carte « Notes internes » de la fiche (U23) : notes signées et datées, ajout (Ctrl+Entrée), « Supprimer » si `supprimable`. API dans `#lib/notes.ts`, outils testés dans `NotesOutils.ts` (`bulleNotes`, `resumeEcartLot`). |
+| `ChoixMotifEcart` | `bind:motif`, `bind:texte`. Motif d'« Écarter » dans une `<Confirmation desactive={!motif}>` (accueil, lot ; la fiche a le même choix dans `DocFiche`) : `MOTIFS_ECARTEMENT` + précision facultative. |
 | `Kbd` | `t="J"`, `t="Enter"` (↵), `t={['Ctrl', 'Enter']}`. |
 | `Icone` | `nom` : chercher, reglages, bas, droite, gauche, haut, alerte, erreur, info, coche, trombone, fichier, agrandir, zoom, telecharger, mail, boite, camion, graphique, batiment, prise, envoyer, utilisateurs, curseurs, drapeau, lien, menu, fermer, sortir, ouvrir, plus, rafraichir. 16 px, trait 1,5, couleur du texte. |
 

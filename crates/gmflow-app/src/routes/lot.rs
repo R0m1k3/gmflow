@@ -302,3 +302,77 @@ pub async fn valider(
     }
     Ok(Json(r))
 }
+
+/// Corps de `POST /api/documents/lot/ecarter` : les pièces et un motif (obligatoire ici).
+#[derive(Deserialize)]
+pub struct DemandeEcartLot {
+    ids: Vec<i64>,
+    #[serde(flatten)]
+    motif: super::retour::Motif,
+}
+
+#[derive(Serialize)]
+pub struct PieceEcartee {
+    id: i64,
+    ecartee: bool,
+    /// Laissée : pourquoi.
+    raison: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ResultatEcart {
+    ecartees: usize,
+    laissees: usize,
+    pieces: Vec<PieceEcartee>,
+}
+
+/// « Écarter N pièces » (audit U23) : chaque pièce passe par `documents::ecarter` (mêmes
+/// droits, mêmes refus, même journal), avec le même motif pour toutes. Résultat par pièce.
+pub async fn ecarter(
+    acces: Acces,
+    State(etat): State<Etat>,
+    Json(d): Json<DemandeEcartLot>,
+) -> Resultat<Json<ResultatEcart>> {
+    let ids = ids_nets(d.ids)?;
+    let motif = d.motif.nettoyer()?;
+    if motif.motif.is_none() {
+        return Err(ErreurApi::Champ {
+            champ: "motif",
+            message: "Choisissez un motif.".into(),
+        });
+    }
+    let mut r = ResultatEcart {
+        ecartees: 0,
+        laissees: 0,
+        pieces: Vec::with_capacity(ids.len()),
+    };
+    for id in ids {
+        let issue = documents::ecarter(
+            acces.clone(),
+            State(etat.clone()),
+            Path(id),
+            Query(ContexteFile::default()),
+            Some(Json(motif.clone())),
+        )
+        .await;
+        match issue {
+            Ok(_) => {
+                r.ecartees += 1;
+                r.pieces.push(PieceEcartee {
+                    id,
+                    ecartee: true,
+                    raison: None,
+                });
+            }
+            Err(e) => {
+                r.laissees += 1;
+                r.pieces.push(PieceEcartee {
+                    id,
+                    ecartee: false,
+                    raison: Some(phrase_refus(e)),
+                });
+            }
+        }
+    }
+    Ok(Json(r))
+}

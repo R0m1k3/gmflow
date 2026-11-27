@@ -72,6 +72,7 @@
   import Confirmation from './Confirmation.svelte';
   import DocArticlesBl from './DocArticlesBl.svelte';
   import LignesEdition from './LignesEdition.svelte';
+  import NotesInternes from './NotesInternes.svelte';
   import DocChaine, { type FactureLiee, type PointChaine } from './DocChaine.svelte';
   import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
   import type { EtatExportPhenix } from '#lib/types.ts';
@@ -1383,6 +1384,8 @@
           </div>
         {/if}
 
+        {#if d.type === 'facture' || d.type === 'avoir' || d.type === 'bl'}<NotesInternes documentId={d.id} onchange={() => onchange?.()} />{/if}
+
         <div class="carte-fiche">
           <h3 class="titre-carte">Origine</h3>
           <div class="replis doc-liens">
@@ -1473,10 +1476,10 @@
   </section>
 </div>
 
-<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={() => ecarter(motifEcart, texteEcart)}>
+<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger desactive={!motifEcart} onconfirmer={() => ecarter(motifEcart, texteEcart)}>
   <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la liste. Il reste visible dans la recherche.</p>
   <fieldset class="motif-ecart">
-    <legend>Pourquoi ? (facultatif)</legend>
+    <legend>Pourquoi ?</legend>
     {#each MOTIFS_ECARTEMENT as m (m.valeur)}
       <label class="case"><input type="radio" name="motif-ecart" value={m.valeur} bind:group={motifEcart} /> {m.libelle}</label>
     {/each}

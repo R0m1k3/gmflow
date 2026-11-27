@@ -21,6 +21,7 @@ pub mod lignes;
 pub mod lot;
 pub mod mails;
 pub mod mise_en_route;
+pub mod notes;
 pub mod qualite;
 pub mod rapprochement;
 pub mod recherche;
@@ -162,6 +163,13 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/documents/{id}/remettre", post(retour::remettre))
         .route("/documents/lot/eligibilite", post(lot::eligibilite))
         .route("/documents/lot/valider", post(lot::valider))
+        .route("/documents/lot/ecarter", post(lot::ecarter))
+        // Notes internes (routes/notes.rs).
+        .route(
+            "/documents/{id}/notes",
+            get(notes::lister).post(notes::ajouter),
+        )
+        .route("/notes/{id}", delete(notes::supprimer))
         // Lignes articles corrigées à la main (routes/lignes.rs).
         .route(
             "/documents/{id}/lignes",
@@ -176,6 +184,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/a-traiter/compteurs", get(a_traiter::compteurs))
         .route("/depots/suivi", get(depots::suivi))
         .route("/bilan", get(bilan::bilan))
+        .route("/bilan/export", get(bilan::exporter))
         .route(
             "/rapprochement",
             get(rapprochement::vue).post(rapprochement::lier),
