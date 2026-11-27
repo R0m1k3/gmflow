@@ -419,3 +419,45 @@ async fn bl_aux_totaux_calcules_les_totaux_suivent() {
     );
     m.app.fermer().await;
 }
+
+/// Lignes lues dans les cellules d'un tableur (audit L15, `lignes_source = cellules`) : elles se
+/// corrigent comme les autres, la marque de leur origine reste, la fiche compte la correction
+/// (« Relire » prévient qu'elle serait remplacée).
+#[tokio::test]
+async fn lignes_lues_dans_les_cellules_se_corrigent() {
+    let m = monde().await;
+    let bl = piece(
+        &m,
+        "bl",
+        "BL-10",
+        &[("AB123", "SEAU", 4.0, 5.0, None, None, None)],
+    )
+    .await;
+    sqlx::query(
+        "update document set voie = 'tableur',
+             confiance = '{\"lignes_source\": \"cellules\", \"montants_calcules\": [\"ht\", \"tva\", \"ttc\"]}'
+         where id = $1",
+    )
+    .bind(bl)
+    .execute(m.app.pool())
+    .await
+    .unwrap();
+    let l = lignes(&m, bl).await["lignes"][0].clone();
+    let r = m
+        .app
+        .requete(
+            "PUT",
+            &format!("/api/documents/{bl}/lignes/{}", l["id"]),
+            Some(saisie(&l, json!({ "quantite": 6 }))),
+            Some(&m.admin),
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{}", r.json);
+    let fiche = m
+        .app
+        .requete("GET", &format!("/api/documents/{bl}"), None, Some(&m.admin))
+        .await;
+    assert_eq!(fiche.json["lignes_corrigees"], 1);
+    assert_eq!(fiche.json["confiance"]["lignes_source"], "cellules");
+    m.app.fermer().await;
+}

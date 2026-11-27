@@ -433,9 +433,11 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
     sqlx::query!(
         "insert into ligne_document (document_id, rang, reference, designation, quantite, unite,
                                      prix_unitaire_ht, montant_ht, gencod, colis, pcb, remise_taux,
-                                     taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin)
+                                     taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin,
+                                     corrigee_le, corrigee_par)
          select $1, rang, reference, designation, quantite, unite, prix_unitaire_ht, montant_ht,
-                gencod, colis, pcb, remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin
+                gencod, colis, pcb, remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin,
+                corrigee_le, corrigee_par
          from ligne_document where document_id = $2",
         id,
         source
