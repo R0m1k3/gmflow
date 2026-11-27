@@ -26,6 +26,7 @@ pub mod rapprochement;
 pub mod recherche;
 pub mod reponses;
 pub mod retour;
+pub mod surveillance;
 pub mod tableau;
 
 use std::path::PathBuf;
@@ -105,6 +106,8 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/deconnexion", post(auth::deconnexion))
         .route("/moi", get(auth::moi))
         .route("/moi/mot-de-passe", post(auth::changer_mot_de_passe))
+        .route("/sante", get(surveillance::sonde))
+        .route("/metriques", get(surveillance::metriques))
         .route("/premier-compte/{jeton}", get(premier_compte::verifier))
         .route("/premier-compte", post(premier_compte::creer))
         .route("/societes", get(mails::societes))

@@ -321,6 +321,8 @@ pub async fn lancer(config: Config) -> anyhow::Result<()> {
     }
     tokio::spawn(planif::boucle(ctx.clone()));
     tokio::spawn(sante::serveur(ctx.pool.clone()));
+    // Worker bloqué durablement : il s'arrête de lui-même, Docker le relance.
+    sante::surveiller(ctx.config.database_url.clone());
     tokio::spawn(orchestre::boucle(ctx.clone()));
     tracing::info!(transport = ?ctx.transport, "GMFlow worker démarré");
     let (_garde, arret) = tokio::sync::watch::channel(false);

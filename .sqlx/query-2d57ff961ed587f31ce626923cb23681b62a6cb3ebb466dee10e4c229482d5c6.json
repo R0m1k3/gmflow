@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select f as \"file!\",\n                  count(j.id) filter (where j.status in ('Pending', 'Queued')\n                      or (j.status = 'Failed' and j.attempts < j.max_attempts)) as \"en_attente!\",\n                  count(j.id) filter (where j.status = 'Running') as \"en_cours!\",\n                  count(j.id) filter (where (j.status = 'Failed' and j.attempts >= j.max_attempts)\n                      or j.status = 'Killed') as \"echouees!\",\n                  count(j.id) filter (where ((j.status = 'Failed' and j.attempts >= j.max_attempts)\n                      or j.status = 'Killed')\n                      and coalesce(j.done_at, j.run_at) > now() - interval '24 hours') as \"echouees_24h!\",\n                  extract(epoch from now() - min(j.run_at) filter (\n                      where j.status in ('Pending', 'Queued') and j.run_at <= now()))::float8\n                      as \"plus_vieille\"\n           from unnest($1::text[]) f\n           left join apalis.jobs j on j.job_type = f and j.status <> 'Done'\n           group by f order by f",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "en_attente!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "en_cours!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "echouees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "echouees_24h!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "plus_vieille",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2d57ff961ed587f31ce626923cb23681b62a6cb3ebb466dee10e4c229482d5c6"
+}

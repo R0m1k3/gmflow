@@ -267,3 +267,167 @@ async fn apercu_d_un_tableur_piege_refuse_avec_un_message_clair() {
     assert_eq!(r.octets, piege);
     app.fermer().await;
 }
+
+async fn executer(app: &Appli, sql: &str) {
+    sqlx::query(sqlx::AssertSqlSafe(sql.to_string()))
+        .execute(app.pool())
+        .await
+        .unwrap();
+}
+
+/// Le worker vient de battre (planificateur et six files).
+async fn worker_qui_bat(app: &Appli) {
+    executer(
+        app,
+        r#"insert into parametre (cle, valeur)
+           values ('worker_battement',
+                   jsonb_build_object('quand', to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')))
+           on conflict (cle) do update set valeur = excluded.valeur"#,
+    )
+    .await;
+    for f in gmflow_core::traitements::FILES {
+        executer(
+            app,
+            &format!(
+                "insert into apalis.workers (id, worker_type, storage_name, layers, last_seen)
+                 values ('gmflow-{f}', '{f}', 'PgStorage', '', now())
+                 on conflict (id) do update set last_seen = now()"
+            ),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn sonde_publique_ok_ou_degradee() {
+    let app = Appli::new().await;
+    // Worker jamais vu : dégradé, sans session ni détail.
+    let r = app.requete("GET", "/api/sante", None, None).await;
+    assert_eq!(r.code, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(r.json, json!({"etat": "degrade", "causes": ["worker"]}));
+
+    worker_qui_bat(&app).await;
+    let soc = app.societe("Magasin").await;
+    let boite = app.boite(soc, "Factures Frouard").await;
+    executer(
+        &app,
+        &format!("update boite_mail set active = true, derniere_releve = now() - interval '4 minutes' where id = {boite}"),
+    )
+    .await;
+    let r = app.requete("GET", "/api/sante", None, None).await;
+    assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
+    assert_eq!(r.json["etat"], "ok");
+
+    // Relève en retard (40 min) : dégradé.
+    executer(
+        &app,
+        &format!("update boite_mail set derniere_releve = now() - interval '40 minutes', cree_le = now() - interval '1 day' where id = {boite}"),
+    )
+    .await;
+    let r = app.requete("GET", "/api/sante", None, None).await;
+    assert_eq!(r.code, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(r.json["causes"], json!(["releve"]));
+    assert!(!r.octets.windows(8).any(|w| w == b"Frouard\""));
+
+    // Planificateur arrêté depuis 11 min.
+    executer(
+        &app,
+        r#"update parametre set valeur = jsonb_build_object('quand',
+             to_char((now() - interval '11 minutes') at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'))
+           where cle = 'worker_battement'"#,
+    )
+    .await;
+    let r = app.requete("GET", "/api/sante", None, None).await;
+    assert_eq!(r.json["causes"], json!(["worker", "releve"]));
+    app.fermer().await;
+}
+
+#[tokio::test]
+async fn metriques_reservees_au_jeton_ou_a_l_admin() {
+    let app = Appli::new().await;
+    let mut etat = app.etat.clone();
+    etat.jeton_metriques = Some("jeton-de-prometheus".into());
+    let routeur = gmflow_app::routes::routeur(
+        etat,
+        tower_sessions_sqlx_store::PostgresStore::new(app.pool().clone()),
+        None,
+    );
+    let soc = app.societe("Magasin").await;
+    app.boite(soc, "Factures \"Frouard\"").await;
+    worker_qui_bat(&app).await;
+    executer(
+        &app,
+        "insert into apalis.jobs (job, id, job_type, status, run_at)
+         values ('\\x00', 'j1', 'lecture', 'Pending', now() - interval '90 seconds'),
+                ('\\x00', 'j2', 'lecture', 'Failed', now())",
+    )
+    .await;
+    executer(
+        &app,
+        "update apalis.jobs set attempts = 3, max_attempts = 3 where id = 'j2'",
+    )
+    .await;
+    executer(
+        &app,
+        "insert into appel_claude (tache, modele, duree_ms, succes, cout_usd) values ('lecture', 'haiku', 1, true, 0.25), ('lecture', 'haiku', 1, false, 0)",
+    )
+    .await;
+
+    let appel = |jeton: Option<&'static str>, cookie: Option<String>| {
+        let routeur = routeur.clone();
+        async move {
+            let mut r = Request::builder().uri("/api/metriques");
+            if let Some(j) = jeton {
+                r = r.header(header::AUTHORIZATION, format!("Bearer {j}"));
+            }
+            if let Some(c) = cookie {
+                r = r.header(header::COOKIE, c);
+            }
+            let rep = routeur
+                .oneshot(r.body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let code = rep.status();
+            let texte = String::from_utf8(
+                axum::body::to_bytes(rep.into_body(), usize::MAX)
+                    .await
+                    .unwrap()
+                    .to_vec(),
+            )
+            .unwrap();
+            (code, texte)
+        }
+    };
+    assert_eq!(appel(None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(appel(Some("faux"), None).await.0, StatusCode::UNAUTHORIZED);
+    app.utilisateur("marie", MDP, "responsable", Some(soc))
+        .await;
+    let marie = app.connecter("marie", MDP).await;
+    assert_eq!(appel(None, Some(marie)).await.0, StatusCode::FORBIDDEN);
+    app.utilisateur("admin", MDP, "admin", None).await;
+    let admin = app.connecter("admin", MDP).await;
+    assert_eq!(appel(None, Some(admin)).await.0, StatusCode::OK);
+
+    let (code, t) = appel(Some("jeton-de-prometheus"), None).await;
+    assert_eq!(code, StatusCode::OK);
+    for attendu in [
+        "gmflow_file_taches{file=\"lecture\",etat=\"en_attente\"} 1",
+        "gmflow_file_taches{file=\"lecture\",etat=\"echouees\"} 1",
+        "gmflow_file_taches{file=\"envoi\",etat=\"en_attente\"} 0",
+        "gmflow_claude_appels_jour{resultat=\"reussi\"} 1",
+        "gmflow_claude_appels_jour{resultat=\"echec\"} 1",
+        "gmflow_claude_cout_jour_dollars 0.25",
+        "boite=\"Factures \\\"Frouard\\\"\"",
+        "gmflow_envois_echec_24h 0",
+        "# TYPE gmflow_documents gauge",
+    ] {
+        assert!(t.contains(attendu), "{attendu} absent de :\n{t}");
+    }
+    let vieille = t
+        .lines()
+        .find(|l| l.starts_with("gmflow_file_plus_vieille_tache_secondes{file=\"lecture\"}"))
+        .unwrap();
+    let age: f64 = vieille.rsplit(' ').next().unwrap().parse().unwrap();
+    assert!((80.0..300.0).contains(&age), "{vieille}");
+    app.fermer().await;
+}

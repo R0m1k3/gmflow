@@ -34,6 +34,8 @@ services:
       GMFLOW_CLE_CHIFFREMENT: ${GMFLOW_CLE_CHIFFREMENT:?GMFLOW_CLE_CHIFFREMENT manquante}
       GMFLOW_URL_PUBLIQUE: ${GMFLOW_URL_PUBLIQUE:-https://gmflow.ffnancy.fr}
       GMFLOW_PORT: ${GMFLOW_PORT:-8347}
+      GMFLOW_METRIQUES_JETON: ${GMFLOW_METRIQUES_JETON:-}
+      GMFLOW_PROXY_CONFIANCE: ${GMFLOW_PROXY_CONFIANCE:-}
     volumes:
       - fichiers:/data/fichiers
     # Aucun port publié sur l'hôte : Nginx Proxy Manager joint `gmflow-app:8347`
@@ -56,7 +58,9 @@ services:
       GMFLOW_URL_PUBLIQUE: ${GMFLOW_URL_PUBLIQUE:-https://gmflow.ffnancy.fr}
     volumes:
       - fichiers:/data/fichiers
-    # `sortie` : IMAP et Claude. /health sur 8081, non publié.
+    # `sortie` : IMAP et Claude. /health et /metrics sur 8081, non publiés.
+    # Bloqué durablement (sonde mauvaise 15 min), le worker s'arrête avec un code d'erreur :
+    # `restart: unless-stopped` le relance (Docker ne relance pas un conteneur « unhealthy »).
     networks: [interne, sortie]
     labels:
       com.centurylinklabs.watchtower.enable: "true"
