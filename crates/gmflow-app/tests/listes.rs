@@ -392,3 +392,74 @@ async fn refus_de_reglage_absent_avec_code() {
         .await;
     assert_eq!(r.json["code"], "absent");
 }
+
+/// C19 : la recherche des listes se sert des index trigrammes (preuve par EXPLAIN). Les tables
+/// de test sont minuscules : sans `enable_seqscan = off`, PostgreSQL les lirait en entier de
+/// toute façon ; ici on vérifie que le plan *peut* passer par les index, avec la même forme de
+/// filtre que `documents::lister` et `mails::lister`.
+#[tokio::test]
+async fn recherche_par_index_trigramme() {
+    let m = monde().await;
+    // La recherche trouve toujours par fournisseur, numéro et objet du mail.
+    let alpha = doc(&m, "facture", "Alpha Négoce", 10.0, 1).await;
+    let beta = doc(&m, "facture", "Beta", 20.0, 2).await;
+    sqlx::query("update mail set objet = 'Relance urgente' where id = (select mail_id from document where id = $1)")
+        .bind(beta)
+        .execute(m.app.pool())
+        .await
+        .unwrap();
+    for (q, attendu) in [
+        ("alpha".to_string(), vec![alpha]),
+        ("relance".to_string(), vec![beta]),
+        (format!("N{beta}"), vec![beta]),
+    ] {
+        let r = m
+            .app
+            .requete(
+                "GET",
+                &format!("/api/documents?q={q}"),
+                None,
+                Some(&m.admin),
+            )
+            .await;
+        assert_eq!(r.code, StatusCode::OK);
+        assert_eq!(ids(&r.json), attendu, "q={q}");
+    }
+    let mut tx = m.app.pool().begin().await.unwrap();
+    sqlx::query("set local enable_seqscan = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let plan = |lignes: Vec<String>| lignes.join("\n");
+    let documents: Vec<String> = sqlx::query_scalar(
+        "explain select d.id from document d join mail m on m.id = d.mail_id
+         where ($1::text is null
+                or d.id in (select x.id from document x where x.fournisseur_nom ilike $1 or x.numero ilike $1
+                            union all
+                            select x.id from document x join mail mx on mx.id = x.mail_id where mx.objet ilike $1))",
+    )
+    .bind("%durand%")
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    let documents = plan(documents);
+    for index in [
+        "document_fournisseur_nom_trgm",
+        "document_numero_trgm",
+        "mail_objet_trgm",
+    ] {
+        assert!(documents.contains(index), "{index} absent :\n{documents}");
+    }
+    let mails: Vec<String> = sqlx::query_scalar(
+        "explain select m.id from mail m
+         where ($1::text is null or m.expediteur ilike $1 or m.objet ilike $1)",
+    )
+    .bind("%durand%")
+    .fetch_all(&mut *tx)
+    .await
+    .unwrap();
+    let mails = plan(mails);
+    for index in ["mail_expediteur_trgm", "mail_objet_trgm"] {
+        assert!(mails.contains(index), "{index} absent :\n{mails}");
+    }
+}

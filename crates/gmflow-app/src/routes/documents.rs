@@ -94,6 +94,9 @@ pub async fn lister(
     Query(f): Query<Filtres>,
 ) -> Resultat<Json<Page<LigneDocument>>> {
     let (du, au) = (date(&f.du)?, date(&f.au)?);
+    // Recherche (C19) : les documents trouvés sont lus à part (`d.id in (… union all …)`), table
+    // par table, pour que chaque `ilike` se serve de son index trigramme (migration 0029) ; un
+    // `or` entre `d` et `m` après la jointure obligerait à tout lire.
     let q = motif(&f.q);
     let (page, decalage) = decalage(f.page);
     let tri = super::tri::lire(&f.tri, &f.sens, TRI_DOCUMENTS)?;
@@ -124,7 +127,10 @@ pub async fn lister(
              and ($6::text is null or d.voie = $6)
              and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)
              and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)
-             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)
+             and ($9::text is null
+                  or d.id in (select x.id from document x where x.fournisseur_nom ilike $9 or x.numero ilike $9
+                              union all
+                              select x.id from document x join mail mx on mx.id = x.mail_id where mx.objet ilike $9))
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
              and ($12::bigint is null or d.fournisseur_id = $12)
@@ -182,7 +188,10 @@ pub async fn lister(
              and ($6::text is null or d.voie = $6)
              and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)
              and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)
-             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)
+             and ($9::text is null
+                  or d.id in (select x.id from document x where x.fournisseur_nom ilike $9 or x.numero ilike $9
+                              union all
+                              select x.id from document x join mail mx on mx.id = x.mail_id where mx.objet ilike $9))
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
              and ($12::bigint is null or d.fournisseur_id = $12)
