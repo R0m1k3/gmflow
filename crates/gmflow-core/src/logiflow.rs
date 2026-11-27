@@ -459,11 +459,13 @@ pub fn repartir(
 
 /// Ligne du résultat, par n° de BL.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneResultat {
     pub bl: String,
     pub livraison_id: Option<i64>,
     pub magasin: Option<String>,
     /// complete, deja_fait, deja_rapproche, autre_facture, introuvable, ambigu, erreur.
+    #[cfg_attr(feature = "ts", ts(as = "crate::vocabulaire::EtatLivraisonLogiflow"))]
     pub etat: String,
     pub message: String,
 }

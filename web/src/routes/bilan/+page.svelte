@@ -10,7 +10,7 @@
   import { BL_EN_ATTENTE, libelleVoie, nomCourtSociete } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type { BilanMois, Compte, LigneSuivi, SemaineTri, Voie } from '#lib/types.ts';
+  import type { BilanMois, Compte, LigneSuivi, Relectures, SemaineTri, Voie } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Icone from '#lib/ui/Icone.svelte';
@@ -149,7 +149,7 @@
     relectureEnCours = true;
     relecture = '';
     try {
-      const r = await api.post<{ n: number }>('/api/admin/rapprochement/relire-bl');
+      const r = await api.post<Relectures>('/api/admin/rapprochement/relire-bl');
       relecture = `${r.n} BL remis en lecture`;
       reluPour = bilan;
     } catch (e) {

@@ -1,6 +1,6 @@
 //! File « À traiter » de l'accueil : *Bloqué* (envois en échec pas encore relancés, doublons, documents
 //! illisibles ; pour un administrateur, boîtes en panne et Claude déconnecté), *À valider*
-//! (factures, avoirs et BL lus pas encore validés, par urgence : `rang` de `AValider`) et
+//! (factures, avoirs et BL lus pas encore validés, par urgence : `rang` de `DocumentAValider`) et
 //! *À répondre* (vraies questions, par priorité). Un responsable ne voit que sa société : les
 //! documents d'une boîte de sa société, rangés dans sa société ou pas encore rangés.
 //!
@@ -17,6 +17,8 @@ use serde_json::Value;
 use crate::acces::Acces;
 use crate::erreur::Resultat;
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 
@@ -29,7 +31,8 @@ pub struct Filtre {
 }
 
 #[derive(Serialize)]
-pub struct Compteurs {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct CompteursATraiter {
     bloque: i64,
     a_valider: i64,
     /// Détail de `a_valider` par type : badges de Factures, Avoirs et BL.
@@ -39,6 +42,7 @@ pub struct Compteurs {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ParType {
     facture: i64,
     avoir: i64,
@@ -46,8 +50,10 @@ pub struct ParType {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Bloque {
     /// `envoi_erreur`, `doublon`, `illisible`, `boite` ou `claude`.
+    #[cfg_attr(feature = "ts", ts(as = "v::GenreBloque"))]
     genre: String,
     document_id: Option<i64>,
     boite_id: Option<i64>,
@@ -58,7 +64,9 @@ pub struct Bloque {
     /// Message d'erreur ou alerte, tel qu'enregistré.
     message: Option<String>,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     depuis: Option<time::OffsetDateTime>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
     fournisseur: Option<String>,
     numero: Option<String>,
@@ -67,9 +75,11 @@ pub struct Bloque {
 }
 
 #[derive(Serialize)]
-pub struct AValider {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct DocumentAValider {
     id: i64,
     mail_id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "v::TypePiece"))]
     r#type: String,
     fournisseur_id: Option<i64>,
     /// Fiche fournisseur, à défaut nom lu sur le document.
@@ -79,10 +89,14 @@ pub struct AValider {
     societe_id: Option<i64>,
     societe: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     recu_le: time::OffsetDateTime,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ttc: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     remise_ht: Option<Decimal>,
     /// Articles en écart avec les BL liés (manquant, en trop, prix changé).
     articles_ecart: i64,
@@ -91,15 +105,18 @@ pub struct AValider {
     /// Code stable de cette alerte (`doublon`, `montants`, `societe`, `fournisseur`...).
     alerte_code: Option<String>,
     nb_alertes: i64,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
     /// Déjà vérifié (facture vérifiée mais pas encore envoyée).
     verifie: bool,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_echeance: Option<time::Date>,
     /// Urgence (ordre de la file) : 1 facture à payer dans `JOURS_ECHEANCE` jours ou moins
     /// (échéance dépassée comprise), 2 validable d'un clic (ni alerte ni écart d'articles avec
     /// un BL), 3 à corriger (alerte ou écart BL). Dans le rang 1 l'échéance la plus proche
     /// d'abord, sinon la plus ancienne reçue.
+    #[cfg_attr(feature = "ts", ts(type = "1 | 2 | 3"))]
     rang: i32,
 }
 
@@ -107,27 +124,32 @@ pub struct AValider {
 pub const JOURS_ECHEANCE: i32 = 7;
 
 #[derive(Serialize)]
-pub struct ARepondre {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct MailARepondre {
     id: i64,
     expediteur: String,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     resume: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Priorite>"))]
     priorite: Option<String>,
     societes: Vec<String>,
     /// Fiche fournisseur dont un domaine est celui de l'expéditeur (« Sodistra : demande le RIB »).
     fournisseur: Option<String>,
     /// Réponse proposée en cours (`generation`, `propose`, `modifie`, `envoi`).
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutBrouillon>"))]
     brouillon: Option<String>,
 }
 
 #[derive(Serialize)]
-pub struct File {
-    compteurs: Compteurs,
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct FileATraiter {
+    compteurs: CompteursATraiter,
     bloque: Vec<Bloque>,
-    a_valider: Vec<AValider>,
-    a_repondre: Vec<ARepondre>,
+    a_valider: Vec<DocumentAValider>,
+    a_repondre: Vec<MailARepondre>,
     /// Premier document à valider (bouton « Commencer »).
     suivant: Option<i64>,
 }
@@ -176,7 +198,7 @@ async fn claude_bloque(etat: &Etat) -> Resultat<Option<Bloque>> {
     }))
 }
 
-async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<Compteurs> {
+async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<CompteursATraiter> {
     let s = acces.societe_filtre();
     let docs = sqlx::query!(
         r#"select
@@ -245,7 +267,7 @@ async fn compter(etat: &Etat, acces: &Acces, societe: Option<i64>) -> Resultat<C
             bloque += 1;
         }
     }
-    Ok(Compteurs {
+    Ok(CompteursATraiter {
         bloque,
         a_valider: docs.a_valider,
         a_valider_types: ParType {
@@ -263,7 +285,7 @@ pub async fn compteurs(
     acces: Acces,
     State(etat): State<Etat>,
     Query(f): Query<Filtre>,
-) -> Resultat<Json<Compteurs>> {
+) -> Resultat<Json<CompteursATraiter>> {
     Ok(Json(compter(&etat, &acces, f.societe).await?))
 }
 
@@ -272,7 +294,7 @@ pub async fn file(
     acces: Acces,
     State(etat): State<Etat>,
     Query(f): Query<Filtre>,
-) -> Resultat<Json<File>> {
+) -> Resultat<Json<FileATraiter>> {
     let s = acces.societe_filtre();
     let societe = f.societe;
     let mut bloque = sqlx::query_as!(
@@ -347,7 +369,7 @@ pub async fn file(
         bloque = tete;
     }
     let a_valider = sqlx::query_as!(
-        AValider,
+        DocumentAValider,
         r#"select d.id, d.mail_id, d.type as "type!", d.fournisseur_id,
                   coalesce(fo.nom, d.fournisseur_nom) as fournisseur,
                   coalesce(fo.statut = 'a_confirmer', false) as "fournisseur_a_confirmer!",
@@ -402,7 +424,7 @@ pub async fn file(
     .fetch_all(&etat.pool)
     .await?;
     let a_repondre = sqlx::query_as!(
-        ARepondre,
+        MailARepondre,
         r#"select m.id, m.expediteur, m.objet, m.date_mail, m.resume, m.priorite,
                array(select distinct s.raison_sociale from mail_boite_vue mb
                      join boite_mail b on b.id = mb.boite_id join societe s on s.id = b.societe_id
@@ -432,7 +454,7 @@ pub async fn file(
     .await?;
     let compteurs = compter(&etat, &acces, societe).await?;
     let suivant = a_valider.first().map(|d| d.id);
-    Ok(Json(File {
+    Ok(Json(FileATraiter {
         compteurs,
         bloque,
         a_valider,

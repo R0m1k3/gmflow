@@ -15,19 +15,22 @@ use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
-pub struct Vue {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct LogiflowVue {
     serveur: Option<ServeurApi>,
     jeton_enregistre: bool,
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::DernierTest>"))]
     dernier_test: Option<Value>,
     /// Dernière vérification régulière : `{"quand", "ok", "message"}` (`ok` null : en cours).
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::SuiviLogiflow>"))]
     dernier_suivi: Option<Value>,
 }
 
-pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue>> {
+pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<LogiflowVue>> {
     let serveur = parametre::lire(&etat.pool, logiflow::CLE)
         .await?
         .and_then(|v| serde_json::from_value(v).ok());
-    Ok(Json(Vue {
+    Ok(Json(LogiflowVue {
         serveur,
         jeton_enregistre: parametre::lire_secret(&etat.pool, logiflow::CLE)
             .await?
@@ -38,7 +41,8 @@ pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue
 }
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeLogiflow {
     adresse: String,
     /// Omis : inchangé ; chaîne vide : supprimé.
     #[serde(default)]
@@ -48,7 +52,7 @@ pub struct Entree {
 pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeLogiflow>,
 ) -> Resultat<StatusCode> {
     let adresse = e.adresse.trim().to_string();
     logiflow::controler_adresse(&adresse).map_err(|m| {

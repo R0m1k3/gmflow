@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import type { EntreePremierCompte } from '#lib/types.ts';
   import { api, message } from '#lib/api.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
@@ -41,7 +42,7 @@
     }
     envoi = true;
     try {
-      await api.post('/api/premier-compte', { jeton, identifiant: identifiant.trim(), mot_de_passe: motDePasse });
+      await api.post('/api/premier-compte', { jeton, identifiant: identifiant.trim(), mot_de_passe: motDePasse } satisfies EntreePremierCompte);
       fait = true;
     } catch (err) {
       erreur = message(err);

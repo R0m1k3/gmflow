@@ -1,35 +1,7 @@
 import { goto } from '$app/navigation';
 import { texteErreur } from './erreurs.ts';
 import { session } from './session.svelte.ts';
-import type {
-  BilanMois,
-  Boite,
-  ChangementsFournisseur,
-  CodeRefus,
-  CompteursATraiter,
-  ConfirmationIban,
-  DemandeEssaiBoite,
-  DemandeValidation,
-  EligibiliteLot,
-  LignesDocument,
-  ResultatLigne,
-  SaisieLigne,
-  EntreeBoite,
-  EssaiBoite,
-  FileATraiter,
-  FilFournisseur,
-  Fournisseur,
-  IbanConnu,
-  LigneFournisseur,
-  MiseEnRoute,
-  MotifEcartement,
-  Page,
-  QualiteLecture,
-  ResultatAnnulation,
-  ResultatLot,
-  ResultatValidation,
-  ResultatsRecherche
-} from './types';
+import type { BilanMois, Boite, ChangementsFournisseur, CodeRefus, CompteursATraiter, ConfirmationIban, DemandeAnnulation, DemandeEssaiBoite, DemandeLot, DemandeValidation, EligibiliteLot, EntreeBoite, EssaiBoite, EssaiCree, FileATraiter, FilFournisseur, Fournisseur, IbanConnu, LigneFournisseur, LignesDocument, MiseEnRoute, MotifEcartement, Page, QualiteLecture, RemiseEnLecture, ResultatAnnulation, ResultatLigne, ResultatLot, ResultatsRecherche, ResultatValidation, SaisieLigne } from './types';
 
 export class ErreurApi extends Error {
   constructor(
@@ -153,16 +125,16 @@ export const ecarterDocument = (id: number, societe?: number | null, motif?: { m
   api.post<ResultatValidation>(`/api/documents/${id}/ecarter${requete({ societe })}`, motif ?? {});
 
 /** « Remettre à contrôler » une pièce écartée : elle retrouve son état d'avant. */
-export const remettreDocument = (id: number) => api.post<{ id: number; etat: string; statut_depot: string | null }>(`/api/documents/${id}/remettre`);
+export const remettreDocument = (id: number) => api.post<RemiseEnLecture>(`/api/documents/${id}/remettre`);
 
 /** « Annuler » : les envois d'une validation (ou d'un lot) pas encore partis sont annulés. */
-export const annulerEnvoi = (lot: string) => api.post<ResultatAnnulation>('/api/documents/annuler-envoi', { lot });
+export const annulerEnvoi = (lot: string) => api.post<ResultatAnnulation>('/api/documents/annuler-envoi', { lot } satisfies DemandeAnnulation);
 
 /** Pièces cochables pour une validation par lot (100 au plus). */
-export const eligibiliteLot = (ids: number[]) => api.post<EligibiliteLot[]>('/api/documents/lot/eligibilite', { ids });
+export const eligibiliteLot = (ids: number[]) => api.post<EligibiliteLot[]>('/api/documents/lot/eligibilite', { ids } satisfies DemandeLot);
 
 /** « Valider N pièces » : chaque pièce sans alerte est validée, les autres laissées à contrôler. */
-export const validerLot = (ids: number[]) => api.post<ResultatLot>('/api/documents/lot/valider', { ids });
+export const validerLot = (ids: number[]) => api.post<ResultatLot>('/api/documents/lot/valider', { ids } satisfies DemandeLot);
 
 /** Lignes articles d'un document, pour les corriger à la main. */
 export const lignesDocument = (id: number) => api.get<LignesDocument>(`/api/documents/${id}/lignes`);
@@ -204,10 +176,10 @@ export const creerBoite = (entree: EntreeBoite) => api.post<Boite>('/api/admin/b
 export const miseEnRoute = () => api.get<MiseEnRoute>('/api/admin/mise-en-route');
 
 export const essayerBoite = (demande: DemandeEssaiBoite) =>
-  api.post<{ id: string }>('/api/admin/boites/tester', demande);
+  api.post<EssaiCree>('/api/admin/boites/tester', demande);
 
 export const essayerSmtp = (boiteId: number) =>
-  api.post<{ id: string }>(`/api/admin/boites/${boiteId}/tester-smtp`);
+  api.post<EssaiCree>(`/api/admin/boites/${boiteId}/tester-smtp`);
 
 export const lireEssai = (id: string) => api.get<EssaiBoite>(`/api/admin/boites/essais/${id}`);
 

@@ -8,6 +8,8 @@ use serde_json::json;
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 pub const PAR_PAGE: i64 = 50;
 
@@ -15,6 +17,7 @@ pub const PAR_PAGE: i64 = 50;
 /// garde celui de la première) ; `suivante` dit s'il reste des éléments après cette page (lu
 /// avec une ligne de plus que la page, sans compter).
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Page<T> {
     pub total: Option<i64>,
     pub page: i64,
@@ -56,6 +59,7 @@ pub fn decalage(page: Option<i64>) -> (i64, i64) {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SocieteVisible {
     id: i64,
     raison_sociale: String,
@@ -76,6 +80,7 @@ pub async fn societes(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BoiteVisible {
     id: i64,
     libelle: String,
@@ -113,15 +118,19 @@ pub const TRI_MAILS: &[super::tri::Colonne] =
     &[("date", false), ("expediteur", true), ("objet", true)];
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneMail {
     id: i64,
     expediteur: String,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     nb_pieces: i64,
     boites: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
     categorie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutReponse>"))]
     statut_reponse: Option<String>,
 }
 
@@ -246,19 +255,25 @@ pub async fn lister(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct PieceVue {
     id: i64,
     nom: String,
     type_mime: String,
     taille: i64,
     document_id: Option<i64>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::EtatDocument>"))]
     document_etat: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     document_type: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Voie>"))]
     document_voie: Option<String>,
     /// Résumé du document lu (pour la liste des pièces, sans ouvrir chaque fiche).
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     document_statut_depot: Option<String>,
     document_verifie: Option<bool>,
     document_numero: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     document_montant_ttc: Option<Decimal>,
     document_fournisseur_id: Option<i64>,
     /// Fiche fournisseur, à défaut nom lu.
@@ -266,13 +281,16 @@ pub struct PieceVue {
     document_societe_id: Option<i64>,
     document_societe: Option<String>,
     /// Outil de la société du document : `dext` ou `yooz`.
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     document_outil: Option<String>,
     /// Dernier envoi réussi à Dext/Yooz.
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     document_envoye_le: Option<time::OffsetDateTime>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BoiteDuMail {
     boite_id: i64,
     libelle: String,
@@ -286,6 +304,7 @@ pub struct BoiteDuMail {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct FicheMail {
     id: i64,
     message_id: String,
@@ -293,6 +312,7 @@ pub struct FicheMail {
     destinataires: Vec<String>,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     corps_texte: String,
     /// Le mail a un corps HTML d'origine, affiché par `GET /api/mails/{id}/html`.
@@ -302,11 +322,16 @@ pub struct FicheMail {
     fournisseur: Option<String>,
     pieces: Vec<PieceVue>,
     boites: Vec<BoiteDuMail>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
     categorie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::CategoriePar>"))]
     categorie_par: Option<String>,
     resume: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Priorite>"))]
     priorite: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutReponse>"))]
     statut_reponse: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TriEtat>"))]
     tri_etat: Option<String>,
     tri_message: Option<String>,
     brouillons: Vec<super::reponses::BrouillonVue>,
@@ -481,6 +506,7 @@ pub async fn html(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct HorsSociete {
     /// Société pour laquelle le mail ne compte pas ; absente : toutes les sociétés dont une
     /// boîte l'a reçu (« ne concerne aucune de nos sociétés »). Un responsable : la sienne.
@@ -489,6 +515,7 @@ pub struct HorsSociete {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatHorsSociete {
     societes: Vec<i64>,
     /// Documents écartés (masquer) ou rendus (annuler).

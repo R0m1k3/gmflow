@@ -124,19 +124,30 @@ pub fn correspondance(f: &FactureRef, b: &BlRef) -> Option<Methode> {
 }
 
 /// Écart sur un article entre la facture et ses BL : quantité (manquant au BL, livré sans être
-/// facturé) ou prix unitaire différent.
+/// facturé) ou prix unitaire différent. Enregistré dans `rapprochement.ecarts` : ceux d'avant la
+/// comparaison des prix n'ont ni `genre`, ni prix, ni `montant_ht` (champs facultatifs côté front).
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct EcartLigne {
     /// `manquant` (facturé, moins livré), `en_trop` (livré, moins facturé) ou `prix`.
+    #[cfg_attr(
+        feature = "ts",
+        ts(as = "Option<crate::vocabulaire::GenreEcart>", optional)
+    )]
     pub genre: &'static str,
     pub reference: Option<String>,
     pub designation: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub qte_bl: Decimal,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub qte_facture: Decimal,
     /// Prix unitaires HT lus de chaque côté (ou montant / quantité).
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>", optional = nullable))]
     pub prix_facture: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>", optional = nullable))]
     pub prix_bl: Option<Decimal>,
     /// Part de l'écart HT due à cet article : facturé − livré (positif si la facture dépasse).
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>", optional = nullable))]
     pub montant_ht: Option<Decimal>,
 }
 

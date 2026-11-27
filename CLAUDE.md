@@ -39,10 +39,27 @@ L'app et le worker ne se parlent que par la base. Toute connexion IMAP et tout a
   pile sur le total. Le xlsx et le JSON reçoivent un nombre au tout dernier moment. Restent en
   `f64` : confiances, scores, durées, coût Claude en USD, métriques, tailles.
 - Noms en français dans le code et la base.
+- **Types du front générés** : toute structure que l'API rend ou reçoit en JSON porte
+  `#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]` (corps reçu seulement :
+  `ts(export, optional_fields = nullable)`), et ses types TypeScript sont générés dans
+  `web/src/lib/api-types/` (jamais modifiés à la main, repris par `web/src/lib/types.ts`). Les
+  représentations serde que ts-rs ne voit pas s'annotent : dates et `Decimal` (`ts(type = "string")`,
+  `"number | null"`…), champ texte à valeurs fixes (`ts(as = "Option<v::StatutDepot>")`, valeurs dans
+  `gmflow_core::vocabulaire`, comparées aux contraintes de la base par un test), `jsonb` rendu tel
+  quel (`ts(as = "super::formes::X")`, formes décrites dans `routes/formes.rs`), champ omis
+  (`skip_serializing_if` → `ts(optional)`). Pas de `Json<Value>` construit avec `json!` pour une
+  réponse que le front lit : une structure. Un nom TypeScript est unique (`rename` sinon).
 - Pièces jointes : toute analyse (lopdf, pdf-extract, calamine, zip) passe d'abord par
   `gmflow_core::lecture::limites::controler` (ou `aiguiller`, qui le fait) ; voir `docs/exploitation.md`.
 
 ## Développement
+
+Types TypeScript du front (après toute modification d'un type rendu ou reçu par l'API ; la CI
+échoue si `web/src/lib/api-types/` n'est pas à jour) :
+
+```sh
+./scripts/types-ts.sh   # puis commiter web/src/lib/api-types/
+```
 
 Requêtes SQL vérifiées à la compilation : une base à jour est nécessaire (`.env` : `DATABASE_URL=...`),
 ou `SQLX_OFFLINE=true` avec `.sqlx/`. Après toute modification de requête :

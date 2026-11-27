@@ -4,7 +4,7 @@
   // demande). Les fiches fournisseurs sans code BO Phénix proposent ensuite les codes du magasin.
   import { api, message, sonder } from '#lib/api.ts';
     import { RUBRIQUES } from '#lib/libelles.ts';
-  import type { ServeurApiVue } from '#lib/types.ts';
+  import type { EntreeServeurApi, ServeurApiVue } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
@@ -45,7 +45,7 @@
     erreur = '';
     info = '';
     enCours = true;
-    const corps: Record<string, unknown> = { adresse: f.adresse.trim() };
+    const corps: EntreeServeurApi = { adresse: f.adresse.trim() };
     if (effacerJeton) corps.jeton = '';
     else if (f.jeton.trim()) corps.jeton = f.jeton.trim();
     try {

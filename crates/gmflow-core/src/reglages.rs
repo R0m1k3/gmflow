@@ -49,12 +49,14 @@ const ANCIEN_QUOTA_LECTURE: i64 = 100;
 pub const DRAPEAU_QUOTA_1000: &str = "migration_quota_lecture_1000";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Reglage {
     pub modele: String,
     pub effort: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Reglages {
     pub extraction_texte: Reglage,
     pub ocr_scan: Reglage,

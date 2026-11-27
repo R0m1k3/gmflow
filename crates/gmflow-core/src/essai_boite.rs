@@ -19,12 +19,14 @@ pub fn cle(id: Uuid) -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ParamImap {
     pub serveur: String,
     pub port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ParamSmtp {
     pub serveur: String,
     pub port: u16,
@@ -32,6 +34,7 @@ pub struct ParamSmtp {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatImap {
     pub ok: bool,
     /// Phrase pour l'utilisateur (« Mot de passe refusé : … »).
@@ -46,6 +49,7 @@ pub struct ResultatImap {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatSmtp {
     pub ok: bool,
     pub message: String,
@@ -54,8 +58,10 @@ pub struct ResultatSmtp {
 
 /// Contenu de `parametre.valeur` pour un essai.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename = "EssaiBoite"))]
 pub struct Essai {
     /// `en_cours` puis `termine`.
+    #[cfg_attr(feature = "ts", ts(type = "'en_cours' | 'termine'"))]
     pub etat: String,
     pub cree_le: String,
     pub boite_id: Option<i64>,
@@ -68,6 +74,7 @@ pub struct Essai {
     /// Empreinte du mot de passe essayé (`empreinte`), pour qu'une création de boîte reprenne
     /// un essai réussi sans le refaire. Jamais rendue par l'API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(skip))]
     pub mdp_empreinte: Option<String>,
 }
 

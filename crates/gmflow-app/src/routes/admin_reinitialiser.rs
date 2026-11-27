@@ -14,7 +14,8 @@ use crate::etat::Etat;
 pub const CONFIRMATION: &str = "RÉINITIALISER";
 
 #[derive(Deserialize)]
-pub struct Demande {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct DemandeReinitialisation {
     #[serde(default)]
     confirmation: String,
 }
@@ -22,7 +23,7 @@ pub struct Demande {
 pub async fn reinitialiser(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(d): Json<Demande>,
+    Json(d): Json<DemandeReinitialisation>,
 ) -> Resultat<Json<Bilan>> {
     if d.confirmation.trim() != CONFIRMATION {
         return Err(ErreurApi::Donnees(format!(

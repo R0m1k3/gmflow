@@ -7,7 +7,7 @@
   import { RUBRIQUES, nomCourtSociete, type Ton } from '#lib/libelles.ts';
   import { garderAvantDeQuitter } from '#lib/modifications.svelte.ts';
   import { session } from '#lib/session.svelte.ts';
-  import type { Boite, Compteur, EssaiBoite, Societe } from '#lib/types.ts';
+  import type { Boite, Compteur, EntreeBoite, EssaiBoite, SecuriteSmtp, Societe } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
@@ -38,7 +38,7 @@
     dossiers: string[];
     smtp_serveur: string;
     smtp_port: string;
-    smtp_securite: string;
+    smtp_securite: SecuriteSmtp;
     dossier_envoyes: string;
   };
   let f = $state<Form>({
@@ -168,7 +168,7 @@
         smtp_port: smtp ? Number(f.smtp_port) || null : null,
         smtp_securite: smtp ? f.smtp_securite : null,
         dossier_envoyes: f.dossier_envoyes || null
-      });
+      } satisfies EntreeBoite);
       remplir(v);
       await chargerCompteurs();
     }, 'Enregistré.');

@@ -23,6 +23,7 @@
     LigneDocument,
     LigneMail,
     MiseEnRoute,
+    TableauDeBord,
     Page
   } from '#lib/types.ts';
   import Chargement from '#lib/ui/Chargement.svelte';
@@ -43,11 +44,7 @@
   /** Pages de mails du jour lues au plus (50 par page). */
   const PAGES_MAILS = 4;
 
-  interface Tableau {
-    mails_du_jour: { societe_id: number; raison_sociale: string; n: number }[];
-    /** Travail en cours (même périmètre que la file À valider). */
-    travail: { factures_ttc: number; echeances: number; jours_echeance: number; bl_sans_facture: number; jours_bl_sans_facture: number };
-  }
+  type Tableau = TableauDeBord;
   interface Donnees {
     file: FileATraiter;
     mailsDuJour: number;

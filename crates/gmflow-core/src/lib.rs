@@ -39,6 +39,8 @@ pub mod stockage;
 pub mod test_utils;
 pub mod traitements;
 pub mod tri;
+#[cfg(feature = "ts")]
+pub mod vocabulaire;
 
 /// Logs JSON sur la sortie standard (consultables dans Portainer).
 pub fn initialiser_logs() {

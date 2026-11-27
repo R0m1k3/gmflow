@@ -13,10 +13,13 @@ use super::documents::controler_modifiable;
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 /// Envoi demandé, encore annulable : le message « Annuler » de l'interface compte `delai_s`
 /// secondes (délai du serveur, jamais écrit en dur dans l'interface).
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Annulable {
     pub lot: uuid::Uuid,
     pub delai_s: i64,
@@ -32,17 +35,20 @@ impl Annulable {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeAnnulation {
     lot: uuid::Uuid,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct IssuePiece {
     id: i64,
     issue: Issue,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatAnnulation {
     /// Validations annulées : rien n'est parti, pièces de nouveau à contrôler.
     annulees: usize,
@@ -97,8 +103,10 @@ const TEXTE_MAX: usize = 500;
 
 /// Corps facultatif de `POST /api/documents/{id}/ecarter`.
 #[derive(Deserialize, Default, Clone)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Motif {
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::MotifEcartement>"))]
     pub(crate) motif: Option<String>,
     #[serde(default)]
     pub(crate) texte: Option<String>,
@@ -158,9 +166,12 @@ fn refus(code: &'static str, message: &str) -> ErreurApi {
 }
 
 #[derive(Serialize)]
-pub struct Remise {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct RemiseEnLecture {
     id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
 }
 
@@ -171,7 +182,7 @@ pub async fn remettre(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<Remise>> {
+) -> Resultat<Json<RemiseEnLecture>> {
     controler_modifiable(&etat, &acces, id).await?;
     let mut tx = etat.pool.begin().await?;
     let a = sqlx::query!(
@@ -252,7 +263,7 @@ pub async fn remettre(
     gmflow_core::rapprochement::recalculer(&etat.pool, id)
         .await
         .map_err(ErreurApi::Interne)?;
-    Ok(Json(Remise {
+    Ok(Json(RemiseEnLecture {
         id,
         etat: r.etat,
         statut_depot,

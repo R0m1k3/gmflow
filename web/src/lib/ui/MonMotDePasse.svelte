@@ -5,6 +5,7 @@
    * déconnectés, celui-ci reste connecté. Composant autonome (page « Mon compte »).
    */
   import { ErreurApi, api, message } from '#lib/api.ts';
+  import type { ChangementMdp } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Champ from './Champ.svelte';
   import { LONGUEUR_MIN, phrase, verifierChangement, type ErreursMdp } from './motDePasse.ts';
@@ -27,7 +28,7 @@
     if (Object.keys(erreurs).length > 0) return;
     envoi = true;
     try {
-      await api.post('/api/moi/mot-de-passe', { ancien, nouveau });
+      await api.post('/api/moi/mot-de-passe', { ancien, nouveau } satisfies ChangementMdp);
       fait = true;
       ancien = nouveau = confirmation = '';
     } catch (err) {

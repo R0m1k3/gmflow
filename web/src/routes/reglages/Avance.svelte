@@ -6,7 +6,7 @@
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { quand } from '#lib/format.ts';
   import { RUBRIQUES, libelleTache } from '#lib/libelles.ts';
-  import type { Appels, BilanReinitialisation, ExpediteurMarque, LigneJournal, Page, Reglages, ReglagesVue } from '#lib/types.ts';
+  import type { Appels, BilanReinitialisation, DemandeReinitialisation, ExpediteurMarque, LigneJournal, Page, Reglages, ReglagesVue } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Confirmation from '#lib/ui/Confirmation.svelte';
@@ -45,7 +45,7 @@
         quota_lecture_jour: Number(reglages.quota_lecture_jour),
         quota_tri_jour: Number(reglages.quota_tri_jour),
         tri_depuis_jours: Number(reglages.tri_depuis_jours)
-      });
+      } satisfies Reglages);
       await chargerReglages();
       info = 'Réglages avancés enregistrés.';
     } catch (err) {
@@ -150,7 +150,7 @@
     bilanReinit = null;
     reinitEnCours = true;
     try {
-      bilanReinit = await api.post<BilanReinitialisation>('/api/admin/reinitialiser', { confirmation: tape.trim() });
+      bilanReinit = await api.post<BilanReinitialisation>('/api/admin/reinitialiser', { confirmation: tape.trim() } satisfies DemandeReinitialisation);
       appels = null;
       historique = null;
       if (ouvertAppels) void chargerAppels();

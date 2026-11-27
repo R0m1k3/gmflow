@@ -3,7 +3,7 @@
   import { tick } from 'svelte';
   import { api, message } from '#lib/api.ts';
   import { RUBRIQUES, nomOutil } from '#lib/libelles.ts';
-  import type { Societe } from '#lib/types.ts';
+  import type { EntreeSociete, OutilDepot, Societe } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Etiquette from '#lib/ui/Etiquette.svelte';
@@ -19,7 +19,7 @@
     siret: string;
     tva: string;
     adresses: string;
-    outil_depot: string;
+    outil_depot: OutilDepot | '';
     adresse_depot: string;
     depot_auto: boolean;
     archivee: boolean;
@@ -77,7 +77,7 @@
     if (!f) return;
     erreur = '';
     enCours = true;
-    const corps = {
+    const corps: EntreeSociete = {
       raison_sociale: f.raison_sociale.trim(),
       autres_noms: f.autres_noms
         .split('\n')

@@ -16,6 +16,8 @@ use super::mails::{Page, date, decalage, mail_visible, motif};
 use crate::acces::{Acces, AccesAdmin};
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 
@@ -54,31 +56,42 @@ pub const TRI_DOCUMENTS: &[super::tri::Colonne] = &[
 ];
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneDocument {
     id: i64,
     mail_id: i64,
     nom_fichier: String,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Voie>"))]
     voie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
     societe: Option<String>,
     fournisseur_nom: Option<String>,
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_echeance: Option<time::Date>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ttc: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     remise_ht: Option<Decimal>,
     /// Articles en écart avec les BL liés (manquant, en trop, prix changé).
     articles_ecart: i64,
     message: Option<String>,
     verifie: bool,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Vec<gmflow_core::controles::Echec>"))]
     controles: Value,
     /// Notes internes (`routes/notes.rs`) et début de la plus récente (survol de la pastille).
     notes: i64,
@@ -253,7 +266,8 @@ pub async fn lister(
 }
 
 #[derive(Serialize)]
-pub struct FicheDocument {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct FicheBase {
     id: i64,
     mail_id: i64,
     mail_objet: String,
@@ -261,9 +275,12 @@ pub struct FicheDocument {
     piece_id: i64,
     nom_fichier: String,
     type_mime: String,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Voie>"))]
     voie: Option<String>,
     message: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
     societe_id: Option<i64>,
     societe: Option<String>,
@@ -272,57 +289,83 @@ pub struct FicheDocument {
     fournisseur_tva: Option<String>,
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
     numero_commande: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_echeance: Option<time::Date>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ttc: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     remise_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     remise_taux: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     annexes_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "super::formes::Confiance"))]
     confiance: Value,
     texte: Option<String>,
     modele: Option<String>,
     effort: Option<String>,
     copie_de: Option<i64>,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     lu_le: Option<time::OffsetDateTime>,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     verifie_le: Option<time::OffsetDateTime>,
     verifie_par: Option<String>,
     type_corrige: bool,
     societe_corrigee: bool,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutFournisseur>"))]
     fournisseur_statut: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Vec<gmflow_core::controles::Echec>"))]
     controles: Value,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     valide_le: Option<time::OffsetDateTime>,
     valide_par: Option<String>,
+    #[cfg_attr(
+        feature = "ts",
+        ts(type = "Record<string, { avant: unknown; apres: unknown }>")
+    )]
     corrections: Value,
     societe_adresse_depot: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     societe_outil_depot: Option<String>,
     /// Réception du mail d'origine (date du mail, à défaut date de relève).
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     recu_le: time::OffsetDateTime,
     /// Envoi en échec relancé il y a moins de 30 min, pas encore repris par le worker.
     envoi_relance: bool,
     /// Écartée par un humain : quand, par qui, motif (`retour::noter_ecartement`).
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::Ecartement>"))]
     ecartement: Option<Value>,
     /// Lignes articles corrigées à la main (`routes::lignes`) : une relecture les remplacerait.
     lignes_corrigees: i64,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct EnvoiVue {
     id: i64,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     quand: time::OffsetDateTime,
     adresse: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatEnvoi"))]
     etat: String,
     message: Option<String>,
     auteur: Option<String>,
@@ -330,6 +373,7 @@ pub struct EnvoiVue {
 
 /// Boîte qui a reçu le mail d'origine (visible par cet accès).
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BoiteReception {
     boite_id: i64,
     libelle: String,
@@ -340,21 +384,24 @@ pub struct BoiteReception {
 }
 
 #[derive(Serialize)]
-pub struct FicheComplete {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct FicheDocument {
     #[serde(flatten)]
-    document: FicheDocument,
+    document: FicheBase,
     envois: Vec<EnvoiVue>,
     /// Boîtes de réception du mail d'origine, par libellé.
     boites: Vec<BoiteReception>,
     /// Document pas encore lu (`a_lire`, `en_cours`) : pourquoi il attend.
     attente: Option<gmflow_core::attente::Attente>,
     /// Dernier report de la facture dans Logiflow : `{quand, ok, message, livraisons}`.
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::ResultatLogiflow>"))]
     logiflow: Option<Value>,
     /// Logiflow est configuré (Réglages) : la fiche d'une facture envoyée propose « Relancer ».
     logiflow_configure: bool,
     /// Facture envoyée il y a moins de 10 min, résultat Logiflow pas encore là : la fiche attend.
     logiflow_attendu: bool,
     /// BL : livraison Logiflow retrouvée (`logiflow_livraison`), ou rien.
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::LivraisonLogiflow>"))]
     logiflow_livraison: Option<Value>,
     /// PDF de plusieurs pièces découpé (`lecture::decoupage`) : documents des parties, dans
     /// l'ordre des pages. Vide sinon. Ce document-ci n'est alors que l'origine, ignorée.
@@ -366,14 +413,18 @@ pub struct FicheComplete {
 }
 
 #[derive(Serialize, Debug)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct CorrectionChamp {
     /// Nom du champ en base (`numero`, `montant_ttc`, `fournisseur_id`…).
     champ: String,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     avant: Value,
+    #[cfg_attr(feature = "ts", ts(type = "unknown"))]
     apres: Value,
     /// Identifiant de l'auteur (`null` : compte supprimé).
     par: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     quand: time::OffsetDateTime,
 }
 
@@ -396,6 +447,7 @@ pub(crate) async fn historique_corrections(etat: &Etat, id: i64) -> Resultat<Vec
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct PartieVue {
     id: i64,
     page_debut: Option<i32>,
@@ -422,10 +474,10 @@ pub async fn fiche(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<FicheComplete>> {
+) -> Resultat<Json<FicheDocument>> {
     controler_visible(&etat, &acces, id).await?;
     let d = sqlx::query_as!(
-        FicheDocument,
+        FicheBase,
         r#"select d.id, d.mail_id, m.objet as mail_objet, m.expediteur as mail_expediteur,
                   p.id as piece_id, p.nom as nom_fichier, p.type_mime, d.etat, d.voie, d.message,
                   d.type, d.societe_id, s.raison_sociale as "societe?", d.fournisseur_nom,
@@ -531,7 +583,7 @@ pub async fn fiche(
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(FicheComplete {
+    Ok(Json(FicheDocument {
         document: d,
         envois,
         boites,
@@ -546,7 +598,9 @@ pub async fn fiche(
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Verification {
+    #[cfg_attr(feature = "ts", ts(as = "v::TypeDocument"))]
     r#type: String,
     societe_id: Option<i64>,
 }
@@ -639,9 +693,11 @@ pub async fn verifier(
 }
 
 #[derive(Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct Relecture {
     /// « Relire en détail » : modèle plus fort et fichier d'origine joint dès le premier appel.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     approfondie: bool,
 }
 
@@ -687,26 +743,29 @@ pub async fn relire(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Compte {
     cle: Option<String>,
     n: i64,
 }
 
 #[derive(Serialize)]
-pub struct Bilan {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct BilanLecture {
     par_etat: Vec<Compte>,
     par_voie: Vec<Compte>,
     par_type: Vec<Compte>,
     verifies: i64,
     type_justes: i64,
     societe_justes: i64,
-    semaines: Vec<Semaine>,
+    semaines: Vec<SemaineBilan>,
 }
 
 /// Documents vérifiés ou validés par un humain une semaine donnée (lundi), et combien sans
 /// aucune correction.
 #[derive(Serialize)]
-pub struct Semaine {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct SemaineBilan {
     semaine: String,
     valides: i64,
     sans_correction: i64,
@@ -714,7 +773,7 @@ pub struct Semaine {
 
 /// Bilan des documents visibles : volumes, et justesse du type et de la société sur les
 /// documents vérifiés (critère du lot : plus de 95 % sur 50 documents).
-pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bilan>> {
+pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<BilanLecture>> {
     let s = acces.societe_filtre();
     let compter = |colonne: &'static str| {
         let pool = etat.pool.clone();
@@ -747,7 +806,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
     .fetch_one(&etat.pool)
     .await?;
     let semaines = sqlx::query_as!(
-        Semaine,
+        SemaineBilan,
         r#"select to_char(date_trunc('week', coalesce(d.verifie_le, d.valide_le) at time zone 'Europe/Paris'), 'YYYY-MM-DD') as "semaine!",
                   count(*) as "valides!",
                   count(*) filter (where d.corrige_le is null and not d.type_corrige
@@ -761,7 +820,7 @@ pub async fn bilan(acces: Acces, State(etat): State<Etat>) -> Resultat<Json<Bila
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Bilan {
+    Ok(Json(BilanLecture {
         semaines,
         par_etat,
         par_voie,
@@ -809,18 +868,24 @@ fn fusionner_corrections(anciennes: &Value, changements: &[(&str, Value, Value)]
 }
 
 #[derive(Deserialize)]
-pub struct Correction {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct CorrectionDocument {
+    #[cfg_attr(feature = "ts", ts(as = "v::TypeDocument"))]
     r#type: String,
     societe_id: Option<i64>,
     fournisseur_id: Option<i64>,
     numero: Option<String>,
     date_document: Option<String>,
     numero_commande: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     montant_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     montant_ttc: Option<Decimal>,
     /// Absente : l'échéance lue est gardée ; `null` : effacée.
     #[serde(default, deserialize_with = "present")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<String>"))]
     date_echeance: Option<Option<String>>,
 }
 
@@ -866,7 +931,7 @@ pub(crate) struct CorrectionNette {
 async fn nettoyer_correction(
     etat: &Etat,
     acces: &Acces,
-    c: Correction,
+    c: CorrectionDocument,
 ) -> Resultat<CorrectionNette> {
     if !TYPES.contains(&c.r#type.as_str()) {
         return Err(ErreurApi::Donnees(format!("type inconnu : {}", c.r#type)));
@@ -1029,7 +1094,7 @@ pub async fn corriger(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-    Json(c): Json<Correction>,
+    Json(c): Json<CorrectionDocument>,
 ) -> Resultat<StatusCode> {
     controler_modifiable(&etat, &acces, id).await?;
     let c = nettoyer_correction(&etat, &acces, c).await?;
@@ -1046,7 +1111,9 @@ pub async fn corriger(
 }
 
 #[derive(Serialize)]
-pub struct StatutDepot {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ReponseStatutDepot {
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
 }
 
@@ -1055,17 +1122,19 @@ pub async fn controler(
     acces: Acces,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<StatutDepot>> {
+) -> Resultat<Json<ReponseStatutDepot>> {
     controler_visible(&etat, &acces, id).await?;
     let statut_depot = depot::evaluer_et_deposer(&etat.pool, id)
         .await
         .map_err(ErreurApi::Interne)?;
-    Ok(Json(StatutDepot { statut_depot }))
+    Ok(Json(ReponseStatutDepot { statut_depot }))
 }
 
 #[derive(Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeDepot {
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     forcer: bool,
 }
 
@@ -1158,12 +1227,14 @@ pub async fn deposer(
 }
 
 #[derive(Deserialize, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeValidation {
     /// Champs corrigés (mêmes champs que `PUT /api/documents/{id}`) ; absent : rien à corriger.
     #[serde(default)]
-    corrections: Option<Correction>,
+    corrections: Option<CorrectionDocument>,
     /// Administrateur seulement : envoyer un doublon quand même.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     forcer: bool,
     /// Validation par lot (`routes::lot`), jamais lue du corps : envois regroupés sous ce lot,
     /// et seulement une pièce sans alerte.
@@ -1191,8 +1262,10 @@ pub struct ContexteFile {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Validation {
     pub(crate) id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     pub(crate) statut_depot: Option<String>,
     /// L'envoi à Dext/Yooz a été demandé (facture ou avoir).
     pub(crate) envoi: bool,
@@ -1200,6 +1273,7 @@ pub struct Validation {
     suivant: Option<i64>,
     /// Envoi demandé : il part après ce délai, sauf « Annuler » (`POST /api/documents/annuler-envoi`).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub(crate) annulation: Option<super::retour::Annulable>,
 }
 

@@ -48,6 +48,11 @@ const ENVOI_EN_COURS_MINUTES: i32 = 15;
 const ESSAIS: usize = 3;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, rename = "BilanReinitialisation")
+)]
 pub struct Bilan {
     pub mails: i64,
     pub documents: i64,

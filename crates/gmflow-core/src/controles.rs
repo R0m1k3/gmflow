@@ -22,22 +22,28 @@ pub const AGE_MAX_JOURS: i64 = 366;
 /// Contrôle en échec. `message` : phrase pour l'écran, dans le vocabulaire de l'interface
 /// (société, envoi à Dext/Yooz, montants « 1 250,40 € »), sans point final.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Echec {
     pub code: String,
     pub message: String,
     /// Champs du document visés (noms de l'API : `montant_ttc`, `societe_id`...), pour les
     /// surligner.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "ts", ts(as = "Vec<crate::vocabulaire::ChampControle>"))]
     pub champs: Vec<String>,
     /// Correction proposée en un clic (montants : HT + TVA = TTC).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub proposition: Option<Proposition>,
 }
 
 /// Valeur proposée pour un champ.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Proposition {
+    #[cfg_attr(feature = "ts", ts(as = "crate::vocabulaire::ChampControle"))]
     pub champ: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub valeur: Decimal,
 }
 

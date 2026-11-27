@@ -1,6 +1,6 @@
 # API de la refonte de l'interface (direction B)
 
-Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md` §5). Rien n'a été retiré : les anciennes routes marchent comme avant. Les types TypeScript sont dans `web/src/lib/types.ts` (section « Refonte »), et les fonctions d'appel dans `web/src/lib/api.ts` (`aTraiter`, `validerDocument`, `ecarterDocument`, `urlApercu`, `fournisseurs`, `filFournisseur`, `rechercher`, `bilanMois`, `miseEnRoute`, `essayerBoite`, `essayerSmtp`, `lireEssai`, `attendreEssai`, `modifierFournisseur`, `lireBoite`, `creerBoite`).
+Contrat des endpoints ajoutés pour la nouvelle interface (`docs/architecture.md` §5). Rien n'a été retiré : les anciennes routes marchent comme avant. Les types TypeScript sont générés depuis les structures Rust dans `web/src/lib/api-types/` (`scripts/types-ts.sh`, repris par `web/src/lib/types.ts`), et les fonctions d'appel dans `web/src/lib/api.ts` (`aTraiter`, `validerDocument`, `ecarterDocument`, `urlApercu`, `fournisseurs`, `filFournisseur`, `rechercher`, `bilanMois`, `miseEnRoute`, `essayerBoite`, `essayerSmtp`, `lireEssai`, `attendreEssai`, `modifierFournisseur`, `lireBoite`, `creerBoite`).
 
 ## Règles communes
 

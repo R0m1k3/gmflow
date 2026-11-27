@@ -165,6 +165,7 @@ pub async fn attente_restante(pool: &PgPool, prevu_id: i64) -> sqlx::Result<Opti
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum Issue {
     /// Validation annulée : rien n'est parti, la pièce est de nouveau à contrôler.

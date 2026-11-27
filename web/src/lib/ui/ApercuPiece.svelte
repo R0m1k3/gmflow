@@ -8,12 +8,9 @@
   import { api, message } from '#lib/api.ts';
   import Chargement from './Chargement.svelte';
   import Icone from './Icone.svelte';
+  import type { FeuilleTableur } from '#lib/types.ts';
 
-  interface Feuille {
-    nom: string;
-    lignes: string[][];
-    tronque: boolean;
-  }
+  type Feuille = FeuilleTableur;
 
   let {
     id,

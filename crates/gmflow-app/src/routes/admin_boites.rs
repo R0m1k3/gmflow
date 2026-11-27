@@ -7,8 +7,11 @@ use serde_json::{Value, json};
 use crate::acces::AccesAdmin;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Boite {
     id: i64,
     societe_id: i64,
@@ -24,30 +27,38 @@ pub struct Boite {
     pause_auto: bool,
     echecs_auth: i32,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     derniere_releve: Option<time::OffsetDateTime>,
     derniere_erreur: Option<String>,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     erreur_depuis: Option<time::OffsetDateTime>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::TestBoite>"))]
     dernier_test: Option<Value>,
     smtp_serveur: Option<String>,
     smtp_port: Option<i32>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::SecuriteSmtp>"))]
     smtp_securite: Option<String>,
     dossier_envoyes: Option<String>,
 }
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeBoite {
     societe_id: i64,
     libelle: String,
     serveur: String,
     #[serde(default = "port_imaps")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>", optional))]
     port: i32,
     identifiant: String,
     #[serde(default)]
     mot_de_passe: Option<String>,
     #[serde(default = "inbox")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<Vec<String>>", optional))]
     dossiers: Vec<String>,
     #[serde(default = "trois")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<i32>", optional))]
     reprise_mois: i32,
     /// Envoi des réponses (lot 5) : serveur SMTP de la boîte, mêmes identifiants qu'en IMAP.
     #[serde(default)]
@@ -55,6 +66,7 @@ pub struct Entree {
     #[serde(default)]
     smtp_port: Option<i32>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::SecuriteSmtp>"))]
     smtp_securite: Option<String>,
     /// Dossier IMAP des messages envoyés (copie des réponses, exemples de ton).
     #[serde(default)]
@@ -62,9 +74,11 @@ pub struct Entree {
     /// Création : essai réussi de ces paramètres (`POST /api/admin/boites/tester`, moins d'une
     /// heure, même serveur, port, identifiant et mot de passe), repris comme test de la boîte.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<String>"))]
     essai_id: Option<uuid::Uuid>,
     /// Création : démarrer la surveillance tout de suite (exige `essai_id`).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     activer: bool,
 }
 
@@ -82,7 +96,7 @@ fn trois() -> i32 {
     3
 }
 
-impl Entree {
+impl EntreeBoite {
     fn nettoyer(mut self) -> Resultat<Self> {
         self.libelle = self.libelle.trim().to_string();
         self.serveur = self.serveur.trim().to_string();
@@ -180,7 +194,7 @@ pub async fn fiche(
 async fn test_de_l_essai(
     etat: &Etat,
     essai_id: uuid::Uuid,
-    e: &Entree,
+    e: &EntreeBoite,
     mot_de_passe: &str,
 ) -> Resultat<Value> {
     use gmflow_core::essai_boite;
@@ -258,7 +272,7 @@ async fn societe_existe(etat: &Etat, id: i64) -> Resultat<()> {
 pub async fn creer(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeBoite>,
 ) -> Resultat<Json<Boite>> {
     let e = e.nettoyer()?;
     societe_existe(&etat, e.societe_id).await?;
@@ -330,7 +344,7 @@ pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeBoite>,
 ) -> Resultat<Json<Boite>> {
     let e = e.nettoyer()?;
     societe_existe(&etat, e.societe_id).await?;
@@ -481,6 +495,7 @@ pub async fn relever(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Compteur {
     dossier: String,
     messages_vus: i64,

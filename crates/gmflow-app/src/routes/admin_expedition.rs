@@ -13,18 +13,20 @@ use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
 
 #[derive(Serialize)]
-pub struct Vue {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ExpeditionVue {
     expedition: Option<Expedition>,
     mot_de_passe_enregistre: bool,
     alerte_destinataires: Vec<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<super::formes::DernierTest>"))]
     dernier_test: Option<Value>,
 }
 
-pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue>> {
+pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<ExpeditionVue>> {
     let expedition = parametre::lire(&etat.pool, expedition::CLE)
         .await?
         .and_then(|v| serde_json::from_value(v).ok());
-    Ok(Json(Vue {
+    Ok(Json(ExpeditionVue {
         expedition,
         mot_de_passe_enregistre: parametre::lire_secret(&etat.pool, expedition::CLE)
             .await?
@@ -35,7 +37,8 @@ pub async fn lire(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<Vue
 }
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeExpedition {
     expedition: Expedition,
     /// Omis : inchangé ; chaîne vide : supprimé.
     #[serde(default)]
@@ -47,7 +50,7 @@ pub struct Entree {
 pub async fn modifier(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(mut e): Json<Entree>,
+    Json(mut e): Json<EntreeExpedition>,
 ) -> Resultat<StatusCode> {
     e.expedition.serveur = e.expedition.serveur.trim().to_string();
     e.expedition.adresse = e.expedition.adresse.trim().to_string();
@@ -109,14 +112,15 @@ pub async fn modifier(
 }
 
 #[derive(Deserialize)]
-pub struct Test {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct TestExpedition {
     destinataire: String,
 }
 
 pub async fn tester(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(t): Json<Test>,
+    Json(t): Json<TestExpedition>,
 ) -> Resultat<StatusCode> {
     let d = t.destinataire.trim().to_string();
     if !adresse_valide(&d) {

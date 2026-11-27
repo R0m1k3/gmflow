@@ -256,14 +256,17 @@ fn absent(quoi: &str) -> Indispo {
 
 /// Explication d'un document qui attend sa lecture (`a_lire` ou `en_cours`).
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Attente {
     /// `en_cours`, `en_file`, `bloque`, `file_arretee`, `jeton_absent`, `claude_refuse`,
     /// `quota`, `lecture_coupee` ou `a_relancer`.
+    #[cfg_attr(feature = "ts", ts(as = "crate::vocabulaire::GenreAttente"))]
     pub genre: &'static str,
     /// Phrase principale, sans point final.
     pub raison: String,
     /// En attente depuis (création, ou dernière lecture pour une relecture).
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     pub depuis: OffsetDateTime,
     /// Documents qui passeront avant lui dans la file de lecture.
     pub devant: Option<i64>,

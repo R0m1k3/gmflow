@@ -15,13 +15,16 @@ pub struct Filtres {
 }
 
 #[derive(Serialize)]
-pub struct Ligne {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct LigneJournal {
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     quand: time::OffsetDateTime,
     auteur: Option<String>,
     action: String,
     objet_type: String,
     objet_id: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     details: Value,
 }
 
@@ -29,7 +32,7 @@ pub async fn lister(
     _a: AccesAdmin,
     State(etat): State<Etat>,
     Query(f): Query<Filtres>,
-) -> Resultat<Json<Page<Ligne>>> {
+) -> Resultat<Json<Page<LigneJournal>>> {
     let (page, decalage) = decalage(f.page);
     let objet = f.objet_type.filter(|s| !s.is_empty());
     let total = sqlx::query_scalar!(
@@ -39,7 +42,7 @@ pub async fn lister(
     .fetch_one(&etat.pool)
     .await?;
     let elements = sqlx::query_as!(
-        Ligne,
+        LigneJournal,
         r#"select j.quand, u.identifiant as "auteur?", j.action, j.objet_type, j.objet_id, j.details
            from journal j left join utilisateur u on u.id = j.auteur_id
            where ($1::text is null or j.objet_type = $1)

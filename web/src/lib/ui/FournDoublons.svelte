@@ -5,7 +5,7 @@
   // Les paires « même groupe probable » (même SIREN, noms sans rapport) n'offrent pas la fusion.
   import { api, message, modifierFournisseur } from '#lib/api.ts';
   import Aide from './Aide.svelte';
-  import type { FicheCourte, PaireDoublon } from '#lib/types.ts';
+  import type { Distinct, EntreeFournisseur, FicheCourte, Fournisseur, Fusion, PaireDoublon, Repartition, ResultatFusion } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
@@ -60,7 +60,7 @@
     if (!fusion) return;
     const { garder, retirer } = fusion;
     try {
-      const r = await api.post<{ documents: number }>(`/api/admin/fournisseurs/${retirer.id}/fusionner`, { cible_id: garder.id });
+      const r = await api.post<ResultatFusion>(`/api/admin/fournisseurs/${retirer.id}/fusionner`, { cible_id: garder.id } satisfies Fusion);
       info = `« ${retirer.nom} » fusionnée dans « ${garder.nom} » : ${r.documents} document${r.documents > 1 ? 's' : ''} déplacé${r.documents > 1 ? 's' : ''}`;
       if (ouvert === retirer.id) onouvrir(garder.id);
       await charger();
@@ -72,7 +72,7 @@
 
   async function distinct(p: PaireDoublon) {
     try {
-      await api.post('/api/admin/fournisseurs/doublons/distinct', { a: p.a.id, b: p.b.id });
+      await api.post('/api/admin/fournisseurs/doublons/distinct', { a: p.a.id, b: p.b.id } satisfies Distinct);
       info = `« ${p.a.nom} » et « ${p.b.nom} » ne seront plus proposées`;
       await charger();
     } catch (e) {
@@ -124,7 +124,7 @@
       let nomGroupe: string;
       if (c.genre === 'nouveau') {
         if (!nom.trim()) throw new Error('Donnez le nom du groupe (par exemple U10)');
-        const g = await api.post<{ id: number; nom: string }>('/api/admin/fournisseurs', { nom: nom.trim(), statut: 'valide' });
+        const g = await api.post<Fournisseur>('/api/admin/fournisseurs', { nom: nom.trim(), statut: 'valide' } satisfies EntreeFournisseur);
         groupe = g.id;
         nomGroupe = g.nom;
         for (const f of [p.a, p.b]) await modifierFournisseur(f.id, { groupe_id: groupe });
@@ -135,7 +135,7 @@
       }
       let ranges = 0;
       try {
-        ranges = (await api.post<{ deplaces: number }>(`/api/admin/fournisseurs/${groupe}/repartir`, {})).deplaces;
+        ranges = (await api.post<Repartition>(`/api/admin/fournisseurs/${groupe}/repartir`, {})).deplaces;
       } catch {
         /* rien à répartir */
       }

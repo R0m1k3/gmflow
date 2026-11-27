@@ -133,6 +133,7 @@ pub const COLONNES_TRAME: [&str; 105] = [
 /// groupe ; les deux par défaut) : certains fournisseurs impriment une référence ou un gencod
 /// que le magasin ne veut pas reprendre. Les composants d'un lot gardent ceux du magasin.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[serde(rename_all = "snake_case")]
 pub enum Colonnes {
     #[default]
@@ -190,6 +191,7 @@ pub enum Cellule {
 pub type Rangee = Vec<(&'static str, Cellule)>;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename = "AlerteExport"))]
 pub struct Alerte {
     /// Rang de la ligne du BL (0 = première), absent pour une alerte générale.
     pub rang: Option<i32>,

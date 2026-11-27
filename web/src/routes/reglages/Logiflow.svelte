@@ -5,7 +5,7 @@
   // la livraison de ses BL.
   import { api, message, sonder } from '#lib/api.ts';
   import { RUBRIQUES } from '#lib/libelles.ts';
-  import type { LogiflowVue } from '#lib/types.ts';
+  import type { EntreeLogiflow, LogiflowVue } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
@@ -54,7 +54,7 @@
     erreur = '';
     info = '';
     enCours = true;
-    const corps: Record<string, unknown> = { adresse: f.adresse.trim() };
+    const corps: EntreeLogiflow = { adresse: f.adresse.trim() };
     if (effacerJeton) corps.jeton = '';
     else if (f.jeton.trim()) corps.jeton = f.jeton.trim();
     try {

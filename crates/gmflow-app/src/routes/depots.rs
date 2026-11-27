@@ -17,6 +17,7 @@ pub struct Filtre {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneSuivi {
     pub(crate) societe_id: Option<i64>,
     pub(crate) societe: Option<String>,
@@ -28,10 +29,12 @@ pub struct LigneSuivi {
     pub(crate) en_erreur: i64,
     pub(crate) doublons: i64,
     /// Montant TTC déposé.
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
     pub(crate) montant_depose: Decimal,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Suivi {
     pub(crate) mois: String,
     pub(crate) lignes: Vec<LigneSuivi>,

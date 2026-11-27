@@ -16,6 +16,7 @@ use crate::reglages;
 pub const FOURNISSEURS_MAX: i64 = 10;
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Qualite {
     /// Factures, avoirs et BL validés par un humain dans le mois.
     pub validees: i64,
@@ -30,12 +31,18 @@ pub struct Qualite {
 
 /// Champ corrigé (nom de l'API : `numero`, `date_document`, `montant_ttc`…) sur `pieces`.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ParChamp {
     pub champ: String,
     pub pieces: i64,
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(
+    feature = "ts",
+    derive(ts_rs::TS),
+    ts(export, rename = "GroupeQualite")
+)]
 pub struct Groupe {
     /// Voie de lecture (`facturx`, `xml`, `pdf_texte`, `tableur`, `scan`), vide si inconnue ;
     /// suivie de `+ocr` (texte des pages scannées lu par l'OCR local) ou de `+cellules` (lignes
@@ -49,6 +56,7 @@ pub struct Groupe {
 /// (reprise après une lecture douteuse, ou relecture en détail). Sans modèle : pièce lue sans
 /// Claude (Factur-X, XML) ou avant la mesure des appels.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ParModele {
     pub modele: Option<String>,
     pub nouvel_essai: bool,
@@ -57,6 +65,7 @@ pub struct ParModele {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ParFournisseur {
     pub fournisseur_id: i64,
     pub nom: String,
@@ -65,6 +74,7 @@ pub struct ParFournisseur {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, rename = "CoutLecture"))]
 pub struct Cout {
     /// Somme des coûts estimés des appels de lecture du mois (dollars).
     pub total_usd: f64,

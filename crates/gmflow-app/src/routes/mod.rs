@@ -15,6 +15,8 @@ pub mod depots;
 pub mod documents;
 pub mod export_phenix;
 pub mod fichiers;
+#[cfg(feature = "ts")]
+pub mod formes;
 pub mod fournisseurs;
 pub mod iban;
 pub mod lignes;

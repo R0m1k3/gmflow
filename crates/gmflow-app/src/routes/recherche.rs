@@ -12,6 +12,8 @@ use super::mails::date;
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 
@@ -19,6 +21,7 @@ time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 pub const LIMITE: i64 = 50;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct DateCherchee {
     pub jour: i32,
     pub mois: i32,
@@ -28,10 +31,12 @@ pub struct DateCherchee {
 
 /// Ce que la saisie a été comprise comme.
 #[derive(Debug, Default, Clone, PartialEq, Serialize)]
-pub struct Interpretation {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct InterpretationRecherche {
     /// Mots cherchés dans les textes (tous doivent se retrouver).
     pub mots: Vec<String>,
     /// Montant (TTC ou HT d'un document), en euros.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub montant: Option<Decimal>,
     /// Nombres entiers seuls : un mot ou un montant.
     pub nombres: Vec<i64>,
@@ -111,7 +116,7 @@ fn date_saisie(t: &str) -> Option<DateCherchee> {
 }
 
 /// Découpe la saisie en montant, date, nombres et mots.
-pub fn interpreter(q: &str) -> Interpretation {
+pub fn interpreter(q: &str) -> InterpretationRecherche {
     let propre: String = q
         .chars()
         .map(|c| if c.is_whitespace() { ' ' } else { c })
@@ -119,7 +124,7 @@ pub fn interpreter(q: &str) -> Interpretation {
     // « 60€ », « 60 € », « 60 EUR » : le symbole marque un montant.
     let propre = propre.replace('€', " € ");
     let jetons: Vec<&str> = propre.split(' ').filter(|t| !t.is_empty()).collect();
-    let mut r = Interpretation::default();
+    let mut r = InterpretationRecherche::default();
     let mut i = 0;
     while i < jetons.len() {
         let t = jetons[i];
@@ -208,53 +213,68 @@ pub struct Filtres {
 }
 
 #[derive(Serialize)]
-pub struct DocTrouve {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct DocumentTrouve {
     id: i64,
     mail_id: i64,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::EtatDocument"))]
     etat: String,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
     fournisseur_id: Option<i64>,
     fournisseur: Option<String>,
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_document: Option<time::Date>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ttc: Option<Decimal>,
     societe_id: Option<i64>,
     societe: Option<String>,
     /// Outil de la société : `dext` ou `yooz` (nul si pas encore rangé ou pas réglé).
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil: Option<String>,
     nom_fichier: String,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     recu_le: time::OffsetDateTime,
     verifie: bool,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct MailTrouve {
     id: i64,
     expediteur: String,
     objet: String,
     #[serde(with = "time::serde::rfc3339::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     date_mail: Option<time::OffsetDateTime>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::Categorie>"))]
     categorie: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutReponse>"))]
     statut_reponse: Option<String>,
     resume: Option<String>,
     nb_pieces: i64,
 }
 
 #[derive(Serialize)]
-pub struct Groupe<T> {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct GroupeRecherche<T> {
     total: i64,
     elements: Vec<T>,
 }
 
 #[derive(Serialize)]
-pub struct Resultats {
-    interpretation: Interpretation,
-    documents: Groupe<DocTrouve>,
-    mails: Groupe<MailTrouve>,
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ResultatsRecherche {
+    interpretation: InterpretationRecherche,
+    documents: GroupeRecherche<DocumentTrouve>,
+    mails: GroupeRecherche<MailTrouve>,
 }
 
 /// `GET /api/recherche` : documents (sauf pièces écartées) et mails (publicités comprises)
@@ -263,7 +283,7 @@ pub async fn chercher(
     acces: Acces,
     State(etat): State<Etat>,
     Query(f): Query<Filtres>,
-) -> Resultat<Json<Resultats>> {
+) -> Resultat<Json<ResultatsRecherche>> {
     let (du, au) = (date(&f.du)?, date(&f.au)?);
     let type_choisi = f.r#type.as_deref().map(str::trim).filter(|t| !t.is_empty());
     if let Some(t) = type_choisi
@@ -285,7 +305,7 @@ pub async fn chercher(
     let type_doc = type_choisi.filter(|t| *t != "mail" && *t != "document");
 
     let documents = if type_choisi == Some("mail") {
-        Groupe {
+        GroupeRecherche {
             total: 0,
             elements: Vec::new(),
         }
@@ -354,11 +374,11 @@ pub async fn chercher(
         )
         .fetch_all(&etat.pool)
         .await?;
-        Groupe {
+        GroupeRecherche {
             total: lignes.first().map(|l| l.total).unwrap_or(0),
             elements: lignes
                 .into_iter()
-                .map(|l| DocTrouve {
+                .map(|l| DocumentTrouve {
                     id: l.id,
                     mail_id: l.mail_id,
                     r#type: l.r#type,
@@ -382,7 +402,7 @@ pub async fn chercher(
     };
 
     let mails = if documents_seuls {
-        Groupe {
+        GroupeRecherche {
             total: 0,
             elements: Vec::new(),
         }
@@ -439,7 +459,7 @@ pub async fn chercher(
         )
         .fetch_all(&etat.pool)
         .await?;
-        Groupe {
+        GroupeRecherche {
             total: lignes.first().map(|l| l.total).unwrap_or(0),
             elements: lignes
                 .into_iter()
@@ -456,7 +476,7 @@ pub async fn chercher(
                 .collect(),
         }
     };
-    Ok(Json(Resultats {
+    Ok(Json(ResultatsRecherche {
         interpretation: i,
         documents,
         mails,

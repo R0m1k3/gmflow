@@ -50,6 +50,8 @@ tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tower-sessions = "0.15.0"
 tower-sessions-sqlx-store = { version = "0.16.0", features = ["postgres"] }
 tracing = "0.1.44"
+# Types TypeScript du front générés depuis les structures de l'API (fonction `ts`, jamais dans les images).
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "uuid-impl", "no-serde-warnings", "format"] }
 tracing-subscriber = { version = "0.3.23", features = ["json", "env-filter"] }
 uuid = { version = "1.29.3", features = ["v4", "serde"] }
 webpki-roots = "1.0.12"

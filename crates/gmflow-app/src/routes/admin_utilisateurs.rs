@@ -8,27 +8,35 @@ use crate::acces::AccesAdmin;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
 use crate::mdp;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Utilisateur {
     id: i64,
     identifiant: String,
+    #[cfg_attr(feature = "ts", ts(as = "v::Role"))]
     role: String,
     societe_id: Option<i64>,
     actif: bool,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     cree_le: time::OffsetDateTime,
 }
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeUtilisateur {
     identifiant: String,
     #[serde(default)]
     mot_de_passe: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "v::Role"))]
     role: String,
     #[serde(default)]
     societe_id: Option<i64>,
     #[serde(default = "vrai")]
+    #[cfg_attr(feature = "ts", ts(as = "Option<bool>", optional))]
     actif: bool,
 }
 
@@ -36,7 +44,7 @@ fn vrai() -> bool {
     true
 }
 
-impl Entree {
+impl EntreeUtilisateur {
     fn nettoyer(mut self) -> Resultat<Self> {
         self.identifiant = self.identifiant.trim().to_string();
         if self.identifiant.is_empty() {
@@ -78,7 +86,7 @@ pub async fn lister(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<Json<V
 pub async fn creer(
     AccesAdmin(a): AccesAdmin,
     State(etat): State<Etat>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeUtilisateur>,
 ) -> Resultat<Json<Utilisateur>> {
     let e = e.nettoyer()?;
     let Some(m) = e.mot_de_passe.clone() else {
@@ -140,7 +148,7 @@ pub async fn modifier(
     State(etat): State<Etat>,
     session: Session,
     Path(id): Path<i64>,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeUtilisateur>,
 ) -> Resultat<Json<Utilisateur>> {
     let e = e.nettoyer()?;
     if id == a.utilisateur_id && (e.role != "admin" || !e.actif) {

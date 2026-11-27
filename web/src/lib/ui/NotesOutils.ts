@@ -1,6 +1,6 @@
 // Outils sans dépendance (testés par `npm test`) pour les notes internes et l'écartement par
 // lot (audit U23).
-import type { MotifEcartement } from '#lib/types.ts';
+import type { MotifEcartement, ResultatEcart } from '#lib/types.ts';
 
 /** Début d'une note, sur une ligne : pour le survol de la pastille « Note » des listes. */
 export function apercuNote(texte: string | null | undefined, max = 80): string {
@@ -18,11 +18,7 @@ export function bulleNotes(n: number | undefined, derniere: string | null | unde
 }
 
 /** Réponse de `POST /api/documents/lot/ecarter`. */
-export interface ResultatEcartLot {
-  ecartees: number;
-  laissees: number;
-  pieces: { id: number; ecartee: boolean; raison: string | null }[];
-}
+export type ResultatEcartLot = ResultatEcart;
 
 /** « 3 écartées, 1 laissée (déjà envoyée). » */
 export function resumeEcartLot(r: ResultatEcartLot): string {

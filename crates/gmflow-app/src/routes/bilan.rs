@@ -26,6 +26,7 @@ pub struct Filtre {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct BlEnAttente {
     societe_id: Option<i64>,
     societe: Option<String>,
@@ -36,13 +37,15 @@ pub struct BlEnAttente {
 }
 
 #[derive(Serialize)]
-pub struct Qualite {
-    lecture: super::documents::Bilan,
-    tri: Vec<super::reponses::Semaine>,
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct QualiteBilan {
+    lecture: super::documents::BilanLecture,
+    tri: Vec<super::reponses::SemaineTri>,
 }
 
 #[derive(Serialize)]
-pub struct Bilan {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct BilanMois {
     mois: String,
     /// Une ligne par société ; `societe_id` nul : factures pas encore rangées (sans
     /// `?societe=` chez un administrateur).
@@ -50,7 +53,7 @@ pub struct Bilan {
     bl_en_attente: Vec<BlEnAttente>,
     /// BL lus avant le rapprochement, sans leurs lignes (tout l'historique, mêmes filtres).
     bl_sans_lignes: i64,
-    qualite: Qualite,
+    qualite: QualiteBilan,
 }
 
 /// Ce que montrent les deux premiers blocs de la page, pour l'écran et pour l'export Excel.
@@ -176,7 +179,7 @@ pub async fn bilan(
     acces: Acces,
     State(etat): State<Etat>,
     Query(f): Query<Filtre>,
-) -> Resultat<Json<Bilan>> {
+) -> Resultat<Json<BilanMois>> {
     let Donnees {
         mois,
         societes,
@@ -186,12 +189,12 @@ pub async fn bilan(
     } = donnees(&acces, &etat, &f).await?;
     let Json(lecture) = super::documents::bilan(acces.clone(), State(etat.clone())).await?;
     let Json(tri) = super::reponses::semaines(acces, State(etat)).await?;
-    Ok(Json(Bilan {
+    Ok(Json(BilanMois {
         mois,
         societes,
         bl_en_attente,
         bl_sans_lignes,
-        qualite: Qualite { lecture, tri },
+        qualite: QualiteBilan { lecture, tri },
     }))
 }
 

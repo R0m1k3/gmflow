@@ -3,7 +3,7 @@
   import { page } from '$app/state';
   import { api, ErreurApi, message } from '#lib/api.ts';
   import { session } from '#lib/session.svelte.ts';
-  import type { Moi } from '#lib/types.ts';
+  import type { EntreeConnexion, Moi } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
 
@@ -17,7 +17,7 @@
     envoi = true;
     erreur = null;
     try {
-      session.moi = await api.post<Moi>('/api/connexion', { identifiant: identifiant.trim(), mot_de_passe: motDePasse });
+      session.moi = await api.post<Moi>('/api/connexion', { identifiant: identifiant.trim(), mot_de_passe: motDePasse } satisfies EntreeConnexion);
       session.charge = true;
       // Retour à la page quittée par une session expirée (`?retour=`), jamais vers un autre site.
       const retour = page.url.searchParams.get('retour') ?? '';

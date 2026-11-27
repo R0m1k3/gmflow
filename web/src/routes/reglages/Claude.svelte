@@ -3,7 +3,7 @@
   // (séance `claude setup-token` sur le serveur), autres moyens repliés (jeton collé, clé API).
   import { api, ErreurApi, message, sonder } from '#lib/api.ts';
     import { RUBRIQUES, type Ton } from '#lib/libelles.ts';
-  import type { EtatClaude, Seance } from '#lib/types.ts';
+  import type { EntreeAcces, EntreeCle, EntreeCode, EntreeJeton, EtatClaude, Seance, SeanceCreee } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Confirmation from '#lib/ui/Confirmation.svelte';
@@ -128,7 +128,7 @@
     reprise = false;
     lancement = true;
     try {
-      const { id } = await api.post<{ id: string }>('/api/admin/claude/seances');
+      const { id } = await api.post<SeanceCreee>('/api/admin/claude/seances');
       seance = { id, etat: 'demarrage', url: null, message: null };
       suivreSeance();
     } catch (e) {
@@ -143,7 +143,7 @@
     if (!seance) return;
     const id = seance.id;
     await agir(async () => {
-      await api.post(`/api/admin/claude/seances/${id}/code`, { code: code.trim() });
+      await api.post(`/api/admin/claude/seances/${id}/code`, { code: code.trim() } satisfies EntreeCode);
       codeEnvoye = true;
     });
   }
@@ -172,7 +172,7 @@
   const collerJeton = (e: SubmitEvent) => {
     e.preventDefault();
     return agir(async () => {
-      await api.put('/api/admin/claude/jeton', { jeton: jeton.trim() });
+      await api.put('/api/admin/claude/jeton', { jeton: jeton.trim() } satisfies EntreeJeton);
       jeton = '';
       await chargerEtat();
       suivreEtat();
@@ -181,7 +181,7 @@
   const enregistrerCle = (e: SubmitEvent) => {
     e.preventDefault();
     return agir(async () => {
-      await api.put('/api/admin/claude/cle-api', { cle: cle.trim() });
+      await api.put('/api/admin/claude/cle-api', { cle: cle.trim() } satisfies EntreeCle);
       cle = '';
       await chargerEtat();
       if (etat?.etat === 'en_test') suivreEtat();
@@ -191,7 +191,7 @@
   const choisirAcces = (mode: 'jeton' | 'cle_api') =>
     agir(async () => {
       try {
-        await api.put('/api/admin/claude/acces', { mode });
+        await api.put('/api/admin/claude/acces', { mode } satisfies EntreeAcces);
       } finally {
         await chargerEtat();
       }

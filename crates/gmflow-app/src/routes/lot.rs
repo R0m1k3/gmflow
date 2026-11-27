@@ -14,6 +14,8 @@ use super::retour::Annulable;
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 /// Pièces au plus par appel.
 pub const MAX_LOT: usize = 100;
@@ -137,6 +139,7 @@ pub(crate) async fn raison_hors_lot(c: &mut PgConnection, id: i64) -> sqlx::Resu
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeLot {
     ids: Vec<i64>,
 }
@@ -156,6 +159,7 @@ fn ids_nets(ids: Vec<i64>) -> Resultat<Vec<i64>> {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Eligibilite {
     id: i64,
     /// Rien n'empêche de la valider avec les autres.
@@ -190,6 +194,7 @@ pub async fn eligibilite(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatPiece {
     id: i64,
     /// Validée, envoi demandé.
@@ -199,14 +204,17 @@ pub struct ResultatPiece {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatLot {
     validees: usize,
     laissees: usize,
     pieces: Vec<ResultatPiece>,
     /// Envois du lot, annulables ensemble pendant le délai.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "ts", ts(optional))]
     annulation: Option<Annulable>,
     /// Outil de dépôt des pièces validées (`dext`, `yooz`), s'il n'y en a qu'un.
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::OutilDepot>"))]
     outil: Option<String>,
 }
 
@@ -305,6 +313,7 @@ pub async fn valider(
 
 /// Corps de `POST /api/documents/lot/ecarter` : les pièces et un motif (obligatoire ici).
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct DemandeEcartLot {
     ids: Vec<i64>,
     #[serde(flatten)]
@@ -312,6 +321,7 @@ pub struct DemandeEcartLot {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct PieceEcartee {
     id: i64,
     ecartee: bool,
@@ -320,6 +330,7 @@ pub struct PieceEcartee {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatEcart {
     ecartees: usize,
     laissees: usize,

@@ -50,20 +50,7 @@
   } from '#lib/libelles.ts';
   import { session } from '#lib/session.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
-  import type {
-    CodeRefus,
-    Controle,
-    CorrectionDocument,
-    DetailRapprochement,
-    EtatLivraisonLogiflow,
-    FicheDocument,
-    ChangementsFournisseur,
-    Fournisseur,
-    LigneFournisseur,
-    MotifEcartement,
-    Page,
-    TypeDocument
-  } from '#lib/types.ts';
+  import type { ChangementsFournisseur, CodeRefus, Controle, CorrectionDocument, DetailRapprochement, EtatLivraisonLogiflow, FicheDocument, Fournisseur, LigneFournisseur, MotifEcartement, Page, Relecture, TypeDocument } from '#lib/types.ts';
   import ApercuPiece from './ApercuPiece.svelte';
   import Bandeau from './Bandeau.svelte';
   import BarreAction, { type Action } from './BarreAction.svelte';
@@ -675,7 +662,7 @@
     if (!d) return;
     erreur = '';
     try {
-      await api.post(`/api/admin/documents/${d.id}/relire`, { approfondie });
+      await api.post(`/api/admin/documents/${d.id}/relire`, { approfondie } satisfies Relecture);
       info = approfondie
         ? 'Relecture en détail demandée (modèle plus fort, PDF entier) : la fiche se met à jour toute seule, compter une à deux minutes.'
         : 'Relecture demandée : la fiche se met à jour toute seule.';

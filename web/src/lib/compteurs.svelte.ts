@@ -3,7 +3,7 @@
 // de valider ou d'envoyer quelque chose appelle `rafraichirCompteurs()`.
 // Source : GET /api/a-traiter/compteurs (docs/api-refonte.md, crates/gmflow-app/src/routes/a_traiter.rs).
 import { api } from './api.ts';
-import type { Boite } from './types.ts';
+import type { Boite, CompteursATraiter, LigneDocument, Page } from './types.ts';
 
 export interface Compteurs {
   /** Éléments à traiter : documents à contrôler, mails à répondre, blocages. */
@@ -24,21 +24,14 @@ export interface Compteurs {
   problemes: number | null;
 }
 
-interface ReponseCompteurs {
-  bloque: number;
-  a_valider: number;
-  a_valider_types: { facture: number; avoir: number; bl: number };
-  a_repondre: number;
-  total: number;
-}
 
 /** Nombre d'envois en échec d'un type (liste des documents, `statut_depot=erreur` : seul le total compte). */
 async function echecs(type: 'facture' | 'avoir', parametreSociete: string): Promise<number> {
   try {
-    const r = await api.get<{ total: number }>(
+    const r = await api.get<Page<LigneDocument>>(
       `/api/documents?type=${type}&statut_depot=erreur${parametreSociete ? `&${parametreSociete}` : ''}`
     );
-    return r.total;
+    return r.total ?? 0;
   } catch {
     return 0;
   }
@@ -66,7 +59,7 @@ export async function releverMaintenant(): Promise<number> {
 async function lireCompteurs(parametreSociete: string, admin: boolean): Promise<Compteurs> {
   const q = parametreSociete ? `?${parametreSociete}` : '';
   const [r, echecsFactures, echecsAvoirs, rel] = await Promise.all([
-    api.get<ReponseCompteurs>(`/api/a-traiter/compteurs${q}`),
+    api.get<CompteursATraiter>(`/api/a-traiter/compteurs${q}`),
     echecs('facture', parametreSociete),
     echecs('avoir', parametreSociete),
     releve(admin)

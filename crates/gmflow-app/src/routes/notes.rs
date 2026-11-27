@@ -20,18 +20,21 @@ use crate::etat::Etat;
 pub const TEXTE_MAX: usize = 2000;
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Note {
     id: i64,
     auteur_id: Option<i64>,
     auteur_nom: String,
     texte: String,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     cree_le: time::OffsetDateTime,
     /// L'utilisateur peut la supprimer (son auteur, ou un administrateur).
     supprimable: bool,
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct NouvelleNote {
     texte: String,
 }

@@ -20,6 +20,8 @@ use super::documents::{controler_modifiable, controler_visible};
 use crate::acces::Acces;
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 const TEXTE_MAX: usize = 500;
 /// Écart toléré entre le montant d'une ligne et quantité × prix (arrondis du document).
@@ -27,21 +29,31 @@ const TOLERANCE: Decimal = dec!(0.011);
 
 /// Ligne telle que la fiche l'affiche et la corrige.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LigneEdit {
     id: i64,
     rang: i32,
     reference: Option<String>,
     designation: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     quantite: Option<Decimal>,
     unite: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     prix_unitaire_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ht: Option<Decimal>,
     gencod: Option<String>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     colis: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pcb: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     remise_taux: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     taux_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     deee_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     ecomob_ht: Option<Decimal>,
     /// Corrigée à la main (le, par).
     corrigee_le: Option<String>,
@@ -49,43 +61,55 @@ pub struct LigneEdit {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct LignesDocument {
     /// Les lignes peuvent être corrigées par cet utilisateur maintenant.
     modifiable: bool,
     /// Sinon pourquoi (« déjà envoyée à Dext »…).
     raison: Option<String>,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::TypeDocument>"))]
     r#type: Option<String>,
     lignes: Vec<LigneEdit>,
 }
 
 /// Valeurs saisies d'une ligne (toutes : la ligne est remplacée telle quelle).
 #[derive(Debug, Deserialize, Default, Clone)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct LigneSaisie {
     #[serde(default)]
     reference: Option<String>,
     #[serde(default)]
     designation: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     quantite: Option<Decimal>,
     #[serde(default)]
     unite: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     prix_unitaire_ht: Option<Decimal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     montant_ht: Option<Decimal>,
     #[serde(default)]
     gencod: Option<String>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     colis: Option<Decimal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     pcb: Option<Decimal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     remise_taux: Option<Decimal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     taux_tva: Option<Decimal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     deee_ht: Option<Decimal>,
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(as = "Option<f64>"))]
     ecomob_ht: Option<Decimal>,
 }
 
@@ -349,15 +373,21 @@ pub async fn liste(
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Totaux {
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ht: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_tva: Option<Decimal>,
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     montant_ttc: Option<Decimal>,
     /// Totaux du BL calculés depuis les lignes (« ht », « tva », « ttc »).
+    #[cfg_attr(feature = "ts", ts(as = "Vec<v::MontantCalcule>"))]
     montants_calcules: Vec<String>,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct ResultatLigne {
     /// La ligne après la correction (absente après une suppression).
     ligne: Option<LigneEdit>,

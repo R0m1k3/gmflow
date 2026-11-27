@@ -12,17 +12,22 @@ use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
 use crate::freinage::{AdresseClient, ESSAIS_LIBRES_ADRESSE, ESSAIS_LIBRES_COMPTE};
 use crate::mdp;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 #[derive(Deserialize)]
-pub struct Entree {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
+pub struct EntreeConnexion {
     identifiant: String,
     mot_de_passe: String,
 }
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct Moi {
     id: i64,
     identifiant: String,
+    #[cfg_attr(feature = "ts", ts(as = "v::Role"))]
     role: &'static str,
     societe_id: Option<i64>,
 }
@@ -44,7 +49,7 @@ pub async fn connexion(
     State(etat): State<Etat>,
     AdresseClient(ip): AdresseClient,
     session: Session,
-    Json(e): Json<Entree>,
+    Json(e): Json<EntreeConnexion>,
 ) -> Resultat<Json<Moi>> {
     let identifiant = e.identifiant.trim().to_string();
     let cle = identifiant.to_lowercase();
@@ -136,6 +141,7 @@ pub async fn moi(acces: Acces) -> Json<Moi> {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export, optional_fields = nullable))]
 pub struct ChangementMdp {
     ancien: String,
     nouveau: String,

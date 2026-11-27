@@ -14,10 +14,13 @@ use super::fournisseurs::fournisseur_visible;
 use crate::acces::{Acces, AccesAdmin};
 use crate::erreur::{ErreurApi, Resultat};
 use crate::etat::Etat;
+#[cfg(feature = "ts")]
+use gmflow_core::vocabulaire as v;
 
 time::serde::format_description!(date_iso, Date, "[year]-[month]-[day]");
 
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct IbanConnu {
     id: i64,
     /// Masqué au milieu (« FR76…1234 ») : l'IBAN entier reste sur la facture.
@@ -25,11 +28,14 @@ pub struct IbanConnu {
     pays: String,
     bic: Option<String>,
     /// `validation` (première facture validée) ou `confirmation` (« C'est le bon IBAN »).
+    #[cfg_attr(feature = "ts", ts(as = "v::OrigineIban"))]
     origine: String,
     document_id: Option<i64>,
     #[serde(with = "date_iso::option")]
+    #[cfg_attr(feature = "ts", ts(type = "string | null"))]
     premiere_vue_le: Option<time::Date>,
     #[serde(with = "time::serde::rfc3339")]
+    #[cfg_attr(feature = "ts", ts(type = "string"))]
     ajoute_le: time::OffsetDateTime,
     ajoute_par: Option<String>,
     /// Connu au niveau du groupe de cette marque (et non de la fiche elle-même).
@@ -98,9 +104,11 @@ async fn reevaluer_famille(etat: &Etat, fournisseur_id: i64) -> Resultat<()> {
 }
 
 #[derive(Serialize)]
-pub struct Confirmation {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct ConfirmationIban {
     /// L'IBAN n'était pas encore connu.
     ajoute: bool,
+    #[cfg_attr(feature = "ts", ts(as = "Option<v::StatutDepot>"))]
     statut_depot: Option<String>,
 }
 
@@ -111,7 +119,7 @@ pub async fn confirmer(
     AccesAdmin(acces): AccesAdmin,
     State(etat): State<Etat>,
     Path(id): Path<i64>,
-) -> Resultat<Json<Confirmation>> {
+) -> Resultat<Json<ConfirmationIban>> {
     controler_visible(&etat, &acces, id).await?;
     let mut tx = etat.pool.begin().await?;
     let Some(ajoute) = iban::confirmer(&mut tx, id, acces.utilisateur_id).await? else {
@@ -141,7 +149,7 @@ pub async fn confirmer(
     let statut_depot = sqlx::query_scalar!("select statut_depot from document where id = $1", id)
         .fetch_one(&etat.pool)
         .await?;
-    Ok(Json(Confirmation {
+    Ok(Json(ConfirmationIban {
         ajoute,
         statut_depot,
     }))

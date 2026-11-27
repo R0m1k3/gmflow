@@ -5,6 +5,8 @@ edition.workspace = true
 
 [features]
 test-utils = ["gmflow-core/test-utils"]
+# Génère les types TypeScript du front (`scripts/types-ts.sh`). Jamais activée dans les images publiées.
+ts = ["dep:ts-rs", "gmflow-core/ts"]
 
 [dependencies]
 anyhow.workspace = true
@@ -27,6 +29,7 @@ tower-http.workspace = true
 tower-sessions.workspace = true
 tower-sessions-sqlx-store.workspace = true
 tracing.workspace = true
+ts-rs = { workspace = true, optional = true }
 uuid.workspace = true
 
 [dev-dependencies]

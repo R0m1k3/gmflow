@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import type { Fournisseur, StatutFournisseur } from '#lib/types.ts';
+  import type { EntreeFournisseur, Fournisseur, Fusion, ResultatFusion, StatutFournisseur } from '#lib/types.ts';
 
   /** Colonnes reprises du BL dans l'export Phénix (clé '' : les deux). */
   export const COLONNES_EXPORT: Record<'' | 'ref' | 'gencod', string> = {
@@ -58,7 +58,7 @@
   }
 
   /** Corps de `POST /api/admin/fournisseurs` et `PUT /api/admin/fournisseurs/{id}`. */
-  export function corpsFournisseur(x: EditionFournisseur, statut: StatutFournisseur = x.statut as StatutFournisseur) {
+  export function corpsFournisseur(x: EditionFournisseur, statut: StatutFournisseur = x.statut as StatutFournisseur): EntreeFournisseur {
     return {
       nom: x.nom.trim(),
       code_gestion: x.code_gestion,
@@ -367,7 +367,7 @@
       throw new Error(erreurFusion);
     }
     try {
-      const r = await api.post<{ documents: number }>(`/api/admin/fournisseurs/${id}/fusionner`, { cible_id: Number(cible) });
+      const r = await api.post<ResultatFusion>(`/api/admin/fournisseurs/${id}/fusionner`, { cible_id: Number(cible) } satisfies Fusion);
       info = `Fiches fusionnées : ${r.documents} document${r.documents > 1 ? 's' : ''} déplacé${r.documents > 1 ? 's' : ''}`;
       onmodifie?.();
       onfusion?.(Number(cible));
