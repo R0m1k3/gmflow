@@ -176,9 +176,10 @@ pub async fn verifier(
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Donnees(
-            "serveur du magasin non configuré (Réglages > Serveur du magasin)".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: "serveur_magasin_absent",
+            message: "serveur du magasin non configuré".into(),
+        });
     }
     articles_magasin::demander(&etat.pool, id)
         .await

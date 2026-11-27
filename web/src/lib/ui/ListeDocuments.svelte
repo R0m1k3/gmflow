@@ -1,5 +1,15 @@
 <script lang="ts" module>
+  import type { ColonneTri } from '#lib/tri.ts';
   export type FiltreDocuments = { v: string; l: string; params: Record<string, string> };
+  /** Colonnes triables des listes de documents (liste blanche du serveur : `TRI_DOCUMENTS`). */
+  export const TRI_DOCUMENTS: ColonneTri[] = [
+    { cle: 'recu', libelle: 'Reçu', croissant: false, genre: 'date' },
+    { cle: 'date', libelle: 'Date', croissant: false, genre: 'date' },
+    { cle: 'echeance', libelle: 'Échéance', croissant: true, genre: 'date' },
+    { cle: 'fournisseur', libelle: 'Fournisseur', croissant: true, genre: 'texte' },
+    { cle: 'numero', libelle: 'N°', croissant: true, genre: 'texte' },
+    { cle: 'montant', libelle: 'Montant', croissant: false, genre: 'nombre' }
+  ];
 </script>
 
 <script lang="ts">
@@ -16,9 +26,11 @@
   import { libelleEtat, libelleStatutEnvoi, nomCourtSociete, tonEtat, tonStatutEnvoi, type Ton } from '#lib/libelles.ts';
   import { filtreGarde, garderFiltre } from '#lib/filtres.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
+  import { lireTri, parametresTri } from '#lib/tri.ts';
+  import EnTetesTri from './EnTetesTri.svelte';
+  import ErreurAction from './ErreurAction.svelte';
   import { societe } from '#lib/societe.svelte.ts';
   import type { LigneDocument } from '#lib/types.ts';
-  import Bandeau from './Bandeau.svelte';
   import Chargement from './Chargement.svelte';
   import DocFiche, { type ResultatFiche } from './DocFiche.svelte';
   import { blSansFacture, dateFr, nomCourtDocument, typeNumero } from './DocOutils.ts';
@@ -43,7 +55,8 @@
     section,
     sansSuite,
     pied = 'chercher',
-    filtreLot
+    filtreLot,
+    colonnesTri = TRI_DOCUMENTS
   }: {
     /** « Factures », « BL ». */
     titre: string;
@@ -63,6 +76,8 @@
     pied?: 'chercher' | 'valider';
     /** Filtre où les pièces sans alerte se cochent pour « Valider N pièces » (Factures, Avoirs). */
     filtreLot?: string;
+    /** Colonnes triables (sans l'échéance pour les BL). */
+    colonnesTri?: ColonneTri[];
   } = $props();
 
   let docId = $derived(Number(page.url.searchParams.get('doc')) || null);
@@ -80,11 +95,16 @@
   let filtreV = $derived(filtreUrl ?? (docId ? null : memoireValide) ?? filtres[0].v);
   let filtre = $derived(filtres.find((f) => f.v === filtreV) ?? filtres[0]);
 
-  const lst = new Liste<LigneDocument>((p) => `/api/documents${requete({ societe: societe.id, ...filtre.params, page: p })}`);
+  // Tri choisi par les en-têtes (?tri=&sens=), fait par le serveur ; la pagination suit.
+  let tri = $derived(lireTri(page.url.searchParams, colonnesTri));
+  let paramsTri = $derived(parametresTri(tri));
+  let triCle = $derived(JSON.stringify(paramsTri));
+  const lst = new Liste<LigneDocument>((p) => `/api/documents${requete({ societe: societe.id, ...filtre.params, ...paramsTri, page: p })}`);
 
   $effect(() => {
     void societe.id;
     void filtre;
+    void triCle;
     untrack(() => void lst.lire());
     return sonder(async () => {
       if (document.visibilityState !== 'visible') return;
@@ -100,7 +120,9 @@
   /** Annonce aux lecteurs d'écran, quand la liste change toute seule. */
   let majListe = $state('');
 
-  let groupes = $derived(parJour(lst.elements, (d) => d.date_mail));
+  // Groupes par jour de réception quand la liste est triée par réception ; sinon une seule suite.
+  let parReception = $derived(tri.cle === 'recu');
+  let groupes = $derived(parReception ? parJour(lst.elements, (d) => d.date_mail) : [{ titre: '', elements: lst.elements }]);
 
   // Validation par lot : cases à cocher dans le filtre « À contrôler » (Factures, Avoirs).
   let lotActif = $derived(!!filtreLot && filtreV === filtreLot);
@@ -118,7 +140,7 @@
   function lien(id: number | null, f = filtreV) {
     // Le filtre d'origine reste implicite, sauf si un autre est gardé : il faut alors le nommer pour le retrouver.
     const implicite = f === filtres[0].v && !(memoireValide && memoireValide !== filtres[0].v);
-    return `${chemin}${requete({ filtre: implicite ? '' : f, doc: id })}`;
+    return `${chemin}${requete({ filtre: implicite ? '' : f, doc: id, ...(f === filtreV ? parametresTri(tri) : {}) })}`;
   }
 
   /** Où en est le document, en deux mots. */
@@ -245,14 +267,12 @@
         <a class="btn sm" href={lien(null, f.v)} aria-current={filtreV === f.v ? "true" : undefined} data-sveltekit-replacestate>{f.l}</a>
       {/each}
     </div>
+    <EnTetesTri colonnes={colonnesTri} {tri} retirer={['doc']} />
     <div class="sr-seul" role="status" aria-live="polite">{majListe}</div>
     <div class="liste-s" bind:this={listeEl}>
       {#if lotActif && lst.charge}<SelectionLot {sel} ids={idsListe} partie="tete" />{/if}
       {#if lst.erreur}
-        <Bandeau ton="erreur" titre="Liste non chargée.">
-          {lst.erreur}
-          {#snippet action()}<button type="button" class="btn sm" onclick={() => lst.lire()}>Réessayer</button>{/snippet}
-        </Bandeau>
+        <ErreurAction erreur={lst.erreurBrute} titre="Liste non chargée." onreessayer={() => lst.lire()} />
       {/if}
       {#if !lst.charge}
         <Chargement texte="Chargement" />
@@ -260,7 +280,7 @@
         <Vide compact icone="fichier" titre={videTitre} texte="Rien avec ce filtre pour l’instant." />
       {:else}
         {#each groupes as g (g.titre)}
-          <div class="jour-h">{g.titre} <span class="num">{g.elements.length}</span></div>
+          {#if g.titre}<div class="jour-h">{g.titre} <span class="num">{g.elements.length}</span></div>{/if}
           {#each g.elements as d (d.id)}
             {@const s = statut(d)}
             {@const blSansMontant = d.type === 'bl' && d.montant_ttc === null}
@@ -283,7 +303,7 @@
             <a class="ligne" class:avec-case={lotActif} aria-label={nomLigne(d, etiquettes)} class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
               <div class="a">{d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu'}</div>
               {#if blSansMontant}
-                <div class="r doc-heure">{heureDe(d.date_mail)}</div>
+                <div class="r doc-heure">{parReception ? heureDe(d.date_mail) : dateFr(d.date_document, true)}</div>
               {:else}
                 <div class="r">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} avoir={d.type === 'avoir'} />{/if}</div>
               {/if}
@@ -292,7 +312,7 @@
                 {#if d.societe}<span class="txt">{nomCourtSociete(d.societe)}</span>{/if}
               </div>
               {#if !blSansMontant}
-                <div class="r2">{d.type === 'bl' ? heureDe(d.date_mail) : dateFr(d.date_document, true)}</div>
+                <div class="r2">{d.type === 'bl' && parReception ? heureDe(d.date_mail) : tri.cle === 'echeance' && d.date_echeance ? `Échéance ${dateFr(d.date_echeance, true)}` : dateFr(d.date_document, true)}</div>
               {/if}
               {#if etiquettes.length || d.notes}
                 <div class="c">

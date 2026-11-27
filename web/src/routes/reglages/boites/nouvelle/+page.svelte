@@ -6,18 +6,17 @@
   import { tick } from 'svelte';
   import { api, attendreEssai, creerBoite, ErreurApi, essayerBoite, message } from '#lib/api.ts';
   import { nomCourtSociete } from '#lib/libelles.ts';
+  import { garderAvantDeQuitter } from '#lib/modifications.svelte.ts';
   import { session } from '#lib/session.svelte.ts';
   import type { EssaiBoite, Societe } from '#lib/types.ts';
   import Bandeau from '#lib/ui/Bandeau.svelte';
   import Champ from '#lib/ui/Champ.svelte';
   import Chargement from '#lib/ui/Chargement.svelte';
   import Icone from '#lib/ui/Icone.svelte';
+  import Refus from '../../Refus.svelte';
   import { aideMotDePasse, domaine, portPourSecurite, serveursPour, type Securite } from '../../outils.ts';
 
   let admin = $derived(session.moi?.role === 'admin');
-  $effect(() => {
-    if (session.moi && !admin) void goto('/', { replaceState: true });
-  });
 
   let societes = $state<Societe[]>([]);
   let erreurChargement = $state('');
@@ -47,6 +46,9 @@
     repondre: true,
     reprise_mois: '3'
   });
+  // Saisie commencée et boîte pas encore créée (U13) : confirmation avant de quitter.
+  let creee = false;
+  garderAvantDeQuitter(() => !creee && (f.adresse.trim() !== '' || f.mot_de_passe !== ''));
   let voirMdp = $state(false);
   let changerServeurs = $state(false);
 
@@ -170,6 +172,7 @@
         essai_id: essaiId,
         activer: true
       });
+      creee = true;
       await goto(`/reglages/boites/${b.id}?nouvelle=1`);
     } catch (e) {
       demarrage = '';
@@ -193,7 +196,7 @@
 
 {#if admin}
   <div class="page etroite">
-    <a class="retour" href="/reglages#boites"><Icone nom="gauche" />Réglages</a>
+    <a class="retour" href="/reglages/boites"><Icone nom="gauche" />Réglages</a>
     <div class="page-h">
       <h1>Ajouter une boîte mail</h1>
     </div>
@@ -271,14 +274,14 @@
           aide="Les documents reçus ici sont rangés dans cette société, sauf pour un fournisseur déjà rangé ailleurs."
         />
         {#if societes.length === 0 && !erreurChargement}
-          <p class="petit t2 full">Aucune société : <a href="/reglages#societes">ajoutez-en une</a> d’abord.</p>
+          <p class="petit t2 full">Aucune société : <a href="/reglages/societes">ajoutez-en une</a> d’abord.</p>
         {/if}
 
         <div class="form-f full">
           <button class="btn principal" disabled={!adresseValide || !f.mot_de_passe || !f.societe_id || !f.imap_serveur.trim()}>
             Suivant : essayer la connexion
           </button>
-          <a class="btn fantome" href="/reglages#boites">Annuler</a>
+          <a class="btn fantome" href="/reglages/boites">Annuler</a>
         </div>
       </form>
     {:else if ecran === 2}
@@ -380,6 +383,8 @@
       </div>
     {/if}
   </div>
+{:else if session.moi}
+  <div class="page etroite"><Refus /></div>
 {/if}
 
 <style>

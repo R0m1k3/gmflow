@@ -32,7 +32,25 @@ pub struct Filtres {
     statut_depot: Option<String>,
     fournisseur: Option<i64>,
     page: Option<i64>,
+    /// Colonne de tri (`TRI_DOCUMENTS`) et sens (`asc`, `desc`).
+    tri: Option<String>,
+    sens: Option<String>,
+    /// BL lus sans facture rapprochée (ni écartés du rapprochement), reçus il y a au moins
+    /// ce nombre de jours (`0` : tous).
+    sans_facture: Option<i32>,
+    /// Factures dont l'échéance tombe dans ce nombre de jours ou moins (dépassée comprise).
+    echeance: Option<i32>,
 }
+
+/// Colonnes triables de la liste des documents ; la première est le tri par défaut.
+pub const TRI_DOCUMENTS: &[super::tri::Colonne] = &[
+    ("recu", false),
+    ("date", false),
+    ("echeance", true),
+    ("fournisseur", true),
+    ("numero", true),
+    ("montant", false),
+];
 
 #[derive(Serialize)]
 pub struct LigneDocument {
@@ -47,6 +65,8 @@ pub struct LigneDocument {
     numero: Option<String>,
     #[serde(with = "date_iso::option")]
     date_document: Option<time::Date>,
+    #[serde(with = "date_iso::option")]
+    date_echeance: Option<time::Date>,
     montant_ttc: Option<f64>,
     remise_ht: Option<f64>,
     /// Articles en écart avec les BL liés (manquant, en trop, prix changé).
@@ -77,8 +97,12 @@ pub async fn lister(
     Query(f): Query<Filtres>,
 ) -> Resultat<Json<Page<LigneDocument>>> {
     let (du, au) = (date(&f.du)?, date(&f.au)?);
+    // Recherche (C19) : les documents trouvés sont lus à part (`d.id in (… union all …)`), table
+    // par table, pour que chaque `ilike` se serve de son index trigramme (migration 0029) ; un
+    // `or` entre `d` et `m` après la jointure obligerait à tout lire.
     let q = motif(&f.q);
     let (page, decalage) = decalage(f.page);
+    let tri = super::tri::lire(&f.tri, &f.sens, TRI_DOCUMENTS)?;
     // `non` : la même définition que la file à valider et les badges du menu
     // (`a_traiter::compter`) : pièce lue, ni envoyée, ni en échec, ni doublon.
     let verifie = match f.verifie.as_deref() {
@@ -90,7 +114,12 @@ pub async fn lister(
     let sd = vide(&f.statut_depot);
     // Par défaut, les pièces ignorées (logos, signatures) ne sont pas listées.
     let sans_ignores = e.is_none();
-    let total = sqlx::query_scalar!(
+    // Compté en première page seulement (C19) : les pages suivantes se lisent avec une ligne
+    // de plus (`Page::lue`).
+    let total = if page > 1 {
+        None
+    } else {
+        Some(sqlx::query_scalar!(
         r#"select count(*) as "n!" from document d join mail m on m.id = d.mail_id
            where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                          where mb.mail_id = m.id and ($1::bigint is null or b.societe_id = $1))
@@ -101,7 +130,10 @@ pub async fn lister(
              and ($6::text is null or d.voie = $6)
              and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)
              and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)
-             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)
+             and ($9::text is null
+                  or d.id in (select x.id from document x where x.fournisseur_nom ilike $9 or x.numero ilike $9
+                              union all
+                              select x.id from document x join mail mx on mx.id = x.mail_id where mx.objet ilike $9))
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
              and ($12::bigint is null or d.fournisseur_id = $12)
@@ -109,7 +141,13 @@ pub async fn lister(
                   and ((d.verifie_le is null
                         and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
                        or (d.verifie_le is not null and d.valide_le is null
-                           and d.statut_depot in ('a_verifier', 'pret')))))"#,
+                           and d.statut_depot in ('a_verifier', 'pret')))))
+             and ($14::int is null
+                  or (d.type = 'bl' and d.etat = 'lu' and not d.rapprochement_ignore
+                      and coalesce(m.date_mail, m.recu_le) <= now() - make_interval(days => $14::int)
+                      and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)))
+             and ($15::int is null
+                  or (d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $15::int))"#,
         acces.societe_filtre(),
         f.societe,
         t,
@@ -122,14 +160,18 @@ pub async fn lister(
         verifie,
         sd,
         f.fournisseur,
-        a_valider
+        a_valider,
+        f.sans_facture,
+        f.echeance
     )
     .fetch_one(&etat.pool)
-    .await?;
+    .await?)
+    };
     let elements = sqlx::query_as!(
         LigneDocument,
         r#"select d.id, d.mail_id, p.nom as nom_fichier, d.etat, d.voie, d.type,
                   s.raison_sociale as "societe?", d.fournisseur_nom, d.numero, d.date_document,
+                  d.date_echeance,
                   d.montant_ttc::float8 as montant_ttc, d.remise_ht::float8 as remise_ht,
                   (select count(*) from rapprochement r cross join jsonb_array_elements(r.ecarts) e
                    where not r.rejete and (r.facture_id = d.id or r.bl_id = d.id)) as "articles_ecart!", d.message,
@@ -152,7 +194,10 @@ pub async fn lister(
              and ($6::text is null or d.voie = $6)
              and ($7::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) >= $7)
              and ($8::date is null or coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date) <= $8)
-             and ($9::text is null or d.fournisseur_nom ilike $9 or d.numero ilike $9 or m.objet ilike $9)
+             and ($9::text is null
+                  or d.id in (select x.id from document x where x.fournisseur_nom ilike $9 or x.numero ilike $9
+                              union all
+                              select x.id from document x join mail mx on mx.id = x.mail_id where mx.objet ilike $9))
              and ($10::bool is null or (d.verifie_le is not null) = $10)
              and ($11::text is null or d.statut_depot = $11)
              and ($12::bigint is null or d.fournisseur_id = $12)
@@ -161,7 +206,25 @@ pub async fn lister(
                         and coalesce(d.statut_depot, '') not in ('en_envoi', 'depose', 'erreur', 'doublon'))
                        or (d.verifie_le is not null and d.valide_le is null
                            and d.statut_depot in ('a_verifier', 'pret')))))
-           order by m.date_mail desc nulls last, d.id desc
+             and ($18::int is null
+                  or (d.type = 'bl' and d.etat = 'lu' and not d.rapprochement_ignore
+                      and coalesce(m.date_mail, m.recu_le) <= now() - make_interval(days => $18::int)
+                      and not exists (select 1 from rapprochement r where r.bl_id = d.id and not r.rejete)))
+             and ($19::int is null
+                  or (d.type = 'facture' and d.date_echeance <= (now() at time zone 'Europe/Paris')::date + $19::int))
+           order by case when $16 = 'recu' and $17 then m.date_mail end asc nulls last,
+                    case when $16 = 'recu' and not $17 then m.date_mail end desc nulls last,
+                    case when $16 = 'date' and $17 then d.date_document end asc nulls last,
+                    case when $16 = 'date' and not $17 then d.date_document end desc nulls last,
+                    case when $16 = 'echeance' and $17 then d.date_echeance end asc nulls last,
+                    case when $16 = 'echeance' and not $17 then d.date_echeance end desc nulls last,
+                    case when $16 = 'fournisseur' and $17 then lower(coalesce(fo.nom, d.fournisseur_nom)) end asc nulls last,
+                    case when $16 = 'fournisseur' and not $17 then lower(coalesce(fo.nom, d.fournisseur_nom)) end desc nulls last,
+                    case when $16 = 'numero' and $17 then d.numero end asc nulls last,
+                    case when $16 = 'numero' and not $17 then d.numero end desc nulls last,
+                    case when $16 = 'montant' and $17 then d.montant_ttc end asc nulls last,
+                    case when $16 = 'montant' and not $17 then d.montant_ttc end desc nulls last,
+                    m.date_mail desc nulls last, d.id desc
            limit $14 offset $15"#,
         acces.societe_filtre(),
         f.societe,
@@ -176,16 +239,16 @@ pub async fn lister(
         sd,
         f.fournisseur,
         a_valider,
-        super::mails::PAR_PAGE,
-        decalage
+        super::mails::LIMITE_LUE,
+        decalage,
+        tri.cle,
+        tri.croissant,
+        f.sans_facture,
+        f.echeance
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::lue(total, page, elements)))
 }
 
 #[derive(Serialize)]
@@ -295,6 +358,40 @@ pub struct FicheComplete {
     /// PDF de plusieurs pièces découpé (`lecture::decoupage`) : documents des parties, dans
     /// l'ordre des pages. Vide sinon. Ce document-ci n'est alors que l'origine, ignorée.
     parties: Vec<PartieVue>,
+    /// Corrections à la main des champs de la fiche, de la plus ancienne à la plus récente :
+    /// qui a changé quoi et quand (journal `correction`). La fiche dit d'où vient chaque
+    /// valeur (lue, corrigée par X le …, calculée).
+    historique: Vec<CorrectionChamp>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct CorrectionChamp {
+    /// Nom du champ en base (`numero`, `montant_ttc`, `fournisseur_id`…).
+    champ: String,
+    avant: Value,
+    apres: Value,
+    /// Identifiant de l'auteur (`null` : compte supprimé).
+    par: Option<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    quand: time::OffsetDateTime,
+}
+
+/// Corrections d'un document, champ par champ, depuis le journal.
+pub(crate) async fn historique_corrections(etat: &Etat, id: i64) -> Resultat<Vec<CorrectionChamp>> {
+    Ok(sqlx::query_as!(
+        CorrectionChamp,
+        r#"select c.key as "champ!", c.value->'avant' as "avant!", c.value->'apres' as "apres!",
+                  u.identifiant as "par?", j.quand
+           from journal j
+           cross join lateral jsonb_each(j.details) c
+           left join utilisateur u on u.id = j.auteur_id
+           where j.objet_type = 'document' and j.objet_id = $1::bigint::text
+             and j.action = 'correction' and jsonb_typeof(c.value) = 'object'
+           order by j.quand, j.id, c.key"#,
+        id
+    )
+    .fetch_all(&etat.pool)
+    .await?)
 }
 
 #[derive(Serialize)]
@@ -445,6 +542,7 @@ pub async fn fiche(
         logiflow_attendu,
         logiflow_livraison,
         parties,
+        historique: historique_corrections(&etat, id).await?,
     }))
 }
 
@@ -979,9 +1077,7 @@ pub async fn deposer(
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Conflit(
-            "adresse d'expédition non configurée (Administration > Expédition)".into(),
-        ));
+        return Err(refus("expedition", "adresse d'expédition non configurée"));
     }
     let statut = depot::evaluer(&etat.pool, id)
         .await
@@ -1014,8 +1110,9 @@ pub async fn deposer(
             ));
         }
         _ if sans_adresse => {
-            return Err(ErreurApi::Conflit(
-                "la structure n'a pas d'adresse de dépôt".into(),
+            return Err(refus(
+                "sans_adresse",
+                "la structure n'a pas d'adresse de dépôt",
             ));
         }
         _ => {}

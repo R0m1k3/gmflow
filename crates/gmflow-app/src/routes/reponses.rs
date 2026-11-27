@@ -149,11 +149,7 @@ pub async fn a_repondre(
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::comptee(total, page, elements)))
 }
 
 pub async fn compte_a_repondre(acces: &Acces, etat: &Etat) -> Resultat<i64> {
@@ -532,9 +528,10 @@ pub async fn envoyer_brouillon(
         return Err(ErreurApi::Donnees("la réponse est vide".into()));
     }
     if !b.smtp {
-        return Err(ErreurApi::Conflit(
-            "le serveur SMTP de la boîte n'est pas configuré (Administration > Boîtes)".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: "smtp_absent",
+            message: "le serveur SMTP de la boîte n'est pas configuré".into(),
+        });
     }
     let mut tx = etat.pool.begin().await?;
     let n = sqlx::query!(

@@ -149,9 +149,10 @@ pub async fn tester(AccesAdmin(a): AccesAdmin, State(etat): State<Etat>) -> Resu
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Conflit(
-            "adresse du serveur non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: "serveur_magasin_absent",
+            message: "adresse du serveur non configurée".into(),
+        });
     }
     parametre::supprimer(&etat.pool, serveur_api::CLE_TEST).await?;
     file::pousser_envoi(&etat.pool, file::TacheEnvoi::TestServeurApi)
@@ -175,9 +176,10 @@ pub async fn synchroniser(_a: AccesAdmin, State(etat): State<Etat>) -> Resultat<
         .await?
         .is_none()
     {
-        return Err(ErreurApi::Conflit(
-            "adresse du serveur non configurée".into(),
-        ));
+        return Err(ErreurApi::ConflitCode {
+            code: "serveur_magasin_absent",
+            message: "adresse du serveur non configurée".into(),
+        });
     }
     parametre::supprimer(&etat.pool, serveur_api::CLE_SYNCHRO).await?;
     file::pousser_envoi(&etat.pool, file::TacheEnvoi::SynchroMagasin)

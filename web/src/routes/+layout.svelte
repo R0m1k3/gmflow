@@ -183,7 +183,7 @@
       return {
         ok: false,
         texte: 'Pas de relève récente',
-        href: '/reglages#traitements',
+        href: '/reglages/traitements',
         titre: r ? `Dernière relève : ${quandCourt(r)}` : 'Aucune relève pour l’instant'
       };
     return {

@@ -23,7 +23,20 @@ pub struct Filtres {
     /// compteurs d'état sont limités à cette société.
     societe: Option<i64>,
     page: Option<i64>,
+    /// Colonne de tri (`TRI_FOURNISSEURS`) et sens (`asc`, `desc`).
+    tri: Option<String>,
+    sens: Option<String>,
 }
+
+/// Colonnes triables de la liste des fournisseurs ; la première est le tri par défaut
+/// (fiches à confirmer d'abord, puis par nom).
+pub const TRI_FOURNISSEURS: &[super::tri::Colonne] = &[
+    ("statut", true),
+    ("nom", true),
+    ("documents", false),
+    ("a_valider", false),
+    ("dernier", false),
+];
 
 #[derive(Serialize)]
 pub struct LigneFournisseur {
@@ -63,7 +76,11 @@ pub async fn lister(
     let statut = f.statut.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let (page, decalage) = decalage(f.page);
     let perimetre = acces.societe_filtre();
-    let total = sqlx::query_scalar!(
+    let tri = super::tri::lire(&f.tri, &f.sens, TRI_FOURNISSEURS)?;
+    let total = if page > 1 {
+        None
+    } else {
+        Some(sqlx::query_scalar!(
         r#"select count(*) as "n!" from fournisseur f
            where f.fusionne_dans is null and ($1::text is null or f.statut = $1)
              and ($2::text is null or f.nom ilike $2 or f.code_gestion ilike $2 or f.siret ilike $2 or f.tva ilike $2
@@ -91,17 +108,14 @@ pub async fn lister(
         f.societe
     )
     .fetch_one(&etat.pool)
-    .await?;
+    .await?)
+    };
     let elements = sqlx::query_as!(
         LigneFournisseur,
         r#"select f.id, f.nom, f.code_gestion, f.siret, f.tva, f.domaines, f.statut, f.societe_defaut_id,
                   s.raison_sociale as "societe_defaut?",
                   (select g.nom from fournisseur g where g.id = f.groupe_id) as "groupe?",
-                  (select count(*) from document d where d.fournisseur_id = f.id
-                     and ($5::bigint is null
-                          or ((d.societe_id is null or d.societe_id = $5)
-                              and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
-                                          where mb.mail_id = d.mail_id and b.societe_id = $5)))) as "nb_documents!",
+                  nd.n as "nb_documents!",
                   (select count(*) from document d where d.fournisseur_id = f.id
                      and d.statut_depot = 'a_verifier'
                      and ($5::bigint is null
@@ -112,6 +126,13 @@ pub async fn lister(
                   e.bl_sans_facture as "bl_sans_facture!", e.dernier as dernier_document
            from fournisseur f
            left join societe s on s.id = f.societe_defaut_id
+           cross join lateral (
+               select count(*) as n from document d where d.fournisseur_id = f.id
+                 and ($5::bigint is null
+                      or ((d.societe_id is null or d.societe_id = $5)
+                          and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
+                                      where mb.mail_id = d.mail_id and b.societe_id = $5)))
+           ) nd
            cross join lateral (
                select count(*) filter (where d.type in ('facture', 'avoir') and d.statut_depot is distinct from 'doublon'
                                          and coalesce(d.date_document, (m.date_mail at time zone 'Europe/Paris')::date)
@@ -147,22 +168,28 @@ pub async fn lister(
                                and (d.societe_id is null or d.societe_id = $5)
                                and exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id
                                            where mb.mail_id = d.mail_id and b.societe_id = $5)))
-           order by (f.statut = 'a_confirmer') desc, f.nom
+           order by case when $7 = 'statut' then (f.statut = 'a_confirmer') end desc,
+                    case when $7 = 'nom' and not $8 then lower(f.nom) end desc,
+                    case when $7 = 'documents' and $8 then nd.n end asc,
+                    case when $7 = 'documents' and not $8 then nd.n end desc,
+                    case when $7 = 'a_valider' and $8 then e.a_valider end asc,
+                    case when $7 = 'a_valider' and not $8 then e.a_valider end desc,
+                    case when $7 = 'dernier' and $8 then e.dernier end asc nulls last,
+                    case when $7 = 'dernier' and not $8 then e.dernier end desc nulls last,
+                    lower(f.nom), f.id
            limit $3 offset $4"#,
         statut,
         q,
-        super::mails::PAR_PAGE,
+        super::mails::LIMITE_LUE,
         decalage,
         perimetre,
-        f.societe
+        f.societe,
+        tri.cle,
+        tri.croissant
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::lue(total, page, elements)))
 }
 
 #[derive(Serialize)]

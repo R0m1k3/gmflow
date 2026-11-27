@@ -29,6 +29,7 @@ pub mod reponses;
 pub mod retour;
 pub mod surveillance;
 pub mod tableau;
+pub mod tri;
 
 use std::path::PathBuf;
 

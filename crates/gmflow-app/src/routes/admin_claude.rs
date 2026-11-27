@@ -509,11 +509,7 @@ pub async fn appels(
     .fetch_all(&etat.pool)
     .await?;
     Ok(Json(Appels {
-        page: super::mails::Page {
-            total,
-            page,
-            elements,
-        },
+        page: super::mails::Page::comptee(total, page, elements),
         stats,
     }))
 }

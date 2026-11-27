@@ -8,9 +8,12 @@ export interface Moi {
 }
 
 export interface Page<T> {
-  total: number;
+  /** Compté en première page seulement (`null` ensuite : garder celui de la page 1). */
+  total: number | null;
   page: number;
   elements: T[];
+  /** Il reste des éléments après cette page. */
+  suivante: boolean;
 }
 
 export interface SocieteVisible {
@@ -334,6 +337,8 @@ export interface FicheDocument {
   /** PDF de plusieurs pièces découpé : documents des parties (pages à partir de 1). Ce document-ci
    * n'est alors que l'origine, ignorée ; vide sinon. */
   parties: { id: number; page_debut: number | null; page_fin: number | null }[];
+  /** Corrections à la main, de la plus ancienne à la plus récente (journal). */
+  historique: CorrectionChamp[];
 }
 
 export interface LivraisonLogiflow {
@@ -707,6 +712,16 @@ export interface DetailRapprochement {
 // Refonte de l'interface : contrat dans docs/api-refonte.md.
 
 export type CodeRefus =
+  | 'donnees'
+  | 'champ'
+  | 'non_connecte'
+  | 'interdit'
+  | 'absent'
+  | 'conflit'
+  | 'trop_d_essais'
+  | 'interne'
+  | 'serveur_magasin_absent'
+  | 'logiflow_absent'
   | 'etat'
   | 'deja_envoye'
   | 'expedition'
@@ -767,6 +782,20 @@ export interface DocumentAValider {
   statut_depot: StatutDepot | null;
   /** Déjà vérifié (facture vérifiée mais pas encore envoyée). */
   verifie: boolean;
+  date_echeance: string | null;
+  /** Urgence, ordre de la file : 1 à payer dans 7 jours ou moins, 2 validable d'un clic, 3 à corriger. */
+  rang: 1 | 2 | 3;
+}
+
+/** Une correction d'un champ de la fiche (`historique` de `GET /api/documents/{id}`). */
+export interface CorrectionChamp {
+  /** Nom du champ en base : `numero`, `date_document`, `montant_ttc`, `fournisseur_id`… */
+  champ: string;
+  avant: unknown;
+  apres: unknown;
+  /** Identifiant de l'auteur (`null` : compte supprimé). */
+  par: string | null;
+  quand: string;
 }
 
 export interface MailARepondre {
@@ -1078,6 +1107,7 @@ export interface LigneDocument {
   fournisseur_nom: string | null;
   numero: string | null;
   date_document: string | null;
+  date_echeance: string | null;
   montant_ttc: number | null;
   remise_ht: number | null;
   /** Articles en écart avec les BL liés (manquant, en trop, prix changé). */

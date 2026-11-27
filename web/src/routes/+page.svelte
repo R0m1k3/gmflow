@@ -7,7 +7,7 @@
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
   import { page } from '$app/state';
-  import { aTraiter, api, ecarterDocument, ErreurApi, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
+  import { aTraiter, api, ecarterDocument, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
   import { deplacer, raccourcis } from '#lib/clavier.ts';
   import { compteurs, rafraichirCompteurs, releverMaintenant } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libellePriorite, nomCourtSociete, nomOutil } from '#lib/libelles.ts';
@@ -33,6 +33,7 @@
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import { formatMontant } from '#lib/ui/Montant.svelte';
+  import { raisonUrgence } from '#lib/urgence.ts';
   import Vide from '#lib/ui/Vide.svelte';
 
   /** Pièces montrées dans la carte À contrôler ; au-delà, un lien vers la file. */
@@ -44,6 +45,8 @@
 
   interface Tableau {
     mails_du_jour: { societe_id: number; raison_sociale: string; n: number }[];
+    /** Travail en cours (même périmètre que la file À valider). */
+    travail: { factures_ttc: number; echeances: number; jours_echeance: number; bl_sans_facture: number; jours_bl_sans_facture: number };
   }
   interface Donnees {
     file: FileATraiter;
@@ -52,6 +55,7 @@
     mailsTotal: number;
     facturesAValider: number;
     blAValider: number;
+    travail: Tableau['travail'];
   }
 
   let admin = $derived(session.moi?.role === 'admin');
@@ -67,9 +71,13 @@
     const lire = (page: number) => api.get<Page<LigneMail>>(`/api/mails${requete({ societe: s, categorie: 'hors_publicite', du, page })}`);
     const p1 = await lire(1);
     const elements = [...p1.elements];
-    const pages = Math.min(PAGES_MAILS, Math.ceil(p1.total / Math.max(1, p1.elements.length)));
-    for (let p = 2; p <= pages && elements.length < p1.total; p++) elements.push(...(await lire(p)).elements);
-    return { elements, total: p1.total };
+    let suite = p1.suivante;
+    for (let p = 2; p <= PAGES_MAILS && suite; p++) {
+      const r = await lire(p);
+      elements.push(...r.elements);
+      suite = r.suivante;
+    }
+    return { elements, total: p1.total ?? elements.length };
   }
 
   async function charger() {
@@ -89,8 +97,9 @@
       mailsDuJour: t.mails_du_jour.reduce((n, l) => n + l.n, 0),
       mails: mails.elements,
       mailsTotal: mails.total,
-      facturesAValider: facV.total,
-      blAValider: blV.total
+      facturesAValider: facV.total ?? 0,
+      blAValider: blV.total ?? 0,
+      travail: t.travail
     };
     erreur = '';
   }
@@ -136,6 +145,9 @@
       releveEnCours = false;
     }
   }
+
+  /** Aujourd'hui (Paris), AAAA-MM-JJ : la raison d'urgence de chaque pièce et le lien des mails du jour. */
+  const jourIso = jourParis.format(new Date());
 
   // ---------- Synthèse ----------
   const aujourdhui = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
@@ -201,7 +213,7 @@
       void rafraichirCompteurs();
       await charger().catch((e) => (erreur = message(e)));
     } catch (e) {
-      erreurBloque = e instanceof ErreurApi && e.code === 409 ? e.message : message(e);
+      erreurBloque = message(e);
     } finally {
       occupeBloque = '';
     }
@@ -362,7 +374,7 @@
       await charger().catch((e) => (erreur = message(e)));
       choixId = r.suivant ?? pieces[Math.min(avant, pieces.length - 1)]?.id ?? null;
     } catch (e) {
-      erreurAction = e instanceof ErreurApi && e.code === 409 ? e.message : message(e);
+      erreurAction = message(e);
     } finally {
       occupe = false;
     }
@@ -417,7 +429,7 @@
   function manqueDe(e: EtapeMiseEnRoute): Manque {
     switch (e.cle) {
       case 'societes':
-        return { texte: 'Aucune société n’est enregistrée : rien n’est relevé ni envoyé.', action: 'Ajouter une société', href: '/reglages#societes' };
+        return { texte: 'Aucune société n’est enregistrée : rien n’est relevé ni envoyé.', action: 'Ajouter une société', href: '/reglages/societes' };
       case 'envoi': {
         const sans = e.manques.map((m) => m.match(/^(.+) : adresse Dext\/Yooz manquante$/)?.[1]).filter((x): x is string => !!x);
         if (sans.length) {
@@ -428,17 +440,17 @@
                 ? `${noms} n’a pas d’adresse de collecte Dext / Yooz, ses factures validées ne peuvent pas partir.`
                 : `${noms} n’ont pas d’adresse de collecte Dext / Yooz, leurs factures validées ne peuvent pas partir.`,
             action: 'Indiquer l’adresse',
-            href: '/reglages#envoi'
+            href: '/reglages/envoi'
           };
         }
         if (e.manques.some((m) => m.includes('essai')))
-          return { texte: 'Le dernier essai de l’adresse d’envoi vers Dext / Yooz a échoué : les factures validées risquent de ne pas partir.', action: 'Régler l’envoi', href: '/reglages#envoi' };
-        return { texte: 'L’adresse d’envoi vers Dext / Yooz n’est pas réglée : les factures validées ne peuvent pas partir.', action: 'Régler l’envoi', href: '/reglages#envoi' };
+          return { texte: 'Le dernier essai de l’adresse d’envoi vers Dext / Yooz a échoué : les factures validées risquent de ne pas partir.', action: 'Régler l’envoi', href: '/reglages/envoi' };
+        return { texte: 'L’adresse d’envoi vers Dext / Yooz n’est pas réglée : les factures validées ne peuvent pas partir.', action: 'Régler l’envoi', href: '/reglages/envoi' };
       }
       case 'claude':
-        return { texte: 'Claude n’est pas connecté : les pièces ne sont plus lues ni les mails triés.', action: 'Connecter Claude', href: '/reglages#claude' };
+        return { texte: 'Claude n’est pas connecté : les pièces ne sont plus lues ni les mails triés.', action: 'Connecter Claude', href: '/reglages/claude' };
       default:
-        return { texte: `${e.resume} : les mails de ces boîtes n’arrivent pas.`, action: 'Voir les boîtes', href: '/reglages#boites' };
+        return { texte: `${e.resume} : les mails de ces boîtes n’arrivent pas.`, action: 'Voir les boîtes', href: '/reglages/boites' };
     }
   }
 
@@ -490,9 +502,9 @@
             {:else if b.genre === 'boite' && b.boite_id !== null}
               <a class="btn-blanc" href="/reglages/boites/{b.boite_id}">Corriger</a>
             {:else if b.genre === 'claude' && b.motif === 'limite'}
-              <a class="btn-blanc" href="/reglages#claude">Voir Claude</a>
+              <a class="btn-blanc" href="/reglages/claude">Voir Claude</a>
             {:else if b.genre === 'claude'}
-              <a class="btn-blanc" href="/reglages#claude">Se reconnecter</a>
+              <a class="btn-blanc" href="/reglages/claude">Se reconnecter</a>
             {:else if b.genre === 'envoi_erreur' && !admin}
               <a class="btn-blanc" href="/documents/{b.document_id}">Voir</a>
             {:else}
@@ -520,6 +532,7 @@
     <section class="carte-s valider" aria-labelledby="titre-valider">
       <div class="carte-h">
         <h2 id="titre-valider">À contrôler</h2>
+        <span class="aide">Le plus urgent d’abord</span>
         {#if pieces.length > 1}<span class="aide large-seul"><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>{/if}
       </div>
 
@@ -575,6 +588,10 @@
                   <span class="p-montant num">{l.montant_ttc !== null ? formatMontant(l.montant_ttc) : l.type === 'bl' ? '— HT' : '—'}</span>
                 </span>
                 <span class="p-b">{libellePiece(l)}</span>
+                {#if raisonUrgence(l, jourIso)}
+                  {@const u = raisonUrgence(l, jourIso)!}
+                  <span class="p-raison" class:e={u.ton === 'e'} class:ok={u.ton === 'ok'}><Icone nom={u.ton === 'ok' ? 'coche' : 'alerte'} />{u.texte}</span>
+                {/if}
                 {#if f}
                   <span class="p-alerte" class:e={f.ton === 'e'}><Icone nom="alerte" />{f.texte}</span>
                 {:else if l.type === 'bl' && etatBl(l)}
@@ -642,10 +659,18 @@
       <div class="droite">
         <section class="carte-s jour" aria-labelledby="titre-jour">
           <h2 id="titre-jour">Aujourd’hui</h2>
-          <a class="chiffre" href="/mails"><span>Mails reçus</span><b class="num">{d.mailsDuJour}</b></a>
+          <!-- Chaque chiffre ouvre la liste filtrée qu'il compte. -->
+          <a class="chiffre" href="/recherche?type=mail&du={jourIso}"><span>Mails reçus</span><b class="num">{d.mailsDuJour}</b></a>
           <a class="chiffre" href="/a-repondre"><span>À répondre</span><b class="num" class:att={d.file.compteurs.a_repondre > 0}>{d.file.compteurs.a_repondre}</b></a>
           <a class="chiffre" href="/factures?filtre=a-valider"><span>Factures à contrôler</span><b class="num" class:att={d.facturesAValider > 0}>{d.facturesAValider}</b></a>
+          <a class="chiffre" href="/factures?filtre=a-valider&tri=montant&sens=desc"><span>Montant à contrôler</span><b class="num">{formatMontant(d.travail.factures_ttc)}</b></a>
+          <a class="chiffre" href="/factures?filtre=echeance&tri=echeance&sens=asc">
+            <span>À payer sous {d.travail.jours_echeance} jours</span><b class="num" class:att={d.travail.echeances > 0}>{d.travail.echeances}</b>
+          </a>
           <a class="chiffre" href="/bl?filtre=a-valider"><span>BL à contrôler</span><b class="num" class:att={d.blAValider > 0}>{d.blAValider}</b></a>
+          <a class="chiffre" href="/bl?filtre=sans-facture">
+            <span>BL sans facture depuis {d.travail.jours_bl_sans_facture} jours</span><b class="num" class:att={d.travail.bl_sans_facture > 0}>{d.travail.bl_sans_facture}</b>
+          </a>
         </section>
 
         {#if d.file.a_repondre.length}
@@ -677,7 +702,7 @@
             <p>{manque.texte}</p>
             <div class="r-actions">
               <a class="btn-blanc" href={manque.href}>{manque.action}</a>
-              {#if manques.length > 1}<a class="r-tout" href="/reglages#mise-en-route">Voir la mise en route</a>{/if}
+              {#if manques.length > 1}<a class="r-tout" href="/reglages">Voir la mise en route</a>{/if}
             </div>
           </section>
         {/if}
@@ -972,6 +997,24 @@
   .p-b {
     font-size: 15px;
     color: var(--text2);
+  }
+  .p-raison {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    font-size: 15px;
+    color: var(--warn);
+  }
+  .p-raison.e {
+    color: var(--err);
+    font-weight: 500;
+  }
+  .p-raison.ok {
+    color: var(--ok);
+  }
+  .p-raison :global(svg.i) {
+    width: 16px;
+    height: 16px;
   }
   .p-alerte {
     display: flex;

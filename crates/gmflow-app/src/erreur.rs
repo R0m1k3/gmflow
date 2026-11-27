@@ -69,6 +69,25 @@ impl From<tower_sessions::session::Error> for ErreurApi {
     }
 }
 
+impl ErreurApi {
+    /// Code stable de l'erreur, toujours présent dans la réponse (`{"erreur", "code"}`) : le
+    /// front traduit ce code (`web/src/lib/erreurs.ts`), jamais la phrase. Les refus métier
+    /// (`ConflitCode`) ont leur propre code (`doublon`, `expedition`…).
+    pub fn code(&self) -> &'static str {
+        match self {
+            ErreurApi::Donnees(_) => "donnees",
+            ErreurApi::Champ { .. } => "champ",
+            ErreurApi::NonConnecte => "non_connecte",
+            ErreurApi::Interdit => "interdit",
+            ErreurApi::Absent => "absent",
+            ErreurApi::Conflit(_) => "conflit",
+            ErreurApi::ConflitCode { code, .. } => code,
+            ErreurApi::TropDEssais => "trop_d_essais",
+            ErreurApi::Interne(_) => "interne",
+        }
+    }
+}
+
 impl IntoResponse for ErreurApi {
     fn into_response(self) -> Response {
         let code = match &self {
@@ -84,10 +103,66 @@ impl IntoResponse for ErreurApi {
             }
         };
         let corps = match &self {
-            ErreurApi::ConflitCode { code, message } => json!({ "erreur": message, "code": code }),
-            ErreurApi::Champ { champ, message } => json!({ "erreur": message, "champ": champ }),
-            _ => json!({ "erreur": self.to_string() }),
+            ErreurApi::Champ { champ, message } => {
+                json!({ "erreur": message, "code": self.code(), "champ": champ })
+            }
+            _ => json!({ "erreur": self.to_string(), "code": self.code() }),
         };
         (code, Json(corps)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn corps(e: ErreurApi) -> (StatusCode, serde_json::Value) {
+        let r = e.into_response();
+        let statut = r.status();
+        let octets = axum::body::to_bytes(r.into_body(), 1 << 16).await.unwrap();
+        (statut, serde_json::from_slice(&octets).unwrap())
+    }
+
+    #[tokio::test]
+    async fn chaque_erreur_a_un_code_stable() {
+        let cas = [
+            (ErreurApi::Donnees("x".into()), 400, "donnees"),
+            (ErreurApi::NonConnecte, 401, "non_connecte"),
+            (ErreurApi::Interdit, 403, "interdit"),
+            (ErreurApi::Absent, 404, "absent"),
+            (ErreurApi::Conflit("x".into()), 409, "conflit"),
+            (ErreurApi::TropDEssais, 429, "trop_d_essais"),
+            (
+                ErreurApi::Interne(anyhow::anyhow!("secret")),
+                500,
+                "interne",
+            ),
+            (
+                ErreurApi::ConflitCode {
+                    code: "expedition",
+                    message: "x".into(),
+                },
+                409,
+                "expedition",
+            ),
+        ];
+        for (e, statut, code) in cas {
+            let (s, j) = corps(e).await;
+            assert_eq!(s.as_u16(), statut);
+            assert_eq!(j["code"], code, "{j}");
+            assert!(j["erreur"].is_string());
+        }
+        let (_, j) = corps(ErreurApi::Champ {
+            champ: "siret",
+            message: "SIRET invalide".into(),
+        })
+        .await;
+        assert_eq!(
+            j,
+            json!({"erreur": "SIRET invalide", "code": "champ", "champ": "siret"})
+        );
+        // Le détail d'une erreur interne ne sort jamais.
+        let (_, j) = corps(ErreurApi::Interne(anyhow::anyhow!("mot de passe"))).await;
+        assert_eq!(j["erreur"], "erreur interne");
     }
 }

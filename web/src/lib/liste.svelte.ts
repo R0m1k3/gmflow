@@ -1,5 +1,7 @@
 // Listes paginées des onglets Mails, Factures, BL et À répondre (réponses `Page<T>` du serveur,
 // 50 par page) : lecture de la première page, « plus anciens », relecture sans perdre ce qui est affiché.
+// Le total n'est compté par le serveur qu'en première page ; la suite se sait par `suivante`.
+// Le tri (`?tri=&sens=`, voir tri.ts) fait partie de l'adresse : la suite garde le même ordre.
 import { api, message } from './api.ts';
 import type { Page } from './types.ts';
 
@@ -9,6 +11,10 @@ export class Liste<T extends { id: number }> {
   charge = $state(false);
   enCours = $state(false);
   erreur = $state('');
+  /** L'erreur elle-même, pour `ErreurAction` (message, que faire, bouton). */
+  erreurBrute = $state<unknown>(null);
+  /** Il reste des éléments après ceux affichés. */
+  suivante = $state(false);
   private page = 1;
   private tour = 0;
 
@@ -23,20 +29,29 @@ export class Liste<T extends { id: number }> {
     try {
       let tout: T[] = [];
       let total = 0;
+      let suivante = false;
+      let lues = 0;
       for (let p = 1; p <= pages; p++) {
         const r = await api.get<Page<T>>(this.adresse(p));
         if (moi !== this.tour) return;
         tout = tout.concat(r.elements);
-        total = r.total;
-        if (r.elements.length === 0) break;
+        if (r.total !== null) total = r.total;
+        suivante = r.suivante;
+        lues = p;
+        if (!r.suivante) break;
       }
       this.elements = tout;
       this.total = total;
-      this.page = pages;
+      this.suivante = suivante;
+      this.page = lues;
       this.erreur = '';
+      this.erreurBrute = null;
       this.charge = true;
     } catch (e) {
-      if (moi === this.tour) this.erreur = message(e);
+      if (moi === this.tour) {
+        this.erreur = message(e);
+        this.erreurBrute = e;
+      }
     } finally {
       if (moi === this.tour) this.enCours = false;
     }
@@ -44,7 +59,7 @@ export class Liste<T extends { id: number }> {
 
   /** Page suivante, ajoutée au bout. */
   async plus() {
-    if (this.enCours || this.elements.length >= this.total) return;
+    if (this.enCours || !this.suivante) return;
     const moi = ++this.tour;
     this.enCours = true;
     try {
@@ -52,17 +67,22 @@ export class Liste<T extends { id: number }> {
       if (moi !== this.tour) return;
       const vus = new Set(this.elements.map((e) => e.id));
       this.elements = this.elements.concat(r.elements.filter((e) => !vus.has(e.id)));
-      this.total = r.total;
+      if (r.total !== null) this.total = r.total;
+      this.suivante = r.suivante;
       this.page += 1;
     } catch (e) {
-      if (moi === this.tour) this.erreur = message(e);
+      if (moi === this.tour) {
+        this.erreur = message(e);
+        this.erreurBrute = e;
+      }
     } finally {
       if (moi === this.tour) this.enCours = false;
     }
   }
 
+  /** Éléments pas encore affichés (au moins 1 s'il y a une suite, même si le total a bougé). */
   get reste() {
-    return Math.max(0, this.total - this.elements.length);
+    return this.suivante ? Math.max(1, this.total - this.elements.length) : 0;
   }
 }
 

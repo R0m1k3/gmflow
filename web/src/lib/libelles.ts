@@ -297,6 +297,8 @@ export const RUBRIQUES = {
   avance: 'Avancé',
   expediteursPub: 'Expéditeurs publicitaires',
   historique: 'Historique',
+  journal: 'Journal',
+  zoneDangereuse: 'Zone dangereuse',
   limites: 'Limite par jour',
   adresseEnvoi: 'Adresse d’envoi vers Dext / Yooz',
   envoiAuto: 'Envoi automatique des factures sûres',

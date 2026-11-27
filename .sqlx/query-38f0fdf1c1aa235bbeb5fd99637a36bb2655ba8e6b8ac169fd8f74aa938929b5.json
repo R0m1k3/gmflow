@@ -1,0 +1,61 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select c.key as \"champ!\", c.value->'avant' as \"avant!\", c.value->'apres' as \"apres!\",\n                  u.identifiant as \"par?\", j.quand\n           from journal j\n           cross join lateral jsonb_each(j.details) c\n           left join utilisateur u on u.id = j.auteur_id\n           where j.objet_type = 'document' and j.objet_id = $1::bigint::text\n             and j.action = 'correction' and jsonb_typeof(c.value) = 'object'\n           order by j.quand, j.id, c.key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "champ!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "avant!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "apres!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "par?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "quand",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "journal",
+            "name": "quand"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      false,
+      false
+    ]
+  },
+  "hash": "38f0fdf1c1aa235bbeb5fd99637a36bb2655ba8e6b8ac169fd8f74aa938929b5"
+}

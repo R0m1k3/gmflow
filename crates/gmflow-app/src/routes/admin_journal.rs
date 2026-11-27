@@ -51,9 +51,5 @@ pub async fn lister(
     )
     .fetch_all(&etat.pool)
     .await?;
-    Ok(Json(Page {
-        total,
-        page,
-        elements,
-    }))
+    Ok(Json(Page::comptee(total, page, elements)))
 }

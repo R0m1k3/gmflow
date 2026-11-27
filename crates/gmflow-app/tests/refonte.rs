@@ -408,13 +408,16 @@ async fn file_a_traiter_et_compteurs() {
         .requete("GET", "/api/a-traiter", None, Some(&m.c_admin))
         .await;
     assert_eq!(r.code, StatusCode::OK, "{}", r.json);
-    // Alertes d'abord (société inconnue, numéro manquant), puis les plus anciens.
+    // Par urgence : validables d'un clic d'abord, puis à corriger (société inconnue, numéro
+    // manquant), les plus anciens d'abord dans chaque rang.
     assert_eq!(
         ids(&r.json["a_valider"]),
-        vec![f.fnull, f.f2, f.fb, f.f1, f.fother, f.bl1]
+        vec![f.fb, f.f1, f.fother, f.bl1, f.fnull, f.f2]
     );
-    assert_eq!(r.json["suivant"], f.fnull);
-    let premier = &r.json["a_valider"][0];
+    assert_eq!(r.json["suivant"], f.fb);
+    assert_eq!(r.json["a_valider"][0]["rang"], 2);
+    let premier = &r.json["a_valider"][4];
+    assert_eq!(premier["rang"], 3);
     assert_eq!(premier["alerte"], "Société destinataire non reconnue");
     assert_eq!(premier["alerte_code"], "societe");
     let bl = r.json["a_valider"]
@@ -515,14 +518,14 @@ async fn file_a_traiter_et_compteurs() {
             Some(&m.c_admin),
         )
         .await;
-    assert_eq!(ids(&r.json["a_valider"]), vec![f.fnull, f.f2, f.f1, f.bl1]);
+    assert_eq!(ids(&r.json["a_valider"]), vec![f.f1, f.bl1, f.fnull, f.f2]);
 
     // Responsable : sa société seulement, ni boîtes ni Claude.
     let r = app
         .requete("GET", "/api/a-traiter", None, Some(&m.c_resp_a))
         .await;
     assert_eq!(r.code, StatusCode::OK);
-    assert_eq!(ids(&r.json["a_valider"]), vec![f.fnull, f.f2, f.f1, f.bl1]);
+    assert_eq!(ids(&r.json["a_valider"]), vec![f.f1, f.bl1, f.fnull, f.f2]);
     let genres: Vec<&str> = r.json["bloque"]
         .as_array()
         .unwrap()

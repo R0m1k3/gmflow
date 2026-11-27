@@ -76,6 +76,9 @@ Ligne de liste : `.a` titre, `.b` sous-ligne, `.r` à droite (montant), `.r2` â
 | `ChoixMotifEcart` | `bind:motif`, `bind:texte`. Motif d'« Écarter » dans une `<Confirmation desactive={!motif}>` (accueil, lot ; la fiche a le même choix dans `DocFiche`) : `MOTIFS_ECARTEMENT` + précision facultative. |
 | `Kbd` | `t="J"`, `t="Enter"` (↵), `t={['Ctrl', 'Enter']}`. |
 | `Icone` | `nom` : chercher, reglages, bas, droite, gauche, haut, alerte, erreur, info, coche, trombone, fichier, agrandir, zoom, telecharger, mail, boite, camion, graphique, batiment, prise, envoyer, utilisateurs, curseurs, drapeau, lien, menu, fermer, sortir, ouvrir, plus, rafraichir. 16 px, trait 1,5, couleur du texte. |
+| `ErreurAction` | `erreur` (attrapée), `titre?`, `onreessayer?`, `compact?`. Bandeau d'erreur traduit par `#lib/erreurs.ts` (code stable du serveur → message simple, « que faire », bouton Réessayer / Réglages / Se reconnecter). Une seule ligne de texte : `message(e)` de `api.ts` donne la même traduction. |
+| `EnTetesTri` | colonnes `ColonneTri[]` (`#lib/tri.ts`) : « Trier par » en liens qui changent `?tri=&sens=` dans l'adresse (le tri par défaut n'y apparaît pas) ; le serveur trie. |
+| `Origine` | `origine` (`origineChamp()` de `#lib/origine.ts`), `libelle`, `formater?`. Pastille à côté d'un champ de la fiche : ✓ lue sûre, ? lue avec doute (carré ambre), ✎ corrigée (pleine), = calculée (pointillée), • modifiée pas enregistrée ; au clic, qui a corrigé quoi et quand. Une forme par origine, jamais la couleur seule. |
 
 ## Modules
 
