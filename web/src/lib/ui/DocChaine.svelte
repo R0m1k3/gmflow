@@ -154,7 +154,7 @@
   function etatFacture(f: FicheDocument): string {
     if (f.statut_depot === 'depose') return 'envoyée';
     if (f.valide_le || f.verifie_le) return 'validée';
-    return 'à valider';
+    return 'à contrôler';
   }
   function verdictCourt(a: Addition): string {
     if (a.verdict === 'concorde') return a.causes.length ? `${a.causes.length} article${a.causes.length > 1 ? 's' : ''} en écart` : 'concorde';

@@ -5,7 +5,7 @@
     suivant: number | null;
     info: string;
   }
-  /** Position dans la file : « À valider 1 sur 12 ». */
+  /** Position dans la file : « À contrôler 1 sur 12 ». */
   export interface PositionFiche {
     section: string;
     n: number;
@@ -678,7 +678,7 @@
   );
 
   let dlgEcarter = $state(false);
-  let dlgRejeter = $state(false);
+  let dlgEcarterSociete = $state(false);
   let dlgForcer = $state(false);
   let dlgRelire = $state(false);
   let dlgRelireDetail = $state(false);
@@ -1193,7 +1193,7 @@
             {d.societe_id === null
               ? 'Aucune de vos sociétés n’est trouvée sur le document.'
               : `${d.societe ?? 'La société'} est trouvée avec peu de certitude.`}
-            Choisissez la bonne société, ou rejetez la pièce si elle n’est pas pour vous.
+            Choisissez la bonne société, ou écartez la pièce si elle n’est pas pour vous.
             <span class="choix-societe">
               {#each societe.liste as s (s.id)}
                 <button
@@ -1205,7 +1205,7 @@
                   onclick={() => (choix.societe = String(s.id))}>{nomCourtSociete(s.raison_sociale)}</button
                 >
               {/each}
-              <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgRejeter = true)}>Rejeter</button>
+              <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgEcarterSociete = true)}>Écarter</button>
             </span>
           </Bandeau>
         {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
@@ -1485,7 +1485,7 @@
     >
   </fieldset>
 </Confirmation>
-<Confirmation bind:ouvert={dlgRejeter} titre="Rejeter ce document ?" libelle="Rejeter" danger onconfirmer={() => ecarter('pas_pour_nous')}>
+<Confirmation bind:ouvert={dlgEcarterSociete} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={() => ecarter('pas_pour_nous')}>
   <p>{titreDoc} n’est pour aucune de vos sociétés : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
 </Confirmation>
 <Confirmation bind:ouvert={dlgForcer} titre="Envoyer ce doublon quand même ?" libelle="Envoyer quand même" danger onconfirmer={() => valider(true)}>
