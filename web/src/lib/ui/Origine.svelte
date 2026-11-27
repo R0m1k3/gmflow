@@ -25,6 +25,16 @@
   const uid = $props.id();
   let ouvert = $state(false);
   let racine = $state<HTMLElement>();
+  let bulle = $state<HTMLElement>();
+  // Fiche étroite au bord droit de l'écran : la bulle est décalée vers la gauche pour rester visible.
+  let gauche = $state(-8);
+  $effect(() => {
+    if (!ouvert || !bulle) return;
+    gauche = -8;
+    const r = bulle.getBoundingClientRect();
+    const depasse = r.right - (document.documentElement.clientWidth - 8);
+    if (depasse > 0) gauche = -8 - Math.min(depasse, r.left - 8);
+  });
 
   $effect(() => {
     if (!ouvert) return;
@@ -64,7 +74,7 @@
       <span aria-hidden="true">{SIGNES[origine.genre]}</span>
     </button>
     {#if ouvert}
-      <div class="bulle" id="{uid}-o" role="dialog" aria-label="Origine : {libelle}">
+      <div class="bulle" id="{uid}-o" role="dialog" aria-label="Origine : {libelle}" bind:this={bulle} style:left="{gauche}px">
         <p class="o-l"><span class="signe {origine.genre}" aria-hidden="true">{SIGNES[origine.genre]}</span>{origine.libelle}</p>
         {#if origine.historique.length}
           <ol class="o-h">
@@ -88,6 +98,7 @@
     position: relative;
     display: inline-flex;
     vertical-align: middle;
+    margin-left: 4px;
   }
   .pastille,
   .signe {

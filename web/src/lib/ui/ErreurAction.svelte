@@ -42,12 +42,29 @@
   {/if}
 {/snippet}
 
-<Bandeau ton="erreur" titre={titre ?? x.message} action={action ? boutons : undefined}>
-  {#if titre}{x.message}{/if}
-  {#if x.quoiFaire}<span class="quoi" class:compact>{x.quoiFaire}</span>{/if}
-</Bandeau>
+<div class="erreur-action">
+  <Bandeau ton="erreur" titre={titre ?? x.message} action={action ? boutons : undefined}>
+    {#if titre}{x.message}{/if}
+    {#if x.quoiFaire}<span class="quoi" class:compact>{x.quoiFaire}</span>{/if}
+  </Bandeau>
+</div>
 
 <style>
+  /* Colonne étroite (liste) : le bouton passe sous le texte au lieu de l'écraser. */
+  .erreur-action {
+    container-type: inline-size;
+  }
+  @container (max-width: 440px) {
+    .erreur-action :global(.bandeau) {
+      flex-wrap: wrap;
+    }
+    .erreur-action :global(.bandeau .corps-bandeau) {
+      flex: 1 1 calc(100% - 40px);
+    }
+    .erreur-action :global(.bandeau .action-bandeau) {
+      margin: 0 0 0 30px;
+    }
+  }
   .quoi {
     display: block;
     color: var(--text2);
