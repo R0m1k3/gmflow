@@ -48,11 +48,19 @@ pub async fn connexion(
 ) -> Resultat<Json<Moi>> {
     let identifiant = e.identifiant.trim().to_string();
     let cle = identifiant.to_lowercase();
-    let (cle_compte, cle_adresse) = (format!("{ip}|{cle}"), format!("{ip}|*"));
+    let reseau = crate::freinage::cle_reseau(&ip);
+    let (cle_compte, cle_adresse) = (format!("{reseau}|{cle}"), format!("{reseau}|*"));
+    // L'essai compte d'avance comme un échec (essais en parallèle), rendu s'il réussit.
     if etat
         .freinage
-        .attente(&[&cle_compte, &cle_adresse], Instant::now())
-        .is_some()
+        .essayer(
+            &[
+                (&cle_compte, ESSAIS_LIBRES_COMPTE),
+                (&cle_adresse, ESSAIS_LIBRES_ADRESSE),
+            ],
+            Instant::now(),
+        )
+        .is_err()
     {
         return Err(ErreurApi::TropDEssais);
     }
@@ -71,11 +79,6 @@ pub async fn connexion(
     let u = match ligne {
         Some(u) if bon && u.actif => u,
         autre => {
-            let maintenant = Instant::now();
-            etat.freinage
-                .echec(&cle_compte, ESSAIS_LIBRES_COMPTE, maintenant);
-            etat.freinage
-                .echec(&cle_adresse, ESSAIS_LIBRES_ADRESSE, maintenant);
             gmflow_core::journal::ecrire(
                 &etat.pool,
                 autre.as_ref().map(|u| u.id),
@@ -89,6 +92,7 @@ pub async fn connexion(
         }
     };
     etat.freinage.reussite(&cle_compte);
+    etat.freinage.rendre(&cle_adresse, ESSAIS_LIBRES_ADRESSE);
     session.cycle_id().await?;
     session
         .insert(
@@ -157,7 +161,11 @@ pub async fn changer_mot_de_passe(
     Json(c): Json<ChangementMdp>,
 ) -> Resultat<StatusCode> {
     let cle = format!("mdp|{}", acces.utilisateur_id);
-    if etat.freinage.attente(&[&cle], Instant::now()).is_some() {
+    if etat
+        .freinage
+        .essayer(&[(&cle, ESSAIS_LIBRES_COMPTE)], Instant::now())
+        .is_err()
+    {
         return Err(ErreurApi::TropDEssais);
     }
     let hash = sqlx::query_scalar!(
@@ -167,8 +175,6 @@ pub async fn changer_mot_de_passe(
     .fetch_one(&etat.pool)
     .await?;
     if !mdp::verifier_async(c.ancien.clone(), hash).await {
-        etat.freinage
-            .echec(&cle, ESSAIS_LIBRES_COMPTE, Instant::now());
         gmflow_core::journal::ecrire(
             &etat.pool,
             Some(acces.utilisateur_id),

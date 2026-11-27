@@ -78,9 +78,63 @@ impl Freinage {
         plus_long
     }
 
+    /// Réserve un essai pour ces clés (`(clé, échecs tolérés)`), d'un seul tenant : si l'une
+    /// d'elles doit attendre, rend l'attente la plus longue ; sinon l'essai compte d'avance
+    /// comme un échec sur chaque clé. Des essais lancés en parallèle ne passent donc pas tous
+    /// le contrôle avant que le premier échec soit noté. Une réussite rend l'essai
+    /// ([`Freinage::reussite`], [`Freinage::rendre`]).
+    pub fn essayer(&self, cles: &[(&str, u32)], maintenant: Instant) -> Result<(), Duration> {
+        let mut suivis = self.suivis.lock().unwrap();
+        let mut plus_long: Option<Duration> = None;
+        for (cle, _) in cles {
+            let Some(s) = suivis.get(*cle).copied() else {
+                continue;
+            };
+            if maintenant >= s.libre_le() + OUBLI {
+                suivis.remove(*cle);
+                continue;
+            }
+            if maintenant < s.libre_le() {
+                let reste = s.libre_le() - maintenant;
+                plus_long = Some(plus_long.map_or(reste, |p| p.max(reste)));
+            }
+        }
+        if let Some(d) = plus_long {
+            return Err(d);
+        }
+        for (cle, libres) in cles {
+            noter_echec(&mut suivis, cle, *libres, maintenant);
+        }
+        Ok(())
+    }
+
+    /// Rend un essai réservé par [`Freinage::essayer`] qui a réussi, sans effacer les autres
+    /// échecs de la clé (clé de l'adresse : une connexion réussie ne remet pas à zéro les
+    /// essais faits sur d'autres comptes).
+    pub fn rendre(&self, cle: &str, libres: u32) {
+        let mut suivis = self.suivis.lock().unwrap();
+        if let Some(s) = suivis.get_mut(cle) {
+            s.echecs = s.echecs.saturating_sub(1);
+            s.attente = attente_pour(s.echecs, libres);
+            if s.echecs == 0 {
+                suivis.remove(cle);
+            }
+        }
+    }
+
     /// Note un échec pour la clé ; `libres` : échecs tolérés avant la première attente.
     pub fn echec(&self, cle: &str, libres: u32, maintenant: Instant) {
-        let mut suivis = self.suivis.lock().unwrap();
+        noter_echec(&mut self.suivis.lock().unwrap(), cle, libres, maintenant);
+    }
+
+    /// Connexion réussie : les échecs de cette clé sont oubliés.
+    pub fn reussite(&self, cle: &str) {
+        self.suivis.lock().unwrap().remove(cle);
+    }
+}
+
+fn noter_echec(suivis: &mut HashMap<String, Suivi>, cle: &str, libres: u32, maintenant: Instant) {
+    {
         let s = suivis.entry(cle.to_string()).or_insert(Suivi {
             echecs: 0,
             dernier: maintenant,
@@ -92,15 +146,10 @@ impl Freinage {
         s.echecs += 1;
         s.dernier = maintenant;
         s.attente = attente_pour(s.echecs, libres);
-        // Évite que la table grossisse sans fin (essais depuis beaucoup d'adresses).
-        if suivis.len() > 10_000 {
-            suivis.retain(|_, s| maintenant < s.libre_le() + OUBLI);
-        }
     }
-
-    /// Connexion réussie : les échecs de cette clé sont oubliés.
-    pub fn reussite(&self, cle: &str) {
-        self.suivis.lock().unwrap().remove(cle);
+    // Évite que la table grossisse sans fin (essais depuis beaucoup d'adresses).
+    if suivis.len() > 10_000 {
+        suivis.retain(|_, s| maintenant < s.libre_le() + OUBLI);
     }
 }
 
@@ -194,6 +243,22 @@ pub fn adresse_client(
     Some(pair)
 }
 
+/// Clé de freinage d'une adresse : l'adresse IPv4 elle-même, le réseau /64 d'une adresse IPv6
+/// (un abonné en reçoit un entier et peut en changer à chaque essai).
+pub fn cle_reseau(adresse: &str) -> String {
+    match adresse.parse::<IpAddr>() {
+        Ok(IpAddr::V6(v6)) if v6.to_ipv4_mapped().is_none() => {
+            let s = v6.segments();
+            let reseau = std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0);
+            format!("{reseau}/64")
+        }
+        Ok(IpAddr::V6(v6)) => v6
+            .to_ipv4_mapped()
+            .map_or(adresse.to_string(), |v4| v4.to_string()),
+        _ => adresse.to_string(),
+    }
+}
+
 /// Adresse du client de la requête (texte), « inconnue » sans information de connexion
 /// (tests qui appellent le routeur directement).
 pub struct AdresseClient(pub String);
@@ -251,6 +316,35 @@ mod tests {
     }
 
     #[test]
+    fn essais_reserves_d_avance() {
+        let f = Freinage::default();
+        let t0 = Instant::now();
+        let cles = [
+            ("a|michael", ESSAIS_LIBRES_COMPTE),
+            ("a|*", ESSAIS_LIBRES_ADRESSE),
+        ];
+        // Essais lancés en même temps : chacun est compté avant sa vérification, le sixième
+        // est refusé sans attendre que les cinq premiers aient échoué.
+        for _ in 0..ESSAIS_LIBRES_COMPTE {
+            assert_eq!(f.essayer(&cles, t0), Ok(()));
+        }
+        assert_eq!(f.essayer(&cles, t0), Err(ATTENTE_PREMIERE));
+        // Une réussite rend son essai : la clé du compte est effacée, celle de l'adresse
+        // perd un échec seulement.
+        let g = Freinage::default();
+        for _ in 0..3 {
+            g.essayer(&cles, t0).unwrap();
+        }
+        g.reussite("a|michael");
+        g.rendre("a|*", ESSAIS_LIBRES_ADRESSE);
+        assert_eq!(
+            g.suivis.lock().unwrap().get("a|*").map(|s| s.echecs),
+            Some(2)
+        );
+        assert!(!g.suivis.lock().unwrap().contains_key("a|michael"));
+    }
+
+    #[test]
     fn en_tetes_crus_seulement_depuis_un_proxy() {
         let proxys = ProxysDeConfiance::par_defaut();
         let mut h = HeaderMap::new();
@@ -278,5 +372,18 @@ mod tests {
         assert!(un.contient("192.168.1.200".parse().unwrap()));
         assert!(un.contient("::ffff:192.168.1.3".parse().unwrap()));
         assert_eq!(adresse_client(None, &h, &proxys), None);
+    }
+
+    #[test]
+    fn ipv6_freine_par_reseau() {
+        assert_eq!(cle_reseau("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::/64");
+        assert_eq!(
+            cle_reseau("2001:db8:1:2:bbbb:cccc::9"),
+            cle_reseau("2001:db8:1:2::77")
+        );
+        assert_ne!(cle_reseau("2001:db8:1:3::1"), cle_reseau("2001:db8:1:2::1"));
+        assert_eq!(cle_reseau("203.0.113.7"), "203.0.113.7");
+        assert_eq!(cle_reseau("::ffff:203.0.113.7"), "203.0.113.7");
+        assert_eq!(cle_reseau("inconnue"), "inconnue");
     }
 }

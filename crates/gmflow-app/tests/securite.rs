@@ -88,6 +88,32 @@ async fn un_tiers_ne_bloque_pas_le_vrai_utilisateur() {
     app.fermer().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn essais_en_parallele_freines_comme_des_essais_successifs() {
+    let app = std::sync::Arc::new(Appli::new().await);
+    app.utilisateur("michael", MDP, "admin", None).await;
+    // 30 essais ratés lancés d'un coup : sans réservation, tous passeraient le contrôle avant
+    // que le premier échec soit noté (le hachage prend du temps).
+    let mut essais = tokio::task::JoinSet::new();
+    for _ in 0..30 {
+        let app = app.clone();
+        essais.spawn(async move {
+            connexion_depuis(&app, "172.18.0.4", Some("203.0.113.77"), "michael", "faux").await
+        });
+    }
+    let mut refuses = 0;
+    let mut freines = 0;
+    while let Some(code) = essais.join_next().await {
+        match code.unwrap() {
+            StatusCode::UNAUTHORIZED => refuses += 1,
+            StatusCode::TOO_MANY_REQUESTS => freines += 1,
+            autre => panic!("{autre}"),
+        }
+    }
+    assert_eq!((refuses, freines), (5, 25));
+    std::sync::Arc::into_inner(app).unwrap().fermer().await;
+}
+
 #[tokio::test]
 async fn changer_son_mot_de_passe_coupe_les_autres_sessions() {
     let app = Appli::new().await;
@@ -459,6 +485,13 @@ async fn images_distantes_des_mails_bloquees_par_defaut() {
     assert!(
         !defaut.contains("https:") && !defaut.contains("http:"),
         "{defaut}"
+    );
+    // Pas de résolution DNS d'avance des liens (`<link rel=dns-prefetch>` échappe à la CSP).
+    assert_eq!(
+        r.entetes
+            .get("x-dns-prefetch-control")
+            .map(|v| v.to_str().unwrap()),
+        Some("off")
     );
     // Les images intégrées (cid:) restent affichées, en data:.
     assert!(String::from_utf8_lossy(&r.octets).contains("data:image/png;base64,"));

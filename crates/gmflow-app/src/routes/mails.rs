@@ -423,6 +423,9 @@ pub async fn html(
             ),
             (header::REFERRER_POLICY, "no-referrer"),
             (header::CACHE_CONTROL, "private, no-store"),
+            // `<link rel=dns-prefetch>` n'est pas couvert par la CSP : l'expéditeur verrait
+            // la résolution de son nom de domaine (C23).
+            (header::X_DNS_PREFETCH_CONTROL, "off"),
         ],
         page,
     )
