@@ -9,6 +9,7 @@ pub mod pdf;
 pub mod societe;
 pub mod tableau_articles;
 pub mod tableur;
+pub mod tranches;
 pub mod xml;
 
 /// Fichiers plus gros : non lus (Claude refuse au-delà, et ce n'est pas une facture).
