@@ -2,9 +2,12 @@
 //! marche : facture électronique (XML), couche texte d'un PDF, cellules d'un tableur, et
 //! seulement en dernier Claude, qui lit le scan ou l'image lui-même.
 
+pub mod decoupage;
 pub mod extraction;
+pub mod ocr;
 pub mod pdf;
 pub mod societe;
+pub mod tableau_articles;
 pub mod tableur;
 pub mod xml;
 
@@ -45,8 +48,14 @@ pub enum Aiguillage {
         /// Couche texte du PDF quand il y en a une (pour la recherche et le contrôle).
         texte: Option<String>,
     },
-    /// Texte lu par le code, à faire classer et extraire par Claude.
-    Texte { voie: Voie, texte: String },
+    /// Texte lu par le code, à faire classer et extraire par Claude. `tronque` : le texte
+    /// donné à Claude n'est pas complet (tableur coupé, texte plus long que `TEXTE_MAX`), des
+    /// lignes articles peuvent manquer.
+    Texte {
+        voie: Voie,
+        texte: String,
+        tronque: bool,
+    },
     /// Fichier à faire lire par Claude (scan, photo), sous ce nom d'extension.
     Scan {
         extension: &'static str,
@@ -113,6 +122,11 @@ fn genre(nom: &str, mime: &str, c: &[u8]) -> Genre {
     Genre::Autre
 }
 
+/// Texte que Claude ne recevra pas en entier (`extraction::debut_et_fin`).
+fn trop_long(t: &str) -> bool {
+    t.chars().count() > extraction::TEXTE_MAX
+}
+
 fn texte_utile(t: &str) -> usize {
     t.chars().filter(|c| c.is_alphanumeric()).count()
 }
@@ -126,6 +140,20 @@ pub fn apercu_tableur(nom: &str, mime: &str, contenu: &[u8]) -> Option<Vec<table
     match genre(nom, &mime.to_ascii_lowercase(), contenu) {
         Genre::Classeur => tableur::apercu_classeur(contenu),
         Genre::Csv => Some(vec![tableur::apercu_csv(contenu)]),
+        _ => None,
+    }
+}
+
+/// Feuilles visibles d'un tableur (xlsx, xls, ods, csv) en cellules, pour en lire les lignes
+/// d'articles (`tableau_articles`) ; rien pour les autres fichiers ou un classeur illisible.
+pub fn grilles_tableur(
+    nom: &str,
+    mime: &str,
+    contenu: &[u8],
+) -> Option<Vec<tableau_articles::Grille>> {
+    match genre(nom, &mime.to_ascii_lowercase(), contenu) {
+        Genre::Classeur => tableau_articles::grilles_classeur(contenu),
+        Genre::Csv => Some(vec![tableau_articles::grille_csv(contenu)]),
         _ => None,
     }
 }
@@ -151,6 +179,7 @@ pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) 
             match pdf::texte(contenu) {
                 Some(t) if texte_utile(&t) >= TEXTE_UTILE_MIN => Aiguillage::Texte {
                     voie: Voie::PdfTexte,
+                    tronque: trop_long(&t),
                     texte: t,
                 },
                 _ => Aiguillage::Scan {
@@ -168,17 +197,19 @@ pub fn aiguiller(nom: &str, mime: &str, contenu: &[u8], _liste_diffusion: bool) 
             None => Aiguillage::Ignore("XML non reconnu comme facture".into()),
         },
         Genre::Classeur => match tableur::texte_classeur(contenu) {
-            Some(t) if texte_utile(&t) > 0 => Aiguillage::Texte {
+            Some((t, coupe)) if texte_utile(&t) > 0 => Aiguillage::Texte {
                 voie: Voie::Tableur,
+                tronque: coupe || trop_long(&t),
                 texte: t,
             },
             _ => Aiguillage::Ignore("classeur vide ou illisible".into()),
         },
         Genre::Csv => {
-            let t = tableur::texte_csv(contenu);
+            let (t, coupe) = tableur::texte_csv(contenu);
             if texte_utile(&t) > 0 {
                 Aiguillage::Texte {
                     voie: Voie::Tableur,
+                    tronque: coupe || trop_long(&t),
                     texte: t,
                 }
             } else {

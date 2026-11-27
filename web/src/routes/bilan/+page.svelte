@@ -1,6 +1,7 @@
 <script lang="ts">
   // Bilan du mois : par société, reçues / envoyées / restantes, avec liens vers ce qui reste à faire ;
   // BL en attente de facture par fournisseur ; replié en bas, qualité de la lecture et du tri.
+  import Aide from '#lib/ui/Aide.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, bilanMois, message } from '#lib/api.ts';
@@ -15,6 +16,7 @@
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import Montant from '#lib/ui/Montant.svelte';
+  import QualiteLecture from '#lib/ui/QualiteLecture.svelte';
   import Repli from '#lib/ui/Repli.svelte';
   import Vide from '#lib/ui/Vide.svelte';
 
@@ -103,14 +105,14 @@
   let plusieurs = $derived(lignes.length > 1);
   let restes = $derived.by(() => {
     const r: { n: number; texte: string }[] = [];
-    if (total.a_valider) r.push({ n: total.a_valider, texte: 'à valider' });
+    if (total.a_valider) r.push({ n: total.a_valider, texte: 'à contrôler' });
     const b = total.en_erreur + total.doublons;
     if (b) r.push({ n: b, texte: b > 1 ? 'bloquées' : 'bloquée' });
     return r;
   });
   let blTotal = $derived(blEnAttente.reduce((t, b) => t + b.bl, 0));
 
-  /** Lien « À valider » d'une société : la liste des factures à valider, avec cette société choisie (admin). */
+  /** Lien « À contrôler » d'une société : la liste des factures à contrôler, avec cette société choisie (admin). */
   function versATraiter(e: MouseEvent, id: number | null) {
     if (!admin || id === null) return;
     e.preventDefault();
@@ -165,9 +167,10 @@
 
 <div class="page bilan">
   <div class="page-h">
-    <h1>Bilan du mois</h1>
+    <h1>Bilan du mois <span class="imprime-seul">: {libelleMois(mois)}</span></h1>
     <span class="sp"></span>
-    <nav class="choix-mois" aria-label="Mois">
+    <button type="button" class="btn sm pas-imprime" onclick={() => window.print()}>Imprimer</button>
+    <nav class="choix-mois pas-imprime" aria-label="Mois">
       <a class="btn sm fantome" href={lienMois(precedent)} data-sveltekit-reset="false" aria-label="Mois précédent" title="Mois précédent (←)"
         ><Icone nom="gauche" /></a
       >
@@ -214,9 +217,9 @@
                 <th>Société</th>
                 <th class="n">Reçues</th>
                 <th class="n">Envoyées</th>
-                <th class="n">À valider</th>
-                <th class="n">Envoi échoué</th>
-                <th class="n">Doublons</th>
+                <th class="n">À contrôler</th>
+                <th class="n">Échec d’envoi</th>
+                <th class="n">Doublons<Aide sujet="doublon_document" droite /></th>
                 <th class="n">Montant envoyé</th>
               </tr>
             </thead>
@@ -249,7 +252,7 @@
           </table>
         </div>
         <p class="petit muted note">
-          Datées du mois (date du document, à défaut du mail). « À valider » compte aussi les factures prêtes qui attendent leur envoi.
+          Datées du mois (date du document, à défaut du mail). « À contrôler » compte aussi les factures validées qui attendent leur envoi.
         </p>
       {/if}
     </section>
@@ -379,6 +382,7 @@
             <p class="muted">Pas encore de mail trié.</p>
           {/if}
         </Repli>
+        {#if admin}<QualiteLecture {mois} societe={societe.id} />{/if}
       </div>
     {/if}
   {/if}

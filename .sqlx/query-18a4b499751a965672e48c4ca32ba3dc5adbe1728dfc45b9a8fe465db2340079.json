@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select iban, bic, fournisseur_id, date_document from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "iban"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "bic",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "bic"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "date_document",
+        "type_info": "Date",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "date_document"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "18a4b499751a965672e48c4ca32ba3dc5adbe1728dfc45b9a8fe465db2340079"
+}

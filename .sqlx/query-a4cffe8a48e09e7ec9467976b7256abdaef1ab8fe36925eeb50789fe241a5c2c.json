@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document set etat = coalesce(a.v->>'etat', 'lu'), statut_depot = a.v->>'statut_depot',\n                controles = coalesce(a.v->'controles', '[]'),\n                verifie_le = (a.v->>'verifie_le')::timestamptz,\n                verifie_par = (a.v->>'verifie_par')::bigint,\n                ecartement = null\n           from (select $2::jsonb as v) a\n           where id = $1 returning etat, statut_depot",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "a4cffe8a48e09e7ec9467976b7256abdaef1ab8fe36925eeb50789fe241a5c2c"
+}

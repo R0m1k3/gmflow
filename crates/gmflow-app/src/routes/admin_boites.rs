@@ -417,7 +417,9 @@ pub async fn activer(
         ));
     }
     sqlx::query!(
-        "update boite_mail set active = true, pause_auto = false, echecs_auth = 0 where id = $1",
+        "update boite_mail set active = true, pause_auto = false, echecs_auth = 0,
+             activee_le = case when active and not pause_auto then activee_le else now() end
+         where id = $1",
         id
     )
     .execute(&etat.pool)

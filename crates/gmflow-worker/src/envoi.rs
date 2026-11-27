@@ -2,7 +2,7 @@
 //! par mail, le fichier d'origine en pièce jointe), test de l'expédition et alertes.
 
 use gmflow_core::expedition::{self, PieceJointe};
-use gmflow_core::{depot, eml, file, journal, parametre, stockage};
+use gmflow_core::{depot, envoi_prevu, file, journal, parametre, stockage};
 use serde_json::json;
 use sqlx::PgPool;
 
@@ -76,6 +76,34 @@ pub async fn deposer(
     forcer: bool,
     auteur_id: Option<i64>,
 ) -> anyhow::Result<()> {
+    deposer_avec(ctx, document_id, forcer, auteur_id, None).await
+}
+
+/// Dépôt d'une validation faite dans l'interface (`envoi_prevu`) : attend l'heure prévue (fin
+/// du délai d'annulation), puis dépose seulement si l'envoi est pris avant toute annulation.
+pub async fn deposer_prevu(
+    ctx: &Contexte,
+    prevu_id: i64,
+    document_id: i64,
+    forcer: bool,
+    auteur_id: Option<i64>,
+) -> anyhow::Result<()> {
+    let Some(s) = envoi_prevu::attente_restante(&ctx.pool, prevu_id).await? else {
+        return Ok(());
+    };
+    if s > 0.0 {
+        tokio::time::sleep(std::time::Duration::from_secs_f64(s)).await;
+    }
+    deposer_avec(ctx, document_id, forcer, auteur_id, Some(prevu_id)).await
+}
+
+async fn deposer_avec(
+    ctx: &Contexte,
+    document_id: i64,
+    forcer: bool,
+    auteur_id: Option<i64>,
+    prevu: Option<i64>,
+) -> anyhow::Result<()> {
     let pool = &ctx.pool;
     // Doublon revérifié juste avant l'envoi (la file `envoi` traite une tâche à la fois).
     let doublon = if forcer {
@@ -89,9 +117,11 @@ pub async fn deposer(
                   d.numero, d.date_document, d.montant_ttc::float8 as ttc, d.fournisseur_nom,
                   f.nom as "fiche?", s.adresse_depot as "adresse?", s.outil_depot as "outil?",
                   coalesce(s.depot_auto, false) as "auto!", s.raison_sociale as "societe?",
-                  p.nom, p.type_mime, p.rang, m.chemin_eml
+                  p.nom, p.type_mime, coalesce(ps.rang, p.rang) as "rang!", p.page_debut,
+                  p.page_fin, m.chemin_eml
            from document d
            join piece_jointe p on p.id = d.piece_jointe_id
+           left join piece_jointe ps on ps.id = p.source_id
            join mail m on m.id = d.mail_id
            left join societe s on s.id = d.societe_id
            left join fournisseur f on f.id = d.fournisseur_id
@@ -104,11 +134,36 @@ pub async fn deposer(
     else {
         return Ok(());
     };
+    // Envoi prévu par une validation : il ne part que si le worker le prend ici, avant une
+    // annulation (même verrou sur le document, passage `attente` → `pris` unique). Sans envoi
+    // prévu : un envoi prévu en attente passe d'abord (son délai et son annulation comptent).
+    match prevu {
+        Some(p) => {
+            if !envoi_prevu::prendre(&mut tx, p, document_id).await? {
+                tracing::info!(
+                    document = document_id,
+                    prevu = p,
+                    "dépôt ignoré (validation annulée)"
+                );
+                return Ok(());
+            }
+        }
+        None => {
+            if envoi_prevu::en_attente(&mut *tx, document_id).await? {
+                tracing::info!(
+                    document = document_id,
+                    "dépôt ignoré (envoi prévu en attente)"
+                );
+                return Ok(());
+            }
+        }
+    }
     let statut = d.statut_depot.as_deref().unwrap_or("");
     let autorise = if d.valide {
         matches!(statut, "a_verifier" | "pret" | "erreur") || (statut == "doublon" && forcer)
     } else {
-        statut == "pret" && d.auto
+        // Validation annulée par un humain : pas d'envoi automatique sans nouvelle validation.
+        statut == "pret" && d.auto && !envoi_prevu::annulee(&mut *tx, document_id).await?
     };
     if !autorise {
         tracing::info!(
@@ -116,7 +171,20 @@ pub async fn deposer(
             statut,
             "dépôt ignoré (statut ou validation)"
         );
+        if let Some(p) = prevu {
+            envoi_prevu::sans_suite(&mut tx, p).await?;
+            tx.commit().await?;
+        }
         return Ok(());
+    }
+    if let (Some(p), true) = (
+        prevu,
+        doublon.is_some()
+            || d.societe_id.is_none()
+            || d.adresse.as_deref().is_none_or(|a| a.trim().is_empty()),
+    ) {
+        // Rien ne partira (doublon, société ou adresse manquante) : noté sans suite.
+        envoi_prevu::sans_suite(&mut tx, p).await?;
     }
     if let Some((autre, _)) = doublon {
         let echec = json!([{ "code": "doublon", "message": format!("Même facture que le document {autre}") }]);
@@ -170,9 +238,12 @@ pub async fn deposer(
         };
         let brut =
             tokio::fs::read(stockage::chemin_absolu(&ctx.config.fichiers, &d.chemin_eml)).await?;
-        let rang = d.rang;
-        let contenu =
-            tokio::task::spawn_blocking(move || eml::extraire_piece(&brut, rang)).await??;
+        let (rang, pages) = (d.rang, d.page_debut.zip(d.page_fin));
+        // Pièce découpée d'un PDF de plusieurs pièces : seulement ses pages.
+        let contenu = tokio::task::spawn_blocking(move || {
+            gmflow_core::lecture::decoupage::contenu_piece(&brut, rang, pages)
+        })
+        .await??;
         let genre = if d.r#type.as_deref() == Some("avoir") {
             "Avoir"
         } else {
@@ -320,6 +391,90 @@ pub async fn envois_interrompus(pool: &PgPool) -> anyhow::Result<Vec<i64>> {
         .await?;
     }
     Ok(ids)
+}
+
+/// Une boîte active, sans erreur, pas relevée depuis ce temps : la relève s'est arrêtée sans
+/// rien dire (file bloquée, tâche coincée).
+pub const SILENCE_MINUTES: i32 = 60;
+
+/// Boîtes actives et non en pause, sans erreur enregistrée, dont la dernière relève réussie
+/// (ou l'activation, ou la création) date de plus d'une heure et qu'aucune relève ne tient en
+/// ce moment : une alerte par incident (`alerte_silence_le`), puis un mail quand la relève
+/// reprend. Appelée directement par le planificateur, sans passer par les files apalis : elle
+/// prévient même si les files sont bloquées.
+pub async fn releves_muettes(ctx: &Contexte) -> anyhow::Result<()> {
+    let pool = &ctx.pool;
+    let reprises = sqlx::query!(
+        r#"with closes as (
+             select id, libelle, coalesce(derniere_releve > alerte_silence_le, false) as reprise
+             from boite_mail
+             where alerte_silence_le is not null
+               and (derniere_releve > alerte_silence_le or not active or pause_auto
+                    or erreur_depuis is not null)
+             for update
+           )
+           update boite_mail b set alerte_silence_le = null from closes c where b.id = c.id
+           returning c.libelle, c.reprise as "reprise!""#
+    )
+    .fetch_all(pool)
+    .await?;
+    let noms: Vec<&str> = reprises
+        .iter()
+        .filter(|r| r.reprise)
+        .map(|r| r.libelle.as_str())
+        .collect();
+    if !noms.is_empty() {
+        alerter_sans_echec(
+            ctx,
+            "relève IMAP repartie",
+            &format!("La relève a repris pour : {}.", noms.join(", ")),
+        )
+        .await;
+    }
+    let muettes = sqlx::query!(
+        r#"select id, libelle,
+                  to_char(derniere_releve at time zone 'Europe/Paris', 'DD/MM/YYYY à HH24:MI') as derniere
+           from boite_mail
+           where active and not pause_auto and erreur_depuis is null and alerte_silence_le is null
+             and greatest(derniere_releve, activee_le, cree_le) < now() - make_interval(mins => $1)
+             and (releve_jusqu_a is null or releve_jusqu_a < now())
+           order by id"#,
+        SILENCE_MINUTES
+    )
+    .fetch_all(pool)
+    .await?;
+    if muettes.is_empty() {
+        return Ok(());
+    }
+    let mut corps = format!(
+        "Ces boîtes n'ont pas été relevées depuis plus de {} minutes, sans erreur enregistrée :\n\n",
+        SILENCE_MINUTES
+    );
+    for b in &muettes {
+        corps.push_str(&format!(
+            "- {} : {}\n",
+            b.libelle,
+            match &b.derniere {
+                Some(d) => format!("dernière relève le {d}"),
+                None => "jamais relevée".into(),
+            }
+        ));
+    }
+    corps.push_str(
+        "\nLe worker tourne (ce message vient de lui), mais les relèves n'aboutissent plus : \
+         file bloquée ou tâche coincée. Redémarrer le worker les relance. Un mail de suivi partira \
+         quand la relève reprendra.",
+    );
+    if alerter(ctx, "relève IMAP arrêtée", &corps).await? {
+        let ids: Vec<i64> = muettes.iter().map(|b| b.id).collect();
+        sqlx::query!(
+            "update boite_mail set alerte_silence_le = now() where id = any($1)",
+            &ids
+        )
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
 }
 
 /// Tâche `Alertes` (à chaque tour du planificateur) : envois interrompus, boîtes en échec

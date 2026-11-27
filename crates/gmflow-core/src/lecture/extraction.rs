@@ -13,6 +13,11 @@ pub const TEXTE_MAX: usize = 20_000;
 /// Lignes articles gardées par document (les suivantes sont ignorées).
 pub const LIGNES_MAX: usize = 200;
 
+/// Clé de `document.confiance` : la lecture n'a pas tout pris (texte ou tableur coupé, plus de
+/// `LIGNES_MAX` lignes), des lignes articles peuvent manquer. Les totaux d'un BL ne sont alors
+/// pas calculés depuis ses lignes, ni les lignes comparées entre facture et BL.
+pub const LIGNES_TRONQUEES: &str = "lignes_tronquees";
+
 pub const PROMPT_SYSTEME: &str = "Tu lis des documents reçus par mail par des magasins : factures, \
 avoirs, bons de livraison (BL), relances, devis. Tu réponds uniquement avec la sortie structurée \
 demandée, selon le schéma. Seuls les factures, avoirs et bons de livraison nous intéressent : \
@@ -104,6 +109,24 @@ fn centimes(m: f64) -> f64 {
     (m * 100.0).round() / 100.0
 }
 
+/// Quantité d'une ligne : la quantité lue, sinon colis × PCB.
+fn quantite_ligne(l: &Ligne) -> Option<f64> {
+    l.quantite.or(match (l.colis, l.pcb) {
+        (Some(c), Some(p)) => Some(c * p),
+        _ => None,
+    })
+}
+
+/// Éco-participations HT d'une ligne (DEEE et éco-mobilier par unité × quantité).
+fn eco_ligne(l: &Ligne) -> f64 {
+    quantite_ligne(l).unwrap_or(0.0) * (l.deee_ht.unwrap_or(0.0) + l.ecomob_ht.unwrap_or(0.0))
+}
+
+/// Éco-participations HT des lignes, celles que `completer_montants_bl` ajoute au HT calculé.
+pub fn eco_lignes(lignes: &[Ligne]) -> f64 {
+    centimes(lignes.iter().map(eco_ligne).sum())
+}
+
 /// BL qui n'imprime pas ses totaux (tableur : quantité et prix unitaire seulement) : complète
 /// le montant des lignes (quantité × prix unitaire, moins la remise de la ligne ; colis × PCB
 /// sans quantité), puis le HT, la TVA et le TTC qui manquent. HT = lignes + éco-participations
@@ -116,14 +139,8 @@ pub fn completer_montants_bl(
     tva: &mut Option<f64>,
     ttc: &mut Option<f64>,
 ) -> Vec<&'static str> {
-    let quantite = |l: &Ligne| {
-        l.quantite.or(match (l.colis, l.pcb) {
-            (Some(c), Some(p)) => Some(c * p),
-            _ => None,
-        })
-    };
     for l in lignes.iter_mut().filter(|l| l.montant_ht.is_none()) {
-        if let (Some(q), Some(pu)) = (quantite(l), l.prix_unitaire_ht) {
+        if let (Some(q), Some(pu)) = (quantite_ligne(l), l.prix_unitaire_ht) {
             let remise = l
                 .remise_taux
                 .filter(|r| *r > 0.0 && *r < 100.0)
@@ -139,9 +156,7 @@ pub fn completer_montants_bl(
     }
     let (mut ht_lignes, mut tva_lignes) = (0.0, 0.0);
     for l in lignes.iter() {
-        let eco =
-            quantite(l).unwrap_or(0.0) * (l.deee_ht.unwrap_or(0.0) + l.ecomob_ht.unwrap_or(0.0));
-        let base = l.montant_ht.unwrap_or(0.0) + eco;
+        let base = l.montant_ht.unwrap_or(0.0) + eco_ligne(l);
         ht_lignes += base;
         tva_lignes += base * l.taux_tva.unwrap_or(TVA_PAR_DEFAUT) / 100.0;
     }
@@ -199,6 +214,11 @@ pub struct Extraction {
     /// Total HT des montants annexes compris dans le HT (éco-participation, port…).
     #[serde(default)]
     pub annexes_ht: Option<f64>,
+    /// IBAN (et BIC) du fournisseur à payer imprimés sur une facture (`crate::iban`).
+    #[serde(default)]
+    pub iban: Option<String>,
+    #[serde(default)]
+    pub bic: Option<String>,
     pub confiance: Confiance,
     /// Lignes articles (obligatoires pour un BL, si lisibles pour une facture).
     #[serde(default)]
@@ -209,6 +229,12 @@ pub struct Extraction {
     /// Transcription d'un scan (absente pour un document déjà en texte).
     #[serde(default)]
     pub texte: Option<String>,
+    /// Date lue mais impossible ou mal formée (« 2026-11-31 ») : `date` est alors vide.
+    #[serde(skip)]
+    pub date_illisible: Option<String>,
+    /// Lignes coupées à `LIGNES_MAX` (Claude en rend au plus autant).
+    #[serde(skip)]
+    pub lignes_tronquees: bool,
 }
 
 fn chaine_ou_null() -> Value {
@@ -239,6 +265,13 @@ const ECHEANCE: &str = "echeance = la date d'échéance du paiement imprimée (�
      d'échéance », « À payer avant le », « Date limite de paiement »), AAAA-MM-JJ ; null si \
      seule une condition est donnée (« 30 jours fin de mois ») ou pour un BL.\n";
 
+/// IBAN du fournisseur (alerte « IBAN changé », `crate::iban`).
+const IBAN: &str = "iban = l'IBAN du compte du fournisseur à payer, imprimé sur la facture \
+     (RIB, coordonnées bancaires, « IBAN »), recopié caractère par caractère, sans espaces ; bic = \
+     son BIC s'il est imprimé. Jamais celui d'une structure destinataire listée plus haut, ni celui \
+     d'un organisme d'affacturage ou d'un tiers que le document ne désigne pas comme le \
+     bénéficiaire du paiement ; null si absent ou illisible. N'en invente jamais un.\n";
+
 /// Remises : le HT reste le net imprimé, la remise est notée à part pour expliquer l'écart
 /// avec les bons de livraison (valorisés avant remise).
 const REMISES: &str = "remise_ht = le total HT des remises déduites sur le document (remise \
@@ -251,6 +284,12 @@ const REMISES: &str = "remise_ht = le total HT des remises déduites sur le docu
      comprises. Exemple : Marchandise HT 1 400,80, Ecomaison 40,65, Remise globale 20 % -280,16, \
      Total HT net 1 161,29 donne montant_ht 1161.29, remise_ht 280.16, remise_taux 20, \
      annexes_ht 40.65.\n";
+
+/// Signe des avoirs : toujours en positif, le type dit que c'est un avoir.
+pub const AVOIRS_POSITIFS: &str = "Pour un avoir, tous les montants (montant_ht, montant_tva, \
+     montant_ttc, remise_ht, annexes_ht et ceux des lignes) sont donnés en positif, sans signe \
+     moins, même s'ils sont imprimés en négatif : le type « avoir » suffit à dire qu'ils sont \
+     à rendre.\n";
 
 /// Détail des lignes, surtout pour les BL (fiches produits et commande dans le logiciel du magasin).
 const DETAIL_LIGNES: &str = "Pour chaque ligne, recopie aussi ce que le document imprime, \
@@ -290,6 +329,8 @@ pub fn schema(avec_texte: bool) -> Value {
         "remise_ht": nombre_ou_null(),
         "remise_taux": nombre_ou_null(),
         "annexes_ht": nombre_ou_null(),
+        "iban": chaine_ou_null(),
+        "bic": chaine_ou_null(),
         "lignes": {
             "type": "array",
             "items": {
@@ -334,6 +375,8 @@ pub fn schema(avec_texte: bool) -> Value {
         "remise_ht",
         "remise_taux",
         "annexes_ht",
+        "iban",
+        "bic",
         "lignes",
         "numeros_bl",
         "confiance",
@@ -444,7 +487,9 @@ pub fn prompt(mail: &ContexteMail<'_>, societes: &[SocieteRef], contenu: &Conten
     p.push_str(DETAIL_LIGNES);
     p.push_str(MONTANTS_ANNEXES);
     p.push_str(REMISES);
+    p.push_str(AVOIRS_POSITIFS);
     p.push_str(ECHEANCE);
+    p.push_str(IBAN);
     p.push('\n');
     p.push_str(&format!(
         "Mail qui accompagne le document :\nDe : {}\nObjet : {}\n{}\n\nFichier : {}\n\n",
@@ -518,6 +563,17 @@ pub fn depuis_reponse(
     let mut e: Extraction =
         serde_json::from_value(valeur).map_err(|err| ErreurExtraction::Schema(err.to_string()))?;
     controler(&e, societes)?;
+    // Une date impossible ne fait pas échouer la lecture : le champ reste vide, et
+    // `anomalies` le signale (nouvel essai pour une facture ou un avoir).
+    if let Some(d) = e.date.take() {
+        if date(&d).is_some() {
+            e.date = Some(d);
+        } else {
+            e.date_illisible = Some(d);
+        }
+    }
+    // Claude s'arrête à LIGNES_MAX lignes (consigne) : autant de lignes, c'est sans doute coupé.
+    e.lignes_tronquees = e.lignes.iter().filter(|l| !l.vide()).count() >= LIGNES_MAX;
     e.lignes = lignes_utiles(std::mem::take(&mut e.lignes));
     e.numeros_bl = numeros_utiles(std::mem::take(&mut e.numeros_bl));
     // Une échéance mal formée ne fait pas échouer la lecture : elle est oubliée.
@@ -536,11 +592,6 @@ fn controler(e: &Extraction, societes: &[SocieteRef]) -> Result<(), ErreurExtrac
         && !societes.iter().any(|s| s.id == id)
     {
         return err(format!("societe_id {id} hors de la liste"));
-    }
-    if let Some(d) = &e.date
-        && date(d).is_none()
-    {
-        return err(format!("date « {d} » hors format AAAA-MM-JJ"));
     }
     let c = &e.confiance;
     for v in [
@@ -567,9 +618,82 @@ pub fn date(s: &str) -> Option<time::Date> {
     .ok()
 }
 
-/// Chiffres seuls d'un montant au centime (1535.4 -> « 153540 »).
-fn chiffres_montant(m: f64) -> String {
-    format!("{:.2}", m.abs()).replace('.', "")
+fn espace(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\u{a0}' | '\u{202f}')
+}
+
+/// Lectures possibles d'un nombre sans espace : le dernier « . » ou « , » est la virgule
+/// décimale, les autres séparent les milliers ; suivi de 3 chiffres, il peut aussi séparer les
+/// milliers (« 1.535 »).
+fn lectures(s: &str) -> Vec<f64> {
+    let s: String = s.chars().filter(|c| *c != '\'').collect();
+    let Some(pos) = s.rfind(['.', ',']) else {
+        return s.parse().ok().into_iter().collect();
+    };
+    let entier: String = s[..pos].chars().filter(char::is_ascii_digit).collect();
+    let dec = &s[pos + 1..];
+    let mut v = Vec::new();
+    let e = if entier.is_empty() { "0" } else { &entier };
+    if let Ok(x) = format!("{e}.{dec}").parse() {
+        v.push(x);
+    }
+    if dec.len() == 3
+        && let Ok(x) = format!("{entier}{dec}").parse()
+    {
+        v.push(x);
+    }
+    v
+}
+
+/// Nombres imprimés dans un texte, sous toutes leurs lectures possibles : « 1 535,40 »,
+/// « 1.535,40 », « 1,535.40 », « 1535.4 », « 1'535.40 ». Des groupes de 3 chiffres séparés
+/// par des espaces (« 12 345 678,90 ») sont aussi lus d'un seul tenant.
+pub fn nombres(texte: &str) -> Vec<f64> {
+    // Morceaux de chiffres et de séparateurs ; vrai : séparé du précédent par des espaces seuls.
+    let mut morceaux: Vec<(String, bool)> = Vec::new();
+    let mut cur = String::new();
+    let (mut colle, mut apres_morceau) = (false, false);
+    for c in texte.chars().chain(std::iter::once('\n')) {
+        if c.is_ascii_digit() || (!cur.is_empty() && matches!(c, '.' | ',' | '\'')) {
+            if cur.is_empty() {
+                colle = apres_morceau;
+            }
+            cur.push(c);
+            continue;
+        }
+        if !cur.is_empty() {
+            morceaux.push((cur.trim_end_matches(['.', ',', '\'']).to_string(), colle));
+            cur.clear();
+            apres_morceau = espace(c);
+        } else if !espace(c) {
+            apres_morceau = false;
+        }
+    }
+    let chiffres_en_tete = |m: &str| m.chars().take_while(char::is_ascii_digit).count();
+    let mut v = Vec::new();
+    for (i, (m, _)) in morceaux.iter().enumerate() {
+        v.extend(lectures(m));
+        if !(1..=3).contains(&m.len()) || chiffres_en_tete(m) != m.len() {
+            continue;
+        }
+        let mut s = m.clone();
+        for (suite, colle) in &morceaux[i + 1..] {
+            if !colle || chiffres_en_tete(suite) != 3 {
+                break;
+            }
+            s.push_str(suite);
+            v.extend(lectures(&s));
+            if suite.len() > 3 {
+                break;
+            }
+        }
+    }
+    v
+}
+
+/// Le montant (au centime, signe ignoré) est-il l'un des nombres du texte ?
+fn figure(m: f64, nombres: &[f64]) -> bool {
+    nombres.iter().any(|n| (n - m.abs()).abs() < 0.005)
 }
 
 /// Ce qui manque ou ne tient pas debout dans une lecture de facture, d'avoir ou de BL (vide si
@@ -582,32 +706,26 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
             if e.numero.as_deref().is_none_or(|n| n.trim().is_empty()) {
                 a.push("le numéro du document manque".to_string());
             }
-            if e.date.is_none() {
-                a.push("la date du document manque".to_string());
+            match (&e.date, &e.date_illisible) {
+                (None, Some(d)) => a.push(format!("la date lue « {d} » n'existe pas")),
+                (None, None) => a.push("la date du document manque".to_string()),
+                _ => {}
             }
             match (e.montant_ht, e.montant_tva, e.montant_ttc) {
                 (_, _, None) => a.push("le montant TTC manque".to_string()),
-                (Some(ht), Some(tva), Some(ttc)) if (ht + tva - ttc).abs() > 0.05 => a.push(
-                    format!("HT + TVA ({ht:.2} + {tva:.2}) ne donne pas le TTC ({ttc:.2})"),
-                ),
+                (Some(ht), Some(tva), Some(ttc))
+                    if (ht + tva - ttc).abs() > crate::controles::SEUIL_ECART + 1e-9 =>
+                {
+                    a.push(format!(
+                        "HT + TVA ({ht:.2} + {tva:.2}) ne donne pas le TTC ({ttc:.2})"
+                    ))
+                }
                 _ => {}
             }
-            if let (Some(ttc), Some(t)) = (e.montant_ttc, texte) {
-                // Chiffres seuls des deux côtés : 1 535,40 / 1.535,40 / 1535.40 se retrouvent.
-                let chiffres: String = t.chars().filter(char::is_ascii_digit).collect();
-                // Tableurs : 1535.4 sans le zéro final.
-                let court: String = ttc
-                    .abs()
-                    .to_string()
-                    .chars()
-                    .filter(char::is_ascii_digit)
-                    .collect();
-                if !chiffres.contains(&chiffres_montant(ttc)) && !chiffres.contains(&court) {
-                    a.push(format!(
-                        "le montant TTC {ttc:.2} n'apparaît pas dans le texte du document"
-                    ));
-                }
+            if let Some(t) = texte {
+                verifier_dans_le_texte(e, &nombres(t), &mut a);
             }
+            a.extend(crate::iban::anomalie(e.iban.as_deref()));
         }
         "bl" if e.lignes.is_empty() => {
             a.push("aucune ligne article lue sur le bon de livraison".to_string());
@@ -615,6 +733,35 @@ pub fn anomalies(e: &Extraction, texte: Option<&str>) -> Vec<String> {
         _ => {}
     }
     a
+}
+
+/// HT, TVA et TTC lus doivent être des nombres du texte. Le HT peut comprendre des montants
+/// annexes ajoutés au total HT imprimé (HT − annexes imprimé), et le HT ou la TVA se déduire des
+/// deux autres montants quand ceux-ci sont dans le texte et que HT + TVA = TTC (plusieurs taux,
+/// TVA des annexes) : seul un montant qui ne vient de nulle part est signalé.
+fn verifier_dans_le_texte(e: &Extraction, n: &[f64], a: &mut Vec<String>) {
+    let vu = |m: Option<f64>| m.is_some_and(|m| figure(m, n));
+    let (ht, tva, ttc) = (e.montant_ht, e.montant_tva, e.montant_ttc);
+    let coherent = matches!((ht, tva, ttc), (Some(h), Some(t), Some(c))
+        if (h + t - c).abs() <= crate::controles::SEUIL_ECART + 1e-9);
+    let ttc_vu = vu(ttc);
+    let ht_vu = vu(ht)
+        || ht
+            .zip(e.annexes_ht)
+            .is_some_and(|(h, x)| vu(Some(h - x.abs())))
+        || (coherent && ttc_vu && vu(tva));
+    let tva_vu = vu(tva) || (coherent && ttc_vu && ht_vu);
+    for (nom, m, ok) in [
+        ("TTC", ttc, ttc_vu),
+        ("HT", ht, ht_vu),
+        ("de TVA", tva, tva_vu),
+    ] {
+        if let (Some(m), false) = (m, ok) {
+            a.push(format!(
+                "le montant {nom} {m:.2} n'apparaît pas dans le texte du document"
+            ));
+        }
+    }
 }
 
 /// Consigne ajoutée au prompt du nouvel essai : ce que la première lecture a manqué, et le
@@ -637,6 +784,7 @@ pub fn consigne_nouvel_essai(
     );
     s.push_str(MONTANTS_ANNEXES);
     s.push_str(REMISES);
+    s.push_str(AVOIRS_POSITIFS);
     s.push_str(ECHEANCE);
     if let Some(f) = fichier {
         s.push_str(&format!(

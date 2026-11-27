@@ -37,6 +37,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Outils de l'OCR local (tests des scans)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-fra
       - uses: taiki-e/install-action@v2
         with:
           tool: sqlx-cli
@@ -68,6 +70,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run check
+      - run: npm test
       - run: npm run build
 
   images:

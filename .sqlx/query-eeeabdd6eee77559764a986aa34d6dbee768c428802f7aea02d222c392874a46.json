@@ -1,0 +1,155 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update document d set etat = 'en_cours', pris_le = now()\n         from piece_jointe p left join piece_jointe s on s.id = p.source_id, mail m\n         where d.id = $1 and d.etat = 'a_lire' and p.id = d.piece_jointe_id and m.id = d.mail_id\n         returning d.sha256, p.id as piece_id, d.mail_id, p.nom, p.type_mime,\n                   coalesce(s.rang, p.rang) as \"rang!\", p.page_debut, p.page_fin, m.chemin_eml,\n                   m.expediteur, m.objet, m.corps_texte as corps",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sha256",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "piece_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "mail_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "mail_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "nom",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "nom"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "type_mime",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "type_mime"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "rang!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "page_debut",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "page_debut"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "page_fin",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "page_fin"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "chemin_eml",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "chemin_eml"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "expediteur",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "expediteur"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "objet",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "objet"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "corps",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "mail",
+            "name": "corps_texte"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "eeeabdd6eee77559764a986aa34d6dbee768c428802f7aea02d222c392874a46"
+}

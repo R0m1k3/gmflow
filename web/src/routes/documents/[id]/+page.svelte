@@ -1,6 +1,6 @@
 <script lang="ts">
   // Fiche document plein écran (Plein écran F de la fiche). Même fiche que le volet des listes ;
-  // la file « À valider » (GET /api/a-traiter) sert à la position, à « Ensuite », et à J/K. Après une
+  // la file « À contrôler » (GET /api/a-traiter) sert à la position, à « Ensuite », et à J/K. Après une
   // validation, la fiche suivante s'ouvre ; après la dernière, retour à l'accueil.
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -71,7 +71,7 @@
       retour="/"
       {position}
       ensuite={suivantListe && suivantListe.id !== id ? nomCourtDocument(suivantListe) : undefined}
-      sansSuite="Aucune autre pièce à valider"
+      sansSuite="Aucune autre pièce à contrôler"
       {annonce}
       onfait={apres}
       onchange={() => void aTraiter.file(societe.id).then((f) => (file = f)).catch(() => {})}

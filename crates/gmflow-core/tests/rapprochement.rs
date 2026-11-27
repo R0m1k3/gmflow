@@ -203,15 +203,31 @@ fn ecart_explique_par_remise_et_eco_participation() {
     use gmflow_core::rapprochement::ecart_explique;
     // Facture Tendance Bain : HT net 1 161,29 = 1 400,80 + 40,65 (Ecomaison) − 280,16 (remise 20 %),
     // BL valorisé 1 400,80 avant remise : écart −239,51.
-    assert!(ecart_explique(-239.51, Some(280.16), Some(40.65)));
+    assert!(ecart_explique(-239.51, Some(280.16), Some(40.65), None));
     // Remise seule, ou éco-participation seule.
-    assert!(ecart_explique(-280.16, Some(280.16), None));
-    assert!(ecart_explique(12.47, None, Some(12.47)));
+    assert!(ecart_explique(-280.16, Some(280.16), None, None));
+    assert!(ecart_explique(12.47, None, Some(12.47), None));
     // BL déjà valorisé après remise : seule l'éco-participation reste.
-    assert!(ecart_explique(40.65, Some(280.16), Some(40.65)));
+    assert!(ecart_explique(40.65, Some(280.16), Some(40.65), None));
     // Rien sur la facture, ou un écart qui reste : pas expliqué.
-    assert!(!ecart_explique(-239.51, None, None));
-    assert!(!ecart_explique(-200.0, Some(280.16), Some(40.65)));
+    assert!(!ecart_explique(-239.51, None, None, None));
+    assert!(!ecart_explique(-200.0, Some(280.16), Some(40.65), None));
+}
+
+#[test]
+fn eco_participation_deja_dans_les_bl_pas_retiree_deux_fois() {
+    use gmflow_core::rapprochement::{annexes_hors_bl, ecart_explique};
+    // BL au HT calculé : 77,50 de produits + 2,50 d'éco = 80,00 ; facture : 77,50 − 2,33 de
+    // remise (3 %) + 2,50 d'éco = 77,67. Écart −2,33 : la remise seule, l'éco s'annule.
+    assert!(ecart_explique(-2.33, Some(2.33), Some(2.5), Some(2.5)));
+    // Sans tenir compte de l'éco des BL, l'éco était retirée une seconde fois.
+    assert!(!ecart_explique(-2.33, Some(2.33), Some(2.5), None));
+    // Éco en partie seulement dans les BL (port en plus sur la facture).
+    assert!(ecart_explique(5.67, Some(2.33), Some(10.5), Some(2.5)));
+    // Jamais négatif : éco des BL plus forte que les annexes lues sur la facture.
+    assert_eq!(annexes_hors_bl(Some(2.5), Some(4.0)), 0.0);
+    assert_eq!(annexes_hors_bl(Some(10.5), Some(2.5)), 8.0);
+    assert_eq!(annexes_hors_bl(None, None), 0.0);
 }
 
 fn ligne_prix(reference: Option<&str>, designation: &str, qte: f64, prix: f64) -> Ligne {
@@ -254,4 +270,24 @@ fn prix_change_entre_bl_et_facture() {
         ligne_prix(None, "Rideau douche", 2.0, 9.0),
     ];
     assert!(comparer(&f2, &bls_nets, Some(20.0)).is_empty());
+}
+
+#[test]
+fn articles_retrouves_par_gencod_et_colis() {
+    // Facture : référence fournisseur et gencod, quantité en unités. BL : autre référence (code
+    // du transporteur) mais même gencod, livré en colis sans quantité.
+    let mut f1 = ligne(Some("AB-12"), "Bougie vanille", 12.0, Some(24.0));
+    f1.gencod = Some("3123450000011".into());
+    let f2 = ligne(Some("CD-34"), "Vase", 2.0, Some(10.0));
+    let mut b1 = ligne(Some("998877"), "BOUGIE VANILLE 200G", 0.0, None);
+    b1.quantite = None;
+    b1.gencod = Some("03123450000011".into()); // GTIN-14 du même article
+    b1.colis = Some(2.0);
+    b1.pcb = Some(6.0);
+    let b2 = ligne(Some("CD-34"), "Vase", 2.0, None);
+    assert!(comparer(&[f1.clone(), f2.clone()], &[b1.clone(), b2.clone()], None).is_empty());
+    // Gencod à la clé fausse : ignoré, l'article est cherché par sa référence (absente du BL).
+    b1.gencod = Some("03123450000012".into());
+    let e = comparer(&[f1, f2], &[b1, b2], None);
+    assert_eq!(e.len(), 2, "{e:?}");
 }

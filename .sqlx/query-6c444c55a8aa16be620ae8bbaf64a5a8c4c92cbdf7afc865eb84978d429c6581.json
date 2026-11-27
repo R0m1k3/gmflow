@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select d.voie || case when d.confiance->>'texte_source' = 'ocr_local' then '+ocr'\n                                 when d.confiance->>'lignes_source' = 'cellules' then '+cellules'\n                                 else '' end as \"cle?\",\n                  count(*) as \"validees!\",\n                  count(*) filter (where d.corrections <> '{}'::jsonb) as \"corrigees!\"\n           from document d\n           where d.verifie_le >= ($1::date)::timestamp at time zone 'Europe/Paris'\n             and d.verifie_le < ($1::date + interval '1 month') at time zone 'Europe/Paris'\n             and d.etat = 'lu' and d.type in ('facture', 'avoir', 'bl')\n             and ($2::bigint is null or d.societe_id = $2)\n           group by 1 order by 2 desc, 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cle?",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "validees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "corrigees!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Date",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "6c444c55a8aa16be620ae8bbaf64a5a8c4c92cbdf7afc865eb84978d429c6581"
+}

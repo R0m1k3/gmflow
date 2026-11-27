@@ -75,6 +75,14 @@ pub enum TacheEnvoi {
         forcer: bool,
         auteur_id: Option<i64>,
     },
+    /// Dépôt d'une facture validée, après le délai d'annulation (`envoi_prevu`) : le worker
+    /// attend l'heure prévue, puis ne dépose que s'il prend l'envoi avant une annulation.
+    DeposerPrevu {
+        prevu_id: i64,
+        document_id: i64,
+        forcer: bool,
+        auteur_id: Option<i64>,
+    },
     TestExpedition {
         destinataire: String,
     },

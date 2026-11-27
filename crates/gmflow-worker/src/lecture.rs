@@ -148,6 +148,8 @@ struct Lu {
     lignes: Vec<extraction::Ligne>,
     numeros_bl: Vec<String>,
     lignes_lues: bool,
+    /// La lecture n'a pas tout pris : des lignes peuvent manquer (`extraction::LIGNES_TRONQUEES`).
+    lignes_tronquees: bool,
     texte: Option<String>,
     resultat: Option<Value>,
     modele: Option<String>,
@@ -162,9 +164,25 @@ fn tronquer(s: String, n: usize) -> String {
     .replace('\0', "")
 }
 
+/// Avoir : montants toujours positifs (certains fournisseurs les impriment en négatif).
+fn avoir_en_positif(lu: &mut Lu) {
+    if lu.type_doc.as_deref() == Some("avoir") {
+        for m in [&mut lu.ht, &mut lu.tva, &mut lu.ttc] {
+            *m = m.map(f64::abs);
+        }
+    }
+}
+
 async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
-    // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels.
-    if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") {
+    avoir_en_positif(&mut lu);
+    if lu.lignes_tronquees
+        && let Some(c) = lu.confiance.as_object_mut()
+    {
+        c.insert(extraction::LIGNES_TRONQUEES.into(), json!(true));
+    }
+    // BL sans totaux imprimés : calculés depuis les lignes, et signalés comme tels. Pas
+    // depuis des lignes incomplètes : le total serait faux.
+    if lu.etat == "lu" && lu.type_doc.as_deref() == Some("bl") && !lu.lignes_tronquees {
         let calcules =
             extraction::completer_montants_bl(&mut lu.lignes, &mut lu.ht, &mut lu.tva, &mut lu.ttc);
         if let (false, Some(c)) = (calcules.is_empty(), lu.confiance.as_object_mut()) {
@@ -175,7 +193,7 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
     gmflow_core::rapprochement::ecrire_lignes(&mut tx, id, &lu.lignes).await?;
     sqlx::query!(
         "update document set numeros_bl = $2, lignes_lues = $3, magasin_verifie_le = null,
-                             magasin_erreur = null, date_echeance = $4
+                             magasin_erreur = null, date_echeance = $4, essais_lecture = 0
          where id = $1",
         id,
         &lu.numeros_bl,
@@ -194,6 +212,7 @@ async fn enregistrer(pool: &PgPool, id: i64, mut lu: Lu) -> anyhow::Result<()> {
             fournisseur_entite = $22, remise_ht = $23::float8::numeric(14, 2),
             remise_taux = $24::float8::numeric(6, 3),
             annexes_ht = $25::float8::numeric(14, 2), copie_de = null, pris_le = null,
+            ecartement = null,
             lu_le = case when $2 in ('lu', 'ignore', 'erreur') then now() else lu_le end
          where id = $1",
         id,
@@ -238,6 +257,7 @@ pub async fn completer_bl_sans_totaux(pool: &PgPool) -> anyhow::Result<usize> {
            from document d
            where d.etat = 'lu' and d.type = 'bl'
              and (d.montant_ht is null or d.montant_tva is null or d.montant_ttc is null)
+             and not coalesce((d.confiance->>'lignes_tronquees')::boolean, false)
              and exists (select 1 from ligne_document l where l.document_id = d.id)
              and not exists (select 1 from ligne_document l where l.document_id = d.id
                              and l.montant_ht is null and l.prix_unitaire_ht is null)"#
@@ -328,6 +348,51 @@ async fn remettre(pool: &PgPool, id: i64, voie: Voie, message: &str) -> anyhow::
     Ok(())
 }
 
+/// Essais de suite en échec technique (délai dépassé, panne) avant que le document passe en
+/// erreur, au lieu d'être relancé toutes les 30 minutes sans fin.
+pub const ESSAIS_PANNE_MAX: i32 = 3;
+
+/// Appel de lecture en échec technique. Refus (limite d'usage, jeton refusé) : le document
+/// attend la reprise, sans compter d'essai. Délai dépassé ou panne : un essai de plus ; au
+/// `ESSAIS_PANNE_MAX`e, erreur avec une phrase lisible (le détail part au journal).
+async fn apres_panne(
+    pool: &PgPool,
+    id: i64,
+    voie: Voie,
+    e: &ErreurClaude,
+) -> anyhow::Result<Lecture> {
+    if claude::refus(e).is_none() {
+        let n = sqlx::query_scalar!(
+            "update document set essais_lecture = essais_lecture + 1 where id = $1
+             returning essais_lecture",
+            id
+        )
+        .fetch_one(pool)
+        .await?;
+        if n >= ESSAIS_PANNE_MAX {
+            tracing::warn!(document = id, essais = n, erreur = %e, "lecture abandonnée après des pannes");
+            return Ok(Lecture::Echec(Lu {
+                etat: "erreur",
+                voie: Some(voie.code()),
+                message: Some(message_abandon(n, e)),
+                confiance: json!({}),
+                ..Default::default()
+            }));
+        }
+    }
+    remettre(pool, id, voie, &message_echec(pool, e).await).await?;
+    Ok(Lecture::Reportee)
+}
+
+/// Phrase d'un document abandonné après `n` pannes.
+fn message_abandon(n: i32, e: &ErreurClaude) -> String {
+    let cause = match e {
+        ErreurClaude::Delai(_) => "Claude n’a pas répondu à temps (délai dépassé)",
+        _ => "Claude était en panne ou injoignable",
+    };
+    format!("Lecture abandonnée après {n} essais : {cause}. Relancez la lecture pour réessayer.")
+}
+
 /// Reprend le résultat d'un document au contenu identique déjà lu. Rend vrai si c'est fait.
 async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Result<bool> {
     let Some(source) = sqlx::query_scalar!(
@@ -355,7 +420,7 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
             s.remise_ht, s.remise_taux, s.annexes_ht, s.magasin_verifie_le, s.magasin_erreur,
             s.date_echeance
             from document s where s.id = $2),
-          copie_de = $2, pris_le = null, lu_le = now()
+          copie_de = $2, pris_le = null, lu_le = now(), essais_lecture = 0, ecartement = null
          where d.id = $1",
         id,
         source
@@ -368,9 +433,11 @@ async fn reprendre_identique(pool: &PgPool, id: i64, sha: &[u8]) -> anyhow::Resu
     sqlx::query!(
         "insert into ligne_document (document_id, rang, reference, designation, quantite, unite,
                                      prix_unitaire_ht, montant_ht, gencod, colis, pcb, remise_taux,
-                                     taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin)
+                                     taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin,
+                                     corrigee_le, corrigee_par)
          select $1, rang, reference, designation, quantite, unite, prix_unitaire_ht, montant_ht,
-                gencod, colis, pcb, remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin
+                gencod, colis, pcb, remise_taux, taux_tva, deee_ht, ecomob_ht, pv_conseille, magasin,
+                corrigee_le, corrigee_par
          from ligne_document where document_id = $2",
         id,
         source
@@ -420,6 +487,7 @@ fn lu_depuis_xml(
         lignes: d.lignes.clone(),
         numeros_bl: d.numeros_bl.clone(),
         lignes_lues: true,
+        lignes_tronquees: d.lignes_tronquees,
         texte,
         resultat: serde_json::to_value(&d).ok(),
         ..Default::default()
@@ -467,6 +535,7 @@ fn lu_depuis_extraction(
         annexes_ht: e.annexes_ht.map(f64::abs),
         fournisseur: e.fournisseur,
         confiance,
+        lignes_tronquees: e.lignes_tronquees,
         lignes: e.lignes,
         numeros_bl: e.numeros_bl,
         lignes_lues: true,
@@ -485,9 +554,16 @@ fn avec_anomalies(mut lu: Lu, anomalies: Vec<String>) -> Lu {
     lu
 }
 
+/// Réglages du CLI pour une lecture avec fichier : l'outil Read refuse tout chemin hors du
+/// dossier de travail, quel que soit le mode de permission.
+pub const REGLAGES_LECTURE: &str =
+    r#"{"permissions":{"blockReadsOutsideWorkingDirectories":true}}"#;
+
 /// Un appel de lecture. `Ok(Err(..))` : réponse reçue mais non conforme.
+#[allow(clippy::too_many_arguments)]
 async fn appel_lecture(
     ctx: &Contexte,
+    document_id: i64,
     tache: &str,
     reglage: &reglages::Reglage,
     prompt: &str,
@@ -505,7 +581,19 @@ async fn appel_lecture(
         "--disable-slash-commands",
     ];
     if avec_fichier.is_some() {
-        args.extend(["--tools", "Read", "--allowedTools", "Read"]);
+        // Read limité au dossier jetable de la pièce (dossier de travail du CLI) : une pièce
+        // piégée ne fait pas lire au modèle les fichiers du worker (`/proc/…/environ`, clés).
+        // `dontAsk` refuse tout ce qui n'est pas autorisé au lieu de demander.
+        args.extend([
+            "--tools",
+            "Read",
+            "--allowedTools",
+            "Read(./**)",
+            "--permission-mode",
+            "dontAsk",
+            "--settings",
+            REGLAGES_LECTURE,
+        ]);
     } else {
         args.extend(["--tools", ""]);
     }
@@ -514,6 +602,7 @@ async fn appel_lecture(
     a.args_en_plus = &args;
     a.dossier = avec_fichier;
     a.delai = claude::DELAI_LECTURE;
+    a.document_id = Some(document_id);
     let sortie = claude::lancer(&ctx.pool, &ctx.config.claude_bin, &a).await?;
     let societes = societes(&ctx.pool).await.unwrap_or_default();
     Ok(extraction::depuis_reponse(&sortie.json, &societes))
@@ -543,11 +632,12 @@ pub async fn lire(
     let pool = &ctx.pool;
     let Some(doc) = sqlx::query_as!(
         Entree,
-        "update document d set etat = 'en_cours', pris_le = now()
-         from piece_jointe p, mail m
+        r#"update document d set etat = 'en_cours', pris_le = now()
+         from piece_jointe p left join piece_jointe s on s.id = p.source_id, mail m
          where d.id = $1 and d.etat = 'a_lire' and p.id = d.piece_jointe_id and m.id = d.mail_id
-         returning d.sha256, p.nom, p.type_mime, p.rang, m.chemin_eml, m.expediteur, m.objet,
-                   m.corps_texte as corps",
+         returning d.sha256, p.id as piece_id, d.mail_id, p.nom, p.type_mime,
+                   coalesce(s.rang, p.rang) as "rang!", p.page_debut, p.page_fin, m.chemin_eml,
+                   m.expediteur, m.objet, m.corps_texte as corps"#,
         document_id
     )
     .fetch_optional(pool)
@@ -587,8 +677,14 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
         }
         return;
     }
+    if let Err(e) = noter_iban(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "IBAN du document non noté");
+    }
     if let Err(e) = crate::fournisseur::rattacher(ctx, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "rattachement au fournisseur impossible");
+    }
+    if let Err(e) = crate::tableau::garder_correspondance(&ctx.pool, document_id).await {
+        tracing::warn!(document = document_id, erreur = ?e, "correspondance des colonnes non gardée");
     }
     if let Err(e) = gmflow_core::depot::evaluer_et_deposer(&ctx.pool, document_id).await {
         tracing::warn!(document = document_id, erreur = ?e, "contrôles avant dépôt impossibles");
@@ -601,12 +697,19 @@ pub async fn apres_lecture(ctx: &Contexte, document_id: i64) {
     }
 }
 
-/// Exemples de corrections du fournisseur probable, et format habituel de ses BL, à ajouter
-/// au prompt.
-async fn exemples_pour(pool: &PgPool, expediteur: &str, texte: Option<&str>) -> String {
+/// IBAN et BIC lus (clé vérifiée), avant les contrôles.
+async fn noter_iban(pool: &PgPool, document_id: i64) -> anyhow::Result<()> {
+    let mut conn = pool.acquire().await?;
+    gmflow_core::iban::noter_lecture(&mut conn, document_id).await?;
+    Ok(())
+}
+
+/// Ce que la lecture a appris du fournisseur probable (exemple de pièce validée, champs souvent
+/// corrigés) et format habituel de ses BL, à ajouter au prompt.
+async fn exemples_pour(pool: &PgPool, id: i64, expediteur: &str, texte: Option<&str>) -> String {
     match crate::fournisseur::pre_identifier(pool, expediteur, texte).await {
         Ok(Some(f)) => {
-            let mut s = crate::fournisseur::exemples(pool, f)
+            let mut s = crate::fournisseur::exemples(pool, id, f, texte)
                 .await
                 .unwrap_or_default();
             if let Ok(Some(format)) =
@@ -628,9 +731,15 @@ async fn exemples_pour(pool: &PgPool, expediteur: &str, texte: Option<&str>) -> 
 
 struct Entree {
     sha256: Vec<u8>,
+    piece_id: i64,
+    mail_id: i64,
     nom: String,
     type_mime: String,
+    /// Rang de la pièce dans le mail (celui de la pièce d'origine pour une partie découpée).
     rang: i32,
+    /// Pages de la pièce d'origine, pour une partie découpée (`lecture::decoupage`).
+    page_debut: Option<i32>,
+    page_fin: Option<i32>,
     chemin_eml: String,
     expediteur: String,
     objet: String,
@@ -653,8 +762,9 @@ async fn lire_pris(
         tokio::fs::read(stockage::chemin_absolu(&ctx.config.fichiers, &e.chemin_eml)).await?;
     let (contenu, aiguillage) = {
         let (nom, mime, rang) = (e.nom.clone(), e.type_mime.clone(), e.rang);
+        let pages = e.page_debut.zip(e.page_fin);
         tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<u8>, Aiguillage)> {
-            let contenu = eml::extraire_piece(&brut, rang)?;
+            let contenu = lect::decoupage::contenu_piece(&brut, rang, pages)?;
             let liste = eml::liste_diffusion(&brut);
             let a = lect::aiguiller(&nom, &mime, &contenu, liste);
             Ok((contenu, a))
@@ -662,7 +772,81 @@ async fn lire_pris(
         .await??
     };
     let soc = societes(pool).await?;
+    // OCR local des pages sans couche texte (scan, PDF mi-texte mi-scan) : son texte sert de
+    // texte du document, le PDF reste joint à Claude. Sans OCR exploitable : comme avant.
+    let voie_ocr = match &aiguillage {
+        Aiguillage::Scan {
+            extension: "pdf", ..
+        } => Some(Voie::Scan),
+        Aiguillage::Texte {
+            voie: Voie::PdfTexte,
+            ..
+        } => Some(Voie::PdfTexte),
+        _ => None,
+    };
+    let mut ocr = match voie_ocr {
+        Some(v) => lect::ocr::completer(&lect::ocr::Outils::default(), &contenu)
+            .await
+            .map(|t| (v, t)),
+        None => None,
+    };
+    // PDF de plusieurs pièces (pas déjà une partie) : découpé, chaque partie est lue à part et
+    // ce document-ci devient l'origine, ignorée.
+    let mut decoupe = None;
+    if let Some(voie) = voie_ocr
+        && e.page_debut.is_none()
+    {
+        let textes = match &ocr {
+            Some((_, t)) => Some(t.textes_pages.clone()),
+            None => {
+                let c = contenu.clone();
+                tokio::task::spawn_blocking(move || lect::pdf::texte_par_page(&c)).await?
+            }
+        };
+        let origine = crate::decoupage::Origine {
+            document_id: id,
+            piece_id: e.piece_id,
+            mail_id: e.mail_id,
+            rang: e.rang,
+            nom: &e.nom,
+            contenu: &contenu,
+            textes,
+            hors_quota,
+        };
+        if let Some(plages) = crate::decoupage::decouper(ctx, origine).await? {
+            decoupe = Some(Lu {
+                etat: "ignore",
+                voie: Some(voie.code()),
+                message: Some(crate::decoupage::message(&plages)),
+                confiance: json!({ "decoupage": plages }),
+                texte: ocr.as_ref().map(|(_, t)| t.texte.clone()),
+                ..Default::default()
+            });
+        }
+    }
     let lu = match aiguillage {
+        _ if decoupe.is_some() => decoupe.take().unwrap_or_default(),
+        _ if ocr.is_some() => {
+            let Some((voie, t)) = ocr.take() else {
+                unreachable!("OCR vérifié")
+            };
+            match lire_avec_ocr(
+                ctx,
+                id,
+                voie,
+                &e,
+                &contenu,
+                t,
+                &soc,
+                approfondie,
+                hors_quota,
+            )
+            .await?
+            {
+                Some(lu) => lu,
+                None => return Ok(()),
+            }
+        }
         Aiguillage::Ignore(raison) => Lu {
             etat: "ignore",
             message: Some(raison),
@@ -674,7 +858,32 @@ async fn lire_pris(
             donnees,
             texte,
         } => lu_depuis_xml(voie, *donnees, texte, &soc),
-        Aiguillage::Texte { voie, texte } => {
+        Aiguillage::Texte {
+            voie,
+            texte,
+            tronque,
+        } => {
+            // Tableur : lignes d'articles lues dans les cellules, Claude ne lit que l'en-tête
+            // sur un extrait (sinon, voie texte inchangée).
+            let tableau = match voie {
+                Voie::Tableur => {
+                    crate::tableau::preparer(
+                        ctx,
+                        id,
+                        &e.expediteur,
+                        &e.nom,
+                        &e.type_mime,
+                        &contenu,
+                        hors_quota,
+                    )
+                    .await?
+                }
+                _ => None,
+            };
+            let (tableau, texte) = match tableau {
+                Some((t, complet)) => (Some(t), complet),
+                None => (None, texte),
+            };
             let societe_code = societe::dans_texte(&texte, &soc);
             let mail = ContexteMail {
                 expediteur: &e.expediteur,
@@ -682,8 +891,14 @@ async fn lire_pris(
                 corps: &e.corps,
                 nom_fichier: &e.nom,
             };
-            let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(&texte));
-            prompt.push_str(&exemples_pour(pool, &e.expediteur, Some(&texte)).await);
+            let lu_pour_claude = tableau
+                .as_ref()
+                .map_or(texte.as_str(), |t| t.extrait.as_str());
+            let mut prompt = extraction::prompt(&mail, &soc, &Contenu::Texte(lu_pour_claude));
+            prompt.push_str(&exemples_pour(pool, id, &e.expediteur, Some(&texte)).await);
+            if let Some(t) = &tableau {
+                prompt.push_str(&t.consigne());
+            }
             let src = Source {
                 dossier: None,
                 texte: Some(&texte),
@@ -691,10 +906,16 @@ async fn lire_pris(
                 pages: None,
                 approfondie,
                 hors_quota,
+                lignes_code: tableau.as_ref().map(|t| t.lignes.as_slice()),
             };
             match lire_par_claude(ctx, id, voie, reglages::EXTRACTION_TEXTE, &prompt, src).await? {
-                Lecture::Faite(ex, reglage, an) => {
-                    let lu = lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
+                Lecture::Faite(ex, reglage, mut an) => {
+                    let mut lu =
+                        lu_depuis_extraction(voie, ex, societe_code, Some(texte), &reglage);
+                    match &tableau {
+                        Some(t) => marquer_tableau(&mut lu, t, &mut an),
+                        None => lu.lignes_tronquees |= tronque,
+                    }
                     avec_anomalies(lu, an)
                 }
                 Lecture::Reportee => return Ok(()),
@@ -719,7 +940,7 @@ async fn lire_pris(
                     pages,
                 },
             );
-            prompt.push_str(&exemples_pour(pool, &e.expediteur, None).await);
+            prompt.push_str(&exemples_pour(pool, id, &e.expediteur, None).await);
             match lire_par_claude(
                 ctx,
                 id,
@@ -733,6 +954,7 @@ async fn lire_pris(
                     pages: Some(pages),
                     approfondie,
                     hors_quota,
+                    lignes_code: None,
                 },
             )
             .await?
@@ -763,6 +985,65 @@ async fn lire_pris(
     )
     .await?;
     Ok(())
+}
+
+/// Lecture d'un PDF dont les pages sans couche texte ont été lues par l'OCR local : le texte
+/// complet va dans le prompt (et sert au contrôle des montants), le PDF est joint et fait foi ;
+/// pas de transcription demandée. Rien si la lecture est reportée (Claude indisponible).
+#[allow(clippy::too_many_arguments)]
+async fn lire_avec_ocr(
+    ctx: &Contexte,
+    id: i64,
+    voie: Voie,
+    e: &Entree,
+    contenu: &[u8],
+    t: lect::ocr::TexteOcr,
+    soc: &[SocieteRef],
+    approfondie: bool,
+    hors_quota: bool,
+) -> anyhow::Result<Option<Lu>> {
+    let dossier = DossierTemp::creer("gmflow-lecture")?;
+    tokio::fs::write(dossier.0.join("document.pdf"), contenu).await?;
+    let societe_code = societe::dans_texte(&t.texte, soc);
+    let mail = ContexteMail {
+        expediteur: &e.expediteur,
+        objet: &e.objet,
+        corps: &e.corps,
+        nom_fichier: &e.nom,
+    };
+    let mut prompt = extraction::prompt(&mail, soc, &Contenu::Texte(&t.texte));
+    prompt.push_str(&exemples_pour(&ctx.pool, id, &e.expediteur, Some(&t.texte)).await);
+    prompt.push_str(&t.consigne("document.pdf"));
+    let tache = if voie == Voie::Scan {
+        reglages::OCR_SCAN
+    } else {
+        reglages::EXTRACTION_TEXTE
+    };
+    let src = Source {
+        dossier: Some(&dossier.0),
+        texte: Some(&t.texte),
+        pdf: None,
+        pages: Some(t.pages),
+        approfondie,
+        hors_quota,
+        lignes_code: None,
+    };
+    Ok(
+        match lire_par_claude(ctx, id, voie, tache, &prompt, src).await? {
+            Lecture::Faite(ex, reglage, an) => {
+                let mut lu =
+                    lu_depuis_extraction(voie, ex, societe_code, Some(t.texte.clone()), &reglage);
+                if let (Some(c), Some(m)) =
+                    (lu.confiance.as_object_mut(), t.confiance().as_object())
+                {
+                    c.extend(m.clone());
+                }
+                Some(avec_anomalies(lu, an))
+            }
+            Lecture::Reportee => None,
+            Lecture::Echec(lu) => Some(lu),
+        },
+    )
 }
 
 /// Phrase gardée sur un document remis en attente après un appel en échec : l'explication du
@@ -799,6 +1080,43 @@ struct Source<'a> {
     approfondie: bool,
     /// Demande d'un humain sur ce document : le quota du jour ne compte pas.
     hors_quota: bool,
+    /// Lignes d'articles lues par le code (tableur) : elles remplacent celles de Claude avant
+    /// le contrôle de la lecture.
+    lignes_code: Option<&'a [extraction::Ligne]>,
+}
+
+/// Lecture d'un tableur dont les lignes sont lues dans les cellules : les lignes du code
+/// remplacent celles (en principe absentes) de Claude.
+fn avec_lignes_code(mut ex: Extraction, lignes: Option<&[extraction::Ligne]>) -> Extraction {
+    if let Some(l) = lignes {
+        ex.lignes = l.to_vec();
+        ex.lignes_tronquees = false;
+    }
+    ex
+}
+
+/// Marques d'un tableur lu dans les cellules : `confiance` (origine des lignes et des
+/// colonnes), correspondance de Claude à garder sur la fiche fournisseur (`resultat`), cellules
+/// en erreur ajoutées aux anomalies.
+fn marquer_tableau(
+    lu: &mut Lu,
+    t: &gmflow_core::lecture::tableau_articles::TableauLu,
+    anomalies: &mut Vec<String>,
+) {
+    use gmflow_core::lecture::tableau_articles as ta;
+    if let (Some(c), Some(m)) = (lu.confiance.as_object_mut(), t.confiance().as_object()) {
+        c.extend(m.clone());
+    }
+    if let (Some((empreinte, colonnes)), Some(r)) = (&t.a_garder, lu.resultat.as_mut()) {
+        r[ta::COLONNES_APPRISES] = json!({ "empreinte": empreinte, "colonnes": colonnes });
+    }
+    anomalies.extend(t.anomalies.iter().take(10).cloned());
+    if t.anomalies.len() > 10 {
+        anomalies.push(format!(
+            "{} autres cellules en erreur",
+            t.anomalies.len() - 10
+        ));
+    }
 }
 
 /// Lecture par Claude en deux temps au plus : le réglage de la tâche, puis le nouvel essai
@@ -832,7 +1150,8 @@ async fn lire_par_claude(
         .await?;
         return Ok(Lecture::Reportee);
     };
-    let transcription = src.dossier.is_some();
+    // Transcription demandée seulement quand le code n'a aucun texte (scan sans OCR).
+    let transcription = src.dossier.is_some() && src.texte.is_none();
 
     // Premier essai (sauf relecture en détail : directement le nouvel essai).
     let reglage = r.pour(tache).clone();
@@ -841,6 +1160,7 @@ async fn lire_par_claude(
     } else {
         match appel_lecture(
             ctx,
+            id,
             tache,
             &reglage,
             prompt,
@@ -852,6 +1172,7 @@ async fn lire_par_claude(
         {
             Ok(Ok(ex)) => {
                 noter_utilisation(pool).await;
+                let ex = avec_lignes_code(ex, src.lignes_code);
                 let an = extraction::anomalies(&ex, src.texte);
                 if an.is_empty() {
                     return Ok(Lecture::Faite(ex, reglage, an));
@@ -868,9 +1189,9 @@ async fn lire_par_claude(
                 None
             }
             Err(e) => {
-                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes.
-                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
-                return Ok(Lecture::Reportee);
+                // Panne, délai, jeton refusé : nouvel essai par la pompe dans 30 minutes (au
+                // plus ESSAIS_PANNE_MAX fois de suite pour une panne).
+                return apres_panne(pool, id, voie, &e).await;
             }
         }
     };
@@ -922,6 +1243,7 @@ async fn lire_par_claude(
     let reglage2 = r.pour(reglages::NOUVEL_ESSAI).clone();
     let seconde = appel_lecture(
         ctx,
+        id,
         reglages::NOUVEL_ESSAI,
         &reglage2,
         &prompt2,
@@ -933,6 +1255,7 @@ async fn lire_par_claude(
     let derniere_erreur = match seconde {
         Ok(Ok(ex)) => {
             noter_utilisation(pool).await;
+            let ex = avec_lignes_code(ex, src.lignes_code);
             let an = extraction::anomalies(&ex, src.texte);
             if let Some((ex1, reglage1, an1)) = premiere
                 && an1.len() < an.len()
@@ -948,8 +1271,7 @@ async fn lire_par_claude(
         Err(e) => {
             tracing::warn!(document = id, erreur = %e, "nouvel essai de lecture impossible");
             if premiere.is_none() && !matches!(e, ErreurClaude::JsonInvalide) {
-                remettre(pool, id, voie, &message_echec(pool, &e).await).await?;
-                return Ok(Lecture::Reportee);
+                return apres_panne(pool, id, voie, &e).await;
             }
             e.to_string()
         }
@@ -966,4 +1288,39 @@ async fn lire_par_claude(
         confiance: json!({}),
         ..Default::default()
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn avoir_toujours_en_positif() {
+        let mut lu = Lu {
+            type_doc: Some("avoir".into()),
+            ht: Some(-10.0),
+            tva: Some(-2.0),
+            ttc: Some(-12.0),
+            ..Default::default()
+        };
+        avoir_en_positif(&mut lu);
+        assert_eq!((lu.ht, lu.tva, lu.ttc), (Some(10.0), Some(2.0), Some(12.0)));
+        // Une facture garde son signe (facture négative : à voir par un humain).
+        let mut lu = Lu {
+            type_doc: Some("facture".into()),
+            ttc: Some(-12.0),
+            ..Default::default()
+        };
+        avoir_en_positif(&mut lu);
+        assert_eq!(lu.ttc, Some(-12.0));
+    }
+
+    #[test]
+    fn phrase_d_abandon_lisible() {
+        assert_eq!(
+            message_abandon(3, &ErreurClaude::Delai(300)),
+            "Lecture abandonnée après 3 essais : Claude n’a pas répondu à temps (délai dépassé). \
+             Relancez la lecture pour réessayer."
+        );
+    }
 }

@@ -1,7 +1,11 @@
 //! Relève d'une boîte : bail en base, puis pour chaque dossier surveillé, lecture des nouveaux
-//! messages par paquets de 50 (sans les marquer lus), une transaction par paquet.
+//! messages par paquets de 50 au plus et de 64 Mo cumulés au plus (sans les marquer lus), une
+//! transaction par paquet. Chaque échange avec le serveur a un délai : un serveur muet fait
+//! échouer la relève (erreur notée, alerte) au lieu de garder la tâche pour toujours.
 
 use std::collections::HashSet;
+use std::future::Future;
+use std::time::Duration;
 
 use futures::TryStreamExt;
 use gmflow_core::eml::{self, MailDecoupe};
@@ -13,7 +17,150 @@ use sqlx::{PgConnection, PgPool};
 use crate::Contexte;
 
 pub const PAQUET: usize = 50;
+/// Taille cumulée d'un paquet (selon `RFC822.SIZE`) ; un message plus gros part seul.
+pub const PAQUET_OCTETS: u64 = 64 * 1024 * 1024;
+/// UID par demande de tailles.
+const TAILLES_PAR_DEMANDE: usize = 500;
 pub const PAUSE_APRES: i32 = 3;
+/// Délai d'une commande courte (EXAMINE, SEARCH, début d'un FETCH, tailles).
+pub const DELAI_COMMANDE: Duration = Duration::from_secs(60);
+/// Délai entre deux messages d'un FETCH (un message de 50 Mo à 500 ko/s y tient).
+pub const DELAI_MESSAGE: Duration = Duration::from_secs(120);
+
+/// Délai réellement appliqué : `d`, ou `GMFLOW_TEST_DELAI_IMAP` secondes dans un build de test.
+fn delai(d: Duration) -> Duration {
+    #[cfg(feature = "test-utils")]
+    if let Some(s) = std::env::var("GMFLOW_TEST_DELAI_IMAP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        return Duration::from_secs(s);
+    }
+    d
+}
+
+/// Erreur d'un dossier ; `session_perdue` : délai dépassé au milieu d'un échange, la session ne
+/// peut plus servir aux dossiers suivants.
+struct ErreurDossier {
+    erreur: ErreurImap,
+    session_perdue: bool,
+}
+
+impl From<ErreurImap> for ErreurDossier {
+    fn from(erreur: ErreurImap) -> Self {
+        Self {
+            erreur,
+            session_perdue: false,
+        }
+    }
+}
+
+impl From<async_imap::error::Error> for ErreurDossier {
+    fn from(e: async_imap::error::Error) -> Self {
+        ErreurImap::from(e).into()
+    }
+}
+
+fn delai_depasse(quoi: &str, d: Duration) -> ErreurDossier {
+    ErreurDossier {
+        erreur: ErreurImap::Autre(format!(
+            "le serveur ne répond plus ({quoi}, {} s)",
+            d.as_secs()
+        )),
+        session_perdue: true,
+    }
+}
+
+/// Une commande IMAP avec délai.
+async fn avec_delai<T>(
+    quoi: &str,
+    d: Duration,
+    f: impl Future<Output = Result<T, async_imap::error::Error>>,
+) -> Result<T, ErreurDossier> {
+    let d = delai(d);
+    match tokio::time::timeout(d, f).await {
+        Ok(r) => Ok(r?),
+        Err(_) => Err(delai_depasse(quoi, d)),
+    }
+}
+
+/// Découpe les UID (dans l'ordre) en paquets d'au plus `max_n` messages et `max_octets` cumulés ;
+/// un message plus gros que `max_octets` forme un paquet à lui seul. Taille inconnue : la part
+/// moyenne d'un paquet.
+pub fn paquets(uids: &[(u32, Option<u64>)], max_n: usize, max_octets: u64) -> Vec<Vec<u32>> {
+    let defaut = max_octets / max_n.max(1) as u64;
+    let mut v: Vec<Vec<u32>> = Vec::new();
+    let mut courant: Vec<u32> = Vec::new();
+    let mut taille = 0u64;
+    for &(uid, t) in uids {
+        let t = t.unwrap_or(defaut);
+        if !courant.is_empty() && (courant.len() >= max_n || taille + t > max_octets) {
+            v.push(std::mem::take(&mut courant));
+            taille = 0;
+        }
+        courant.push(uid);
+        taille += t;
+    }
+    if !courant.is_empty() {
+        v.push(courant);
+    }
+    v
+}
+
+fn ensemble(uids: &[u32]) -> String {
+    uids.iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Tailles (`RFC822.SIZE`) des messages, par demandes de 500 UID.
+async fn tailles(
+    session: &mut Session,
+    uids: &[u32],
+) -> Result<Vec<(u32, Option<u64>)>, ErreurDossier> {
+    let mut connues = std::collections::HashMap::new();
+    for morceau in uids.chunks(TAILLES_PAR_DEMANDE) {
+        let flux = avec_delai(
+            "FETCH RFC822.SIZE",
+            DELAI_COMMANDE,
+            session.uid_fetch(ensemble(morceau), "(UID RFC822.SIZE)"),
+        )
+        .await?;
+        let lignes: Vec<_> =
+            avec_delai("FETCH RFC822.SIZE", DELAI_COMMANDE, flux.try_collect()).await?;
+        for f in &lignes {
+            if let (Some(uid), Some(t)) = (f.uid, f.size) {
+                connues.insert(uid, u64::from(t));
+            }
+        }
+    }
+    Ok(uids.iter().map(|u| (*u, connues.get(u).copied())).collect())
+}
+
+/// Corps des messages d'un paquet. Chaque réponse du serveur est copiée puis lâchée aussitôt :
+/// le paquet n'est en mémoire qu'une fois.
+async fn corps(session: &mut Session, uids: &[u32]) -> Result<Vec<(u32, Vec<u8>)>, ErreurDossier> {
+    let flux = avec_delai(
+        "FETCH",
+        DELAI_COMMANDE,
+        session.uid_fetch(ensemble(uids), "(UID BODY.PEEK[])"),
+    )
+    .await?;
+    let mut flux = std::pin::pin!(flux);
+    let mut messages = Vec::with_capacity(uids.len());
+    loop {
+        let f = match tokio::time::timeout(delai(DELAI_MESSAGE), flux.try_next()).await {
+            Err(_) => return Err(delai_depasse("FETCH", delai(DELAI_MESSAGE))),
+            Ok(r) => r?,
+        };
+        let Some(f) = f else { break };
+        if let (Some(uid), Some(b)) = (f.uid, f.body()) {
+            messages.push((uid, b.to_vec()));
+        }
+    }
+    Ok(messages)
+}
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Bilan {
@@ -143,10 +290,14 @@ async fn relever_avec_bail(
     let mut erreurs = Vec::new();
     for dossier in &boite.dossiers {
         if let Err(e) = relever_dossier(ctx, boite, &mut session, dossier, bilan).await {
-            erreurs.push(format!("{dossier} : {e}"));
+            erreurs.push(format!("{dossier} : {}", e.erreur));
+            if e.session_perdue {
+                // Session dans un état inconnu : les dossiers suivants attendront le tour suivant.
+                return Err(ErreurImap::Autre(erreurs.join(" ; ")));
+            }
         }
     }
-    let _ = session.logout().await;
+    imap::deconnecter(&mut session).await;
     if erreurs.is_empty() {
         Ok(())
     } else {
@@ -199,9 +350,9 @@ async fn relever_dossier(
     session: &mut Session,
     dossier: &str,
     bilan: &mut Bilan,
-) -> Result<(), ErreurImap> {
+) -> Result<(), ErreurDossier> {
     // EXAMINE : dossier en lecture seule, le serveur ne pose jamais \Seen.
-    let infos = session.examine(dossier).await?;
+    let infos = avec_delai("EXAMINE", DELAI_COMMANDE, session.examine(dossier)).await?;
     let uidvalidity = infos.uid_validity.map(i64::from).unwrap_or(0);
     let uid_next = infos.uid_next.map(i64::from);
 
@@ -262,30 +413,24 @@ async fn relever_dossier(
     } else {
         format!("UID {}:*", dernier + 1)
     };
-    let trouves: HashSet<u32> = session.uid_search(&requete).await?;
+    let trouves: HashSet<u32> =
+        avec_delai("SEARCH", DELAI_COMMANDE, session.uid_search(&requete)).await?;
     let mut uids: Vec<u32> = trouves
         .into_iter()
         .filter(|u| i64::from(*u) > dernier)
         .collect();
     uids.sort_unstable();
 
-    for paquet in uids.chunks(PAQUET) {
+    let decoupe = if uids.is_empty() {
+        Vec::new()
+    } else {
+        paquets(&tailles(session, &uids).await?, PAQUET, PAQUET_OCTETS)
+    };
+    for paquet in &decoupe {
         prolonger_bail(&ctx.pool, boite.id)
             .await
             .map_err(erreur_base)?;
-        let ensemble = paquet
-            .iter()
-            .map(u32::to_string)
-            .collect::<Vec<_>>()
-            .join(",");
-        let messages: Vec<(u32, Vec<u8>)> = {
-            let flux = session.uid_fetch(&ensemble, "(UID BODY.PEEK[])").await?;
-            let fetches: Vec<_> = flux.try_collect().await?;
-            fetches
-                .iter()
-                .filter_map(|f| Some((f.uid?, f.body()?.to_vec())))
-                .collect()
-        };
+        let messages = corps(session, paquet).await?;
         bilan.messages_lus += messages.len();
         let max = paquet
             .iter()
@@ -293,7 +438,7 @@ async fn relever_dossier(
             .max()
             .map(i64::from)
             .unwrap_or(dernier);
-        let nouveaux = enregistrer_paquet(ctx, boite.id, dossier, &messages, max)
+        let nouveaux = enregistrer_paquet(ctx, boite.id, dossier, messages, max)
             .await
             .map_err(erreur_base)?;
         bilan.nouveaux_mails += nouveaux;
@@ -340,25 +485,29 @@ async fn enregistrer_paquet(
     ctx: &Contexte,
     boite_id: i64,
     dossier: &str,
-    messages: &[(u32, Vec<u8>)],
+    messages: Vec<(u32, Vec<u8>)>,
     max_uid: i64,
 ) -> anyhow::Result<usize> {
     let racine = ctx.config.fichiers.clone();
     let mut tx = ctx.pool.begin().await?;
     let mut nouveaux = 0;
     for (uid, brut) in messages {
-        let (chemin, sha) = {
+        // Le message part dans la tâche d'écriture et en revient : pas de copie.
+        let (chemin, sha, brut) = {
             let racine = racine.clone();
-            let brut = brut.clone();
-            tokio::task::spawn_blocking(move || stockage::ecrire_eml(&racine, &brut)).await??
+            tokio::task::spawn_blocking(move || {
+                stockage::ecrire_eml(&racine, &brut).map(|(c, s)| (c, s, brut))
+            })
+            .await??
         };
+        let brut = &brut[..];
         let d = eml::decouper(brut).unwrap_or_else(|_| decoupe_de_secours(brut));
         let (mail_id, nouveau) =
             inserer_mail(&mut tx, &d, &chemin, &sha, brut.len() as i64).await?;
         if nouveau {
             nouveaux += 1;
         }
-        rattacher(&mut tx, mail_id, boite_id, dossier, i64::from(*uid)).await?;
+        rattacher(&mut tx, mail_id, boite_id, dossier, i64::from(uid)).await?;
     }
     sqlx::query!(
         "update boite_dossier set dernier_uid = greatest(dernier_uid, $3) where boite_id = $1 and nom = $2",

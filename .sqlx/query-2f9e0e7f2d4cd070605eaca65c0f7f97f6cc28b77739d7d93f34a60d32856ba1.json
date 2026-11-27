@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select iban, fournisseur_id, verifie_par from document\n         where id = $1 and verifie_le is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "iban"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "verifie_par",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "verifie_par"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "2f9e0e7f2d4cd070605eaca65c0f7f97f6cc28b77739d7d93f34a60d32856ba1"
+}

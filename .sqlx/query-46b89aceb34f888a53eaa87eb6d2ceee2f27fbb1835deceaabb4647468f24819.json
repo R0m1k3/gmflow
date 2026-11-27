@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select distinct s.outil_depot as \"o!\" from document d join societe s on s.id = d.societe_id\n               where d.id = any($1) and s.outil_depot is not null",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "o!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "societe",
+            "name": "outil_depot"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "46b89aceb34f888a53eaa87eb6d2ceee2f27fbb1835deceaabb4647468f24819"
+}

@@ -1,0 +1,85 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select r.id, r.methode, r.ecart_montant::float8 as ecart_montant,\n                  r.eco_bl::float8 as eco_bl, r.ecarts,\n                  u.identifiant as \"auteur?\",\n                  case when r.facture_id = $1 then r.bl_id else r.facture_id end as \"autre!\"\n           from rapprochement r left join utilisateur u on u.id = r.auteur_id\n           where (r.facture_id = $1 or r.bl_id = $1) and not r.rejete\n           order by r.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "rapprochement",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "methode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "rapprochement",
+            "name": "methode"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "ecart_montant",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "eco_bl",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "ecarts",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "rapprochement",
+            "name": "ecarts"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "auteur?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "utilisateur",
+            "name": "identifiant"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "autre!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "934eb3581c3403dffd28551776249e82433c8257599f3dfc128e4ac041b22746"
+}

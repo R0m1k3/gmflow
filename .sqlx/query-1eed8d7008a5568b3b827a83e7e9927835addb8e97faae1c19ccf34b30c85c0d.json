@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select page_debut as \"debut!\", page_fin as \"fin!\" from piece_jointe\n           where source_id = $1 and page_debut is not null and page_fin is not null\n           order by page_debut",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "debut!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "page_debut"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fin!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "piece_jointe",
+            "name": "page_fin"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "1eed8d7008a5568b3b827a83e7e9927835addb8e97faae1c19ccf34b30c85c0d"
+}

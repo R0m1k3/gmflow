@@ -10,9 +10,11 @@
   import { page } from '$app/state';
   import { untrack } from 'svelte';
   import { requete, sonder } from '#lib/api.ts';
-  import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
+  import { annulations } from '#lib/annulations.svelte.ts';
+  import { deplacer, fleche, montrer, raccourcis, type Gestionnaire } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libelleStatutEnvoi, nomCourtSociete, tonEtat, tonStatutEnvoi, type Ton } from '#lib/libelles.ts';
+  import { filtreGarde, garderFiltre } from '#lib/filtres.ts';
   import { Liste, parJour } from '#lib/liste.svelte.ts';
   import { societe } from '#lib/societe.svelte.ts';
   import type { LigneDocument } from '#lib/types.ts';
@@ -27,6 +29,8 @@
   import Montant from './Montant.svelte';
   import Vide from './Vide.svelte';
   import Volets from './Volets.svelte';
+  import SelectionLot from './SelectionLot.svelte';
+  import { Selection } from '#lib/selection.svelte.ts';
 
   let {
     titre,
@@ -37,7 +41,8 @@
     singulier,
     section,
     sansSuite,
-    pied = 'chercher'
+    pied = 'chercher',
+    filtreLot
   }: {
     /** « Factures », « BL ». */
     titre: string;
@@ -55,11 +60,24 @@
     sansSuite: string;
     /** Rappel de touche du pied de liste, après J K. */
     pied?: 'chercher' | 'valider';
+    /** Filtre où les pièces sans alerte se cochent pour « Valider N pièces » (Factures, Avoirs). */
+    filtreLot?: string;
   } = $props();
 
-  let filtreV = $derived(page.url.searchParams.get('filtre') ?? filtres[0].v);
-  let filtre = $derived(filtres.find((f) => f.v === filtreV) ?? filtres[0]);
   let docId = $derived(Number(page.url.searchParams.get('doc')) || null);
+  // Le dernier filtre choisi est gardé (par navigateur) et revient à l'ouverture de la liste.
+  // Un lien vers un document précis (?doc=) ne l'applique pas : le document peut être hors de ce filtre.
+  let memoire = $state<string | null>(untrack(() => filtreGarde(chemin)));
+  let filtreUrl = $derived(page.url.searchParams.get('filtre'));
+  $effect(() => {
+    if (filtreUrl && filtres.some((f) => f.v === filtreUrl) && filtreUrl !== memoire) {
+      memoire = filtreUrl;
+      garderFiltre(chemin, filtreUrl === filtres[0].v ? null : filtreUrl);
+    }
+  });
+  let memoireValide = $derived(memoire && filtres.some((f) => f.v === memoire) ? memoire : null);
+  let filtreV = $derived(filtreUrl ?? (docId ? null : memoireValide) ?? filtres[0].v);
+  let filtre = $derived(filtres.find((f) => f.v === filtreV) ?? filtres[0]);
 
   const lst = new Liste<LigneDocument>((p) => `/api/documents${requete({ societe: societe.id, ...filtre.params, page: p })}`);
 
@@ -68,25 +86,79 @@
     void filtre;
     untrack(() => void lst.lire());
     return sonder(async () => {
-      if (document.visibilityState === 'visible') await lst.lire(true);
+      if (document.visibilityState !== 'visible') return;
+      // Ne pas faire bouger les lignes sous la souris ou le focus : on relira au prochain passage.
+      if (listeEl && (listeEl.matches(':hover') || listeEl.contains(document.activeElement))) return;
+      const avant = lst.total;
+      await lst.lire(true);
+      if (lst.total !== avant) majListe = `Liste mise à jour : ${lst.total} ${lst.total > 1 ? 'éléments' : 'élément'}`;
     }, 60_000);
   });
+  // Validation annulée depuis le message du bas : la pièce revient dans la liste.
+  $effect(() => annulations.surAnnulation(() => void lst.lire(true)));
+  /** Annonce aux lecteurs d'écran, quand la liste change toute seule. */
+  let majListe = $state('');
 
   let groupes = $derived(parJour(lst.elements, (d) => d.date_mail));
 
+  // Validation par lot : cases à cocher dans le filtre « À contrôler » (Factures, Avoirs).
+  let lotActif = $derived(!!filtreLot && filtreV === filtreLot);
+  const sel = new Selection();
+  let idsListe = $derived(lst.elements.map((d) => d.id));
+  $effect(() => {
+    if (!lotActif) {
+      untrack(() => sel.rien());
+      return;
+    }
+    const ids = idsListe;
+    untrack(() => void sel.actualiser(ids));
+  });
+
   function lien(id: number | null, f = filtreV) {
-    return `${chemin}${requete({ filtre: f === filtres[0].v ? '' : f, doc: id })}`;
+    // Le filtre d'origine reste implicite, sauf si un autre est gardé : il faut alors le nommer pour le retrouver.
+    const implicite = f === filtres[0].v && !(memoireValide && memoireValide !== filtres[0].v);
+    return `${chemin}${requete({ filtre: implicite ? '' : f, doc: id })}`;
   }
 
   /** Où en est le document, en deux mots. */
   function statut(d: LigneDocument): { texte: string; ton: Ton } | null {
     if (d.etat !== 'lu') return { texte: libelleEtat(d.etat), ton: tonEtat(d.etat) };
-    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
     const e = d.type === 'avoir' ? '' : 'e';
     if (d.statut_depot === 'depose') return { texte: `Envoyé${e}`, ton: 'ok' };
-    if (d.statut_depot === 'pret' && !e) return { texte: 'Prêt', ton: tonStatutEnvoi('pret') };
+    // Prête à partir mais pas encore validée par un humain : encore à contrôler.
+    if (d.statut_depot === 'pret' && !d.verifie) return { texte: 'À contrôler', ton: 'alerte' };
+    if (d.statut_depot === 'pret' && !e) return { texte: 'Validé', ton: tonStatutEnvoi('pret') };
     if (d.statut_depot) return { texte: libelleStatutEnvoi(d.statut_depot), ton: tonStatutEnvoi(d.statut_depot) };
-    return d.verifie ? { texte: `Validé${e}`, ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+    return d.verifie ? { texte: `Validé${e}`, ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
+  }
+
+  /** Étiquettes d'une ligne, la plus utile d'abord : l'état, puis ce qui demande un regard. */
+  const MAX_ETIQUETTES = 2;
+  function etiquettesDe(d: LigneDocument, s: { texte: string; ton: Ton } | null) {
+    const l: { texte: string; ton: Ton; title?: string }[] = [];
+    if (s) l.push({ texte: s.texte, ton: s.ton });
+    if (d.articles_ecart)
+      l.push({
+        texte: `${d.articles_ecart} écart${d.articles_ecart > 1 ? 's' : ''} BL`,
+        ton: 'alerte',
+        title: 'Articles manquants, en trop ou à un autre prix entre facture et BL'
+      });
+    if (blAttente.has(d.id)) l.push({ texte: 'En attente de facture', ton: 'info' });
+    if (d.remise_ht && d.remise_ht > 0.005)
+      l.push({ texte: `Remise ${formatMontant(d.remise_ht)}`, ton: 'info', title: 'Remise déduite sur la facture : le total ne correspond pas aux BL' });
+    return l;
+  }
+
+  /** Nom lu par les lecteurs d'écran : tout ce que la ligne montre, en une phrase. */
+  function nomLigne(d: LigneDocument, e: { texte: string }[]): string {
+    const p = [
+      d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu',
+      typeNumero(d.type, d.numero) + (d.societe ? `, ${nomCourtSociete(d.societe)}` : ''),
+      d.montant_ttc !== null ? formatMontant(d.montant_ttc) : '',
+      ...e.map((x) => x.texte)
+    ];
+    return p.filter(Boolean).join(', ');
   }
 
   let annonce = $state('');
@@ -133,8 +205,26 @@
     void goto(lien(id), { replace: true }).then(() => montrer(listeEl, `[data-id="${id}"]`));
   }
   $effect(() => {
-    const carte: Record<string, () => void> = { j: () => deplacerDe(1), k: () => deplacerDe(-1) };
+    const carte: Record<string, Gestionnaire> = {
+      j: () => deplacerDe(1),
+      k: () => deplacerDe(-1),
+      ArrowDown: fleche(() => deplacerDe(1)),
+      ArrowUp: fleche(() => deplacerDe(-1))
+    };
+    // Espace coche ou décoche la pièce ouverte (sur une case ou un bouton : comportement normal).
+    if (lotActif)
+      carte[' '] = (e) => {
+        const t = e.target as HTMLElement | null;
+        if (!docId || t?.closest('input, button, select, textarea, dialog')) return false;
+        if (!sel.possible(docId) && !sel.coches.has(docId)) return false;
+        sel.basculer(docId);
+      };
     if (docId) carte.Escape = () => void goto(lien(null));
+    else
+      carte.Enter = () => {
+        if (!lst.elements[0]) return false;
+        void goto(lien(lst.elements[0].id));
+      };
     return raccourcis(carte, { dansLesChamps: [] });
   });
 </script>
@@ -153,7 +243,9 @@
         <a class="btn sm" href={lien(null, f.v)} aria-current={filtreV === f.v ? "true" : undefined} data-sveltekit-replacestate>{f.l}</a>
       {/each}
     </div>
+    <div class="sr-seul" role="status" aria-live="polite">{majListe}</div>
     <div class="liste-s" bind:this={listeEl}>
+      {#if lotActif && lst.charge}<SelectionLot {sel} ids={idsListe} partie="tete" />{/if}
       {#if lst.erreur}
         <Bandeau ton="erreur" titre="Liste non chargée.">
           {lst.erreur}
@@ -170,37 +262,67 @@
           {#each g.elements as d (d.id)}
             {@const s = statut(d)}
             {@const blSansMontant = d.type === 'bl' && d.montant_ttc === null}
-            <a class="ligne" class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
+            {@const etiquettes = etiquettesDe(d, s)}
+            {@const raison = lotActif ? sel.raison(d.id) : ''}
+            <div class={lotActif ? 'ligne-lot' : 'sans-lot'} class:cur={lotActif && docId === d.id}>
+            {#if lotActif}
+              <div class="case-lot">
+                <input
+                  type="checkbox"
+                  aria-label="Choisir : {nomLigne(d, etiquettes)}"
+                  aria-describedby={raison ? `lot-r-${d.id}` : undefined}
+                  title={raison || undefined}
+                  disabled={!sel.possible(d.id)}
+                  checked={sel.coches.has(d.id)}
+                  onchange={() => sel.basculer(d.id)}
+                />
+              </div>
+            {/if}
+            <a class="ligne" class:avec-case={lotActif} aria-label={nomLigne(d, etiquettes)} class:cur={docId === d.id} aria-current={docId === d.id ? 'true' : undefined} href={lien(d.id)} data-id={d.id}>
               <div class="a">{d.fournisseur ?? d.fournisseur_nom ?? 'Fournisseur non reconnu'}</div>
               {#if blSansMontant}
                 <div class="r doc-heure">{heureDe(d.date_mail)}</div>
               {:else}
                 <div class="r">{#if d.montant_ttc !== null}<Montant valeur={d.montant_ttc} avoir={d.type === 'avoir'} />{/if}</div>
               {/if}
-              <div class="b"><span class="txt">{typeNumero(d.type, d.numero)}{d.societe ? `, ${nomCourtSociete(d.societe)}` : ''}</span></div>
+              <div class="b">
+                <span class="num-d">{typeNumero(d.type, d.numero)}{d.societe ? ',' : ''}</span>
+                {#if d.societe}<span class="txt">{nomCourtSociete(d.societe)}</span>{/if}
+              </div>
               {#if !blSansMontant}
                 <div class="r2">{d.type === 'bl' ? heureDe(d.date_mail) : dateFr(d.date_document, true)}</div>
               {/if}
-              {#if s || d.articles_ecart || (d.remise_ht && d.remise_ht > 0.005) || blAttente.has(d.id)}
+              {#if etiquettes.length}
                 <div class="c">
-                  {#if s}<Etiquette ton={s.ton}>{s.texte}</Etiquette>{/if}
-                  {#if blAttente.has(d.id)}<Etiquette ton="info">En attente de facture</Etiquette>{/if}
-                  {#if d.articles_ecart}<Etiquette ton="alerte" title="Articles manquants, en trop ou à un autre prix entre facture et BL">{d.articles_ecart} écart{d.articles_ecart > 1 ? 's' : ''} BL</Etiquette>{/if}
-                  {#if d.remise_ht && d.remise_ht > 0.005}<Etiquette ton="info" title="Remise déduite sur la facture : le total ne correspond pas aux BL">Remise {formatMontant(d.remise_ht)}</Etiquette>{/if}
+                  {#each etiquettes.slice(0, MAX_ETIQUETTES) as e (e.texte)}<Etiquette ton={e.ton} title={e.title}>{e.texte}</Etiquette>{/each}
+                  {#if etiquettes.length > MAX_ETIQUETTES}
+                    {@const reste = etiquettes.slice(MAX_ETIQUETTES)}
+                    <Etiquette ton="pale" title={reste.map((e) => e.texte).join(', ')}>+{reste.length}</Etiquette>
+                  {/if}
                 </div>
               {/if}
             </a>
+            {#if raison}<div class="raison-lot" id="lot-r-{d.id}">{raison}</div>{/if}
+            </div>
           {/each}
         {/each}
-        {#if lst.reste > 0}
+        {#if lst.reste > 0 && !lotActif}
           <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
             {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
           </button>
         {/if}
+        {#if lotActif && lst.reste > 0}
+          <button type="button" class="plus" disabled={lst.enCours} onclick={() => lst.plus()}>
+            {lst.enCours ? 'Chargement…' : `Afficher les plus anciens (${lst.reste})`}
+          </button>
+        {/if}
+        {#if lotActif}<SelectionLot {sel} ids={idsListe} partie="barre" onvalide={() => void lst.lire(true)} />{/if}
       {/if}
     </div>
     <div class="liste-f">
       <span><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>
+      {#if lotActif}<span><Kbd t="Espace" /> cocher</span>{/if}
+      <span><Kbd t="?" /> aide</span>
       {#if pied === 'valider'}<span><Kbd t="Enter" /> valider</span>{:else}<span><Kbd t="/" /> chercher</span>{/if}
     </div>
   {/snippet}
@@ -229,6 +351,56 @@
 </Volets>
 
 <style>
+  .sans-lot {
+    display: contents;
+  }
+  /* Filtre « À contrôler » : une case à gauche de chaque ligne, la raison dessous si elle n'est pas cochable. */
+  .ligne-lot {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    border-radius: var(--r2);
+  }
+  .ligne-lot.cur {
+    background: var(--sunk);
+  }
+  .ligne-lot .ligne {
+    padding-left: 4px;
+  }
+  .ligne-lot .ligne.cur {
+    background: none;
+  }
+  .case-lot {
+    display: flex;
+    justify-content: center;
+    padding-top: 14px;
+  }
+  .raison-lot {
+    grid-column: 2;
+    padding: 0 16px 10px 4px;
+    margin-top: -6px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  @media (max-width: 760px) {
+    .ligne-lot {
+      grid-template-columns: 44px minmax(0, 1fr);
+    }
+    .case-lot {
+      padding-top: 0;
+      align-items: flex-start;
+    }
+    .case-lot input {
+      width: 22px;
+      height: 22px;
+      margin: 12px 0;
+    }
+  }
+  .num-d {
+    flex: none;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .txt {
     min-width: 0;
     overflow: hidden;

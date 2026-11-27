@@ -4,6 +4,7 @@ import type {
   Categorie,
   Controle,
   EtatDocument,
+  MotifEcartement,
   Priorite,
   StatutBrouillon,
   StatutDepot,
@@ -58,7 +59,7 @@ const ETATS: Record<EtatDocument, string> = {
   a_lire: 'En attente',
   en_cours: 'Lecture en cours',
   lu: 'Lu',
-  ignore: 'Écarté (pas une facture)',
+  ignore: 'Écarté',
   erreur: 'Illisible'
 };
 const TONS_ETAT: Record<EtatDocument, Ton> = {
@@ -81,15 +82,15 @@ export function tonEtat(e: EtatDocument | null | undefined): Ton {
 export function libelleStatutEnvoi(s: StatutDepot | null | undefined, outil?: string | null): string {
   switch (s) {
     case 'a_verifier':
-      return 'À valider';
+      return 'À contrôler';
     case 'pret':
-      return 'Prête';
+      return 'Validée';
     case 'en_envoi':
       return 'Envoi en cours';
     case 'depose':
       return `Envoyée à ${nomOutil(outil)}`;
     case 'erreur':
-      return 'Envoi échoué';
+      return 'Échec d’envoi';
     case 'doublon':
       return 'Doublon';
     default:
@@ -131,6 +132,33 @@ export function libelleVoie(v: Voie | null | undefined): string {
   }
 }
 
+/** Voie de lecture de l'écran « Qualité de la lecture » : voie, suivie de `+ocr` (texte des pages
+ * scannées lu par l'OCR local) ou de `+cellules` (lignes lues dans les cellules du tableur). */
+export function libelleVoieQualite(cle: string | null | undefined): string {
+  const [v, precision] = (cle ?? '').split('+');
+  const l = libelleVoie((v || null) as Voie | null);
+  if (!l) return 'Voie inconnue';
+  const suite = precision === 'ocr' ? ', texte reconnu sur le serveur (OCR)' : precision === 'cellules' ? ', lignes lues dans les cellules' : '';
+  return l.charAt(0).toUpperCase() + l.slice(1) + suite;
+}
+
+/** Nom d'un champ corrigé à la main (clé de `document.corrections`). */
+export function libelleChampCorrige(champ: string): string {
+  const noms: Record<string, string> = {
+    type: 'Type de pièce',
+    societe_id: 'Société',
+    fournisseur_id: 'Fournisseur',
+    numero: 'Numéro',
+    date_document: 'Date',
+    numero_commande: 'N° de commande',
+    montant_ht: 'Montant HT',
+    montant_tva: 'TVA',
+    montant_ttc: 'Montant TTC',
+    date_echeance: 'Échéance'
+  };
+  return noms[champ] ?? champ;
+}
+
 /** Titre court d'une alerte (contrôle) ; le message du serveur sert de détail. */
 export function titreAlerte(c: Pick<Controle, 'code' | 'message'>): string {
   switch (c.code) {
@@ -150,6 +178,8 @@ export function titreAlerte(c: Pick<Controle, 'code' | 'message'>): string {
       return 'Doublon possible';
     case 'lignes':
       return 'Lignes ≠ total HT';
+    case 'iban':
+      return 'IBAN changé';
     default:
       return 'À vérifier';
   }
@@ -302,4 +332,49 @@ export function nomCourtSociete(raison: string | null | undefined): string {
   const p = societe.prefixe;
   if (p && court.startsWith(p) && court.length > p.length) return court.slice(p.length).trim();
   return court || raison;
+}
+
+// ---------- Aide (petit « ? », composant Aide) ----------
+
+/** Notions métier expliquées en une ou deux phrases. Chaque texte décrit ce que fait l'application. */
+export const AIDES = {
+  ecart_bl: {
+    titre: 'Écart BL',
+    texte: 'Un article de la facture manque sur les bons de livraison liés, est en trop, ou n’a pas le même prix.'
+  },
+  remise: {
+    titre: 'Remise',
+    texte:
+      'Remise lue au pied de la facture. Le total HT est déjà net de remise : si les BL sont avant remise, la remise explique l’écart de montant.'
+  },
+  rapprochement: {
+    titre: 'Rapprochement',
+    texte:
+      'GMFlow relie chaque facture à ses bons de livraison : par numéro de BL, par facture citée sur le BL ou par numéro de commande. On peut aussi les lier à la main.'
+  },
+  doublon_document: {
+    titre: 'Doublon',
+    texte:
+      'Le même fichier, ou une pièce du même fournisseur avec le même numéro et le même montant TTC, déjà reçue. Un doublon n’est pas envoyé.'
+  },
+  doublon_fiche: {
+    titre: 'Doublon de fiche',
+    texte:
+      'Deux fiches qui désignent sans doute le même fournisseur (noms proches, même domaine mail). Vous gardez l’une, l’autre est fusionnée avec ses documents.'
+  },
+  code_bo: {
+    titre: 'Code BO Phénix',
+    texte: 'Le code du fournisseur dans BO Phénix. Il sert à l’export vers Phénix et à retrouver le fournisseur dans Logiflow.'
+  }
+} as const;
+export type SujetAide = keyof typeof AIDES;
+
+/** Motifs rapides d'« Écarter » (fiche). */
+export const MOTIFS_ECARTEMENT: { valeur: MotifEcartement; libelle: string }[] = [
+  { valeur: 'doublon', libelle: 'Doublon' },
+  { valeur: 'pas_pour_nous', libelle: 'Pas pour nous' },
+  { valeur: 'autre', libelle: 'Autre' }
+];
+export function libelleMotif(m: MotifEcartement | null | undefined): string {
+  return MOTIFS_ECARTEMENT.find((x) => x.valeur === m)?.libelle ?? '';
 }

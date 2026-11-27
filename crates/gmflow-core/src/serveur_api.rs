@@ -77,8 +77,11 @@ pub async fn lire(
 
 // ---------- Appels (worker) ----------
 
+/// Les redirections ne sont jamais suivies : la clé `X-API-Key` (en-tête que reqwest ne retire
+/// pas d'une redirection vers un autre serveur) ne part qu'à l'adresse saisie.
 fn client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .connect_timeout(Duration::from_secs(10))
         .user_agent("GMFlow")
@@ -118,8 +121,23 @@ pub(crate) async fn obtenir(url: &str, jeton: Option<&str>) -> Result<Value, Str
         401 | 403 => Err(format!("clé d'API refusée (HTTP {s})")),
         404 => Err("adresse introuvable sur le serveur (HTTP 404) : l'adresse attendue est la racine, ex. https://api.ffnancy.fr".into()),
         429 => Err("trop de requêtes (HTTP 429), réessayer dans une minute".into()),
+        300..=399 => Err(redirection_refusee(&r)),
         c => Err(format!("le serveur a répondu HTTP {c}")),
     }
+}
+
+/// Message d'une redirection refusée, avec l'adresse proposée par le serveur.
+pub(crate) fn redirection_refusee(r: &reqwest::Response) -> String {
+    let vers = r
+        .headers()
+        .get(reqwest::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| format!(" vers {v}"))
+        .unwrap_or_default();
+    format!(
+        "le serveur redirige (HTTP {}){vers} : la clé n'est pas envoyée ailleurs, saisir directement la bonne adresse",
+        r.status().as_u16()
+    )
 }
 
 /// Essai de connexion : une page d'un fournisseur ; renvoie le message affiché à l'admin.

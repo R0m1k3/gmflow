@@ -61,7 +61,7 @@ async fn export_du_bl_apres_la_recherche_au_magasin() {
         "insert into ligne_document (document_id, rang, reference, designation, quantite,
              prix_unitaire_ht, gencod, colis, pcb, ecomob_ht)
          values ($1, 0, '03/3484', 'BOITE LOT DE 3', 2, 18, null, 2, 1, 0.19),
-                ($1, 1, 'AB123', 'SEAU', 4, 5.2, '3532156987412', null, null, null)",
+                ($1, 1, 'AB123', 'SEAU', 4, 5.2, '3532156987418', null, null, null)",
     )
     .bind(bl)
     .execute(app.pool())
@@ -153,7 +153,7 @@ async fn export_du_bl_apres_la_recherche_au_magasin() {
     assert_eq!(l[1][4], Data::Float(4.0));
     assert_eq!(l[2][3], Data::Float(4.0));
     assert_eq!(l[2][4], Data::Float(7.0));
-    assert_eq!(l[3][1], Data::String("3532156987412".into()));
+    assert_eq!(l[3][1], Data::String("3532156987418".into()));
 
     let r = app
         .requete("GET", &format!("{chemin}/trame"), None, Some(&admin))
@@ -169,6 +169,24 @@ async fn export_du_bl_apres_la_recherche_au_magasin() {
     assert_eq!(l[2][col("NUM LOT VENTE")], Data::Float(1.0));
     assert_eq!(l[3][col("Ecomob HT")], Data::Float(0.07));
     assert_eq!(l[4][col("Fournisseur")], Data::String("R0041".into()));
+
+    // BL lu en partie seulement : alerte en tête des deux fichiers.
+    sqlx::query("update document set confiance = '{\"lignes_tronquees\": true}' where id = $1")
+        .bind(bl)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    let r = app.requete("GET", &chemin, None, Some(&admin)).await;
+    for f in ["matrice", "trame"] {
+        assert!(
+            r.json[f]["alertes"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("trop long pour être lu en entier"),
+            "{:?}",
+            r.json[f]
+        );
+    }
 
     // Un responsable d'une autre société ne voit pas ce BL.
     let r = app.requete("GET", &chemin, None, Some(&resp_b)).await;

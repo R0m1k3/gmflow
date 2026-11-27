@@ -3,6 +3,7 @@
 import { libelleType, titreAlerte } from '#lib/libelles.ts';
 import { formatMontant } from './Montant.svelte';
 import { api } from '#lib/api.ts';
+import { dateListe, jourListeDe } from '#lib/format.ts';
 import type { ChampControle, Controle, DetailRapprochement, DocumentAValider, EcartLigne, FicheDocument, TypeDocument } from '#lib/types.ts';
 
 const heure = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
@@ -29,14 +30,14 @@ export function age(iso: string | null | undefined): string {
   return `${n} j`;
 }
 
-/** Date d'un mail dans la file : « 09:41 » aujourd'hui, « hier », puis « 20/11 ». */
+/** Date d'un mail dans la file : « 09:41 » aujourd'hui, « hier », puis « 20 nov. ». */
 export function quandCourt(iso: string | null | undefined): string {
   if (!iso) return '';
   const d = new Date(iso);
   const n = ecartJours(jourDe(d), jourDe(new Date()));
   if (n <= 0) return heure.format(d);
   if (n === 1) return 'hier';
-  return jourMois.format(d);
+  return dateListe(d);
 }
 
 /** « 14/11 08:57 » */
@@ -46,11 +47,12 @@ export function jourHeure(iso: string | null | undefined): string {
   return `${jourMois.format(d)} ${heure.format(d)}`;
 }
 
-/** AAAA-MM-JJ en « 14/11/2026 » (ou « 14/11 » avec `court`). */
+/** AAAA-MM-JJ en « 14/11/2026 » (ou « 14 nov. » avec `court`, pour les listes). */
 export function dateFr(j: string | null | undefined, court = false): string {
   if (!j) return '';
+  if (court) return jourListeDe(j);
   const [a, m, d] = j.split('-');
-  return court ? `${d}/${m}` : `${d}/${m}/${a}`;
+  return `${d}/${m}/${a}`;
 }
 
 /** Nom affiché d'un expéditeur : « Céline Marchal <c@x.fr> » donne « Céline Marchal ». */

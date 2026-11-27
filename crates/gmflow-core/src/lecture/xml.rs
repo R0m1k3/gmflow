@@ -36,6 +36,20 @@ pub struct DonneesXml {
     pub lignes: Vec<Ligne>,
     /// Numéros des bons de livraison cités (en-tête ou lignes).
     pub numeros_bl: Vec<String>,
+    /// Devise des montants (`EUR`…), quand le XML la donne.
+    pub devise: Option<String>,
+    /// IBAN et BIC du compte du vendeur (moyen de paiement), tels qu'écrits.
+    pub iban: Option<String>,
+    pub bic: Option<String>,
+    /// Plus de `LIGNES_MAX` lignes : les suivantes ne sont pas gardées.
+    pub lignes_tronquees: bool,
+    /// Quantité de base du prix de chaque ligne (prix pour 100 unités…), dans l'ordre des lignes.
+    #[serde(skip)]
+    bases: Vec<Option<f64>>,
+    /// UBL : identifiant `PartyIdentification/ID` du vendeur et de l'acheteur, gardé comme
+    /// SIRET seulement s'il en est un et que `PartyLegalEntity/CompanyID` manque.
+    #[serde(skip)]
+    secours: (Option<String>, Option<String>),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -128,6 +142,7 @@ pub fn lire(xml: &[u8]) -> Option<DonneesXml> {
                 };
                 if ligne && d.lignes.len() <= LIGNES_MAX {
                     d.lignes.push(Ligne::default());
+                    d.bases.push(None);
                 }
                 pile.push(nom);
                 attributs.push(attrs);
@@ -174,6 +189,22 @@ pub fn lire(xml: &[u8]) -> Option<DonneesXml> {
     }
     format?;
     d.type_doc = type_depuis_code(code_type.as_deref().unwrap_or("380")).into();
+    // Prix pour 100 unités (ou toute autre quantité de base) : ramené à l'unité.
+    for (l, b) in d.lignes.iter_mut().zip(std::mem::take(&mut d.bases)) {
+        if let (Some(p), Some(b)) = (l.prix_unitaire_ht, b)
+            && b > 0.0
+            && (b - 1.0).abs() > 1e-9
+        {
+            l.prix_unitaire_ht = Some((p / b * 10_000.0).round() / 10_000.0);
+        }
+    }
+    let (sv, sa) = std::mem::take(&mut d.secours);
+    for (p, secours) in [(&mut d.vendeur, sv), (&mut d.acheteur, sa)] {
+        if p.siret.is_none() {
+            p.siret = secours;
+        }
+    }
+    d.lignes_tronquees = d.lignes.iter().filter(|l| !l.vide()).count() > LIGNES_MAX;
     d.lignes = lignes_utiles(std::mem::take(&mut d.lignes));
     d.numeros_bl = numeros_utiles(std::mem::take(&mut d.numeros_bl));
     Some(d)
@@ -196,6 +227,24 @@ pub fn est_gencod(v: &str) -> bool {
     matches!(v.len(), 8 | 12 | 13 | 14) && v.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// EAN / GTIN au bon format et dont la clé de contrôle GS1 (modulo 10) est juste. Les espaces
+/// sont ignorés (« 3 123450 000011 »).
+pub fn gencod_valide(v: &str) -> bool {
+    let v: String = v.split_whitespace().collect();
+    if !est_gencod(&v) {
+        return false;
+    }
+    let chiffres: Vec<u32> = v.bytes().map(|b| u32::from(b - b'0')).collect();
+    let (corps, cle) = chiffres.split_at(chiffres.len() - 1);
+    let somme: u32 = corps
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, c)| if i % 2 == 0 { c * 3 } else { *c })
+        .sum();
+    (10 - somme % 10) % 10 == cle[0]
+}
+
 fn quantite(ligne: &mut Ligne, v: &str, unite: Option<String>) {
     if ligne.quantite.is_none() {
         ligne.quantite = montant(v);
@@ -210,16 +259,24 @@ fn ligne_cii(s: &str, unite: Option<String>, v: &str, d: &mut DonneesXml) {
         d.numeros_bl.push(v.to_string());
         return;
     }
+    if s == "SpecifiedLineTradeAgreement/NetPriceProductTradePrice/BasisQuantity" {
+        if let Some(b) = d.bases.last_mut() {
+            *b = montant(v);
+        }
+        return;
+    }
     let Some(l) = d.lignes.last_mut() else {
         return;
     };
     match s {
-        "SpecifiedTradeProduct/SellerAssignedID" => remplir(&mut l.reference, v),
+        // La référence du vendeur l'emporte (le GTIN, lu avant elle, va dans le gencod).
+        "SpecifiedTradeProduct/SellerAssignedID" => l.reference = Some(v.to_string()),
         "SpecifiedTradeProduct/GlobalID" => {
-            if est_gencod(v) {
+            if gencod_valide(v) {
                 remplir(&mut l.gencod, v);
+            } else {
+                remplir(&mut l.reference, v)
             }
-            remplir(&mut l.reference, v)
         }
         "SpecifiedTradeProduct/BuyerAssignedID" => remplir(&mut l.reference, v),
         "SpecifiedLineTradeSettlement/ApplicableTradeTax/RateApplicablePercent" => {
@@ -261,6 +318,9 @@ fn cii(
     const ACCORD: &str = "SupplyChainTradeTransaction/ApplicableHeaderTradeAgreement/";
     const TOTAUX: &str = "SupplyChainTradeTransaction/ApplicableHeaderTradeSettlement/SpecifiedTradeSettlementHeaderMonetarySummation/";
     match c {
+        "SupplyChainTradeTransaction/ApplicableHeaderTradeSettlement/InvoiceCurrencyCode" => {
+            remplir(&mut d.devise, v)
+        }
         "ExchangedDocument/ID" => remplir(&mut d.numero, v),
         "ExchangedDocument/TypeCode" => remplir(code_type, v),
         "ExchangedDocument/IssueDateTime/DateTimeString" => {
@@ -283,6 +343,14 @@ fn cii(
                 if d.echeance.is_none() {
                     d.echeance = date_iso(v)
                 }
+            } else if let Some(s) = c.strip_prefix(
+                "SupplyChainTradeTransaction/ApplicableHeaderTradeSettlement/SpecifiedTradeSettlementPaymentMeans/",
+            ) {
+                match s {
+                    "PayeePartyCreditorFinancialAccount/IBANID" => remplir(&mut d.iban, v),
+                    "PayeeSpecifiedCreditorFinancialInstitution/BICID" => remplir(&mut d.bic, v),
+                    _ => {}
+                }
             } else if let Some(s) = c.strip_prefix(TOTAUX) {
                 match s {
                     "TaxBasisTotalAmount" => remplir_montant(&mut d.montant_ht, v),
@@ -297,10 +365,16 @@ fn cii(
     }
 }
 
-fn partie_ubl(suite: &str, v: &str, p: &mut Partie) {
+fn partie_ubl(suite: &str, v: &str, p: &mut Partie, secours: &mut Option<String>) {
     match suite {
         "PartyLegalEntity/RegistrationName" | "PartyName/Name" => remplir(&mut p.nom, v),
-        "PartyLegalEntity/CompanyID" | "PartyIdentification/ID" => remplir(&mut p.siret, v),
+        "PartyLegalEntity/CompanyID" => remplir(&mut p.siret, v),
+        // Souvent un GLN (13 chiffres) : gardé seulement s'il est un SIRET ou un SIREN.
+        "PartyIdentification/ID" => {
+            if crate::controles::siret_valide(v) || crate::controles::siren_valide(v) {
+                remplir(secours, v)
+            }
+        }
         "PartyTaxScheme/CompanyID" => remplir(&mut p.tva, v),
         _ => {}
     }
@@ -311,19 +385,27 @@ fn ligne_ubl(s: &str, unite: Option<String>, v: &str, d: &mut DonneesXml) {
         d.numeros_bl.push(v.to_string());
         return;
     }
+    if s == "Price/BaseQuantity" {
+        if let Some(b) = d.bases.last_mut() {
+            *b = montant(v);
+        }
+        return;
+    }
     let Some(l) = d.lignes.last_mut() else {
         return;
     };
     match s {
-        "Item/SellersItemIdentification/ID" => remplir(&mut l.reference, v),
+        "Item/SellersItemIdentification/ID" => l.reference = Some(v.to_string()),
         "Item/StandardItemIdentification/ID" => {
-            if est_gencod(v) {
+            if gencod_valide(v) {
                 remplir(&mut l.gencod, v);
+            } else {
+                remplir(&mut l.reference, v)
             }
-            remplir(&mut l.reference, v)
         }
         "Item/ClassifiedTaxCategory/Percent" => remplir_montant(&mut l.taux_tva, v),
-        "Item/Name" => remplir(&mut l.designation, v),
+        // Le nom court l'emporte sur la description (imprimée avant lui, souvent longue).
+        "Item/Name" => l.designation = Some(v.to_string()),
         "Item/Description" => remplir(&mut l.designation, v),
         "InvoicedQuantity" | "CreditedQuantity" => quantite(l, v, unite),
         "Price/PriceAmount" => remplir_montant(&mut l.prix_unitaire_ht, v),
@@ -351,6 +433,7 @@ fn ubl(
     }
     match c {
         "DespatchDocumentReference/ID" => d.numeros_bl.push(v.to_string()),
+        "DocumentCurrencyCode" => remplir(&mut d.devise, v),
         "ID" => remplir(&mut d.numero, v),
         "IssueDate" => {
             if d.date.is_none() {
@@ -369,11 +452,15 @@ fn ubl(
         "LegalMonetaryTotal/TaxInclusiveAmount" => remplir_montant(&mut d.montant_ttc, v),
         "LegalMonetaryTotal/AllowanceTotalAmount" => remplir_montant(&mut d.remise_ht, v),
         "LegalMonetaryTotal/ChargeTotalAmount" => remplir_montant(&mut d.annexes_ht, v),
+        "PaymentMeans/PayeeFinancialAccount/ID" => remplir(&mut d.iban, v),
+        "PaymentMeans/PayeeFinancialAccount/FinancialInstitutionBranch/ID" => {
+            remplir(&mut d.bic, v)
+        }
         _ => {
             if let Some(s) = c.strip_prefix("AccountingSupplierParty/Party/") {
-                partie_ubl(s, v, &mut d.vendeur);
+                partie_ubl(s, v, &mut d.vendeur, &mut d.secours.0);
             } else if let Some(s) = c.strip_prefix("AccountingCustomerParty/Party/") {
-                partie_ubl(s, v, &mut d.acheteur);
+                partie_ubl(s, v, &mut d.acheteur, &mut d.secours.1);
             }
         }
     }

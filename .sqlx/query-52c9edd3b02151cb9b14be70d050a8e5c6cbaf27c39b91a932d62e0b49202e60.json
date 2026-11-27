@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select fournisseur_id from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fournisseur_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "fournisseur_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "52c9edd3b02151cb9b14be70d050a8e5c6cbaf27c39b91a932d62e0b49202e60"
+}

@@ -17,11 +17,18 @@ pub const EXTRACTION_TEXTE: &str = "extraction_texte";
 pub const OCR_SCAN: &str = "ocr_scan";
 pub const NOUVEL_ESSAI: &str = "nouvel_essai";
 pub const IDENTIFICATION_FOURNISSEUR: &str = "identification_fournisseur";
+/// Correspondance des colonnes d'un tableur dont l'en-tête n'est pas reconnu (réglage de
+/// `extraction_texte`).
+pub const COLONNES_TABLEUR: &str = "colonnes_tableur";
+/// Découpage d'un PDF qui semble regrouper plusieurs pièces (réglage de `extraction_texte`).
+pub const DECOUPAGE_PDF: &str = "decoupage_pdf";
 pub const TACHES_LECTURE: &[&str] = &[
     EXTRACTION_TEXTE,
     OCR_SCAN,
     NOUVEL_ESSAI,
     IDENTIFICATION_FOURNISSEUR,
+    COLONNES_TABLEUR,
+    DECOUPAGE_PDF,
 ];
 
 /// Tri des mails (quota du jour à part, pour ne pas prendre celui de la lecture).

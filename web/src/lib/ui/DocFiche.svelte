@@ -5,7 +5,7 @@
     suivant: number | null;
     info: string;
   }
-  /** Position dans la file : « À valider 1 sur 12 ». */
+  /** Position dans la file : « À contrôler 1 sur 12 ». */
   export interface PositionFiche {
     section: string;
     n: number;
@@ -18,18 +18,23 @@
   // aperçu au centre (barre : position, pages, zoom, plein écran ; la page en carte blanche) ;
   // colonne à droite : nom, « Facture n°, reçue le … de … », alerte en une phrase, champs
   // modifiables au clic (douteux en ambre, correction proposée en un clic ; Type et N° seulement
-  // s'ils sont douteux, vides ou demandés), lignes-liens BL liés / Envoi / Mail d'origine /
-  // Lecture / Fiche fournisseur qui s'ouvrent en place, « Relire avec Claude », « Relire en
-  // détail », « Rapprocher d'une facture » ; en pied « Valider et envoyer à Dext » (POST /valider
+  // s'ils sont douteux, vides ou demandés) ; sous les bandeaux, la chaîne commande → BL → facture
+  // → Phénix / Dext → Logiflow (DocChaine : montants de la pièce, pièces liées dépliées sur place),
+  // puis « Détails de la pièce », Export Phénix (BL), Origine (mail, lecture, fournisseur) ;
+  // « Relire avec Claude », « Relire en détail » ; en pied « Valider et envoyer à Dext » (POST /valider
   // avec les corrections), refus 409 par code, « Écarter », « Ensuite : … ». Suit la lecture et l'envoi en cours.
   // Raccourcis : Entrée (action principale), E (écarter), F (plein écran, volet), Échap (plein écran).
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
-  import { api, ecarterDocument, ErreurApi, message, modifierFournisseur, sonder, urlApercu, validerDocument } from '#lib/api.ts';
+  import { SvelteSet } from 'svelte/reactivity';
+  import { api, confirmerIban, ecarterDocument, ErreurApi, message, modifierFournisseur, remettreDocument, sonder, urlApercu, validerDocument } from '#lib/api.ts';
+  import { annulations } from '#lib/annulations.svelte.ts';
   import { raccourcis } from '#lib/clavier.ts';
   import { rafraichirCompteurs } from '#lib/compteurs.svelte.ts';
   import {
     libelleEtat,
+    libelleMotif,
+    MOTIFS_ECARTEMENT,
     libelleStatutEnvoi,
     libelleStatutFournisseur,
     libelleType,
@@ -40,7 +45,6 @@
     detailAlerte,
     titreAlerte,
     titreEnvoi,
-    titreLiens,
     tonStatutEnvoi,
     type Ton
   } from '#lib/libelles.ts';
@@ -56,6 +60,7 @@
     ChangementsFournisseur,
     Fournisseur,
     LigneFournisseur,
+    MotifEcartement,
     Page,
     TypeDocument
   } from '#lib/types.ts';
@@ -65,7 +70,9 @@
   import Champ from './Champ.svelte';
   import Chargement from './Chargement.svelte';
   import Confirmation from './Confirmation.svelte';
-  import DocRapprochement, { resumeLiens } from './DocRapprochement.svelte';
+  import DocArticlesBl from './DocArticlesBl.svelte';
+  import LignesEdition from './LignesEdition.svelte';
+  import DocChaine, { type FactureLiee, type PointChaine } from './DocChaine.svelte';
   import DocExportPhenix, { resumeExport } from './DocExportPhenix.svelte';
   import type { EtatExportPhenix } from '#lib/types.ts';
   import {
@@ -82,7 +89,6 @@
     quandCourt,
     tauxTva,
     phraseEcartLigne,
-    texteRemise,
     type CleChamp
   } from './DocOutils.ts';
   import Etiquette from './Etiquette.svelte';
@@ -166,10 +172,11 @@
   let erreur = $state('');
   let info = $state('');
   let refus = $state<{ code: CodeRefus | undefined; message: string } | null>(null);
-  let occupe = $state<'valider' | 'forcer' | 'ecarter' | 'relire' | 'fournisseur' | null>(null);
+  let occupe = $state<'valider' | 'forcer' | 'ecarter' | 'remettre' | 'relire' | 'fournisseur' | null>(null);
   let choix = $state<Choix>({ ...VIDE });
   let lu = $state<Choix>({ ...VIDE });
-  let ouvrirLiens = $state(false);
+  /** Maillons dépliés de la chaîne (DocChaine). */
+  let ouverts = $state(new SvelteSet<string>());
   let arretSuivi: (() => void) | null = null;
 
   function depuis(v: FicheDocument): Choix {
@@ -211,6 +218,31 @@
     d = v;
     rap = r;
     return enCours(v);
+  }
+
+  /**
+   * BL : fiche et rapprochement de chaque facture liée (troisième temps, après la fiche puis le
+   * rapprochement) ; au chargement et après un lien, pas pendant le suivi. Jeté si la fiche a changé.
+   */
+  let factures = $state.raw(new Map<number, FactureLiee>());
+  async function chargerFactures(ident: number) {
+    if (ident !== id) return;
+    if (!d || d.etat !== 'lu' || d.type !== 'bl' || !rap?.liens.length) {
+      factures = new Map();
+      return;
+    }
+    const ids = [...new Set(rap.liens.map((l) => l.autre.id))];
+    const lues = await Promise.all(
+      ids.map(async (fid): Promise<[number, FactureLiee]> => {
+        const [f, r] = await Promise.allSettled([
+          api.get<FicheDocument>(`/api/documents/${fid}`),
+          api.get<DetailRapprochement>(`/api/documents/${fid}/rapprochement`)
+        ]);
+        return [fid, { fiche: f.status === 'fulfilled' ? f.value : null, rap: r.status === 'fulfilled' ? r.value : null }];
+      })
+    );
+    if (ident !== id) return;
+    factures = new Map(lues);
   }
 
   /** « Relancer » Logiflow cliqué : la fiche suit jusqu'au nouveau résultat. */
@@ -259,11 +291,15 @@
       lu = { ...VIDE };
       editionF = false;
       voirTN = false;
+      ouverts.clear();
+      factures = new Map();
       charger(ident, false)
         .then((attendre) => {
           if (ident !== id) return;
           if (attendre) suivre();
-          ouvrirLiens = pleinEcran && !!rap && (rap.candidats.length > 0 || rap.liens.some((l) => l.ecarts.length > 0));
+          void chargerFactures(ident);
+          // Plein écran : sur un BL, les factures liées qui ont des écarts d'articles sont dépliées.
+          if (pleinEcran && rap && d?.type === 'bl') for (const l of rap.liens) if (l.ecarts.length) ouverts.add(`facture-${l.autre.id}`);
         })
         .catch((e) => {
           if (ident !== id) return;
@@ -283,8 +319,12 @@
 
   function reessayer() {
     erreurChargement = '';
-    charger(id, false)
-      .then((attendre) => attendre && suivre())
+    const ident = id;
+    charger(ident, false)
+      .then((attendre) => {
+        if (attendre) suivre();
+        void chargerFactures(ident);
+      })
       .catch((e) => (erreurChargement = message(e)));
   }
 
@@ -339,11 +379,11 @@
     return c.code !== 'montants' || montantsCoherents;
   }
   let alertes = $derived(d ? d.controles.filter((c) => c.code !== 'doublon' && !levee(c)) : []);
-  let annexesTexte = $derived(
-    d && d.etat === 'lu' && d.type !== 'bl' && d.annexes_ht && d.annexes_ht > 0.005 ? `${formatMontant(d.annexes_ht)} HT` : ''
+  // Facture : ses écarts d'articles une fois (le serveur écrit les mêmes sur tous ses liens) ; BL :
+  // ceux de chacune de ses factures.
+  let articlesEcart = $derived(
+    rap ? (d?.type === 'bl' ? rap.liens.flatMap((l) => l.ecarts) : (rap.liens[0]?.ecarts ?? [])).map(phraseEcartLigne) : []
   );
-  let articlesEcart = $derived(rap ? rap.liens.flatMap((l) => l.ecarts).map(phraseEcartLigne) : []);
-  let remiseTexte = $derived(d && d.etat === 'lu' && d.type !== 'bl' ? texteRemise(d.remise_ht, d.remise_taux) : '');
   let doublon = $derived(d?.controles.find((c) => c.code === 'doublon') ?? null);
   /** Société non reconnue ou douteuse : bandeau à part, avec le choix de la société ou le rejet. */
   let alerteSociete = $derived(alertes.find((c) => c.code === 'societe') ?? null);
@@ -499,10 +539,12 @@
     try {
       const r = await validerDocument(d.id, { corrections, forcer: forcer || undefined }, societe.id);
       void rafraichirCompteurs();
+      // Envoi différé côté serveur : message « Annuler » en bas de l'écran, la suite s'ouvre.
+      if (r.annulation) annulations.annoncer(r.annulation, quoi, `${quoi} validé${choix.type === 'facture' ? 'e' : ''}`, nomOutil(outil));
       onfait({
         id: d.id,
         suivant: r.suivant,
-        info: r.envoi ? `Envoi à ${nomOutil(outil)} demandé : ${quoi}` : `Validé : ${quoi}`
+        info: r.annulation ? '' : r.envoi ? `Envoi à ${nomOutil(outil)} demandé : ${quoi}` : `Validé : ${quoi}`
       });
     } catch (e) {
       if (e instanceof ErreurApi && e.code === 409) {
@@ -514,15 +556,43 @@
     }
   }
 
-  async function ecarter() {
+  /** Motif choisi dans le dialogue « Écarter » (facultatif). */
+  let motifEcart = $state<MotifEcartement | null>(null);
+  let texteEcart = $state('');
+  $effect(() => {
+    if (dlgEcarter) {
+      motifEcart = null;
+      texteEcart = '';
+    }
+  });
+
+  async function ecarter(motif: MotifEcartement | null = null, texte = '') {
     if (!d || occupe) return;
     occupe = 'ecarter';
     erreur = '';
     const quoi = titreDoc;
     try {
-      const r = await ecarterDocument(d.id, societe.id);
+      const r = await ecarterDocument(d.id, societe.id, { motif, texte: texte.trim() || null });
       void rafraichirCompteurs();
       onfait({ id: d.id, suivant: r.suivant, info: `Écarté : ${quoi}` });
+    } catch (e) {
+      erreur = message(e);
+    } finally {
+      occupe = null;
+    }
+  }
+
+  /** « Remettre à contrôler » une pièce écartée : elle retrouve son état d'avant l'écartement. */
+  async function remettre() {
+    if (!d || occupe) return;
+    occupe = 'remettre';
+    erreur = '';
+    try {
+      await remettreDocument(d.id);
+      info = 'De nouveau à contrôler.';
+      await charger(d.id, true);
+      onchange?.();
+      void rafraichirCompteurs();
     } catch (e) {
       erreur = message(e);
     } finally {
@@ -550,9 +620,27 @@
   async function apresLien(phrase: string) {
     info = phrase;
     erreur = '';
-    await charger(id, true);
+    const ident = id;
+    await charger(ident, true);
+    void chargerFactures(ident);
     onchange?.();
     void rafraichirCompteurs();
+  }
+
+  /** « C’est le bon IBAN » (admins) : l’IBAN de la facture devient celui connu du fournisseur. */
+  let ibanEnCours = $state(false);
+  async function confirmerIbanDoc() {
+    if (!d) return;
+    ibanEnCours = true;
+    erreur = '';
+    try {
+      await confirmerIban(d.id);
+      await apresLien('IBAN enregistré pour ce fournisseur : l’alerte est levée.');
+    } catch (e) {
+      erreur = message(e);
+    } finally {
+      ibanEnCours = false;
+    }
   }
 
   /** « Lire maintenant » (admins) : la lecture passe devant toute la file, hors quota du jour. */
@@ -590,7 +678,7 @@
   );
 
   let dlgEcarter = $state(false);
-  let dlgRejeter = $state(false);
+  let dlgEcarterSociete = $state(false);
   let dlgForcer = $state(false);
   let dlgRelire = $state(false);
   let dlgRelireDetail = $state(false);
@@ -601,6 +689,26 @@
     !!d && d.etat === 'lu' && (d.type === 'facture' || d.type === 'avoir') && d.montant_ttc === null && d.statut_depot !== 'depose'
   );
 
+  /** Origine d'un PDF découpé en plusieurs pièces : ignorée, chaque partie a sa fiche. */
+  let decoupe = $derived(!!d && d.etat === 'ignore' && (d.parties?.length ?? 0) > 0);
+  /** Écartée par un humain (ou doublon écarté, ou pièce lue écartée avant le motif) : « Remettre
+   * à contrôler » possible (mêmes cas que le serveur). Jamais l'origine d'un PDF découpé. */
+  let ecartee = $derived(
+    !!d &&
+      !decoupe &&
+      ((d.etat === 'ignore' && (!!d.ecartement || (!!d.lu_le && (d.type === 'facture' || d.type === 'avoir' || d.type === 'bl')))) ||
+        (d.statut_depot === 'doublon' && !!d.verifie_le && !!d.ecartement))
+  );
+  const pagesPartie = (p: { page_debut: number | null; page_fin: number | null }) =>
+    p.page_debut === null ? 'pièce' : p.page_debut === p.page_fin ? `p. ${p.page_debut}` : `p. ${p.page_debut}-${p.page_fin}`;
+  let phraseEcartement = $derived.by(() => {
+    const e = d?.ecartement;
+    if (!e) return '';
+    const m = libelleMotif(e.motif);
+    const motif = m ? ` Motif : ${m.toLowerCase()}${e.texte ? ` (${e.texte})` : ''}.` : e.texte ? ` ${e.texte}` : '';
+    return `Le ${jourHeure(e.le)}${e.par_nom ? `, par ${e.par_nom}` : ''}.${motif}`;
+  });
+
   // Plan de la barre d'action selon l'état du document.
   type Plan = { principal: Action; secondaires: Action[]; ecarter?: () => void };
   let plan = $derived.by((): Plan => {
@@ -608,13 +716,17 @@
     if (!d) return { principal: { libelle: libelleValider(null, null), desactive: true }, secondaires: [] };
     if (d.etat === 'a_lire' || d.etat === 'en_cours') return { principal: { libelle: libelleEtat(d.etat), enCours: true }, secondaires: [] };
     if (d.etat === 'erreur') {
-      const e = { libelle: 'Écarter', touche: 'Enter', onclick: ecarter, enCours: occupe === 'ecarter', desactive: occ };
-      return { principal: e, secondaires: [], ecarter };
+      const e = { libelle: 'Écarter', touche: 'Enter', onclick: () => ecarter(), enCours: occupe === 'ecarter', desactive: occ };
+      return { principal: e, secondaires: [], ecarter: () => ecarter() };
     }
-    if (d.etat === 'ignore') {
-      return admin
-        ? { principal: { libelle: 'Relire avec Claude', onclick: () => (dlgRelire = true) }, secondaires: [] }
+    if (d.etat === 'ignore' && !ecartee) {
+      return admin && !decoupe
+        ? { principal: { libelle: 'Relire avec Claude', onclick: () => (dlgRelire = true), desactive: occ }, secondaires: [] }
         : { principal: { libelle: `Retour à ${retourLibelle}`, href: retour }, secondaires: [] };
+    }
+    if (ecartee) {
+      const r: Action = { libelle: 'Remettre à contrôler', touche: 'Enter', onclick: remettre, enCours: occupe === 'remettre', desactive: occ };
+      return { principal: r, secondaires: admin && d.etat === 'ignore' ? [{ libelle: 'Relire avec Claude', onclick: () => (dlgRelire = true), desactive: occ }] : [] };
     }
     if (d.statut_depot === 'en_envoi') return { principal: { libelle: libelleStatutEnvoi('en_envoi'), enCours: true }, secondaires: [] };
     if (d.statut_depot === 'depose' || envoiDemande(d) || d.envoi_relance) return { principal: { libelle: `Retour à ${retourLibelle}`, href: retour }, secondaires: [] };
@@ -622,7 +734,7 @@
       const sec: Action[] = admin
         ? [{ libelle: 'Envoyer quand même', danger: true, onclick: () => (dlgForcer = true), enCours: occupe === 'forcer', desactive: occ }]
         : [];
-      return { principal: { libelle: 'Écarter le doublon', touche: 'Enter', onclick: ecarter, enCours: occupe === 'ecarter', desactive: occ }, secondaires: sec, ecarter };
+      return { principal: { libelle: 'Écarter le doublon', touche: 'Enter', onclick: () => ecarter('doublon'), enCours: occupe === 'ecarter', desactive: occ }, secondaires: sec, ecarter: () => ecarter('doublon') };
     }
     if (d.statut_depot === 'erreur') {
       return {
@@ -727,13 +839,49 @@
     if (n) return `${n} ligne${n > 1 ? 's' : ''} lue${n > 1 ? 's' : ''}${d.modele ? ' par Claude' : ''}`;
     return d.lu_le ? `lu le ${jourHeure(d.lu_le)}` : '';
   });
-  async function rapprocher() {
-    ouvrirLiens = !ouvrirLiens;
-    if (!ouvrirLiens) return;
-    await tick();
-    document.getElementById(`${uid}-liens`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
   let exportPhenix = $state<EtatExportPhenix | null>(null);
+
+  // ---------- Chaîne ----------
+  let ficheEl = $state<HTMLElement>();
+  /** Chaîne pour une facture, un avoir ou un BL lus (d.type : la structure suit la pièce enregistrée). */
+  let avecChaine = $derived(!!d && d.etat === 'lu' && (d.type === 'facture' || d.type === 'avoir' || d.type === 'bl'));
+  /** BL lu avec ses lignes : tableau des articles sous la chaîne (plus dans le repli Lecture). */
+  let articlesBl = $derived(avecChaine && d?.type === 'bl' && !!rap?.lignes.length);
+  let avecEnvoi = $derived(!!d && (!!d.statut_depot || deposable));
+  let avecLogiflow = $derived(
+    !!d &&
+      ((d.type === 'facture' && d.statut_depot === 'depose' && (d.logiflow_configure || !!d.logiflow)) ||
+        (estBl && (d.logiflow_configure || !!d.logiflow_livraison)))
+  );
+  let resumeLogiflow = $derived.by(() => {
+    if (!d) return '';
+    if (d.type === 'facture') return d.logiflow ? d.logiflow.message : d.logiflow_attendu || attenteLogiflow ? 'recherche en cours' : 'pas encore reporté';
+    const ll = d.logiflow_livraison;
+    return !ll ? 'pas encore' : ll.etat === 'ambigu' ? `${ll.possibles} livraisons possibles` : ll.facture ? `livraison n° ${ll.livraison_id}, facture ${ll.facture}` : `livraison n° ${ll.livraison_id}, sans facture`;
+  });
+  let pointEnvoi = $derived<PointChaine>(d?.statut_depot === 'depose' ? 'ok' : d?.statut_depot === 'erreur' ? 'alerte' : 'creux');
+  let pointLogiflow = $derived.by((): PointChaine => {
+    if (!d) return 'creux';
+    if (d.type === 'facture') return d.logiflow ? (d.logiflow.ok ? 'ok' : 'alerte') : 'creux';
+    const ll = d.logiflow_livraison;
+    return !ll ? 'creux' : ll.etat === 'ambigu' ? 'alerte' : 'ok';
+  });
+
+  /** « Voir » du bandeau d'écart d'articles : sur un BL, déplie ses factures qui en ont ; amène la vue dessus. */
+  async function voirEcarts() {
+    if (!d || !rap) return;
+    let cible = 'courant';
+    if (d.type === 'bl') {
+      const cles = rap.liens.filter((l) => l.ecarts.length).map((l) => `facture-${l.autre.id}`);
+      for (const k of cles) ouverts.add(k);
+      cible = cles[0] ?? cible;
+    }
+    await tick();
+    ficheEl?.querySelector(`[data-maillon="${cible}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+  function voirPhenix() {
+    document.getElementById(`${uid}-phenix`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
 </script>
 
 {#snippet montantLu(s: string)}
@@ -742,7 +890,7 @@
   {:else if Number.isNaN(lireMontant(s))}
     <span class="num">{s}</span><span class="indice">montant illisible</span>
   {:else}
-    <Montant valeur={lireMontant(s)} />
+    <Montant valeur={lireMontant(s)} devise="" />
   {/if}
 {/snippet}
 
@@ -750,6 +898,143 @@
   {@const v = propositions[k]}
   {#if v !== undefined && editable}
     <button type="button" class="btn sm doc-proposer" onclick={() => (choix[k] = ecrireMontant(v))}>Mettre {formatMontant(v)}</button>
+  {/if}
+{/snippet}
+
+{#snippet champsMontants()}
+  {#if d}
+    <div class="lignes-champs doc-montants">
+      {#if estBl && !lu.ht && !lu.tva && !lu.ttc}
+        <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable}>
+          {#snippet affichage()}
+            {#if choix.ht === ''}<span class="vide-val">Non lu sur le BL</span>{:else}{@render montantLu(choix.ht)}{/if}
+          {/snippet}
+        </Champ>
+      {:else}
+        <Champ disposition="ligne" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
+          {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
+          {#snippet apres()}{@render proposer('ht')}{/snippet}
+        </Champ>
+        <Champ disposition="ligne" libelle="TVA" bind:valeur={choix.tva} mono inputmode="decimal" modifiable={editable} aControler={aControler('tva')} indice={tauxTva(ht, tva) || undefined}>
+          {#snippet affichage()}{@render montantLu(choix.tva)}{/snippet}
+          {#snippet apres()}{@render proposer('tva')}{/snippet}
+        </Champ>
+        <Champ disposition="ligne" libelle="TTC" bind:valeur={choix.ttc} mono inputmode="decimal" modifiable={editable} aControler={aControler('ttc')}>
+          {#snippet affichage()}{@render montantLu(choix.ttc)}{/snippet}
+          {#snippet apres()}{@render proposer('ttc')}{/snippet}
+        </Champ>
+      {/if}
+    </div>
+    {#if d.confiance?.montants_calcules?.length}
+      <p class="annexes-montants">
+        {d.confiance.montants_calcules.map((c) => ({ ht: 'HT', tva: 'TVA', ttc: 'TTC' })[c]).join(', ')} non imprimés sur le BL : calculés à partir des lignes (quantité × prix,
+        éco-participations comprises, TVA 20 % sauf taux indiqué).
+      </p>
+    {/if}
+  {/if}
+{/snippet}
+
+<!-- Contenu du maillon Dext/Yooz (ou du repli Envoi d'une pièce sans chaîne) -->
+{#snippet contenuEnvoi()}
+  {#if d}
+    <div class="doc-envoi">
+      {#if d.societe_adresse_depot}
+        <p>Destination : <span class="num">{d.societe_adresse_depot}</span>{d.societe ? `, ${d.societe}` : ''}</p>
+      {:else}
+        <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin}{' '}<a href="/reglages#societes">Réglages</a>{/if}</p>
+      {/if}
+      {#if d.statut_depot}
+        <p><Etiquette ton={tonStatutEnvoi(d.statut_depot)}>{libelleStatutEnvoi(d.statut_depot, outil)}</Etiquette>
+          {#if d.valide_le}<span class="t2 petit">validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}</span>{/if}
+        </p>
+      {/if}
+    </div>
+  {#if d.envois.length}
+      <div class="defile-x"><table>
+        <thead><tr><th>Envoi</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
+        <tbody>
+          {#each d.envois as e (e.id)}
+            <tr>
+              <td class="num">{jourHeure(e.quand)}</td>
+              <td class="num">{e.adresse}</td>
+              <td>
+                <Etiquette ton={e.etat === 'envoye' ? 'ok' : e.etat === 'erreur' ? 'erreur' : 'neutre'}>{e.etat === 'envoye' ? 'Envoyé' : e.etat === 'erreur' ? 'Échec' : 'En cours'}</Etiquette>
+                {#if e.message}<div class="t2 petit">{e.message}</div>{/if}
+              </td>
+              <td class="t2">{e.auteur ?? 'automatique'}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table></div>
+    {:else}
+      <p class="t2 petit">Aucun envoi pour l’instant.</p>
+  {/if}
+  {/if}
+{/snippet}
+
+<!-- Contenu du maillon Logiflow : report de la facture, ou livraison du BL -->
+{#snippet contenuLogiflow()}
+  {#if d && d.type === 'facture'}
+    {@const lf = d.logiflow}
+    <div class="doc-envoi">
+      {#if lf}
+        <p>
+          <Etiquette ton={lf.ok ? 'ok' : 'alerte'}>{lf.ok ? 'Reportée' : 'À regarder'}</Etiquette>
+          <span class="t2 petit">le {jourHeure(lf.quand)} : {lf.message}</span>
+        </p>
+      {:else if d.logiflow_attendu || attenteLogiflow}
+        <p class="t2 petit">Recherche des livraisons dans Logiflow…</p>
+      {:else}
+        <p class="t2 petit">Cette facture n’a pas encore été reportée dans Logiflow.</p>
+      {/if}
+    </div>
+    {#if lf?.livraisons.length}
+      <div class="defile-x"><table>
+        <thead><tr><th>BL</th><th>Livraison</th><th>Résultat</th></tr></thead>
+        <tbody>
+          {#each lf.livraisons as l, i (i)}
+            <tr>
+              <td class="num" style="white-space: nowrap">{l.bl}</td>
+              <td class="t2">{#if l.livraison_id}n° <span class="num">{l.livraison_id}</span>{l.magasin ? `, ${l.magasin}` : ''}{:else}—{/if}</td>
+              <td>
+                <Etiquette ton={LIBELLES_LOGIFLOW[l.etat]?.ton ?? 'neutre'}>{LIBELLES_LOGIFLOW[l.etat]?.texte ?? l.etat}</Etiquette>
+                <div class="t2 petit">{l.message}</div>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table></div>
+  {/if}
+  {#if d.logiflow_configure && !(d.logiflow_attendu || (attenteLogiflow && !lf))}
+      <p><button type="button" class="btn sm" onclick={relancerLogiflow}><Icone nom="rafraichir" />Relancer la recherche</button></p>
+  {/if}
+  {:else if d}
+    {@const ll = d.logiflow_livraison}
+    <div class="doc-envoi">
+      {#if !ll}
+        <p class="t2 petit">Aucune livraison livrée avec ce n° de BL dans Logiflow pour l’instant. GMFlow vérifie toutes les heures.</p>
+      {:else if ll.etat === 'ambigu'}
+        <p>
+          <Etiquette ton="alerte">À rapprocher dans Logiflow</Etiquette>
+          <span class="t2 petit">{ll.possibles} livraisons portent ce n° de BL : GMFlow n’en choisit aucune.</span>
+        </p>
+      {:else}
+        <p>
+          <Etiquette ton={ll.rapprochee ? 'ok' : ll.facture ? 'ok' : 'neutre'}>{ll.rapprochee ? 'Rapprochée' : ll.facture ? 'Facture saisie' : 'Sans facture'}</Etiquette>
+          <span class="t2 petit">vu le {jourHeure(ll.vu_le)}</span>
+        </p>
+        <p><span class="t2">Livraison</span> n° <span class="num">{ll.livraison_id}</span>{ll.magasin ? `, ${ll.magasin}` : ''}{ll.livree_le ? `, livrée le ${dateFr(ll.livree_le)}` : ''}</p>
+        {#if ll.fournisseur}<p><span class="t2">Fournisseur</span> {ll.fournisseur}</p>{/if}
+        {#if ll.montant_bl !== null}<p><span class="t2">Montant du BL</span> <Montant valeur={ll.montant_bl} /></p>{/if}
+        {#if ll.facture}
+          <p>
+            <span class="t2">Facture</span> <span class="num">{ll.facture}</span>{#if ll.facture_ht !== null}, HT <Montant valeur={ll.facture_ht} />{/if}{#if ll.facture_ttc !== null}, TTC <Montant valeur={ll.facture_ttc} />{/if}{#if ll.echeance}, échéance <span class="num">{dateFr(ll.echeance)}</span>{/if}
+          </p>
+        {:else}
+          <p class="t2 petit">La facture sera écrite dans Logiflow quand une facture liée à ce BL sera envoyée à Dext/Yooz.</p>
+        {/if}
+      {/if}
+    </div>
   {/if}
 {/snippet}
 
@@ -804,7 +1089,7 @@
 
   <Poignee bind:largeur={largFiche} bind:choisie={ficheChoisie} defaut={defautFiche} min={300} max={900} cote="droite" cle={cleFiche} libelle="Largeur de la fiche" fiche />
 
-  <section class="doc-fiche" class:choisie={ficheChoisie} style:--larg-choisie="{largFiche}px" aria-label={estBl ? 'Détails du BL' : 'Détails de la pièce'}>
+  <section bind:this={ficheEl} class="doc-fiche" class:choisie={ficheChoisie} style:--larg-choisie="{largFiche}px" aria-label={estBl ? 'Détails du BL' : 'Détails de la pièce'}>
     <div class="contenu-fiche avec-barre">
       {#if annonce}<Bandeau ton="ok" role="status">{annonce}</Bandeau>{/if}
       {#if info}<Bandeau ton="ok" role="status">{info}</Bandeau>{/if}
@@ -862,8 +1147,15 @@
           </Bandeau>
         {:else if d.etat === 'erreur'}
           <Bandeau ton="erreur" titre="Illisible.">{d.message ? phrase(d.message) : 'La lecture a échoué.'}{admin ? ' Relisez-le avec Claude, ou écartez-le.' : ''}</Bandeau>
+        {:else if decoupe}
+          <Bandeau ton="neutre" titre="Fichier découpé en {d.parties.length} pièces.">
+            Chacune se contrôle à part :
+            {#each d.parties as p, i (p.id)}{i > 0 ? ', ' : ' '}<a href="/documents/{p.id}">{pagesPartie(p)}</a>{/each}.
+          </Bandeau>
         {:else if d.etat === 'ignore'}
-          <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}</Bandeau>
+          <Bandeau ton="neutre" titre="{libelleEtat('ignore')}.">{#if d.ecartement}{phraseEcartement}{:else}Ce document n’est ni une facture, ni un avoir, ni un BL.{d.message ? ` ${d.message}` : ''}{/if}</Bandeau>
+        {:else if ecartee}
+          <Bandeau ton="neutre" titre="Doublon écarté.">{phraseEcartement}</Bandeau>
         {:else if d.statut_depot === 'en_envoi'}
           <Bandeau ton="info" titre="{libelleStatutEnvoi('en_envoi')}.">La fiche se met à jour toute seule.</Bandeau>
         {:else if envoiDemande(d)}
@@ -878,6 +1170,12 @@
           </Bandeau>
         {:else if doublon && !refus && !d.verifie_le}
           <Bandeau ton="erreur" titre="Doublon.">{phrase(doublon.message)}</Bandeau>
+        {:else if autresAlertes[0]?.code === 'iban' && !refus}
+          <!-- IBAN changé (fraude au RIB) : en rouge, avec « C’est le bon IBAN » pour un admin. -->
+          {#snippet boutonIban()}<button type="button" class="btn sm" class:en-cours={ibanEnCours} disabled={ibanEnCours || occupe !== null} onclick={confirmerIbanDoc}>C’est le bon IBAN</button>{/snippet}
+          <Bandeau ton="erreur" titre="{titreAlerte(autresAlertes[0])} :" action={admin ? boutonIban : undefined}>
+            {phrase(autresAlertes[0].message)}{admin ? '' : ' Seul un administrateur peut enregistrer ce nouvel IBAN.'}
+          </Bandeau>
         {:else if autresAlertes.length && !refus}
           {@const a0 = autresAlertes[0]}
           <Bandeau titre={detailAlerte(a0) ? `${titreAlerte(a0)} :` : `${titreAlerte(a0)}.`}>
@@ -895,7 +1193,7 @@
             {d.societe_id === null
               ? 'Aucune de vos sociétés n’est trouvée sur le document.'
               : `${d.societe ?? 'La société'} est trouvée avec peu de certitude.`}
-            Choisissez la bonne société, ou rejetez la pièce si elle n’est pas pour vous.
+            Choisissez la bonne société, ou écartez la pièce si elle n’est pas pour vous.
             <span class="choix-societe">
               {#each societe.liste as s (s.id)}
                 <button
@@ -907,7 +1205,7 @@
                   onclick={() => (choix.societe = String(s.id))}>{nomCourtSociete(s.raison_sociale)}</button
                 >
               {/each}
-              <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgRejeter = true)}>Rejeter</button>
+              <button type="button" class="btn sm danger" disabled={!editable} onclick={() => (dlgEcarterSociete = true)}>Écarter</button>
             </span>
           </Bandeau>
         {:else if change('societe') && lu.societe === '' && choix.societe !== '' && d.etat === 'lu' && !fige}
@@ -916,13 +1214,8 @@
         {#if articlesEcart.length && d.etat === 'lu'}
           {@const p = articlesEcart[0]}
           <Bandeau titre="{articlesEcart.length > 1 ? `${articlesEcart.length} articles en écart avec ${d.type === 'bl' ? 'la facture' : 'le BL'}` : `${p.titre}`}.">
-            {p.article} : {p.detail}{p.montant !== null && Math.abs(p.montant) > 0.005 ? ` (${p.montant > 0 ? '+' : ''}${formatMontant(p.montant)} HT)` : ''}.{articlesEcart.length > 1 ? ' Détail dans « ' + (d.type === 'bl' ? 'Facture liée' : 'BL liés') + ' ».' : ''}
-            {#snippet action()}<button type="button" class="btn sm" onclick={() => (ouvrirLiens = true)}>Voir</button>{/snippet}
-          </Bandeau>
-        {/if}
-        {#if remiseTexte}
-          <Bandeau ton="info" titre="Remise de {remiseTexte}.">
-            Elle est déduite du total HT de la {d.type === 'avoir' ? 'pièce' : 'facture'}{articlesEcart.length ? ' ; l’écart qui reste avec les BL vient des articles signalés.' : ' : un écart avec les BL, valorisés avant remise, est normal.'}
+            {p.article} : {p.detail}{p.montant !== null && Math.abs(p.montant) > 0.005 ? ` (${p.montant > 0 ? '+' : ''}${formatMontant(p.montant)} HT)` : ''}.{articlesEcart.length > 1 ? ' Détail dans la chaîne.' : ''}
+            {#snippet action()}<button type="button" class="btn sm" onclick={voirEcarts}>Voir</button>{/snippet}
           </Bandeau>
         {/if}
         {#if d.etat === 'lu' && d.message && !envoiDemande(d) && d.statut_depot !== 'depose' && !d.verifie_le}
@@ -942,10 +1235,43 @@
           </Bandeau>
         {/if}
 
+
+        {#if avecChaine}
+          <DocChaine
+            {d}
+            {rap}
+            {factures}
+            bind:ouverts
+            onchange={apresLien}
+            onerreur={(m) => (erreur = m)}
+            lu={{ ht: d.montant_ht, corrige: change('ht') }}
+            resumes={{ phenix: exportPhenix ? resumeExport(exportPhenix) : '', envoi: resumeEnvoi, logiflow: resumeLogiflow }}
+            points={{ envoi: pointEnvoi, logiflow: pointLogiflow }}
+            onphenix={voirPhenix}
+            montantsPiece={champsMontants}
+            envoi={avecEnvoi ? contenuEnvoi : undefined}
+            logiflow={avecLogiflow ? contenuLogiflow : undefined}
+          />
+        {:else if d.etat === 'lu'}
+          <div class="carte-fiche">
+            <h3 class="titre-carte">Montants</h3>
+            {@render champsMontants()}
+          </div>
+        {/if}
+        {#if articlesBl && rap}
+          <DocArticlesBl
+            lignes={rap.lignes}
+            ecarts={rap.liens.flatMap((l) => l.ecarts)}
+            factureLiee={rap.liens.length > 0}
+            plusieursBl={rap.liens.some((l) => (factures.get(l.autre.id)?.rap?.liens.length ?? 0) >= 2)}
+          />
+          {#if d.etat === 'lu'}{@render corrigerLignes()}{/if}
+        {/if}
+
         {#if d.etat === 'lu'}
           {@const ctrlF = aControler('fournisseur')}
           <div class="carte-fiche">
-          <h3 class="titre-carte">Pièce</h3>
+          <h3 class="titre-carte">Détails de la pièce</h3>
           <div class="lignes-champs">
             {#if montrerType}
               <Champ
@@ -1032,67 +1358,8 @@
                 {/snippet}
               </Champ>
             {/if}
-            {#if estBl && rap}
-              <div class="champ-ligne">
-                <div class="k">Facture liée</div>
-                <div class="v modifiable">
-                  <button type="button" class="val" aria-expanded={ouvrirLiens} onclick={() => (ouvrirLiens = !ouvrirLiens)}>
-                    {#if rap.liens.length}
-                      <span>{rap.liens.map((l) => typeNumero(l.autre.type, l.autre.numero)).join(', ')}</span>
-                    {:else}
-                      <span>{rap.ignore ? 'pas de facture attendue' : 'aucune'}</span>
-                    {/if}
-                  </button>
-                </div>
-              </div>
-            {/if}
           </div>
-          {#if estBl && rap && ouvrirLiens}
-            <div class="doc-panneau" id="{uid}-liens">
-              <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
-            </div>
-          {/if}
           </div>
-
-          <div class="carte-fiche">
-            <h3 class="titre-carte">Montants</h3>
-            {#if estBl && !lu.ht && !lu.tva && !lu.ttc}
-              <div class="tuiles une">
-                <Champ disposition="tuile" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable}>
-                  {#snippet affichage()}
-                    {#if choix.ht === ''}<span class="vide-val">Non lu sur le BL</span>{:else}{@render montantLu(choix.ht)}{/if}
-                  {/snippet}
-                </Champ>
-              </div>
-            {:else}
-              <div class="tuiles">
-                <Champ disposition="tuile" libelle="Total HT" bind:valeur={choix.ht} mono inputmode="decimal" modifiable={editable} aControler={aControler('ht')}>
-                  {#snippet affichage()}{@render montantLu(choix.ht)}{/snippet}
-                  {#snippet apres()}{@render proposer('ht')}{/snippet}
-                </Champ>
-                <Champ disposition="tuile" libelle="TVA" bind:valeur={choix.tva} mono inputmode="decimal" modifiable={editable} aControler={aControler('tva')} indice={tauxTva(ht, tva) || undefined}>
-                  {#snippet affichage()}{@render montantLu(choix.tva)}{/snippet}
-                  {#snippet apres()}{@render proposer('tva')}{/snippet}
-                </Champ>
-                <Champ disposition="tuile" libelle="TTC" bind:valeur={choix.ttc} mono inputmode="decimal" modifiable={editable} aControler={aControler('ttc')}>
-                  {#snippet affichage()}{@render montantLu(choix.ttc)}{/snippet}
-                  {#snippet apres()}{@render proposer('ttc')}{/snippet}
-                </Champ>
-              </div>
-              {#if d.confiance?.montants_calcules?.length}
-                <p class="annexes-montants">
-                  {d.confiance.montants_calcules.map((c) => ({ ht: 'HT', tva: 'TVA', ttc: 'TTC' })[c]).join(', ')} non imprimés sur le BL : calculés à partir des lignes (quantité × prix,
-                  éco-participations comprises, TVA 20 % sauf taux indiqué).
-                </p>
-              {/if}
-              {#if remiseTexte || annexesTexte}
-                <p class="annexes-montants">
-                  {#if remiseTexte}Remise <span class="num">−{remiseTexte}</span>{/if}{#if remiseTexte && annexesTexte}{' · '}{/if}{#if annexesTexte}Éco-part., port <span class="num">{annexesTexte}</span>{/if}
-                </p>
-              {/if}
-            {/if}
-          </div>
-
 
           {#if proposerRangement}
             <Bandeau ton="info">
@@ -1110,191 +1377,78 @@
         {/if}
 
         {#if d.etat === 'lu' && d.type === 'bl'}
-          <div class="carte-fiche">
+          <div class="carte-fiche" id="{uid}-phenix">
             <h3 class="titre-carte">Export Phénix {#if exportPhenix}<span class="etiquette-carte">{resumeExport(exportPhenix)}</span>{/if}</h3>
             <DocExportPhenix id={d.id} bind:etat={exportPhenix} onerreur={(m) => (erreur = m)} />
           </div>
         {/if}
 
         <div class="carte-fiche">
-        <h3 class="titre-carte">Suivi</h3>
-        <div class="replis doc-liens">
-          {#if d.etat === 'lu' && rap && d.type === 'facture'}
-            <Repli icone="camion" titre={titreLiens(d.type)} resume={resumeLiens(d, rap)} bind:ouvert={ouvrirLiens}>
-              <DocRapprochement {d} {rap} onchange={apresLien} onerreur={(m) => (erreur = m)} />
-            </Repli>
-          {/if}
-          {#if d.statut_depot || deposable}
-            <Repli icone="envoyer" titre={titreEnvoi(outil)} resume={resumeEnvoi}>
-              <div class="doc-envoi">
-                {#if d.societe_adresse_depot}
-                  <p>Destination : <span class="num">{d.societe_adresse_depot}</span>{d.societe ? `, ${d.societe}` : ''}</p>
-                {:else}
-                  <p class="t2">{d.societe ?? 'La société'} n’a pas d’adresse {nomOutil(outil)}.{#if admin} <a href="/reglages#societes">Réglages</a>{/if}</p>
-                {/if}
-                {#if d.statut_depot}
-                  <p><Etiquette ton={tonStatutEnvoi(d.statut_depot)}>{libelleStatutEnvoi(d.statut_depot, outil)}</Etiquette>
-                    {#if d.valide_le}<span class="t2 petit">validée le {jourHeure(d.valide_le)}{d.valide_par ? ` par ${d.valide_par}` : ''}</span>{/if}
-                  </p>
-                {/if}
-              </div>
-              {#if d.envois.length}
-                <div class="defile-x"><table>
-                  <thead><tr><th>Envoi</th><th>Adresse</th><th>Résultat</th><th>Par</th></tr></thead>
-                  <tbody>
-                    {#each d.envois as e (e.id)}
-                      <tr>
-                        <td class="num">{jourHeure(e.quand)}</td>
-                        <td class="num">{e.adresse}</td>
-                        <td>
-                          <Etiquette ton={e.etat === 'envoye' ? 'ok' : e.etat === 'erreur' ? 'erreur' : 'neutre'}>{e.etat === 'envoye' ? 'Envoyé' : e.etat === 'erreur' ? 'Échec' : 'En cours'}</Etiquette>
-                          {#if e.message}<div class="t2 petit">{e.message}</div>{/if}
-                        </td>
-                        <td class="t2">{e.auteur ?? 'automatique'}</td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table></div>
-              {:else}
-                <p class="t2 petit">Aucun envoi pour l’instant.</p>
-              {/if}
-            </Repli>
-          {/if}
-          {#if d.type === 'facture' && d.statut_depot === 'depose' && (d.logiflow_configure || d.logiflow)}
-            {@const lf = d.logiflow}
-            <Repli
-              icone="camion"
-              titre="Logiflow"
-              resume={lf ? lf.message : d.logiflow_attendu || attenteLogiflow ? 'recherche en cours' : 'pas encore reporté'}
-              ouvert={!!lf && !lf.ok}
-            >
-              <div class="doc-envoi">
-                {#if lf}
-                  <p>
-                    <Etiquette ton={lf.ok ? 'ok' : 'alerte'}>{lf.ok ? 'Reportée' : 'À regarder'}</Etiquette>
-                    <span class="t2 petit">le {jourHeure(lf.quand)} : {lf.message}</span>
-                  </p>
-                {:else if d.logiflow_attendu || attenteLogiflow}
-                  <p class="t2 petit">Recherche des livraisons dans Logiflow…</p>
-                {:else}
-                  <p class="t2 petit">Cette facture n’a pas encore été reportée dans Logiflow.</p>
-                {/if}
-              </div>
-              {#if lf?.livraisons.length}
-                <div class="defile-x"><table>
-                  <thead><tr><th>BL</th><th>Livraison</th><th>Résultat</th></tr></thead>
-                  <tbody>
-                    {#each lf.livraisons as l, i (i)}
-                      <tr>
-                        <td class="num" style="white-space: nowrap">{l.bl}</td>
-                        <td class="t2">{#if l.livraison_id}n° <span class="num">{l.livraison_id}</span>{l.magasin ? `, ${l.magasin}` : ''}{:else}—{/if}</td>
-                        <td>
-                          <Etiquette ton={LIBELLES_LOGIFLOW[l.etat]?.ton ?? 'neutre'}>{LIBELLES_LOGIFLOW[l.etat]?.texte ?? l.etat}</Etiquette>
-                          <div class="t2 petit">{l.message}</div>
-                        </td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table></div>
-              {/if}
-              {#if d.logiflow_configure && !(d.logiflow_attendu || (attenteLogiflow && !lf))}
-                <p><button type="button" class="btn sm" onclick={relancerLogiflow}><Icone nom="rafraichir" />Relancer la recherche</button></p>
-              {/if}
-            </Repli>
-          {/if}
-          {#if estBl && (d.logiflow_configure || d.logiflow_livraison)}
-            {@const ll = d.logiflow_livraison}
-            <Repli
-              icone="camion"
-              titre="Logiflow"
-              resume={!ll ? 'pas encore' : ll.etat === 'ambigu' ? `${ll.possibles} livraisons possibles` : ll.facture ? `livraison n° ${ll.livraison_id}, facture ${ll.facture}` : `livraison n° ${ll.livraison_id}, sans facture`}
-            >
-              <div class="doc-envoi">
-                {#if !ll}
-                  <p class="t2 petit">Aucune livraison livrée avec ce n° de BL dans Logiflow pour l’instant. GMFlow vérifie toutes les heures.</p>
-                {:else if ll.etat === 'ambigu'}
-                  <p>
-                    <Etiquette ton="alerte">À rapprocher dans Logiflow</Etiquette>
-                    <span class="t2 petit">{ll.possibles} livraisons portent ce n° de BL : GMFlow n’en choisit aucune.</span>
-                  </p>
-                {:else}
-                  <p>
-                    <Etiquette ton={ll.rapprochee ? 'ok' : ll.facture ? 'ok' : 'neutre'}>{ll.rapprochee ? 'Rapprochée' : ll.facture ? 'Facture saisie' : 'Sans facture'}</Etiquette>
-                    <span class="t2 petit">vu le {jourHeure(ll.vu_le)}</span>
-                  </p>
-                  <p><span class="t2">Livraison</span> n° <span class="num">{ll.livraison_id}</span>{ll.magasin ? `, ${ll.magasin}` : ''}{ll.livree_le ? `, livrée le ${dateFr(ll.livree_le)}` : ''}</p>
-                  {#if ll.fournisseur}<p><span class="t2">Fournisseur</span> {ll.fournisseur}</p>{/if}
-                  {#if ll.montant_bl !== null}<p><span class="t2">Montant du BL</span> <Montant valeur={ll.montant_bl} /></p>{/if}
-                  {#if ll.facture}
-                    <p>
-                      <span class="t2">Facture</span> <span class="num">{ll.facture}</span>{#if ll.facture_ht !== null}, HT <Montant valeur={ll.facture_ht} />{/if}{#if ll.facture_ttc !== null}, TTC <Montant valeur={ll.facture_ttc} />{/if}{#if ll.echeance}, échéance <span class="num">{dateFr(ll.echeance)}</span>{/if}
-                    </p>
-                  {:else}
-                    <p class="t2 petit">La facture sera écrite dans Logiflow quand une facture liée à ce BL sera envoyée à Dext/Yooz.</p>
-                  {/if}
-                {/if}
+          <h3 class="titre-carte">Origine</h3>
+          <div class="replis doc-liens">
+            {#if !avecChaine && avecEnvoi}
+              <Repli icone="envoyer" titre={titreEnvoi(outil)} resume={resumeEnvoi}>{@render contenuEnvoi()}</Repli>
+            {/if}
+            {#if !avecChaine && avecLogiflow}
+              <Repli icone="camion" titre="Logiflow" resume={resumeLogiflow}>{@render contenuLogiflow()}</Repli>
+            {/if}
+            <Repli icone="mail" titre="Mail" resume="{nomExpediteur(d.mail_expediteur) || 'expéditeur inconnu'}, {jourHeure(d.recu_le)}">
+              <div class="doc-mail">
+                <p><span class="t2">De</span> {d.mail_expediteur || '—'}</p>
+                {#each d.boites as b (b.boite_id)}
+                  <p><span class="t2">À</span> {b.adresse}{b.libelle && b.libelle !== b.adresse ? ` (${b.libelle})` : ''}</p>
+                {/each}
+                <p><span class="t2">Objet</span> {d.mail_objet || '(sans objet)'}</p>
+                <p><span class="t2">Pièce</span> {d.nom_fichier}</p>
+                <p><a class="btn sm" href="/mails/{d.mail_id}"><Icone nom="mail" />Ouvrir le mail</a></p>
               </div>
             </Repli>
-          {/if}
-          <Repli icone="mail" titre="Mail" resume="{nomExpediteur(d.mail_expediteur) || 'expéditeur inconnu'}, {jourHeure(d.recu_le)}">
-            <div class="doc-mail">
-              <p><span class="t2">De</span> {d.mail_expediteur || '—'}</p>
-              {#each d.boites as b (b.boite_id)}
-                <p><span class="t2">À</span> {b.adresse}{b.libelle && b.libelle !== b.adresse ? ` (${b.libelle})` : ''}</p>
-              {/each}
-              <p><span class="t2">Objet</span> {d.mail_objet || '(sans objet)'}</p>
-              <p><span class="t2">Pièce</span> {d.nom_fichier}</p>
-              <p><a class="btn sm" href="/mails/{d.mail_id}"><Icone nom="mail" />Ouvrir le mail</a></p>
-            </div>
-          </Repli>
-          {#if d.etat === 'lu' && (rap?.lignes.length || d.texte || corrections.length || admin)}
-            <Repli icone="fichier" titre="Lecture" resume={resumeLecture}>
-              {#if admin && d.voie}
-                <p class="t2 petit">{libelleVoie(d.voie)}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}{d.lu_le ? `, le ${jourHeure(d.lu_le)}` : ''}</p>
-              {/if}
-              {#if corrections.length}
-                <p class="t2 petit">Corrigé à la main : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{NOMS_CHAMPS[champ] ?? champ} ({brut(c.avant)} → {brut(c.apres)}){/each}</p>
-              {/if}
-              {#if rap?.lignes.length}
-                <div class="defile-x"><table>
-                  <thead><tr><th>Réf.</th><th>Désignation</th><th class="n">Qté</th><th class="n">PU HT</th><th class="n">Montant HT</th></tr></thead>
-                  <tbody>
-                    {#each rap.lignes as l (l.rang)}
-                      <tr>
-                        <td class="num">{l.reference ?? '—'}</td>
-                        <td>{l.designation ?? '—'}</td>
-                        <td class="n num">{quantite(l.quantite)}{l.unite ? ` ${l.unite}` : ''}</td>
-                        <td class="n"><Montant valeur={l.prix_unitaire_ht} devise="" /></td>
-                        <td class="n"><Montant valeur={l.montant_ht} devise="" /></td>
-                      </tr>
-                    {/each}
-                  </tbody>
-                </table></div>
-              {/if}
-              {#if d.texte}
-                <details class="doc-texte">
-                  <summary class="t2 petit">Texte lu</summary>
-                  <pre>{d.texte}</pre>
-                </details>
-              {/if}
-            </Repli>
-          {/if}
-          {#if estBl && d.fournisseur_id}
-            <a class="ligne-lien" href="/fournisseurs?fiche={d.fournisseur_id}">
-              <Icone nom="batiment" />
-              <span class="titre-repli">Fournisseur</span>
-              <span class="resume-repli">{d.fournisseur ?? choix.fournisseurNom}</span>
-              <Icone nom="droite" class="chev" />
-            </a>
-          {/if}
-        </div>
+            {#if d.etat === 'lu' && ((rap?.lignes.length && !articlesBl) || d.texte || corrections.length || admin)}
+              <Repli icone="fichier" titre="Lecture" resume={resumeLecture}>
+                {#if admin && d.voie}
+                  <p class="t2 petit">{libelleVoie(d.voie)}{d.modele ? ` (${d.modele}${d.effort ? `, ${d.effort}` : ''})` : ''}{d.lu_le ? `, le ${jourHeure(d.lu_le)}` : ''}</p>
+                {/if}
+                {#if corrections.length}
+                  <p class="t2 petit">Corrigé à la main : {#each corrections as [champ, c], i (champ)}{i ? ' ; ' : ''}{NOMS_CHAMPS[champ] ?? champ} ({brut(c.avant)} → {brut(c.apres)}){/each}</p>
+                {/if}
+                {#if rap?.lignes.length && !articlesBl}
+                  <div class="defile-x"><table>
+                    <thead><tr><th>Réf.</th><th>Désignation</th><th class="n">Qté</th><th class="n">PU HT</th><th class="n">Montant HT</th></tr></thead>
+                    <tbody>
+                      {#each rap.lignes as l (l.rang)}
+                        <tr>
+                          <td class="num">{l.reference ?? '—'}</td>
+                          <td>{l.designation ?? '—'}</td>
+                          <td class="n num">{quantite(l.quantite)}{l.unite ? ` ${l.unite}` : ''}</td>
+                          <td class="n"><Montant valeur={l.prix_unitaire_ht} devise="" /></td>
+                          <td class="n"><Montant valeur={l.montant_ht} devise="" /></td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table></div>
+                  {@render corrigerLignes()}
+                {/if}
+                {#if d.texte}
+                  <details class="doc-texte">
+                    <summary class="t2 petit">Texte lu</summary>
+                    <pre>{d.texte}</pre>
+                  </details>
+                {/if}
+              </Repli>
+            {/if}
+            {#if estBl && d.fournisseur_id}
+              <a class="ligne-lien" href="/fournisseurs?fiche={d.fournisseur_id}">
+                <Icone nom="batiment" />
+                <span class="titre-repli">Fournisseur</span>
+                <span class="resume-repli">{d.fournisseur ?? choix.fournisseurNom}</span>
+                <Icone nom="droite" class="chev" />
+              </a>
+            {/if}
+          </div>
         </div>
 
-        {#if relisible || (d.etat === 'lu' && !voirTN && editable && (!montrerType || !montrerNumero)) || (estBl && rap && d.etat === 'lu')}
+        {#if relisible || (d.etat === 'lu' && !voirTN && editable && (!montrerType || !montrerNumero))}
           <div class="doc-actions">
-            {#if estBl && rap && d.etat === 'lu'}
-              <button type="button" class="btn-lien" aria-expanded={ouvrirLiens} onclick={rapprocher}>{rap.liens.length ? 'Voir la facture liée' : 'Rapprocher d’une facture'}</button>
-            {/if}
             {#if relisible}
               <button type="button" class="btn-lien" onclick={() => (dlgRelire = true)}>Relire avec Claude</button>
               <button type="button" class="btn-lien" onclick={() => (dlgRelireDetail = true)}>Relire en détail</button>
@@ -1319,26 +1473,74 @@
   </section>
 </div>
 
-<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={ecarter}>
-  <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
+<Confirmation bind:ouvert={dlgEcarter} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={() => ecarter(motifEcart, texteEcart)}>
+  <p>{titreDoc} sera marqué « {libelleEtat('ignore')} » : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la liste. Il reste visible dans la recherche.</p>
+  <fieldset class="motif-ecart">
+    <legend>Pourquoi ? (facultatif)</legend>
+    {#each MOTIFS_ECARTEMENT as m (m.valeur)}
+      <label class="case"><input type="radio" name="motif-ecart" value={m.valeur} bind:group={motifEcart} /> {m.libelle}</label>
+    {/each}
+    <label class="champ"
+      ><span class="libelle">Précision</span><input type="text" maxlength="500" bind:value={texteEcart} placeholder="Facultatif" /></label
+    >
+  </fieldset>
 </Confirmation>
-<Confirmation bind:ouvert={dlgRejeter} titre="Rejeter ce document ?" libelle="Rejeter" danger onconfirmer={ecarter}>
+<Confirmation bind:ouvert={dlgEcarterSociete} titre="Écarter ce document ?" libelle="Écarter" danger onconfirmer={() => ecarter('pas_pour_nous')}>
   <p>{titreDoc} n’est pour aucune de vos sociétés : {deposable ? `pas d’envoi à ${nomOutil(outil)}, ` : ''}il quitte la file. Il reste visible dans la recherche.</p>
 </Confirmation>
 <Confirmation bind:ouvert={dlgForcer} titre="Envoyer ce doublon quand même ?" libelle="Envoyer quand même" danger onconfirmer={() => valider(true)}>
   <p>{refus?.code === 'doublon' ? phrase(refus.message) : doublon ? phrase(doublon.message) : ''} La facture partira à {nomOutil(outil)} telle quelle.</p>
 </Confirmation>
+{#snippet corrigerLignes()}
+  {#if d}
+    <LignesEdition
+      documentId={d.id}
+      typeDoc={d.type}
+      corrigees={d.lignes_corrigees}
+      onchange={() => apresLien('Lignes corrigées : montants, écarts et contrôles recalculés.')}
+    />
+  {/if}
+{/snippet}
+{#snippet avisLignes()}
+  {#if d && d.lignes_corrigees > 0}
+    <p><b>{d.lignes_corrigees} ligne{d.lignes_corrigees > 1 ? 's' : ''} corrigée{d.lignes_corrigees > 1 ? 's' : ''} à la main {d.lignes_corrigees > 1 ? 'seront remplacées' : 'sera remplacée'}.</b></p>
+  {/if}
+{/snippet}
 <Confirmation bind:ouvert={dlgRelire} titre="Relire avec Claude ?" libelle="Relire" onconfirmer={() => relire()}>
   <p>La lecture et la validation actuelles seront remplacées par une nouvelle lecture.</p>
+  {@render avisLignes()}
 </Confirmation>
 <Confirmation bind:ouvert={dlgRelireDetail} titre="Relire en détail ?" libelle="Relire en détail" onconfirmer={() => relire(true)}>
   <p>
     Claude relit le fichier d’origine page par page, totaux de la dernière page compris, avec le modèle le plus fort (plus lent, compte dans le quota
     du jour). La lecture et la validation actuelles seront remplacées.
   </p>
+  {@render avisLignes()}
 </Confirmation>
 
 <style>
+  .motif-ecart {
+    border: 0;
+    margin: var(--e4) 0 0;
+    padding: 0;
+    display: grid;
+    gap: var(--e2);
+  }
+  .motif-ecart legend {
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: var(--e2);
+    padding: 0;
+  }
+  .motif-ecart .champ {
+    margin-top: var(--e2);
+  }
+  @media (max-width: 760px) {
+    .motif-ecart .case {
+      min-height: 44px;
+      align-items: center;
+    }
+  }
   /* trois colonnes avec la liste : aperçu au centre, fiche de 360 px à droite (pied d'action compris) */
   .doc-corps {
     overflow: hidden;
@@ -1403,8 +1605,27 @@
   .doc-ligne {
     flex-basis: 100%;
   }
-  .doc-panneau {
-    padding: 0 0 var(--e2);
+  /* montants de la pièce dans la chaîne : valeurs alignées à droite, dans la colonne des montants */
+  .doc-montants :global(.champ-ligne) {
+    --larg-cle: 96px;
+  }
+  .doc-montants :global(.champ-ligne > .k),
+  .doc-montants :global(.champ-ligne > .v) {
+    min-height: 40px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .doc-montants :global(.champ-ligne > .v),
+  .doc-montants :global(.champ-ligne > .v .val) {
+    justify-content: flex-end;
+    text-align: right;
+  }
+  /* taux de TVA à gauche du montant : les chiffres restent dans la colonne */
+  .doc-montants :global(.champ-ligne > .v .indice) {
+    order: -1;
+  }
+  .doc-montants :global(.champ-ligne:last-child) {
+    border-bottom: 0;
   }
   .doc-liens {
     margin-top: 0;

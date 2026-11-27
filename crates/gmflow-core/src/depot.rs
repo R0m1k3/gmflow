@@ -14,8 +14,9 @@ pub const TYPES_DEPOSES: &[&str] = &["facture", "avoir"];
 pub const STATUTS_FIGES: &[&str] = &["en_envoi", "depose"];
 
 /// Autre document qui fait de celui-ci un doublon : même fichier, ou même fournisseur, même
-/// numéro et même montant TTC (ou TTC manquant d'un côté : lecture incomplète). Un document déjà déposé (ou en cours d'envoi) l'emporte
-/// toujours ; sinon, le plus ancien.
+/// type, même numéro (lettres et chiffres seuls, sans casse : « FA 2026-001 » = « FA2026001 »)
+/// et même montant TTC (ou TTC manquant d'un côté : lecture incomplète). Un document déjà
+/// déposé (ou en cours d'envoi) l'emporte toujours ; sinon, le plus ancien.
 pub async fn doublon_de<'e>(
     db: impl PgExecutor<'e>,
     id: i64,
@@ -27,7 +28,10 @@ pub async fn doublon_de<'e>(
              and (o.statut_depot in ('en_envoi', 'depose') or o.id < d.id)
              and (o.sha256 = d.sha256
                   or (d.fournisseur_id is not null and o.fournisseur_id = d.fournisseur_id
-                      and d.numero is not null and lower(trim(o.numero)) = lower(trim(d.numero))
+                      and o.type is not distinct from d.type
+                      and regexp_replace(upper(d.numero), '[^[:alnum:]]', '', 'g') <> ''
+                      and regexp_replace(upper(o.numero), '[^[:alnum:]]', '', 'g')
+                          = regexp_replace(upper(d.numero), '[^[:alnum:]]', '', 'g')
                       and (o.montant_ttc is null or d.montant_ttc is null
                            or o.montant_ttc = d.montant_ttc)))
            order by (o.statut_depot in ('en_envoi', 'depose')) desc, o.id
@@ -70,7 +74,10 @@ async fn identiques_plus_recents<'e>(db: impl PgExecutor<'e>, id: i64) -> sqlx::
              and o.statut_depot is not null and o.statut_depot not in ('doublon', 'en_envoi', 'depose')
              and (o.sha256 = d.sha256
                   or (d.fournisseur_id is not null and o.fournisseur_id = d.fournisseur_id
-                      and d.numero is not null and lower(trim(o.numero)) = lower(trim(d.numero))
+                      and o.type is not distinct from d.type
+                      and regexp_replace(upper(d.numero), '[^[:alnum:]]', '', 'g') <> ''
+                      and regexp_replace(upper(o.numero), '[^[:alnum:]]', '', 'g')
+                          = regexp_replace(upper(d.numero), '[^[:alnum:]]', '', 'g')
                       and (o.montant_ttc is null or d.montant_ttc is null
                            or o.montant_ttc = d.montant_ttc)))
            order by o.id"#,
@@ -91,9 +98,16 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
                   d.numero, d.date_document,
                   d.montant_ht::float8 as ht, d.montant_tva::float8 as tva_montant,
                   d.montant_ttc::float8 as ttc,
-                  s.adresse_depot as "adresse_depot?"
+                  s.adresse_depot as "adresse_depot?",
+                  d.date_echeance, d.fournisseur_siret as siret_lu, d.fournisseur_tva as tva_lue,
+                  f.siret as "siret_fiche?", f.tva as "tva_fiche?",
+                  g.siret as "siret_groupe?", g.tva as "tva_groupe?",
+                  d.remise_ht::float8 as remise_ht, d.remise_taux::float8 as remise_taux,
+                  d.annexes_ht::float8 as annexes_ht, d.resultat->>'devise' as devise,
+                  coalesce((d.confiance->>'lignes_tronquees')::boolean, false) as "tronque!"
            from document d
            left join fournisseur f on f.id = d.fournisseur_id
+           left join fournisseur g on g.id = f.groupe_id
            left join societe s on s.id = d.societe_id
            where d.id = $1"#,
         id
@@ -122,6 +136,29 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
         .await?;
         return Ok(None);
     }
+    // Somme des lignes : factures lues en entier dont chaque ligne a un montant.
+    let lignes = sqlx::query!(
+        r#"select montant_ht::float8 as montant, quantite::float8 as quantite,
+                  colis::float8 as colis, pcb::float8 as pcb,
+                  coalesce(deee_ht, 0)::float8 + coalesce(ecomob_ht, 0)::float8 as "eco!"
+           from ligne_document where document_id = $1"#,
+        id
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let somme_lignes = (d.r#type.as_deref() == Some("facture") && !d.tronque && !lignes.is_empty())
+        .then(|| lignes.iter().map(|l| l.montant).sum::<Option<f64>>())
+        .flatten();
+    let eco_lignes: f64 = lignes
+        .iter()
+        .map(|l| {
+            let q = match (l.colis, l.pcb) {
+                (Some(c), Some(p)) if c > 0.0 && p > 0.0 => c * p,
+                _ => l.quantite.unwrap_or(0.0),
+            };
+            q * l.eco
+        })
+        .sum();
     let f = controles::Facture {
         societe_id: d.societe_id,
         confiance_societe: if d.societe_humaine {
@@ -141,8 +178,29 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
             .adresse_depot
             .as_deref()
             .is_some_and(|a| !a.trim().is_empty()),
+        echeance: d.date_echeance,
+        siret_lu: d.siret_lu.as_deref(),
+        tva_lue: d.tva_lue.as_deref(),
+        sirets_fiche: [d.siret_fiche.as_deref(), d.siret_groupe.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect(),
+        tvas_fiche: [d.tva_fiche.as_deref(), d.tva_groupe.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect(),
+        somme_lignes,
+        eco_lignes,
+        remise_ht: d.remise_ht,
+        remise_taux: d.remise_taux,
+        annexes_ht: d.annexes_ht,
+        devise: d.devise.as_deref(),
     };
     let mut echecs = controles::controler(&f, controles::aujourdhui_paris());
+    // IBAN différent de ceux connus pour ce fournisseur (fraude au RIB) : en tête des alertes.
+    if let Some(a) = crate::iban::alerte(&mut *conn, id).await? {
+        echecs.insert(0, a);
+    }
     // Le statut est écrit avant la recherche de doublon : un document qui entre dans le
     // circuit compte pour les suivants.
     let doublon = {
@@ -177,6 +235,10 @@ async fn evaluer_seul(conn: &mut PgConnection, id: i64) -> anyhow::Result<Option
     } else {
         "a_verifier"
     };
+    // Vérifiée par un humain (validation, correction) : un premier IBAN devient connu.
+    if statut != "doublon" {
+        crate::iban::retenir_premier(&mut *conn, id).await?;
+    }
     sqlx::query!(
         "update document set statut_depot = $2, controles = $3 where id = $1",
         id,
@@ -239,8 +301,9 @@ pub async fn reevaluer(
 }
 
 /// Version des phrases des contrôles enregistrées dans `document.controles` (2 : vocabulaire
-/// de l'interface, montants à la française, champs visés et correction proposée).
-pub const VERSION_CONTROLES: i64 = 2;
+/// de l'interface, montants à la française, champs visés et correction proposée ; 3 : somme
+/// des lignes, TVA, échéance, identifiants de la fiche, devise, seuil de 0,05 €).
+pub const VERSION_CONTROLES: i64 = 3;
 const CLE_VERSION_CONTROLES: &str = "controles_version";
 
 /// Au démarrage de l'app : si les phrases des contrôles ont changé, les factures pas encore

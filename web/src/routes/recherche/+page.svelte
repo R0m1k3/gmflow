@@ -5,7 +5,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { api, message, rechercher, requete } from '#lib/api.ts';
-  import { deplacer, montrer, raccourcis } from '#lib/clavier.ts';
+  import { deplacer, fleche, montrer, raccourcis } from '#lib/clavier.ts';
   import {
     libelleCategorie,
     libelleEtat,
@@ -171,6 +171,8 @@
     raccourcis({
       j: () => bouger(1),
       k: () => bouger(-1),
+      ArrowDown: fleche(() => bouger(1)),
+      ArrowUp: fleche(() => bouger(-1)),
       Enter: () => {
         if (cur < 0 || !liens[cur]) return false;
         void goto(liens[cur]);
@@ -196,7 +198,7 @@
     if (d.etat !== 'lu') return { texte: libelleEtat(d.etat), ton: tonEtat(d.etat) };
     if (d.type === 'facture' || d.type === 'avoir')
       return { texte: libelleStatutEnvoi(d.statut_depot, d.outil) || 'Lue', ton: tonStatutEnvoi(d.statut_depot) };
-    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À valider', ton: 'alerte' };
+    if (d.type === 'bl') return d.verifie ? { texte: 'Validé', ton: 'ok' } : { texte: 'À contrôler', ton: 'alerte' };
     return { texte: 'Lu', ton: 'pale' };
   }
 

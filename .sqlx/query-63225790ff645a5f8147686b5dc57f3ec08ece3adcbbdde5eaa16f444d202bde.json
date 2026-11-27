@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update envoi_prevu set etat = 'pris', fini_le = now()\n         where id = $1 and document_id = $2 and etat = 'attente' returning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "envoi_prevu",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "63225790ff645a5f8147686b5dc57f3ec08ece3adcbbdde5eaa16f444d202bde"
+}

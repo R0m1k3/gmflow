@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "delete from fournisseur_iban i using envoi_prevu p\n         where p.id = $1 and i.document_id = $2 and i.origine = 'validation'\n           and i.ajoute_le >= p.cree_le\n         returning i.iban",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "fournisseur_iban",
+            "name": "iban"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d768c950c5016c84854c960171a3c301ec495cea6e7423cd5e38671817a1f689"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update boite_mail set active = true, pause_auto = false, echecs_auth = 0,\n             activee_le = case when active and not pause_auto then activee_le else now() end\n         where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bcffb282dac899ea21f3f5b16ba955062941125fa5e16dc19df007dfb2d9b183"
+}

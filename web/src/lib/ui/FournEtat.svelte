@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  // État d'un fournisseur : « 3 factures ce mois », puis les étiquettes ambre « 1 à valider »,
+  // État d'un fournisseur : « 3 factures ce mois », puis les étiquettes ambre « 1 à contrôler »,
   // « 1 BL sans facture ». `quoi` choisit la partie affichée (tuile : les deux sur deux lignes).
   import type { EtatFournisseur } from '#lib/types.ts';
 
@@ -16,7 +16,7 @@
         ? { n: e.factures_mois, texte: `${e.factures_mois > 1 ? 'factures' : 'facture'} ce mois`, alerte: false }
         : { n: null, texte: 'Aucune facture ce mois', alerte: false }
     ];
-    if (e.a_valider) m.push({ n: e.a_valider, texte: 'à valider', alerte: true });
+    if (e.a_valider) m.push({ n: e.a_valider, texte: 'à contrôler', alerte: true });
     if (e.bl_sans_facture) m.push({ n: e.bl_sans_facture, texte: 'BL sans facture', alerte: true });
     return m;
   }

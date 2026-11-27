@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "insert into ligne_document (document_id, rang, reference, designation, quantite,\n                       unite, prix_unitaire_ht, montant_ht, gencod, colis, pcb, remise_taux,\n                       taux_tva, deee_ht, ecomob_ht, corrigee_le, corrigee_par)\n                   values ($1, $2, $3, $4, $5::float8::numeric(14, 3), $6,\n                           $7::float8::numeric(14, 4), $8::float8::numeric(14, 2), $9,\n                           $10::float8::numeric(14, 3), $11::float8::numeric(14, 3),\n                           $12::float8::numeric(8, 4), $13::float8::numeric(6, 3),\n                           $14::float8::numeric(14, 4), $15::float8::numeric(14, 4), now(), $16)\n                   returning id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Text",
+        "Text",
+        "Float8",
+        "Text",
+        "Float8",
+        "Float8",
+        "Text",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4890d8b090302e5969664ff4088b351b6090bcbf97f7637bb5672ac1678ff473"
+}

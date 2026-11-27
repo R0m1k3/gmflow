@@ -5,16 +5,26 @@ import type {
   ChangementsFournisseur,
   CodeRefus,
   CompteursATraiter,
+  ConfirmationIban,
   DemandeEssaiBoite,
   DemandeValidation,
+  EligibiliteLot,
+  LignesDocument,
+  ResultatLigne,
+  SaisieLigne,
   EntreeBoite,
   EssaiBoite,
   FileATraiter,
   FilFournisseur,
   Fournisseur,
+  IbanConnu,
   LigneFournisseur,
   MiseEnRoute,
+  MotifEcartement,
   Page,
+  QualiteLecture,
+  ResultatAnnulation,
+  ResultatLot,
   ResultatValidation,
   ResultatsRecherche
 } from './types';
@@ -127,9 +137,27 @@ export const aTraiter = {
 export const validerDocument = (id: number, demande: DemandeValidation = {}, societe?: number | null) =>
   api.post<ResultatValidation>(`/api/documents/${id}/valider${requete({ societe })}`, demande);
 
-/** « Écarter » : un doublon (gardé comme doublon), ou tout document lu ou illisible (« Écarté »). */
-export const ecarterDocument = (id: number, societe?: number | null) =>
-  api.post<ResultatValidation>(`/api/documents/${id}/ecarter${requete({ societe })}`);
+/** « Écarter » : un doublon (gardé comme doublon), ou tout document lu ou illisible (« Écarté »), avec un motif facultatif. */
+export const ecarterDocument = (id: number, societe?: number | null, motif?: { motif?: MotifEcartement | null; texte?: string | null }) =>
+  api.post<ResultatValidation>(`/api/documents/${id}/ecarter${requete({ societe })}`, motif ?? {});
+
+/** « Remettre à contrôler » une pièce écartée : elle retrouve son état d'avant. */
+export const remettreDocument = (id: number) => api.post<{ id: number; etat: string; statut_depot: string | null }>(`/api/documents/${id}/remettre`);
+
+/** « Annuler » : les envois d'une validation (ou d'un lot) pas encore partis sont annulés. */
+export const annulerEnvoi = (lot: string) => api.post<ResultatAnnulation>('/api/documents/annuler-envoi', { lot });
+
+/** Pièces cochables pour une validation par lot (100 au plus). */
+export const eligibiliteLot = (ids: number[]) => api.post<EligibiliteLot[]>('/api/documents/lot/eligibilite', { ids });
+
+/** « Valider N pièces » : chaque pièce sans alerte est validée, les autres laissées à contrôler. */
+export const validerLot = (ids: number[]) => api.post<ResultatLot>('/api/documents/lot/valider', { ids });
+
+/** Lignes articles d'un document, pour les corriger à la main. */
+export const lignesDocument = (id: number) => api.get<LignesDocument>(`/api/documents/${id}/lignes`);
+export const modifierLigne = (id: number, ligne: number, s: SaisieLigne) => api.put<ResultatLigne>(`/api/documents/${id}/lignes/${ligne}`, s);
+export const ajouterLigne = (id: number, s: SaisieLigne) => api.post<ResultatLigne>(`/api/documents/${id}/lignes`, s);
+export const supprimerLigne = (id: number, ligne: number) => api.del<ResultatLigne>(`/api/documents/${id}/lignes/${ligne}`);
 
 export const fournisseurs = (p: { societe?: number | null; q?: string; statut?: string; page?: number } = {}) =>
   api.get<Page<LigneFournisseur>>(`/api/fournisseurs${requete(p)}`);
@@ -148,6 +176,10 @@ export const rechercher = (p: {
 
 export const bilanMois = (p: { mois?: string; societe?: number | null } = {}) =>
   api.get<BilanMois>(`/api/bilan${requete(p)}`);
+
+/** Qualité et coût de la lecture d'un mois (admin). */
+export const qualiteLecture = (p: { mois?: string; societe?: number | null } = {}) =>
+  api.get<QualiteLecture>(`/api/admin/qualite${requete(p)}`);
 
 /** Modification partielle d'une fiche fournisseur (admin) : « Confirmer », « Toujours ranger dans X ». */
 export const modifierFournisseur = (id: number, changements: ChangementsFournisseur) =>
@@ -175,5 +207,13 @@ export async function attendreEssai(id: string, ms = 1500, max = 40): Promise<Es
     if (e.etat === 'termine') return e;
     await new Promise((r) => setTimeout(r, ms));
   }
-  throw new ErreurApi(504, "L'essai ne répond pas : le worker est-il démarré ?");
+  throw new ErreurApi(504, "L'essai ne répond pas. Le traitement automatique (worker) est-il démarré ?");
 }
+
+export const ibansFournisseur = (id: number) => api.get<IbanConnu[]>(`/api/fournisseurs/${id}/ibans`);
+
+export const retirerIban = (fournisseurId: number, ibanId: number) =>
+  api.del<void>(`/api/admin/fournisseurs/${fournisseurId}/ibans/${ibanId}`);
+
+export const confirmerIban = (documentId: number) =>
+  api.post<ConfirmationIban>(`/api/admin/documents/${documentId}/iban/confirmer`);

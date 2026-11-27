@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select document_id, reference, designation, quantite::float8 as quantite, unite,\n                prix_unitaire_ht::float8 as prix, montant_ht::float8 as montant, gencod,\n                colis::float8 as colis, pcb::float8 as pcb,\n                deee_ht::float8 as deee_ht, ecomob_ht::float8 as ecomob_ht\n         from ligne_document where document_id = any($1) order by document_id, rang",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "reference",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "reference"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "designation",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "designation"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "quantite",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "unite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "unite"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "prix",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "montant",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "gencod",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "gencod"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "colis",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "pcb",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "deee_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "ecomob_ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null,
+      true,
+      null,
+      null,
+      true,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a776665d69e45990c4bdecea287dfb3481315ecb10f77e3ebb5139718d3c8cf5"
+}

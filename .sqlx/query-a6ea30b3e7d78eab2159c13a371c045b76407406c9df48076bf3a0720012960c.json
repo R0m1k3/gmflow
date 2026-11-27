@@ -1,0 +1,49 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select b.id, b.montant_ht::float8 as ht,\n                  coalesce(b.confiance->'montants_calcules' ? 'ht', false) as \"ht_calcule!\",\n                  coalesce((b.confiance->>'lignes_tronquees')::boolean, false) as \"tronque!\"\n           from rapprochement r\n           join document b on b.id = r.bl_id\n           where r.facture_id = $1 and not r.rejete order by b.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "ht",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "ht_calcule!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "tronque!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "a6ea30b3e7d78eab2159c13a371c045b76407406c9df48076bf3a0720012960c"
+}

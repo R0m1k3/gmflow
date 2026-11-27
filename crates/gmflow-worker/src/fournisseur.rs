@@ -1,16 +1,13 @@
-//! Rattachement d'un document lu à sa fiche fournisseur, et exemples de corrections passées
-//! donnés à Claude pour ce fournisseur.
+//! Rattachement d'un document lu à sa fiche fournisseur, et ce que la lecture apprend de ses
+//! pièces validées (exemple positif, champs souvent corrigés : `gmflow_core::apprentissage`).
 
 use gmflow_core::claude::{self, Appel};
 use gmflow_core::fournisseurs::{self, Candidat, Identification, Indices};
-use gmflow_core::{journal, reglages};
+use gmflow_core::{apprentissage, journal, reglages};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
 use crate::Contexte;
-
-/// Corrections récentes montrées à Claude pour un fournisseur.
-const EXEMPLES_MAX: i64 = 3;
 
 const PROMPT_SYSTEME: &str = "Tu rapproches le fournisseur d'un document des fiches d'un \
 référentiel. Tu réponds uniquement avec la sortie structurée demandée. fournisseur_id est l'id \
@@ -30,7 +27,9 @@ fn schema() -> Value {
 }
 
 /// Fiche probable du fournisseur avant lecture : par le domaine de l'expéditeur, sinon par un
-/// SIREN ou un n° de TVA connu présent dans le texte.
+/// SIREN ou un n° de TVA connu présent dans le texte, sinon par l'adresse exacte de l'expéditeur
+/// (adresse gmail d'un petit fournisseur) déjà rattachée à un seul fournisseur par des pièces
+/// validées.
 pub async fn pre_identifier(
     pool: &PgPool,
     expediteur: &str,
@@ -42,44 +41,159 @@ pub async fn pre_identifier(
     {
         return Ok(Some(id));
     }
-    match texte {
-        Some(t) => fournisseurs::dans_texte(pool, t).await,
-        None => Ok(None),
+    if let Some(t) = texte
+        && let Some(id) = fournisseurs::dans_texte(pool, t).await?
+    {
+        return Ok(Some(id));
     }
+    par_expediteur(pool, expediteur, &exclus).await
 }
 
-/// Bloc de prompt : les dernières corrections humaines sur des documents de ce fournisseur.
-pub async fn exemples(pool: &PgPool, fournisseur_id: i64) -> sqlx::Result<String> {
-    let lignes = sqlx::query!(
-        "select d.corrections, p.nom from document d join piece_jointe p on p.id = d.piece_jointe_id
-         where d.fournisseur_id = $1 and d.corrige_le is not null
-         order by d.corrige_le desc limit $2",
-        fournisseur_id,
-        EXEMPLES_MAX
+/// Fournisseur des pièces validées reçues de cette adresse exacte, s'il n'y en a qu'un. Jamais
+/// pour une adresse d'une boîte surveillée (mail transféré par un magasin).
+async fn par_expediteur(
+    pool: &PgPool,
+    expediteur: &str,
+    exclus: &[String],
+) -> sqlx::Result<Option<i64>> {
+    let adresse = expediteur.trim().to_lowercase();
+    if !adresse.contains('@') || fournisseurs::domaine(&adresse).is_none_or(|d| exclus.contains(&d))
+    {
+        return Ok(None);
+    }
+    let ids = sqlx::query_scalar!(
+        r#"select distinct d.fournisseur_id as "id!" from document d
+           join mail m on m.id = d.mail_id
+           join fournisseur f on f.id = d.fournisseur_id
+           where lower(m.expediteur) = $1 and d.verifie_le is not null
+             and d.etat = 'lu' and f.fusionne_dans is null
+           limit 2"#,
+        adresse
     )
     .fetch_all(pool)
     .await?;
+    Ok(match ids.as_slice() {
+        [id] => Some(*id),
+        _ => None,
+    })
+}
+
+/// Bloc de prompt appris des pièces validées du fournisseur probable (et de son groupe) : la
+/// dernière pièce validée du type probable (même fiche d'abord, sinon une autre marque du
+/// groupe), puis les champs souvent corrigés sur ses dernières pièces validées. Seules les
+/// pièces rangées dans une société d'une boîte qui a reçu ce document sont regardées : les
+/// fiches fournisseurs sont communes, les pièces non.
+pub async fn exemples(
+    pool: &PgPool,
+    document_id: i64,
+    fournisseur_id: i64,
+    texte: Option<&str>,
+) -> sqlx::Result<String> {
+    let Some(doc) = sqlx::query!(
+        r#"select p.nom, m.objet,
+                  array(select distinct b.societe_id from mail_boite_vue mb
+                        join boite_mail b on b.id = mb.boite_id
+                        where mb.mail_id = d.mail_id) as "societes!"
+           from document d join piece_jointe p on p.id = d.piece_jointe_id
+           join mail m on m.id = d.mail_id where d.id = $1"#,
+        document_id
+    )
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(String::new());
+    };
+    if doc.societes.is_empty() {
+        return Ok(String::new());
+    }
+    let type_probable = apprentissage::type_probable(texte, &doc.nom, &doc.objet);
     let mut s = String::new();
-    for l in lignes {
-        let Some(champs) = l.corrections.as_object() else {
-            continue;
+    // Pièces de la même famille (fiche, son groupe, les marques du groupe), même société.
+    let ex = sqlx::query!(
+        r#"with racine as (select coalesce(groupe_id, id) as id from fournisseur where id = $1)
+           select d.id, d.type as "type!", d.numero, d.date_document::text as date,
+                  d.date_echeance::text as echeance, d.numero_commande,
+                  d.montant_ht::float8 as ht, d.montant_tva::float8 as tva,
+                  d.montant_ttc::float8 as ttc, d.remise_ht::float8 as remise_ht,
+                  d.remise_taux::float8 as remise_taux, d.annexes_ht::float8 as annexes_ht,
+                  d.fournisseur_nom, d.fournisseur_siret, d.fournisseur_tva,
+                  d.fournisseur_groupe, d.fournisseur_entite, d.numeros_bl,
+                  d.fournisseur_id = $1 as "meme_fiche!"
+           from document d, racine r
+           where d.fournisseur_id in (select id from fournisseur where id = r.id or groupe_id = r.id)
+             and d.verifie_le is not null and d.etat = 'lu' and d.id <> $2
+             and d.type in ('facture', 'avoir', 'bl')
+             and ($3::text is null or d.type = $3)
+             and d.societe_id = any($4)
+           order by (d.fournisseur_id = $1) desc, d.verifie_le desc
+           limit 1"#,
+        fournisseur_id,
+        document_id,
+        type_probable,
+        &doc.societes
+    )
+    .fetch_optional(pool)
+    .await?;
+    if let Some(e) = ex {
+        let lignes = sqlx::query!(
+            r#"select reference, designation, quantite::float8 as quantite, unite,
+                      prix_unitaire_ht::float8 as pu, montant_ht::float8 as montant, gencod,
+                      colis::float8 as colis, pcb::float8 as pcb,
+                      remise_taux::float8 as remise_taux, taux_tva::float8 as taux_tva
+               from ligne_document where document_id = $1 order by rang limit $2"#,
+            e.id,
+            apprentissage::EXEMPLE_LIGNES as i64
+        )
+        .fetch_all(pool)
+        .await?;
+        let entete = json!({
+            "numero": e.numero, "date": e.date, "echeance": e.echeance,
+            "numero_commande": e.numero_commande, "montant_ht": e.ht, "montant_tva": e.tva,
+            "montant_ttc": e.ttc, "remise_ht": e.remise_ht, "remise_taux": e.remise_taux,
+            "annexes_ht": e.annexes_ht, "numeros_bl": e.numeros_bl,
+            "fournisseur": {
+                "nom": e.fournisseur_nom, "siret": e.fournisseur_siret, "tva": e.fournisseur_tva,
+                "groupe": e.fournisseur_groupe, "entite": e.fournisseur_entite
+            }
+        });
+        let piece = apprentissage::PieceValidee {
+            r#type: e.r#type,
+            entete: entete.as_object().cloned().unwrap_or_default(),
+            lignes: lignes
+                .into_iter()
+                .filter_map(|l| {
+                    json!({
+                        "reference": l.reference, "designation": l.designation,
+                        "quantite": l.quantite, "unite": l.unite, "prix_unitaire_ht": l.pu,
+                        "montant_ht": l.montant, "gencod": l.gencod, "colis": l.colis,
+                        "pcb": l.pcb, "remise_taux": l.remise_taux, "taux_tva": l.taux_tva
+                    })
+                    .as_object()
+                    .cloned()
+                })
+                .collect(),
         };
-        let details: Vec<String> = champs
-            .iter()
-            .filter(|(champ, _)| champ.as_str() != "fournisseur_id")
-            .map(|(champ, v)| format!("{champ} lu {} corrigé en {}", v["avant"], v["apres"]))
-            .collect();
-        if !details.is_empty() {
-            s.push_str(&format!("- {} : {}\n", l.nom, details.join(" ; ")));
+        if let Some(b) = apprentissage::bloc_exemple(&piece, e.meme_fiche) {
+            s.push_str(&b);
         }
     }
-    if s.is_empty() {
-        return Ok(s);
-    }
-    Ok(format!(
-        "\nCorrections faites à la main sur des documents récents de ce même fournisseur (à \
-         prendre en compte pour ce document) :\n{s}"
-    ))
+    let corrections = sqlx::query_scalar!(
+        r#"with racine as (select coalesce(groupe_id, id) as id from fournisseur where id = $1)
+           select d.corrections from document d, racine r
+           where d.fournisseur_id in (select id from fournisseur where id = r.id or groupe_id = r.id)
+             and d.verifie_le is not null and d.etat = 'lu' and d.id <> $2
+             and d.societe_id = any($3)
+           order by d.verifie_le desc
+           limit $4"#,
+        fournisseur_id,
+        document_id,
+        &doc.societes,
+        apprentissage::CORRECTIONS_SUR
+    )
+    .fetch_all(pool)
+    .await?;
+    s.push_str(&apprentissage::bloc_corrections(&corrections));
+    Ok(s)
 }
 
 /// Claude choisit parmi les candidates. Rien si Claude est indisponible ou hésite.
@@ -155,6 +269,7 @@ async fn demander(
     );
     a.effort = Some(&reglage.effort);
     a.args_en_plus = &args;
+    a.document_id = Some(document_id);
     let sortie = match claude::lancer(pool, &ctx.config.claude_bin, &a).await {
         Ok(s) => s,
         Err(e) => {

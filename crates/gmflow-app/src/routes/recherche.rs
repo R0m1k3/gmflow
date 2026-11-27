@@ -388,7 +388,7 @@ pub async fn chercher(
         let lignes = sqlx::query!(
             r#"select m.id, m.expediteur, m.objet, m.date_mail, m.categorie, m.statut_reponse,
                       m.resume,
-                      (select count(*) from piece_jointe p where p.mail_id = m.id) as "nb_pieces!",
+                      (select count(*) from piece_jointe p where p.mail_id = m.id and p.source_id is null) as "nb_pieces!",
                       count(*) over () as "total!"
                from mail m
                where exists (select 1 from mail_boite_vue mb join boite_mail b on b.id = mb.boite_id

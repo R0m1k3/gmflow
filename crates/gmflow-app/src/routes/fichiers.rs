@@ -77,8 +77,12 @@ struct Piece {
 /// Octets d'une pièce visible par cet accès, extraits du `.eml` et vérifiés (SHA-256).
 async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<(Piece, Vec<u8>)> {
     let p = sqlx::query!(
-        "select p.mail_id, p.rang, p.nom, p.type_mime, p.sha256, m.chemin_eml
-         from piece_jointe p join mail m on m.id = p.mail_id where p.id = $1",
+        r#"select p.mail_id, coalesce(ps.rang, p.rang) as "rang!", p.nom, p.type_mime,
+                  coalesce(ps.sha256, p.sha256) as "sha256!", p.page_debut, p.page_fin,
+                  m.chemin_eml
+           from piece_jointe p join mail m on m.id = p.mail_id
+           left join piece_jointe ps on ps.id = p.source_id
+           where p.id = $1"#,
         id
     )
     .fetch_optional(&etat.pool)
@@ -95,6 +99,7 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<(Piece, Vec<u8
     })
     .await
     .map_err(|e| ErreurApi::Interne(e.into()))??;
+    // Pièce découpée (`source_id`) : l'original est vérifié, puis ses pages sont extraites.
     if gmflow_core::eml::sha256(&octets) != p.sha256 {
         gmflow_core::journal::ecrire(
             &etat.pool,
@@ -109,6 +114,19 @@ async fn charger(etat: &Etat, acces: &Acces, id: i64) -> Resultat<(Piece, Vec<u8
             "SHA-256 de la pièce {id} différent de l'original"
         )));
     }
+    let octets = match p.page_debut.zip(p.page_fin) {
+        Some((d, f)) => tokio::task::spawn_blocking(move || {
+            gmflow_core::lecture::decoupage::extraire_pages(&octets, d as usize, f as usize)
+        })
+        .await
+        .map_err(|e| ErreurApi::Interne(e.into()))?
+        .ok_or_else(|| {
+            ErreurApi::Interne(anyhow::anyhow!(
+                "pages {d}-{f} introuvables dans la pièce {id}"
+            ))
+        })?,
+        None => octets,
+    };
     Ok((
         Piece {
             nom: p.nom,

@@ -123,6 +123,8 @@
   import Etiquette from './Etiquette.svelte';
   import FournEtat from './FournEtat.svelte';
   import FournGroupe from './FournGroupe.svelte';
+  import FournIban from './FournIban.svelte';
+  import Aide from '#lib/ui/Aide.svelte';
   import Icone from './Icone.svelte';
   import { phraseEcartLigne } from './DocOutils.ts';
   import Montant, { formatMontant } from './Montant.svelte';
@@ -415,7 +417,7 @@
         {#if montantEcart === null}<span class="muted petit">écart non calculable</span>
         {:else}<span class:etiquette={ecartNet(montantEcart)} class:att={ecartNet(montantEcart)}>Écart <Montant valeur={montantEcart} /></span>{/if}
       {:else}
-        <Montant valeur={d.montant_ht} /> HT
+        {#if d.montant_ht === null}<span class="muted petit">HT non lu</span>{:else}<Montant valeur={d.montant_ht} /> HT{/if}
       {/if}
     </span>
     <Icone nom="droite" class="chev" />
@@ -431,9 +433,9 @@
     )}
     {#if (r.facture.remise_ht && r.facture.remise_ht > 0.005) || r.ecarts.length}
       <div class="ecarts petit t2">
-        {#if r.facture.remise_ht && r.facture.remise_ht > 0.005}<div><span class="etiquette info">Remise {formatMontant(r.facture.remise_ht)}</span></div>{/if}
+        {#if r.facture.remise_ht && r.facture.remise_ht > 0.005}<div><span class="etiquette info">Remise {formatMontant(r.facture.remise_ht)}</span><Aide sujet="remise" /></div>{/if}
         {#if r.ecarts.length}
-          <div class="ecarts-t"><span class="etiquette att">{r.ecarts.length} article{r.ecarts.length > 1 ? 's' : ''} en écart</span></div>
+          <div class="ecarts-t"><span class="etiquette att">{r.ecarts.length} article{r.ecarts.length > 1 ? 's' : ''} en écart</span><Aide sujet="ecart_bl" /></div>
           {#each r.ecarts.slice(0, 3) as x, i (i)}
             {@const p = phraseEcartLigne(x)}
             <div>{p.titre} : {p.article}, {p.detail}</div>
@@ -623,7 +625,7 @@
         <dl class="champs">
           {#each champsRemplis as c (c.libelle)}
             <div>
-              <dt>{c.libelle}</dt>
+              <dt>{c.libelle}{#if c.libelle === 'Code BO Phénix'}<Aide sujet="code_bo" />{/if}</dt>
               <dd class:num={c.mono} class:multi={c.multi}>{#if c.valeur}{c.valeur}{:else}<span class="muted">—</span>{/if}</dd>
             </div>
           {/each}
@@ -664,8 +666,10 @@
       <FournGroupe fiche={f} {admin} onmodifie={apresGroupe} />
     {/if}
 
+    <FournIban {id} {admin} />
+
     <section class="sec-f" aria-labelledby="ar-{id}">
-      <h3 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}</h3>
+      <h3 id="ar-{id}">À rapprocher {#if nbARapprocher}<span class="num muted">{nbARapprocher}</span>{/if}<Aide sujet="rapprochement" /></h3>
       {#if ar && nbARapprocher}
         {#if ar.bl_sans_facture.length}
           {#snippet bls()}{#each limiter(ar?.bl_sans_facture ?? [], 'bl') as d (d.id)}{@render carteDoc(d, 'En attente de facture')}{/each}{/snippet}
@@ -697,7 +701,7 @@
                   <span class="el-nom">{libelleType(e.type)}{#if e.numero}{' '}<span class="num">{e.numero}</span>{/if}</span>
                   <span class="t2 num">{dateSimple(e.date)}</span>
                   {#if e.type === 'bl'}
-                    {#if !e.verifie}<span class="etiquette att">À valider</span>{/if}
+                    {#if !e.verifie}<span class="etiquette att">À contrôler</span>{/if}
                     {#if !e.rapproche}<span class="el-etat">{BL_EN_ATTENTE}</span>{/if}
                   {:else if e.statut_depot}
                     <Etiquette ton={tonStatutEnvoi(e.statut_depot)}>{libelleStatutEnvoi(e.statut_depot, e.outil)}</Etiquette>

@@ -4,6 +4,7 @@
   // même groupe (U10 pour L3C et Homea), sans rien fusionner ; « Pas un doublon » ne la propose plus.
   // Les paires « même groupe probable » (même SIREN, noms sans rapport) n'offrent pas la fusion.
   import { api, message, modifierFournisseur } from '#lib/api.ts';
+  import Aide from './Aide.svelte';
   import type { FicheCourte, PaireDoublon } from '#lib/types.ts';
   import Bandeau from './Bandeau.svelte';
   import Chargement from './Chargement.svelte';
@@ -182,7 +183,7 @@
   {:else}
     <p class="marge intro">
       Ces fiches désignent sans doute le même fournisseur : choisissez celle à garder, l'autre y est fusionnée avec ses documents. « Même
-      groupe probable » : deux marques d'une même société (L3C et Homea chez U10), à regrouper sans les fusionner.
+      groupe probable » : deux marques d'une même société (L3C et Homea chez U10), à regrouper sans les fusionner.<Aide sujet="doublon_fiche" />
     </p>
     {#each paires as p (`${p.a.id}-${p.b.id}`)}
       {@const g = aGarder(p)}

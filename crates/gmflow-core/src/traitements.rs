@@ -120,6 +120,8 @@ pub async fn documents_a_deposer(pool: &PgPool) -> sqlx::Result<Vec<i64>> {
            where d.etat = 'lu'
              and ((d.valide_le is not null and d.statut_depot in ('a_verifier', 'pret'))
                   or (d.valide_le is null and d.statut_depot = 'pret' and coalesce(s.depot_auto, false)))
+             and not exists (select 1 from envoi_prevu p
+                             where p.document_id = d.id and p.etat = 'attente')
              and d.id not in (
                  select (convert_from(job, 'UTF8')::jsonb #>> '{Deposer,document_id}')::bigint
                  from apalis.jobs

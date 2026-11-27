@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select etat, type, statut_depot,\n                  exists (select 1 from envoi_prevu p where p.document_id = d.id\n                          and p.etat = 'attente') as \"attente!\"\n           from document d where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "etat",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "etat"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "statut_depot",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "statut_depot"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "attente!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "fa121ea88367a1590d176f95af4e58121ea49a9bf73be96cf591b75791a1f9dd"
+}

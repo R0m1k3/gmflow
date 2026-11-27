@@ -1,0 +1,114 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select reference, designation, quantite::float8 as quantite, unite,\n                      prix_unitaire_ht::float8 as pu, montant_ht::float8 as montant, gencod,\n                      colis::float8 as colis, pcb::float8 as pcb,\n                      remise_taux::float8 as remise_taux, taux_tva::float8 as taux_tva\n               from ligne_document where document_id = $1 order by rang limit $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reference",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "reference"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "designation",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "designation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "quantite",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "unite",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "unite"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "pu",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "montant",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "gencod",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "ligne_document",
+            "name": "gencod"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "colis",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "pcb",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "remise_taux",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "taux_tva",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      null,
+      true,
+      null,
+      null,
+      true,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "2e0ac435581363e40a25c5e8f09fc0e0b574afc54b88cd88093a94dbf1571455"
+}

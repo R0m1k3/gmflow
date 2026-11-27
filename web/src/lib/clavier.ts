@@ -83,3 +83,14 @@ export function deplacer(indice: number, sens: 1 | -1, longueur: number): number
 export function montrer(conteneur: HTMLElement | null | undefined, selecteur: string) {
   conteneur?.querySelector(selecteur)?.scrollIntoView({ block: 'nearest' });
 }
+
+/**
+ * Gestionnaire pour les flèches ↑ ↓ d'une liste : agit comme J / K, sauf quand le focus est dans le
+ * volet de la fiche (la flèche fait alors défiler la fiche, comme d'habitude).
+ */
+export function fleche(f: () => void): Gestionnaire {
+  return (e) => {
+    if (e.target instanceof HTMLElement && e.target.closest('.volet-b, .pleine, dialog')) return false;
+    f();
+  };
+}

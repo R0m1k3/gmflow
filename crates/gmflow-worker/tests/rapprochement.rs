@@ -288,6 +288,28 @@ async fn bl_et_facture_rapproches_avec_ecarts_de_quantites() {
         .await
         .unwrap();
     assert_eq!(c, json!([]));
+
+    // BL lu en partie seulement (document trop long) : plus de comparaison des lignes (le balai
+    // « manquant » pourrait être dans la partie coupée), une alerte sur le BL à la place.
+    sqlx::query(
+        "update document set confiance = confiance || '{\"lignes_tronquees\": true}' where id = $1",
+    )
+    .bind(d_bl)
+    .execute(b.pool())
+    .await
+    .unwrap();
+    gmflow_core::rapprochement::recalculer(b.pool(), d_bl)
+        .await
+        .unwrap();
+    let l = liens(&b).await;
+    assert_eq!(l.len(), 1);
+    assert_eq!(l[0].ecarts, json!([]));
+    let c: Value = sqlx::query_scalar("select controles from document where id = $1")
+        .bind(d_bl)
+        .fetch_one(b.pool())
+        .await
+        .unwrap();
+    assert_eq!(c[0]["code"], "lignes_tronquees");
     w.arreter();
     b.fermer().await;
 }

@@ -368,8 +368,8 @@
         <div class="dz-titre">Tout reprendre de zéro</div>
         <p>
           Efface tout ce qui vient des mails (mails, pièces jointes, factures et BL, fiches fournisseurs avec leurs codes
-          BO Phénix, réponses, historique) et relève à nouveau chaque boîte à partir des mails du jour ; garde les sociétés, les boîtes mail, les
-          utilisateurs, la connexion à Claude et les réglages.
+          BO Phénix, réponses) et relève à nouveau chaque boîte à partir des mails du jour ; garde les sociétés, les boîtes mail, les
+          utilisateurs, la connexion à Claude, les réglages, l’historique et la trace des dépôts Dext/Yooz.
         </p>
       </div>
       <button type="button" class="btn principal danger" class:en-cours={reinitEnCours} disabled={reinitEnCours} onclick={ouvrirReinit}>
@@ -399,8 +399,9 @@
   onconfirmer={reinitialiser}
 >
   <p>
-    Les mails, documents, fournisseurs, liens, réponses et l’historique seront effacés pour de bon. Les boîtes repartent
-    ensuite des mails du jour : l’historique n’est pas relu. La configuration reste.
+    Les mails, documents, fournisseurs, liens et réponses seront effacés pour de bon. Les boîtes repartent
+    ensuite des mails du jour : les mails plus anciens ne sont pas relus. La configuration, l’historique et la trace des
+    dépôts restent.
   </p>
   <label class="dz-mot" for="dz-mot">Tapez <strong class="num">{MOT}</strong> pour confirmer</label>
   <input

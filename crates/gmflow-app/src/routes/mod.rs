@@ -16,11 +16,16 @@ pub mod documents;
 pub mod export_phenix;
 pub mod fichiers;
 pub mod fournisseurs;
+pub mod iban;
+pub mod lignes;
+pub mod lot;
 pub mod mails;
 pub mod mise_en_route;
+pub mod qualite;
 pub mod rapprochement;
 pub mod recherche;
 pub mod reponses;
+pub mod retour;
 pub mod tableau;
 
 use std::path::PathBuf;
@@ -59,6 +64,29 @@ async fn sante(State(etat): State<Etat>) -> impl IntoResponse {
 
 async fn api_inconnue() -> ErreurApi {
     ErreurApi::Absent
+}
+
+/// CSP de toute réponse qui n'a pas la sienne (pages du front, JSON). Modeste à dessein :
+/// l'`index.html` de SvelteKit démarre par un script en ligne et l'interface pose des styles en
+/// ligne, et les aperçus (PDF en `iframe`, mail HTML) ont leur propre CSP plus stricte.
+pub const CSP_PAR_DEFAUT: &str = "frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
+
+/// En-têtes de sécurité, sans écraser ceux posés par une route.
+async fn entetes_securite(req: Request, next: Next) -> Response {
+    use axum::http::{HeaderValue, header};
+    let mut r = next.run(req).await;
+    let h = r.headers_mut();
+    for (nom, valeur) in [
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::REFERRER_POLICY, "same-origin"),
+        (header::X_FRAME_OPTIONS, "SAMEORIGIN"),
+        (header::CONTENT_SECURITY_POLICY, CSP_PAR_DEFAUT),
+    ] {
+        if !h.contains_key(&nom) {
+            h.insert(nom, HeaderValue::from_static(valeur));
+        }
+    }
+    r
 }
 
 pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router {
@@ -125,6 +153,20 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/documents/{id}/valider", post(documents::valider))
         .route("/documents/{id}/ecarter", post(documents::ecarter))
         .route("/documents/{id}/logiflow", post(admin_logiflow::relancer))
+        // Retour en arrière et validation par lot (routes/retour.rs, routes/lot.rs).
+        .route("/documents/annuler-envoi", post(retour::annuler_envoi))
+        .route("/documents/{id}/remettre", post(retour::remettre))
+        .route("/documents/lot/eligibilite", post(lot::eligibilite))
+        .route("/documents/lot/valider", post(lot::valider))
+        // Lignes articles corrigées à la main (routes/lignes.rs).
+        .route(
+            "/documents/{id}/lignes",
+            get(lignes::liste).post(lignes::ajouter),
+        )
+        .route(
+            "/documents/{id}/lignes/{ligne}",
+            put(lignes::modifier).delete(lignes::supprimer),
+        )
         .route("/a-traiter", get(a_traiter::file))
         .route("/recherche", get(recherche::chercher))
         .route("/a-traiter/compteurs", get(a_traiter::compteurs))
@@ -161,6 +203,16 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         .route("/fournisseurs/{id}", get(fournisseurs::fiche))
         .route("/fournisseurs/{id}/fil", get(fournisseurs::fil))
         .route("/fournisseurs/{id}/marques", get(fournisseurs::marques))
+        .route("/fournisseurs/{id}/ibans", get(iban::lister))
+        .route(
+            "/admin/fournisseurs/{id}/ibans/{iban_id}",
+            delete(iban::retirer),
+        )
+        .route("/admin/qualite", get(qualite::qualite))
+        .route(
+            "/admin/documents/{id}/iban/confirmer",
+            post(iban::confirmer),
+        )
         .route(
             "/admin/fournisseurs/{id}/repartir",
             post(fournisseurs::repartir),
@@ -291,6 +343,7 @@ pub fn routeur(etat: Etat, store: PostgresStore, web: Option<PathBuf>) -> Router
         let index = web.join("index.html");
         app = app.fallback_service(ServeDir::new(web).fallback(ServeFile::new(index)));
     }
-    app.layer(tower_http::trace::TraceLayer::new_for_http())
+    app.layer(middleware::from_fn(entetes_securite))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(etat)
 }

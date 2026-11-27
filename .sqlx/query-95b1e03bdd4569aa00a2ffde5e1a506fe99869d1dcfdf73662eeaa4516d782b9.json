@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "select resultat->>'iban' as iban, resultat->>'bic' as bic from document where id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "iban",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "bic",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "95b1e03bdd4569aa00a2ffde5e1a506fe99869d1dcfdf73662eeaa4516d782b9"
+}

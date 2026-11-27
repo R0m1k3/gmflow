@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "with racine as (select coalesce(groupe_id, id) as id from fournisseur where id = $1)\n           select d.corrections from document d, racine r\n           where d.fournisseur_id in (select id from fournisseur where id = r.id or groupe_id = r.id)\n             and d.verifie_le is not null and d.etat = 'lu' and d.id <> $2\n             and d.societe_id = any($3)\n           order by d.verifie_le desc\n           limit $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "corrections",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "document",
+            "name": "corrections"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "56ff7c3ed941278516143246613817617f7546a0c67341daa3f03df56d953a20"
+}

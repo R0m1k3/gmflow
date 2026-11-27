@@ -51,7 +51,7 @@ async fn exemples_imap(ctx: &Contexte, d: &Demande, dossier: &str) -> Vec<String
         let port = u16::try_from(d.port)?;
         let mut s = imap::connecter(&d.serveur, port, &d.identifiant, &mdp, ctx.transport).await?;
         let bruts = imap::derniers_messages(&mut s, dossier, EXEMPLES as u32).await;
-        let _ = s.logout().await;
+        imap::deconnecter(&mut s).await;
         anyhow::Ok(bruts?)
     };
     match essai.await {

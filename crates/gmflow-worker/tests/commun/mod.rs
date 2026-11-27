@@ -229,3 +229,32 @@ pub async fn lire_tout(b: &Banc, mail_ids: &[i64]) {
     .await;
     assert!(fini, "lectures non terminées");
 }
+
+/// Un serveur qui redirige tout (HTTP 307) vers un second, qui compte les appels qu'il reçoit
+/// avec une clé `X-API-Key`. Rend (adresse du premier, compteur du second).
+pub async fn redirecteur() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let recus = Arc::new(AtomicUsize::new(0));
+    let r = recus.clone();
+    let cible = axum::Router::new().fallback(move |h: axum::http::HeaderMap| {
+        let r = r.clone();
+        async move {
+            if h.contains_key("x-api-key") {
+                r.fetch_add(1, Ordering::SeqCst);
+            }
+            axum::Json(serde_json::json!({ "total": 1, "data": [] }))
+        }
+    });
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let vers = format!("http://{}", l.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(l, cible).await.unwrap() });
+    let source = axum::Router::new().fallback(move |uri: axum::http::Uri| {
+        let vers = vers.clone();
+        async move { axum::response::Redirect::temporary(&format!("{vers}{uri}")) }
+    });
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let adresse = format!("http://{}", l.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(l, source).await.unwrap() });
+    (adresse, recus)
+}

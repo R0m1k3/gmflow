@@ -364,6 +364,19 @@ async fn facture_sans_ttc_relue_par_sonnet_avec_le_pdf() {
     let second = &appels[1];
     assert!(second.contains("le montant TTC manque"), "{second}");
     assert!(second.contains("--tools\nRead\n"), "{second}");
+    // Read limité au dossier jetable de la pièce, le reste refusé sans demander.
+    assert!(
+        second.contains("--allowedTools\nRead(./**)\n--permission-mode\ndontAsk\n"),
+        "{second}"
+    );
+    assert!(
+        second.contains(&format!(
+            "--settings\n{}\n",
+            gmflow_worker::lecture::REGLAGES_LECTURE
+        )),
+        "{second}"
+    );
+    assert!(!second.contains("--bare"), "{second}");
     assert!(
         second.contains("document.pdf"),
         "PDF joint au nouvel essai : {second}"
@@ -448,6 +461,23 @@ async fn quota_atteint_ou_jeton_absent_le_document_attend() {
             .starts_with("Claude n’est pas connecté"),
         "{:?}",
         d.message
+    );
+    // `lire_tout` rend la main dès le message écrit, avant que la tâche soit marquée finie : tant
+    // qu'apalis la voit en cours, la pompe ne repousse pas le document (cause de l'instabilité
+    // en CI : document resté « a_lire » à la fin).
+    let pool = b.pool().clone();
+    assert!(
+        attendre(Duration::from_secs(30), || {
+            let pool = pool.clone();
+            async move {
+                gmflow_core::file::documents_en_file(&pool)
+                    .await
+                    .unwrap()
+                    .is_empty()
+            }
+        })
+        .await,
+        "tâche de lecture jamais finie"
     );
     // Jeton présent mais quota à 0 : toujours en attente, sans appel.
     jeton(&b).await;
@@ -576,5 +606,67 @@ async fn liste_de_diffusion_images_ignorees_et_lecture_auto_coupee() {
     let d = &docs(&b, m).await[0];
     assert_eq!(d.etat, "ignore");
     assert!(faux.appels().is_empty());
+    b.fermer().await;
+}
+
+#[tokio::test]
+async fn panne_de_claude_trois_fois_de_suite_le_document_passe_en_erreur() {
+    // Faux Claude toujours en panne (sortie en erreur, sans refus d'usage).
+    let dossier = gmflow_core::claude::DossierTemp::creer("faux-claude-panne").unwrap();
+    let chemin = dossier.0.join("claude");
+    std::fs::write(&chemin, "#!/bin/sh\necho 'connexion perdue' >&2\nexit 1\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&chemin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut b = Banc::new().await;
+    let mut config = (*b.ctx.config).clone();
+    config.claude_bin = chemin.display().to_string();
+    b.ctx.config = std::sync::Arc::new(config);
+    let a = societe(&b, "Magasin Frouard", SIRET_A).await;
+    jeton(&b).await;
+    let pdf = fixtures::pdf_texte(&[
+        "FACTURE F-1 du 12 novembre 2026",
+        "Client Magasin Frouard, zone commerciale de Frouard",
+        "Total HT 50,00 TVA 10,00 TTC 60,00",
+    ]);
+    let m = mail(
+        &b,
+        a,
+        &fixtures::eml(
+            "panne@test",
+            "Facture",
+            &[("f.pdf", "application/pdf", &pdf)],
+            false,
+        ),
+    )
+    .await;
+    lecture::pompe(b.pool()).await.unwrap();
+    let id = docs(&b, m).await[0].id;
+    for essai in 1..=lecture::ESSAIS_PANNE_MAX {
+        lecture::lire(&b.ctx, id, false, false, false)
+            .await
+            .unwrap();
+        let d = &docs(&b, m).await[0];
+        if essai < lecture::ESSAIS_PANNE_MAX {
+            // Remis en attente : la pompe le relancera dans 30 minutes.
+            assert_eq!(d.etat, "a_lire", "essai {essai}");
+        } else {
+            assert_eq!(d.etat, "erreur");
+            assert_eq!(
+                d.message.as_deref(),
+                Some(
+                    "Lecture abandonnée après 3 essais : Claude était en panne ou injoignable. \
+                     Relancez la lecture pour réessayer."
+                )
+            );
+        }
+    }
+    // Compteur remis à zéro : une relecture demandée repart pour trois essais.
+    assert_eq!(
+        b.compter(&format!(
+            "select essais_lecture::bigint from document where id = {id}"
+        ))
+        .await,
+        0
+    );
     b.fermer().await;
 }

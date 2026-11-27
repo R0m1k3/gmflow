@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "update ligne_document set montant_ht = $2::float8::numeric(14, 2) where id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28f82b0de3be3ef162a76f47d3c1b4e51cbd85fe7b653839237915a47d2c87b0"
+}

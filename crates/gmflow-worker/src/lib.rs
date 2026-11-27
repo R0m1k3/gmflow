@@ -1,6 +1,7 @@
 //! Worker GMFlow : relève IMAP, test des boîtes, lecture des pièces jointes, fiches
 //! fournisseurs, dépôts Dext/Yooz et alertes, séances setup-token et test du jeton Claude.
 
+pub mod decoupage;
 pub mod envoi;
 pub mod fournisseur;
 pub mod lecture;
@@ -15,6 +16,7 @@ pub mod reponse;
 pub mod sante;
 pub mod serveur_api;
 pub mod setup_token;
+pub mod tableau;
 pub mod test_boite;
 pub mod test_jeton;
 pub mod tri;
@@ -134,6 +136,12 @@ async fn tache_envoi(
                     forcer,
                     auteur_id,
                 } => envoi::deposer(&ctx, document_id, forcer, auteur_id).await?,
+                TacheEnvoi::DeposerPrevu {
+                    prevu_id,
+                    document_id,
+                    forcer,
+                    auteur_id,
+                } => envoi::deposer_prevu(&ctx, prevu_id, document_id, forcer, auteur_id).await?,
                 TacheEnvoi::TestExpedition { destinataire } => {
                     envoi::tester_expedition(&ctx, &destinataire).await?
                 }
@@ -310,10 +318,7 @@ pub async fn lancer(config: Config) -> anyhow::Result<()> {
         ),
         Err(e) => tracing::warn!(erreur = %e, "calcul des totaux des BL sans montants"),
     }
-    tokio::spawn(planif::boucle(
-        ctx.pool.clone(),
-        ctx.config.fichiers.clone(),
-    ));
+    tokio::spawn(planif::boucle(ctx.clone()));
     tokio::spawn(sante::serveur(ctx.pool.clone()));
     tokio::spawn(orchestre::boucle(ctx.clone()));
     tracing::info!(transport = ?ctx.transport, "GMFlow worker démarré");
