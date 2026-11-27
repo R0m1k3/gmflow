@@ -979,6 +979,7 @@
   .mail-l {
     flex: 1;
     min-width: 0;
+    position: relative; /* garde les .sr-seul dans la zone qui défile */
     overflow: auto;
     padding: var(--e8);
     display: flex;
@@ -988,6 +989,7 @@
   .mail-r {
     flex: none;
     width: 300px;
+    position: relative;
     overflow: auto;
     padding: var(--e8) var(--e6);
     display: flex;
