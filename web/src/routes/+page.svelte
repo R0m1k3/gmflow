@@ -7,7 +7,7 @@
   import { goto } from '$app/navigation';
   import { untrack } from 'svelte';
   import { page } from '$app/state';
-  import { aTraiter, api, ecarterDocument, ErreurApi, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
+  import { aTraiter, api, ecarterDocument, message, miseEnRoute, requete, sonder, validerDocument } from '#lib/api.ts';
   import { deplacer, raccourcis } from '#lib/clavier.ts';
   import { compteurs, rafraichirCompteurs, releverMaintenant } from '#lib/compteurs.svelte.ts';
   import { libelleEtat, libellePriorite, nomCourtSociete, nomOutil } from '#lib/libelles.ts';
@@ -31,6 +31,7 @@
   import Icone from '#lib/ui/Icone.svelte';
   import Kbd from '#lib/ui/Kbd.svelte';
   import { formatMontant } from '#lib/ui/Montant.svelte';
+  import { raisonUrgence } from '#lib/urgence.ts';
   import Vide from '#lib/ui/Vide.svelte';
 
   /** Pièces montrées dans la carte À contrôler ; au-delà, un lien vers la file. */
@@ -42,6 +43,8 @@
 
   interface Tableau {
     mails_du_jour: { societe_id: number; raison_sociale: string; n: number }[];
+    /** Travail en cours (même périmètre que la file À valider). */
+    travail: { factures_ttc: number; echeances: number; jours_echeance: number; bl_sans_facture: number; jours_bl_sans_facture: number };
   }
   interface Donnees {
     file: FileATraiter;
@@ -50,6 +53,7 @@
     mailsTotal: number;
     facturesAValider: number;
     blAValider: number;
+    travail: Tableau['travail'];
   }
 
   let admin = $derived(session.moi?.role === 'admin');
@@ -92,7 +96,8 @@
       mails: mails.elements,
       mailsTotal: mails.total,
       facturesAValider: facV.total ?? 0,
-      blAValider: blV.total ?? 0
+      blAValider: blV.total ?? 0,
+      travail: t.travail
     };
     erreur = '';
   }
@@ -138,6 +143,9 @@
       releveEnCours = false;
     }
   }
+
+  /** Aujourd'hui (Paris), AAAA-MM-JJ : la raison d'urgence de chaque pièce et le lien des mails du jour. */
+  const jourIso = jourParis.format(new Date());
 
   // ---------- Synthèse ----------
   const aujourdhui = new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
@@ -202,7 +210,7 @@
       void rafraichirCompteurs();
       await charger().catch((e) => (erreur = message(e)));
     } catch (e) {
-      erreurBloque = e instanceof ErreurApi && e.code === 409 ? e.message : message(e);
+      erreurBloque = message(e);
     } finally {
       occupeBloque = '';
     }
@@ -358,7 +366,7 @@
       await charger().catch((e) => (erreur = message(e)));
       choixId = r.suivant ?? pieces[Math.min(avant, pieces.length - 1)]?.id ?? null;
     } catch (e) {
-      erreurAction = e instanceof ErreurApi && e.code === 409 ? e.message : message(e);
+      erreurAction = message(e);
     } finally {
       occupe = false;
     }
@@ -516,6 +524,7 @@
     <section class="carte-s valider" aria-labelledby="titre-valider">
       <div class="carte-h">
         <h2 id="titre-valider">À contrôler</h2>
+        <span class="aide">Le plus urgent d’abord</span>
         {#if pieces.length > 1}<span class="aide large-seul"><Kbd t="J" /><Kbd t="K" /> suivant, précédent</span>{/if}
       </div>
 
@@ -571,6 +580,10 @@
                   <span class="p-montant num">{l.montant_ttc !== null ? formatMontant(l.montant_ttc) : l.type === 'bl' ? '— HT' : '—'}</span>
                 </span>
                 <span class="p-b">{libellePiece(l)}</span>
+                {#if raisonUrgence(l, jourIso)}
+                  {@const u = raisonUrgence(l, jourIso)!}
+                  <span class="p-raison" class:e={u.ton === 'e'} class:ok={u.ton === 'ok'}><Icone nom={u.ton === 'ok' ? 'coche' : 'alerte'} />{u.texte}</span>
+                {/if}
                 {#if f}
                   <span class="p-alerte" class:e={f.ton === 'e'}><Icone nom="alerte" />{f.texte}</span>
                 {:else if l.type === 'bl' && etatBl(l)}
@@ -638,10 +651,18 @@
       <div class="droite">
         <section class="carte-s jour" aria-labelledby="titre-jour">
           <h2 id="titre-jour">Aujourd’hui</h2>
-          <a class="chiffre" href="/mails"><span>Mails reçus</span><b class="num">{d.mailsDuJour}</b></a>
+          <!-- Chaque chiffre ouvre la liste filtrée qu'il compte. -->
+          <a class="chiffre" href="/recherche?type=mail&du={jourIso}"><span>Mails reçus</span><b class="num">{d.mailsDuJour}</b></a>
           <a class="chiffre" href="/a-repondre"><span>À répondre</span><b class="num" class:att={d.file.compteurs.a_repondre > 0}>{d.file.compteurs.a_repondre}</b></a>
           <a class="chiffre" href="/factures?filtre=a-valider"><span>Factures à contrôler</span><b class="num" class:att={d.facturesAValider > 0}>{d.facturesAValider}</b></a>
+          <a class="chiffre" href="/factures?filtre=a-valider&tri=montant&sens=desc"><span>Montant à contrôler</span><b class="num">{formatMontant(d.travail.factures_ttc)}</b></a>
+          <a class="chiffre" href="/factures?filtre=echeance&tri=echeance&sens=asc">
+            <span>À payer sous {d.travail.jours_echeance} jours</span><b class="num" class:att={d.travail.echeances > 0}>{d.travail.echeances}</b>
+          </a>
           <a class="chiffre" href="/bl?filtre=a-valider"><span>BL à contrôler</span><b class="num" class:att={d.blAValider > 0}>{d.blAValider}</b></a>
+          <a class="chiffre" href="/bl?filtre=sans-facture">
+            <span>BL sans facture depuis {d.travail.jours_bl_sans_facture} jours</span><b class="num" class:att={d.travail.bl_sans_facture > 0}>{d.travail.bl_sans_facture}</b>
+          </a>
         </section>
 
         {#if d.file.a_repondre.length}
@@ -967,6 +988,24 @@
   .p-b {
     font-size: 15px;
     color: var(--text2);
+  }
+  .p-raison {
+    display: flex;
+    align-items: center;
+    gap: var(--e2);
+    font-size: 15px;
+    color: var(--warn);
+  }
+  .p-raison.e {
+    color: var(--err);
+    font-weight: 500;
+  }
+  .p-raison.ok {
+    color: var(--ok);
+  }
+  .p-raison :global(svg.i) {
+    width: 16px;
+    height: 16px;
   }
   .p-alerte {
     display: flex;
