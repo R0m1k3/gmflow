@@ -41,12 +41,19 @@ export function memoriser(expediteur: string, stockage: Ecriture | null | undefi
   }
 }
 
-const ATTRIBUT_DISTANT = /\b(?:src|srcset|background|poster)\s*=\s*["']?\s*(?:https?:)?\/\//i;
-const URL_CSS_DISTANTE = /url\(\s*["']?\s*(?:https?:)?\/\//i;
+// Guillemet éventuel, y compris tel que `outerHTML` l'écrit dans un attribut (`&quot;`).
+const GUILLEMET = `(?:["']|&quot;|&#39;|&apos;)?`;
+const ATTRIBUT_DISTANT = new RegExp(
+  `\\b(?:src|srcset|background|poster|href)\\s*=\\s*${GUILLEMET}\\s*(?:https?:)?\\/\\/`,
+  'i'
+);
+const URL_CSS_DISTANTE = new RegExp(`url\\(\\s*${GUILLEMET}\\s*(?:https?:)?\\/\\/`, 'i');
 
 /** Le HTML charge-t-il des images (ou fonds) depuis Internet ? Les `data:` ne comptent pas. */
 export function contientImagesDistantes(html: string): boolean {
-  return ATTRIBUT_DISTANT.test(html) || URL_CSS_DISTANTE.test(html);
+  // `href` : images SVG (`<image href>`, `xlink:href`) ; les liens et `<link>` ne chargent rien.
+  const sansLiens = html.replace(/<(?:a|area|link)\b[^>]*>/gi, '');
+  return URL_CSS_DISTANTE.test(html) || ATTRIBUT_DISTANT.test(sansLiens);
 }
 
 /** Adresse du corps HTML d'un mail, avec ou sans les images distantes. */
