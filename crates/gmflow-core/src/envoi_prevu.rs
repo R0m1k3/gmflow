@@ -235,13 +235,30 @@ pub async fn annuler(
     )
     .execute(&mut *tx)
     .await?;
+    // Premier IBAN du fournisseur appris par cette validation (`iban::retenir_premier`, dans
+    // la même transaction : même `now()` que `cree_le`) : il n'est plus « connu ». Un IBAN
+    // appris avant (vérification plus ancienne) ou confirmé par un administrateur reste.
+    let ibans_oublies = sqlx::query_scalar!(
+        "delete from fournisseur_iban i using envoi_prevu p
+         where p.id = $1 and i.document_id = $2 and i.origine = 'validation'
+           and i.ajoute_le >= p.cree_le
+         returning i.iban",
+        prevu_id,
+        document_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    let ibans_oublies: Vec<String> = ibans_oublies
+        .iter()
+        .map(|i| crate::iban::masque(i))
+        .collect();
     journal::ecrire(
         &mut *tx,
         auteur_id,
         "validation_annulee",
         "document",
         Some(document_id.to_string()),
-        json!({ "envoi_prevu": prevu_id }),
+        json!({ "envoi_prevu": prevu_id, "ibans_oublies": ibans_oublies }),
     )
     .await?;
     tx.commit().await?;

@@ -379,3 +379,152 @@ async fn marques_d_un_groupe_partagent_les_iban_du_groupe() {
     assert_eq!(connus(app, groupe).await.len(), 2);
     m.app.fermer().await;
 }
+
+/// Validation différée et par lot (audit U1, U2) avec l'IBAN : une facture en alerte « IBAN
+/// changé » n'est ni cochable ni validée dans un lot ; un premier IBAN appris par une validation
+/// annulée n'est plus connu.
+#[tokio::test]
+async fn iban_change_hors_lot_et_premier_iban_oublie_si_validation_annulee() {
+    let m = monde().await;
+    let app = &m.app;
+    let resp = Some(m.resp.as_str());
+
+    // Premier IBAN appris par la validation, puis « Annuler » : plus connu, journalisé.
+    let f1 = facture(&m, m.fournisseur, "A-1", Some(IBAN_1)).await;
+    depot::evaluer(app.pool(), f1).await.unwrap();
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/documents/{f1}/valider"),
+            Some(json!({})),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
+    assert_eq!(connus(app, m.fournisseur).await.len(), 1);
+    let lot = r.json["annulation"]["lot"].as_str().unwrap().to_string();
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/annuler-envoi",
+            Some(json!({ "lot": lot })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.json["annulees"], 1, "{:?}", r.json);
+    assert!(
+        connus(app, m.fournisseur).await.is_empty(),
+        "IBAN appris par une validation annulée"
+    );
+    assert_eq!(
+        app.compter(
+            "select count(*) from journal where action = 'validation_annulee'
+             and details->'ibans_oublies' = '[\"FR76…0189\"]'"
+        )
+        .await,
+        1
+    );
+
+    // Validée de nouveau puis prise par le worker : l'IBAN reste connu.
+    let r = app
+        .requete(
+            "POST",
+            &format!("/api/documents/{f1}/valider"),
+            Some(json!({})),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK);
+    sqlx::query("update envoi_prevu set etat = 'pris' where document_id = $1 and etat = 'attente'")
+        .bind(f1)
+        .execute(app.pool())
+        .await
+        .unwrap();
+    assert_eq!(connus(app, m.fournisseur).await.len(), 1);
+
+    // IBAN changé : alerte, pas de dépôt automatique, ni cochable ni validée dans un lot.
+    let f2 = facture(&m, m.fournisseur, "A-2", Some(IBAN_2)).await;
+    let ok = facture(&m, m.fournisseur, "A-3", Some(IBAN_1)).await;
+    let avant = envois_en_file(app).await;
+    for f in [f2, ok] {
+        depot::evaluer_et_deposer(app.pool(), f).await.unwrap();
+    }
+    // Seule la facture sans alerte part d'elle-même (dépôt automatique de la société).
+    assert_eq!(envois_en_file(app).await, avant + 1);
+    assert_eq!(codes(&etat(app, f2).await.1), ["iban"]);
+    let ids = json!({ "ids": [f2, ok] });
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/lot/eligibilite",
+            Some(ids.clone()),
+            resp,
+        )
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
+    let el = r.json.as_array().unwrap();
+    let de = |id: i64| el.iter().find(|e| e["id"] == id).unwrap().clone();
+    assert_eq!(de(f2)["possible"], false);
+    assert_eq!(de(f2)["raison"], "1 alerte à lire");
+    assert_eq!(de(ok)["possible"], true);
+    let r = app
+        .requete("POST", "/api/documents/lot/valider", Some(ids), resp)
+        .await;
+    assert_eq!(r.code, StatusCode::OK, "{:?}", r.json);
+    assert_eq!(r.json["validees"], 1, "{:?}", r.json);
+    let valide: bool =
+        sqlx::query_scalar("select valide_le is not null from document where id = $1")
+            .bind(f2)
+            .fetch_one(app.pool())
+            .await
+            .unwrap();
+    assert!(!valide);
+    assert_eq!(connus(app, m.fournisseur).await.len(), 1);
+
+    // Même lot, nouveau fournisseur sans IBAN connu, deux IBAN différents : la première
+    // validation apprend le sien, la seconde est alors en alerte et reste à contrôler, même si
+    // ses contrôles enregistrés n'avaient encore rien vu.
+    let autre = fournisseur(app, "Autre fournisseur", None).await;
+    let g1 = facture(&m, autre, "B-1", Some(IBAN_1)).await;
+    let g2 = facture(&m, autre, "B-2", Some(IBAN_LT)).await;
+    for g in [g1, g2] {
+        assert_eq!(
+            depot::evaluer(app.pool(), g).await.unwrap().as_deref(),
+            Some("pret")
+        );
+    }
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/lot/valider",
+            Some(json!({ "ids": [g1, g2] })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.json["validees"], 1, "{:?}", r.json);
+    let piece = |id: i64| {
+        r.json["pieces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == id)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(piece(g1)["validee"], true);
+    assert_eq!(piece(g2)["validee"], false);
+    assert_eq!(connus(app, autre).await.len(), 1);
+    // Le lot annulé : l'IBAN appris par g1 est oublié.
+    let lot = r.json["annulation"]["lot"].as_str().unwrap().to_string();
+    let r = app
+        .requete(
+            "POST",
+            "/api/documents/annuler-envoi",
+            Some(json!({ "lot": lot })),
+            resp,
+        )
+        .await;
+    assert_eq!(r.json["annulees"], 1, "{:?}", r.json);
+    assert!(connus(app, autre).await.is_empty());
+    m.app.fermer().await;
+}
